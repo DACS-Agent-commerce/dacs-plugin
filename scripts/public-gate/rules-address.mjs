@@ -169,9 +169,12 @@ const ADDRESS_MARKER = '<ip>';
 const IPV6_GROUP_COUNT = 8;
 const HEX_GROUP = /^[0-9a-f]{1,4}$/i;
 const IPV4_DOCUMENTATION_PREFIXES = ['192.0.2.', '198.51.100.', '203.0.113.'];
-const IPV4_LITERAL = /(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?!\w|\.\d)/g;
-/** Up to eight groups of hex digits between colons, the last perhaps a dotted IPv4 tail; a colon before a letter, digit or colon does not end an address. */
-const IPV6_LITERAL = /(?<![\w:.])(?:[0-9a-f]{0,4}:){2,7}(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-f]{0,4})(?!\w|:[\w:]|\.\d)/gi;
+/** Four dotted numbers, not inside a longer dotted number and not after a letter or digit (`v1.2.3.4`); an underscore, or a dot after a name, bounds one on the left, and an underscore or a letter on the right. */
+const IPV4_LITERAL = /(?<![A-Za-z\d])(?<!\d\.)\d{1,3}(?:\.\d{1,3}){3}(?!\d|\.\d)/g;
+/** Up to eight groups of hex digits between colons, the last perhaps a dotted IPv4 tail; a colon before a letter, digit or colon does not end an address. An underscore bounds it on the left. */
+const IPV6_LITERAL = /(?<![A-Za-z\d:.])(?:[0-9a-f]{0,4}:){2,7}(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-f]{0,4})(?!\w|:[\w:]|\.\d)/gi;
+/** A `label:` (a name that starts with a letter or `_`) directly before a hex group and colon, as in `ip:<IPv6 literal>`, and the `\n`, `\r` and `\t` escapes of a string. */
+const LABEL_COLON_OR_ESCAPE = /(?<![\w.:-])([A-Za-z_][\w.-]*):(?=[0-9a-f]{1,4}:)|\\[nrt]/gi;
 
 /** The four octets of a dotted IPv4 literal, or null when one is above 255. */
 function parseIpv4(literal) {
@@ -208,8 +211,11 @@ const withoutTrailingColon = (literal) => (literal.endsWith(':') && !literal.end
 const contextAround = (line, index, length) => line.slice(Math.max(0, index - DISPOSITION_CONTEXT_WIDTH), index) + ADDRESS_MARKER
   + line.slice(index + length, index + length + DISPOSITION_CONTEXT_WIDTH);
 
-/** Every IP literal in one line outside the permitted classes, as { value, context }; the IPv4 tail of an IPv6 literal belongs to it and is not read again. */
-function unpermittedAddressesIn(line) {
+/** The line with each label colon and each `\n`, `\r` or `\t` escape in it blanked out, same length, so an address after them is bounded by a space. */
+const withBoundariesBlanked = (line) => line.replace(LABEL_COLON_OR_ESCAPE, (match, label) => (label === undefined ? '  ' : `${label} `));
+
+/** Every IP literal in one view of a line, as { index, value, permitted }; the IPv4 tail of an IPv6 literal belongs to it and is not read again. */
+function addressesInView(line) {
   const sixes = [];
   for (const match of line.matchAll(IPV6_LITERAL)) {
     const value = withoutTrailingColon(match[0]).toLowerCase();
@@ -225,7 +231,15 @@ function unpermittedAddressesIn(line) {
   outsideSixes += line.slice(end);
   const fours = [...outsideSixes.matchAll(IPV4_LITERAL)].filter((match) => parseIpv4(match[0]) !== null)
     .map((match) => ({ index: match.index, value: match[0], permitted: isPermittedIpv4(match[0]) }));
-  return [...sixes, ...fours].filter(({ permitted }) => !permitted).map(({ index, value }) => ({ value, context: contextAround(line, index, value.length) }));
+  return [...sixes, ...fours];
+}
+
+/** Every IP literal in one line outside the permitted classes, as { value, context }, found in the line and in the line with its label colons and escapes blanked out. */
+function unpermittedAddressesIn(line) {
+  const blanked = withBoundariesBlanked(line);
+  const found = new Map([...addressesInView(line), ...(blanked === line ? [] : addressesInView(blanked))].filter(({ permitted }) => !permitted)
+    .map(({ index, value }) => [`${index}:${value}`, { value, context: contextAround(line, index, value.length) }]));
+  return [...found.values()];
 }
 
 /** The test of `ipDispositions`: an occurrence in file content passes only when its path, blob id, line, context and the value's SHA-256 all match one entry. */

@@ -279,6 +279,18 @@ test('addresses: public, private IPv4, shared, unique-local IPv6 and link-local 
   assert.deepEqual(refusedLinesOf(LOOPBACK_TEST, withLineEdited(loopback, LOOPBACK_LINE, (line) => line.replace(MAPPED_LOOPBACK, MAPPED_PUBLIC)), SHIPPED_CONFIG), [LOOPBACK_LINE]);
 });
 
+test('addresses: a literal written right after a label colon, an underscore or an escaped control character, or after a dotted name, still fails; a version tag, a code scope and a documentation address after a label do not', () => {
+  const refusedLines = (...texts) => scanned(scanIps, { 'src/ids.txt': texts.join('\n') + '\n' }, NO_DISPOSITIONS).map((finding) => Number(finding.split(' ').at(-1)));
+  const afterLabel = [`ip:${PUBLIC_V6}`, `tcp6:${PUBLIC_V6}`, `host:${PUBLIC_V6}`, `a.b-c:${LINK_LOCAL_V6}`, `add-host name:${UNIQUE_LOCAL_V6}`, `deadbeef:${PUBLIC_V6}`, `ip\\:${PUBLIC_V6}`];
+  assert.deepEqual(refusedLines(...afterLabel), afterLabel.map((_, index) => index + 1), 'an IPv6 literal after `label:`');
+  const glued = [`NODE_${PRIVATE_V4}`, `${PRIVATE_V4}_backup`, `ip_${PUBLIC_V6}`, `backup.${PRIVATE_V4}.tar`, `"a\\n${PRIVATE_V4}"`, `'\\t${PRIVATE_V4}'`, `x\\r${LINK_LOCAL_V6}`];
+  assert.deepEqual(refusedLines(...glued), glued.map((_, index) => index + 1), 'an address after `_`, after a dotted name or an escape, or before `_`');
+  assert.deepEqual(scanned(scanIps, { [`logs/server_${PRIVATE_V4}.log`]: 'x\n', [`logs/backup.${PRIVATE_V4}.tar.gz`]: 'x\n' }, NO_DISPOSITIONS), [
+    `R-IP path logs/server_${PRIVATE_V4}.log -`, `R-IP path logs/backup.${PRIVATE_V4}.tar.gz -`,
+  ]);
+  assert.deepEqual(refusedLines(`ip:${ipv6('2001', 'db8', '', 1)}`, 'host:::1', `v${ipv4(1, 2, 3, 4)}`, 'std::vector and Node::dead', 'call a.b:12:30:45 at ns1:80', `${ipv4(1, 10, 0, 0, 5)}`), []);
+});
+
 test('a malformed IP disposition is invalid configuration', () => {
   const entry = disposition(LOCKFILE, 3, PUBLIC_V4);
   assert.equal(hasValidIpDispositions({ ipDispositions: [entry] }), true);

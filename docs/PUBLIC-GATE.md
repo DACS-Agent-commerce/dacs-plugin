@@ -50,6 +50,9 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   the RFC 5737 documentation ranges (`192.0.2.*`, `198.51.100.*`, `203.0.113.*`), IPv6 `::1`, `::` and `2001:db8::/32`. An expanded
   form (the loopback address with all eight groups written out) and every IPv4-mapped form (the `ffff` group after the zero run, then an
   IPv4 address or two hex groups), loopback ones included, are not those classes. A dotted name of five or more numbers (an object identifier) or one with a number above 255 is not an address.
+  Text next to a literal does not hide it: a `label:` before an IPv6 literal (`ip:<literal>`), an underscore, a dot after a name, a
+  `\n`, `\r` or `\t` escape and a letter or underscore after an IPv4 literal all leave it refused. Only a letter or digit before an IPv4
+  literal (a version tag such as `v1.2.3.4`) and a longer dotted number around it keep it from being read as one.
 - **IP dispositions.** Any other literal passes only through an `ipDispositions` entry (`path`, `blob`, `line`, `context`,
   `sha256`, `reason`) that matches the occurrence on all of: the file's path, its blob id, its 1-based line, the three characters on
   each side of the literal with `<ip>` in its place (fewer at a line edge), and the SHA-256 of the literal as written (lower case).
