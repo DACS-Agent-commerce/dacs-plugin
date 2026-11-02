@@ -114,8 +114,9 @@ function publicKeyObject(address) {
 // Returns true only for a valid Ed25519 signature by `address` over the exact
 // UTF-8 bytes of `message`. Small-order and non-canonical public keys are
 // refused. Malformed input returns false, never throws.
-export function verifyDemosSignature({ address, message, signature }) {
+export function verifyDemosSignature(input) {
   try {
+    const { address, message, signature } = input;
     const sig = decodeSignature(signature);
     return cryptoVerify(null, Buffer.from(message, 'utf8'), publicKeyObject(address), sig);
   } catch {

@@ -88,3 +88,8 @@ for (const prefix of ['0x', '0X']) {
     for (const value of [undefined, null, 42, s.bytes]) assert.throws(() => decodeSignature(value), /must be a string/);
   });
 }
+
+test('verifyDemosSignature with no argument or null returns false instead of throwing', () => {
+  assert.equal(verifyDemosSignature(), false);
+  assert.equal(verifyDemosSignature(null), false);
+});

@@ -1,6 +1,7 @@
 import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import {
   ARTIFACT_SEPARATORS, bundleAddress, canonicalize, compositeVerificationAddress, contentHash,
   finalityCommitmentAddress, fixedPriceAgreementLogicalAddress, paymentEvidenceAddress, sha256Hex,
@@ -342,8 +343,23 @@ for (const key of SMALL_ORDER_KEYS) test(`small-order key ${key.slice(0, 8)}…$
     assert.equal(verifyDemosSignature({ address: `0x${key}`, message, signature: FORGED }), false, message);
   }
 });
+// Searches the constant-N messages for one on which a plain Ed25519 verify (node:crypto, not the shared
+// helper) accepts FORGED under `key`. Returns that message's bundle hash and how many tries it took.
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+function findPlainVerifyAcceptedBundle(key) {
+  const publicKey = createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(key, 'hex')]), format: 'der', type: 'spki' });
+  for (let i = 0; i < 256; i++) {
+    const bundleHash = sha256Hex(`constant-${i}`);
+    const message = Buffer.from(`${ARTIFACT_SEPARATORS.FaultAttestationBundle}${bundleHash}`, 'utf8');
+    if (cryptoVerify(null, message, publicKey, Buffer.from(FORGED, 'base64url'))) return { bundleHash, tries: i + 1 };
+  }
+  return null;
+}
 for (const key of SMALL_ORDER_KEYS) test(`small-order key ${key.slice(0, 8)}…${key.slice(-2)} gives a bundle signature mismatch in the evaluator`, () => {
-  const f = fixture(), bundleHash = sha256Hex('constant-0');
+  // Use a message the plain verify accepts, so the mismatch can only come from the evaluator's key check.
+  const found = findPlainVerifyAcceptedBundle(key);
+  assert.ok(found, 'a message was found on which a plain Ed25519 verify accepts the constant signature');
+  const f = fixture(), { bundleHash } = found;
   Object.assign(f.p.bundle, { bundleHash, message: `${ARTIFACT_SEPARATORS.FaultAttestationBundle}${bundleHash}`, buyerSignature: FORGED });
   f.operation.terms.buyer.wallet = `0x${key}`;
   expect(f, 'bundle.buyer.signature', 'mismatch', 'bundle.signature-invalid');

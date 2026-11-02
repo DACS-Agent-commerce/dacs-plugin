@@ -33,7 +33,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 728 (verbatim 511, edited 215, added 2).
+Files: 728 (verbatim 505, edited 215, changed here 6, added 2).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -243,7 +243,7 @@ Files: 728 (verbatim 511, edited 215, added 2).
 | `http-mcp/src/util/rate-limit.mjs` | `d113add7109a56e78bc191994649826ab5820b5f` | verbatim |
 | `http-mcp/src/util/text.mjs` | `1d922fed1da018ce9a4296d97bb50323e5eb67f6` | verbatim |
 | `http-mcp/src/wallet/challenges.mjs` | `f13872ca91c08dc5cc75023dfa720b84ad21ac75` | verbatim |
-| `http-mcp/src/wallet/demos-signature.mjs` | `f7a9acaa9ed155560e67cf8dac7b89d85e5e5246` | changed here after a verbatim import: refuses small-order and non-canonical public keys before verifying |
+| `http-mcp/src/wallet/demos-signature.mjs` | `d0e7be2dfe0aa845e1086ba1ee1f03e4d94c3fd6` | changed here after a verbatim import: refuses small-order and non-canonical public keys before verifying; a missing or null argument returns false |
 | `http-mcp/src/wallet/write-batch.mjs` | `e810076db644040fda924b3e140506891b5e5bd6` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/README.md` | `1c563f44954939b8052877aad255ebfcbd9e00f9` | verbatim |
 | `http-mcp/test/agreement-context-durable-vet.test.mjs` | `41b048e43808782c712a751f02e5fc664bf209f2` | edited: comments and test names: internal review and process references removed; no behaviour change; a commit id in a comment replaced by neutral wording |
@@ -318,7 +318,7 @@ Files: 728 (verbatim 511, edited 215, added 2).
 | `http-mcp/test/commit-on-signature-shutdown-doc.test.mjs` | `de0ef0c6fe954278853b28280d5f2ff51a946e4e` | edited: asserts the reworded doc sentence (issue-number reference removed) |
 | `http-mcp/test/commit-on-signature.test.mjs` | `fe583adc88a4d0a262a75d13894d45a56c1cd0d0` | verbatim |
 | `http-mcp/test/commitment-finality-payment.test.mjs` | `eaf5911ee2655432e30499e788542c745cb5950c` | verbatim |
-| `http-mcp/test/completion-readiness.test.mjs` | `e01a23380cccb20c7692c62c4d780befaade929e` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: the 14 small-order keys are expected to be refused by the shared helper; tests added that an ordinary signature passes and a wrong message fails |
+| `http-mcp/test/completion-readiness.test.mjs` | `07c417f88737633e0990982c353dab574e20cdd4` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: the 14 small-order keys are expected to be refused by the shared helper; tests added that an ordinary signature passes and a wrong message fails; each per-key evaluator test first finds a message on which a plain Ed25519 verify accepts the constant signature |
 | `http-mcp/test/config-equivalence.test.mjs` | `8e073519b3958a4857c9e02fff7ce58bc8d5e02b` | edited: comments and test names: internal review and process references removed; no behaviour change; fixture path renamed; a commit id replaced by neutral wording |
 | `http-mcp/test/current-delivery-readback.test.mjs` | `eddce99f0f8c73346942a6abc49549827c749e57` | verbatim |
 | `http-mcp/test/current-package-smoke.test.mjs` | `f06fa870f66ceb7a2063fda59fe5fd74b510a378` | edited: a default path to an unpublished file removed (an environment variable or a skip instead); comments reworded
@@ -332,7 +332,7 @@ Files: 728 (verbatim 511, edited 215, added 2).
 | `http-mcp/test/dacs-plugin-purchase.test.mjs` | `152af444bebee938ddf5cdc70113e5727e4e82a3` | verbatim |
 | `http-mcp/test/dacs-storage-anchor-wallet.test.mjs` | `e1337bbde6b2eb9113638a83aaa14e1a9f984e44` | verbatim |
 | `http-mcp/test/delivery-deadline-watch.test.mjs` | `1218c3923cad3db36b2a93cc73421828d1d48caa` | verbatim |
-| `http-mcp/test/demos-signature-encoding.test.mjs` | `02388fec8fe0cf87cc001cf16987b05fbc321b3f` | verbatim |
+| `http-mcp/test/demos-signature-encoding.test.mjs` | `3bc532f591f543d245c7df4def6dd0a01e584e94` | changed here after a verbatim import: a test that a missing or null argument to the signature check returns false |
 | `http-mcp/test/denied-agreement-recovery.browser.test.mjs` | `4e802d0430ff0cd1ef9738c38024460537c76dcd` | verbatim |
 | `http-mcp/test/denied-agreement-recovery.test.mjs` | `2af3357dc0509b9872f977385a2c754993d112a4` | edited: comments: references to internal records not carried removed |
 | `http-mcp/test/devnet-agreement-transport.browser.test.mjs` | `4004fe7e0cafb02ce9fc44ba219ce67aa74417fd` | verbatim |
