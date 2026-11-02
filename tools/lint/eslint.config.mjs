@@ -22,6 +22,13 @@ const bugRules = {
   "no-unreachable-loop": "error",
 };
 
+// Globals from different config blocks add up, so switch Node's off for code
+// that runs in a browser, where they would throw.
+const browserOnly = {
+  ...Object.fromEntries(Object.keys(globals.node).map((name) => [name, "off"])),
+  ...globals.browser,
+};
+
 export default [
   {
     linterOptions: { reportUnusedDisableDirectives: "error" },
@@ -48,7 +55,7 @@ export default [
   },
   {
     files: ["http-mcp/public/**/*.{js,mjs}", "http-mcp/bin/offline-fixtures/tester-ui/**/*.js"],
-    languageOptions: { globals: globals.browser },
+    languageOptions: { globals: browserOnly },
   },
   {
     // These also send code to a test browser, so both sets of names are real.
