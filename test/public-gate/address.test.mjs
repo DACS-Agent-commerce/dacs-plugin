@@ -136,6 +136,20 @@ test('accounts: an email whose domain has no dot fails unless reserved or review
   assert.deepEqual(refusedMetadataEmails(`author Other <${internal}>`, { ...CONFIG, publicIdentities: [`Other <${internal}>`] }), []);
 });
 
+test('accounts: a user in URL userinfo before a domain with no dot fails after `//`; a single `/` before the user is still a package or action reference', () => {
+  const user = ['alice', 'corp'].join('@');
+  const files = {
+    'docs/urls.md': [
+      `Clone ssh://${user}/repo`, `Clone git+ssh://${['git', 'corp'].join('@')}/org/repo.git`, `Open //${user}/share`, `Open ssh:\\/\\/${user}\\/repo`,
+      `Open ssh://${user.toUpperCase()}:22/repo`, 'Use ssh://git@github.com/org/repo.git', 'Use uses: actions/checkout@v4', 'Use @scope/pkg@latest and https://registry.example.com/pkg@latest',
+    ].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanAccounts, files), [1, 2, 3, 4, 5].map((line) => `R-ACCOUNT content docs/urls.md ${line}`));
+  const reviewed = withAllowances({ path: 'docs/urls.md', rule: 'R-ACCOUNT', value: user, context: 'email' });
+  assert.deepEqual(scanned(scanAccounts, files, reviewed), ['R-ACCOUNT content docs/urls.md 2']);
+  assert.deepEqual(refusedMetadataEmails(`author Other <${user}> ssh://${user}/repo`, CONFIG), [user]);
+});
+
 test('lockfiles and generated bundles: an inserted unlisted host or account fails; only a reviewed value in its reviewed context passes', () => {
   const lock = `{\n  "resolved": "https://${LISTED}/pkg/-/pkg-1.0.0.tgz",\n  "homepage": "${LISTED}",\n  "author": "dev@${LISTED}"\n}\n`;
   const bundle = `var url = 'https://${LISTED}/x';\n`;

@@ -31,10 +31,11 @@ const BARE_NAME = new RegExp(String.raw`(?<![\w.@/:-])(?<host>${NAME_LABELS})(?!
 const QUOTED_NAME = new RegExp(String.raw`(?<quote>['"\`])(?<host>${NAME_LABELS})\k<quote>`, 'gi');
 const EMAIL = new RegExp(String.raw`(?<![\w.%+-])(?<user>[a-z0-9_.%+-]+)@(?<domain>${NAME_LABELS}|localhost)(?![\w-])`, 'gi');
 /**
- * An email whose domain is one label (a machine or mail-system name): read only when no `/` precedes the user
- * (`actions/checkout@v4`, `@scope/pkg@1`) and the label starts with a letter (`name@1.2.3`).
+ * An email whose domain is one label (a machine or mail-system name): read only when no single `/` precedes the user
+ * (`actions/checkout@v4`, `@scope/pkg@1`; the `//` before URL userinfo does not count) and the label
+ * starts with a letter (`name@1.2.3`).
  */
-const DOTLESS_EMAIL = /(?<![\w.%+\/-])(?<user>[a-z0-9_.%+-]+)@(?<domain>[a-z][a-z0-9_-]{0,62})(?![\w-]|\.[a-z0-9_-]|@)/gi;
+const DOTLESS_EMAIL = /(?<![\w.%+-])(?<!(?<!\/)\/)(?<user>[a-z0-9_.%+-]+)@(?<domain>[a-z][a-z0-9_-]{0,62})(?![\w-]|\.[a-z0-9_-]|@)/gi;
 /** A host this rule leaves to others: a template placeholder, a relative path (`..`) or an IP literal in digits and dots (the IP rule). */
 const NOT_A_NAME = /[${}%<>*]|^\[|^\.|^[\d.]+$/;
 const IDENTITY = /^[^<>]+ <[^<>\s]+>$/;
