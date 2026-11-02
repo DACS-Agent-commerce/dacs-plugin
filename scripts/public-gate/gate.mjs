@@ -4,17 +4,17 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ChoiceError, parseChoice, parseFlags } from '../lib/choice.mjs';
 import { classifyBlob } from './classify.mjs';
-import { FULL_OBJECT_ID, GateInputError, readCommitObjects } from './objects.mjs';
+import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { createEmitter } from './redact.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const GATE_SOURCES = ['scripts/lib/choice.mjs', ...['classify', 'gate', 'objects', 'redact', 'rules-private'].map((name) => `scripts/public-gate/${name}.mjs`)];
-const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'gitDeadlineMs', 'scanDeadlineMs'];
+const GATE_SOURCES = ['scripts/lib/choice.mjs', ...['classify', 'gate', 'history', 'objects', 'redact', 'rules-private'].map((name) => `scripts/public-gate/${name}.mjs`)];
+const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'gitDeadlineMs', 'scanDeadlineMs'];
 const SCOPES = ['generic', 'complete'];
 const FLAGS = ['--repo', '--commit', '--scope', '--private-list', '--private-evidence', '--expected-root', '--out'];
 const COMPLETE_ONLY_FLAGS = ['--private-list', '--private-evidence', '--expected-root'];
-const EXIT = { pass: 0, findings: 1, unusable: 2 };
+export const EXIT = { pass: 0, findings: 1, unusable: 2 };
 
 /** The rules this gate runs; a `completeOnly` rule needs the private list and reports `not-run` in generic scope. */
 const RULES = [{ id: PRIVATE_RULE_ID, completeOnly: true, run: scanPrivate }];
@@ -26,7 +26,7 @@ export function gateRevision() {
   return hash.digest('hex');
 }
 
-function loadConfig() {
+export function loadConfig() {
   const bytes = readFileSync(path.join(REPO_ROOT, 'public-gate.config.json'));
   const config = JSON.parse(bytes);
   const valid = LIMIT_NAMES.every((name) => Number.isSafeInteger(config.limits?.[name]) && config.limits[name] > 0)
@@ -36,7 +36,7 @@ function loadConfig() {
   return { ...config, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
-function requireValue(flags, name, pattern = /./) {
+export function requireValue(flags, name, pattern = /./) {
   if (flags[name] === undefined || !pattern.test(flags[name])) throw new ChoiceError('bad-arguments', `${name} is required${pattern === FULL_OBJECT_ID ? ' as a full object id' : ''}`);
   return flags[name];
 }
@@ -70,7 +70,7 @@ function readOptions(argv) {
   return options;
 }
 
-function unscannableEntries(entries, config, emitter) {
+export function unscannableEntries(entries, config, emitter) {
   return entries.flatMap((entry) => {
     const problem = entry.problem ?? (entry.bytes ? classifyBlob(entry.path, entry.bytes, config).problem : undefined);
     return problem ? [{ location: emitter.locate(entry), cause: problem }] : [];
@@ -94,7 +94,7 @@ export function createScanDeadline({ deadlineMs, clock = () => performance.now()
   };
 }
 
-const byKey = (key) => (first, second) => (key(first) < key(second) ? -1 : 1);
+export const byKey = (key) => (first, second) => (key(first) < key(second) ? -1 : 1);
 
 async function runGate(argv, signal, session) {
   const options = readOptions(argv);
@@ -105,6 +105,10 @@ async function runGate(argv, signal, session) {
   session.matcher = matcher;
   const emitter = createEmitter({ commit: options.commit, matcher });
   const { entries, ...target } = await readCommitObjects({ repo: options.repo, commit: options.commit, limits: config.limits, signal });
+  if (options.expectedRoot) {
+    const { commits } = await readHistory({ repo: options.repo, refs: [options.commit], limits: config.limits, signal });
+    requireExpectedRoot(commits, options.expectedRoot);
+  }
   checkpoint = createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs });
   const unscannable = unscannableEntries(entries, config, emitter);
   if (unscannable.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} unscannable entries`);

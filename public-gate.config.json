@@ -1,7 +1,7 @@
 {
   "limits": {
     "maxTreeObjects": 20000, "maxBlobBytes": 8388608, "maxTotalBlobBytes": 268435456, "maxListingBytes": 33554432,
-    "maxPrivateListBytes": 1048576, "maxPrivateEntries": 10000, "maxReportEntries": 1000, "gitDeadlineMs": 120000, "scanDeadlineMs": 30000
+    "maxPrivateListBytes": 1048576, "maxPrivateEntries": 10000, "maxReportEntries": 1000, "maxHistoryCommits": 20000, "gitDeadlineMs": 120000, "scanDeadlineMs": 30000
   },
   "textExtensions": [".cjs", ".css", ".html", ".js", ".json", ".md", ".mjs", ".mts", ".sh", ".svg", ".toml", ".ts", ".tsx", ".txt", ".yaml", ".yml"],
   "binaryDispositions": []

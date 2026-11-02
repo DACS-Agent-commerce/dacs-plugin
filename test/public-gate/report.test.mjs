@@ -32,7 +32,7 @@ test('generic scope exits 0 with the private rule not-run; complete scope withou
     gateRevision: gateRevision(),
     configSha256: configSha256(),
     privateListSha256: sha256(readFileSync(listFile)),
-    expectedRoot: ROOT_COMMIT,
+    expectedRoot: repo.commit,
   });
   assert.deepEqual(complete.rules, [{ id: 'R-PRIVATE', status: 'passed' }]);
 });

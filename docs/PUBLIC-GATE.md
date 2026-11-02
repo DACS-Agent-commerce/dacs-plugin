@@ -22,7 +22,11 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   get every rule.
 - **Rules.** `R-PRIVATE` (complete scope) finds entries of the private list, a file outside the repository with one exact
   entry per line (case-insensitive substring; blank and `#` lines and one leading byte-order mark ignored; a line with
-  leading or trailing whitespace is refused), in paths and blobs. A bare label fails only when the list names it. `generic` holds no list: the rule is `not-run` and the report is never a complete pass.
+  leading or trailing whitespace is refused), in paths and blobs. A text blob is also read with its backslashes removed
+  (line breaks kept, so the line is the blob's own), so an entry written with regex or string escapes is found; other
+  encodings are not decoded. A bare label fails only when the list names it. `generic` holds no list: the rule is `not-run` and the report is never a complete pass.
+- **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
+  run exits 2 (cause `unexpected-root`) without a report.
 - **Report.** JSON: `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`; complete scope adds
   `privateListSha256`, `expectedRoot`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`, `unscannable`),
   `unscannable` and sorted `findings` (`rule`, `kind`, `location`, `line`). Findings never hold the value found; a path
@@ -36,3 +40,25 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   target.
 
 All output leaves through `scripts/public-gate/redact.mjs` on a route listed in `DIAGNOSTIC_ROUTES`.
+
+## History mode
+
+```
+node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --private-list <file> --expected-root <full-sha> \
+  [--allowed-identity 'Name <email>'] [--pr-text <file.json>] [--out <file>]
+```
+
+Walks every commit reachable from the refs (names or full object ids, comma-separated), parents first, and reports under
+scope `history`. Each commit's tree gets the same reading and the same `R-PRIVATE` scan as in complete scope. Reading, limits,
+exit codes and output rules are those above; `--out` never overwrites a file, and there is no `--private-evidence`.
+
+- **Root.** The walk must have exactly one root commit, `--expected-root`; any other root exits 2.
+- **Commits.** `R-PRIVATE` also scans each commit's message (kind `message`, with the line), its author and committer lines
+  (kinds `author` and `committer`) and its other headers (kind `header`). A commit finding's location is `<commit>:<kind>`.
+- **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
+  identity (kind `author` or `committer`) and every time zone other than `+0000` (kind `timezone`). Without the flag the rule
+  is `not-run`.
+- **Pull-request text.** `--pr-text` is a JSON array of objects. `R-PRIVATE` scans every string in them, at any depth (kind
+  `pr-text`, location `pr-<index>.<key path>`, with the line). Anything else in the file exits 2.
+- **Report.** `target` is `heads` (the object ids the refs name, sorted) and `commits` (how many were read). Each finding also
+  holds its `commit`, except those of `--pr-text`. `scanner` adds `prTextSha256` when the file is given.

@@ -41,6 +41,8 @@ export function readPrivateList(file, limits) {
  * Builds the case-insensitive matcher for exact list entries: `firstEntryIn(text)` is the 1-based number of the first
  * entry found in `text` or 0; `scrub(text)` replaces every entry; `linesIn(bytes, maxLines)` gives the 1-based lines of a
  * blob that hold an entry (at most `maxLines + 1`); bytes that are not valid UTF-8 read as U+FFFD, and line breaks are kept.
+ * With `{ unescaped: true }` it also matches a view of the text with every backslash removed, so an entry written with
+ * regex or string escapes is found; the removal keeps every line break, so the lines are the blob's own.
  * `checkpoint()` is called before every window of `SCAN_WINDOW_CHARS` characters is matched, and before each
  * single-entry search; whatever it throws (the scan deadline) stops the search and propagates.
  */
@@ -64,25 +66,29 @@ export function createPrivateMatcher(entries, checkpoint = () => {}) {
       return singles.findIndex((single) => (checkpoint(), single.test(text))) + 1;
     },
     scrub: (text) => text.replace(everywhere, '[private]'),
-    linesIn(bytes, maxLines) {
+    linesIn(bytes, maxLines, { unescaped = false } = {}) {
       const text = bytes.toString('utf8');
       const lines = new Set();
-      let line = 1;
-      let cursor = 0;
-      for (const index of matchStarts(text)) {
-        for (let newline = text.indexOf('\n', cursor); newline !== -1 && newline < index; newline = text.indexOf('\n', cursor)) {
-          line += 1;
-          cursor = newline + 1;
+      for (const view of unescaped ? [text, text.replaceAll('\\', '')] : [text]) {
+        let line = 1;
+        let cursor = 0;
+        for (const index of matchStarts(view)) {
+          for (let newline = view.indexOf('\n', cursor); newline !== -1 && newline < index; newline = view.indexOf('\n', cursor)) {
+            line += 1;
+            cursor = newline + 1;
+          }
+          if (lines.add(line).size > maxLines) break;
         }
-        if (lines.add(line).size > maxLines) break;
+        if (lines.size > maxLines) break;
       }
-      return [...lines];
+      return [...lines].sort((first, second) => first - second);
     },
   };
 }
 
 /**
- * R-PRIVATE: finds list entries in every path and in every blob that was read, binary blobs included. Returns findings
+ * R-PRIVATE: finds list entries in every path and in every blob that was read, binary blobs included; a text blob (valid
+ * UTF-8, no NUL byte) is also read with its backslashes removed. Returns findings
  * { rule, kind: 'path' | 'content', location, line? }. Throws GateInputError past `limits.maxReportEntries` findings.
  */
 export function scanPrivate({ entries, matcher, emitter, limits }) {
@@ -93,7 +99,8 @@ export function scanPrivate({ entries, matcher, emitter, limits }) {
   };
   for (const entry of entries.filter((candidate) => candidate.path !== null)) {
     if (matcher.firstEntryIn(entry.path) > 0) add({ kind: 'path', location: emitter.locate(entry) });
-    for (const line of entry.bytes ? matcher.linesIn(entry.bytes, limits.maxReportEntries) : []) add({ kind: 'content', location: emitter.locate(entry), line });
+    const unescaped = Boolean(entry.bytes) && !entry.bytes.includes(0) && decodeUtf8Strict(entry.bytes) !== null;
+    for (const line of entry.bytes ? matcher.linesIn(entry.bytes, limits.maxReportEntries, { unescaped }) : []) add({ kind: 'content', location: emitter.locate(entry), line });
   }
   return findings;
 }
