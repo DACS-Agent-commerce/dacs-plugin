@@ -94,8 +94,8 @@ export function createScanDeadline({ deadlineMs, clock = () => performance.now()
   };
 }
 
-export const byKey = (key) => (first, second) => (key(first) < key(second) ? -1 : 1);
-const compareText = (first, second) => (first === second ? 0 : first < second ? -1 : 1);
+/** Orders two strings by code unit; equal strings compare 0. */
+export const compareText = (first, second) => (first === second ? 0 : first < second ? -1 : 1);
 
 /** Orders findings by rule, kind, position and line, the numbers compared as numbers; equal findings compare 0. */
 const compareFindings = (first, second) => compareText(first.rule, second.rule) || compareText(first.kind, second.kind)

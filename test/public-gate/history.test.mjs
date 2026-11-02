@@ -31,7 +31,7 @@ test('a clean history passes with every commit read; an entry that an early comm
   assert.equal(tip.status, 0, 'the tip tree alone holds nothing');
   const found = runHistory(historyArgs(history, listFile));
   assert.equal(found.status, 1);
-  assert.deepEqual(JSON.parse(found.stdout).findings, [{ rule: 'R-PRIVATE', kind: 'content', commit: history.commits[1], location: 'leak.txt', line: 2 }]);
+  assert.deepEqual(JSON.parse(found.stdout).findings, [{ rule: 'R-PRIVATE', kind: 'content', commit: history.commits[1], location: `${history.commits[1]}:2`, line: 2 }]);
   assert.ok(!outputOf(found).includes(PLANTED));
 });
 
@@ -82,7 +82,7 @@ test('the identity rule finds any other identity and any time zone but +0000, an
   assert.equal(runHistory(historyArgs(clean, listFile, ['--allowed-identity', 'no angle brackets'])).status, 2);
 });
 
-test('pull-request text is scanned in every string at any depth and located by key path; a file that is not an array of objects exits 2', () => {
+test('pull-request text is scanned in every string at any depth and located by object and string number; a file that is not an array of objects exits 2', () => {
   const history = createHistory([{}, {}]);
   const listFile = writeList([PLANTED]);
   const file = path.join(makeTempDir('pr'), 'prs.json');
@@ -92,8 +92,8 @@ test('pull-request text is scanned in every string at any depth and located by k
   assert.equal(run.status, 1, run.stderr);
   const report = JSON.parse(run.stdout);
   assert.deepEqual(report.findings, [
-    { rule: 'R-PRIVATE', kind: 'pr-text', location: 'pr-0.body', line: 2 },
-    { rule: 'R-PRIVATE', kind: 'pr-text', location: 'pr-0.notes.list.1', line: 1 },
+    { rule: 'R-PRIVATE', kind: 'pr-text', location: 'pr-1:2', line: 2 },
+    { rule: 'R-PRIVATE', kind: 'pr-text', location: 'pr-1:4', line: 1 },
   ]);
   assert.equal(report.scanner.prTextSha256, sha256(readFileSync(file)));
   assert.ok(!outputOf(run).includes(PLANTED));
@@ -107,6 +107,37 @@ test('pull-request text is scanned in every string at any depth and located by k
     assert.equal(refused.stdout, '');
   }
   assert.equal(runHistory(historyArgs(history, listFile, ['--pr-text', path.join(makeTempDir('pr'), 'missing.json')])).status, 2);
+});
+
+test('the history report holds no pull-request key path and nothing derived from the list: different, reordered, repeated or overlapping lists give byte-identical reports of fixed words, object ids, digests and numbers', () => {
+  const history = createHistory([{}, { files: { 'a.txt': 'ok\n', [`${PLANTED}.txt`]: `x\n${PLANTED}\n` }, message: `subject\n\n${PLANTED}` }]);
+  const file = path.join(makeTempDir('pr'), 'prs.json');
+  writeFileSync(file, JSON.stringify([{ title: 'fine', 'reviewer-thread': { nested: `see ${PLANTED}` }, [`${PLANTED}-notes`]: `also ${PLANTED}` }]));
+  const lists = [[PLANTED], [OTHER, PLANTED, THIRD], [THIRD, PLANTED, PLANTED.slice(0, 9), PLANTED, OTHER]].map(writeList);
+  const runs = lists.map((list) => runHistory(historyArgs(history, list, ['--pr-text', file, '--allowed-identity', ALLOWED])));
+  for (const [index, run] of runs.entries()) {
+    assert.equal(run.status, 1, run.stderr);
+    assert.equal(run.stdout, runs[0].stdout);
+    for (const value of [PLANTED, OTHER, THIRD, 'reviewer-thread', 'nested', 'title', ALLOWED, lists[index], sha256(readFileSync(lists[index]))]) {
+      assert.ok(!outputOf(run).includes(value), value);
+    }
+  }
+  const report = JSON.parse(runs[0].stdout);
+  const commit = history.commits[1];
+  assert.deepEqual(report.findings.map(({ kind, location, line }) => [kind, location, line]), [
+    ['content', `${commit}:2`, 2], ['message', `${commit}:message`, 3], ['path', `${commit}:2`, undefined], ['pr-text', 'pr-1:2', 1], ['pr-text', 'pr-1:3', 1],
+  ]);
+  const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|pr-[1-9][0-9]*:[1-9][0-9]*|history|R-IDENTITY|R-PRIVATE|path|content|message|pr-text|passed|findings)$/;
+  const keys = new Set(['scope', 'target', 'heads', 'commits', 'scanner', 'gateRevision', 'configSha256', 'expectedRoot', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
+  const walk = (value) => {
+    if (typeof value === 'string') assert.match(value, fixed);
+    else if (typeof value === 'number') assert.ok(Number.isSafeInteger(value) && value > 0);
+    else for (const [key, item] of Object.entries(value)) {
+      if (!Array.isArray(value)) assert.ok(keys.has(key), key);
+      walk(item);
+    }
+  };
+  walk(report);
 });
 
 test('several refs are walked together and a commit reachable twice is read once; a merge keeps parents first', () => {

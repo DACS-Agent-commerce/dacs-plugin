@@ -59,11 +59,15 @@ exit codes and output rules are those above; `--out` never overwrites a file, an
 
 - **Root.** The walk must have exactly one root commit, `--expected-root`; any other root exits 2.
 - **Commits.** `R-PRIVATE` also scans each commit's message (kind `message`, with the line), its author and committer lines
-  (kinds `author` and `committer`) and its other headers (kind `header`). A commit finding's location is `<commit>:<kind>`.
+  (kinds `author` and `committer`) and its other headers (kind `header`). A commit finding's location is `<commit>:<field>`,
+  the field (`author`, `committer`, `header` or `message`) it was found in.
 - **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
   identity (kind `author` or `committer`) and every time zone other than `+0000` (kind `timezone`). Without the flag the rule
   is `not-run`.
 - **Pull-request text.** `--pr-text` is a JSON array of objects. `R-PRIVATE` scans every string in them, at any depth (kind
-  `pr-text`, location `pr-<index>.<key path>`, with the line). Anything else in the file exits 2.
-- **Report.** `target` is `heads` (the object ids the refs name, sorted) and `commits` (how many were read). Each finding also
-  holds its `commit`, except those of `--pr-text`. `scanner` adds `prTextSha256` when the file is given.
+  `pr-text`, location `pr-<n>:<m>`: the n-th object, and the m-th string in it counted depth first, both from 1, with the
+  line). Keys are never printed. Anything else in the file exits 2.
+- **Report.** The same closed schema as above: fixed words, object ids, digests and positive numbers, nothing derived from
+  the list. `target` is `heads` (the object ids the refs name, sorted) and `commits` (how many were read). Each finding and
+  each `unscannable` item also holds its `commit`, except findings of `--pr-text`. `scanner` holds `gateRevision`,
+  `configSha256` and `expectedRoot`, and adds `prTextSha256` when the file is given.

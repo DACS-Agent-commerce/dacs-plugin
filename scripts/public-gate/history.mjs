@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { ChoiceError, parseFlags } from '../lib/choice.mjs';
-import { byKey, createScanDeadline, EXIT, gateRevision, loadConfig, requireValue, unscannableEntries } from './gate.mjs';
+import { compareText, createScanDeadline, EXIT, gateRevision, loadConfig, requireValue, unscannableEntries } from './gate.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
-import { createEmitter } from './redact.mjs';
+import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 
 /** Id of the identity rule in reports: every author and committer is the allowed identity, in UTC. */
@@ -12,8 +12,15 @@ export const IDENTITY_RULE_ID = 'R-IDENTITY';
 
 const FLAGS = ['--repo', '--refs', '--private-list', '--expected-root', '--allowed-identity', '--pr-text', '--out'];
 const PERSON_LINE = /^(author|committer) (.*) <([^>]*)> \d+ ([+-]\d{4})$/;
+const RULE_IDS = [IDENTITY_RULE_ID, PRIVATE_RULE_ID];
+const KINDS = ['path', 'content', 'author', 'committer', 'header', 'message', 'timezone', 'pr-text'];
+/** The part of a commit object a commit finding is in; its location is `<commit>:<field>`. */
+const COMMIT_FIELDS = ['author', 'committer', 'header', 'message'];
 
-/** Reads the pull-request file: a JSON array of objects. Returns the sha256 of the file and every string in it with its key path. */
+/**
+ * Reads the pull-request file: a JSON array of objects. Returns the sha256 of the file and every string in it, depth first,
+ * as { item, string, value }: the 1-based number of its object in the array and of the string in that object.
+ */
 function readPrText(file, limits) {
   let bytes;
   try {
@@ -32,11 +39,14 @@ function readPrText(file, limits) {
     throw new GateInputError('pr-text-malformed', '--pr-text must be a JSON array of objects');
   }
   const strings = [];
-  const walk = (value, where) => {
-    if (typeof value === 'string') strings.push({ where, value });
-    else if (value !== null && typeof value === 'object') for (const [key, item] of Object.entries(value)) walk(item, `${where}.${key}`);
-  };
-  parsed.forEach((item, index) => walk(item, `pr-${index}`));
+  parsed.forEach((object, index) => {
+    let string = 0;
+    const walk = (value) => {
+      if (typeof value === 'string') strings.push({ item: index + 1, string: (string += 1), value });
+      else if (value !== null && typeof value === 'object') Object.values(value).forEach(walk);
+    };
+    walk(object);
+  });
   return { sha256: createHash('sha256').update(bytes).digest('hex'), strings };
 }
 
@@ -45,21 +55,60 @@ function commitFindings({ sha, raw }, { matcher, identity, limits }) {
   const split = raw.indexOf('\n\n');
   const headers = (split < 0 ? raw : raw.subarray(0, split)).toString('utf8').split('\n');
   const findings = [];
-  const add = (rule, kind, location, line) => findings.push({ rule, kind, commit: sha, location, ...(line ? { line } : {}) });
+  const add = (rule, kind, field, line) => findings.push({ rule, kind, commit: sha, field, ...(line ? { line } : {}) });
   const seen = new Set();
   for (const header of headers) {
     const person = PERSON_LINE.exec(header);
     const kind = person ? person[1] : 'header';
-    if (matcher.firstEntryIn(header) > 0) add(PRIVATE_RULE_ID, kind, `${sha}:${kind}`);
+    if (matcher.hasEntry(header)) add(PRIVATE_RULE_ID, kind, kind);
     if (!person || !identity) continue;
     seen.add(kind);
-    if (`${person[2]} <${person[3]}>` !== identity) add(IDENTITY_RULE_ID, kind, `${sha}:${kind}`);
-    if (person[4] !== '+0000') add(IDENTITY_RULE_ID, 'timezone', `${sha}:${kind}`);
+    if (`${person[2]} <${person[3]}>` !== identity) add(IDENTITY_RULE_ID, kind, kind);
+    if (person[4] !== '+0000') add(IDENTITY_RULE_ID, 'timezone', kind);
   }
-  if (identity) for (const kind of ['author', 'committer']) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, `${sha}:${kind}`);
-  const message = split < 0 ? Buffer.alloc(0) : raw.subarray(split + 2);
-  for (const line of matcher.linesIn(message, limits.maxReportEntries)) add(PRIVATE_RULE_ID, 'message', `${sha}:message`, line);
+  if (identity) for (const kind of ['author', 'committer']) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, kind);
+  const message = split < 0 ? '' : raw.subarray(split + 2).toString('utf8');
+  for (const line of matcher.entryLines(message, limits.maxReportEntries + 1)) add(PRIVATE_RULE_ID, 'message', 'message', line);
   return findings;
+}
+
+/** Orders findings by rule, kind and commit, then by position (or pull-request object), string and line as numbers. */
+const compareFindings = (first, second) => compareText(first.rule, second.rule) || compareText(first.kind, second.kind)
+  || compareText(first.commit ?? '', second.commit ?? '') || (first.entry?.position ?? first.item ?? 0) - (second.entry?.position ?? second.item ?? 0)
+  || (first.string ?? 0) - (second.string ?? 0) || (first.line ?? 0) - (second.line ?? 0);
+
+/** A finding's location: `<commit>:<position>` in a tree, `<commit>:<field>` in a commit object, `pr-<item>:<string>` in pull-request text. */
+function locate({ commit, entry, field, item, string }) {
+  if (entry) return `${commit}:${counted(entry.position)}`;
+  if (field) return `${commit}:${checked(field, COMMIT_FIELDS)}`;
+  return `pr-${counted(item)}:${counted(string)}`;
+}
+
+/**
+ * Builds the history report field by field from enum values, object ids, SHA-256 digests and positive integers, each
+ * checked against its schema, so its bytes never depend on the private list or on a path, key or text that was read.
+ * Returns the report as text; throws Error when a value is outside the schema.
+ */
+function buildHistoryReport({ heads, commits, scanner, rules, unscannable, findings }) {
+  const report = {
+    scope: 'history',
+    target: { heads: heads.map((head) => checked(head, FULL_OBJECT_ID)), commits: counted(commits) },
+    scanner: {
+      gateRevision: checked(scanner.gateRevision, SHA256_HEX), configSha256: checked(scanner.configSha256, SHA256_HEX),
+      expectedRoot: checked(scanner.expectedRoot, FULL_OBJECT_ID),
+      ...(scanner.prTextSha256 === undefined ? {} : { prTextSha256: checked(scanner.prTextSha256, SHA256_HEX) }),
+    },
+    rules: rules.map(({ id, status }) => ({ id: checked(id, RULE_IDS), status: checked(status, STATUSES) })),
+    unscannable: unscannable.map(({ commit, entry, cause }) => ({
+      commit: checked(commit, FULL_OBJECT_ID), location: locate({ commit, entry }), cause: checked(cause, UNSCANNABLE_CAUSES),
+    })),
+    findings: findings.map((finding) => ({
+      rule: checked(finding.rule, RULE_IDS), kind: checked(finding.kind, KINDS),
+      ...(finding.commit === undefined ? {} : { commit: checked(finding.commit, FULL_OBJECT_ID) }),
+      location: locate(finding), ...(finding.line === undefined ? {} : { line: counted(finding.line) }),
+    })),
+  };
+  return `${JSON.stringify(report, null, 2)}\n`;
 }
 
 function readOptions(argv) {
@@ -74,62 +123,63 @@ function readOptions(argv) {
   };
 }
 
-async function runHistory(argv, signal, session) {
+async function runHistory(argv, signal) {
   const options = readOptions(argv);
   const config = loadConfig();
-  const list = readPrivateList(options.privateList, config.limits);
-  let checkpoint = () => {};
-  const matcher = createPrivateMatcher(list.entries, () => checkpoint());
-  session.matcher = matcher;
-  const prText = options.prText && readPrText(options.prText, config.limits);
-  const { heads, commits } = await readHistory({ repo: options.repo, refs: options.refs, limits: config.limits, signal });
+  const { limits } = config;
+  const listEntries = readPrivateList(options.privateList, { repo: options.repo, limits });
+  const prText = options.prText && readPrText(options.prText, limits);
+  const { heads, commits } = await readHistory({ repo: options.repo, refs: options.refs, limits, signal });
   requireExpectedRoot(commits, options.expectedRoot);
+  let checkpoint = () => {};
   const bounded = (scan) => {
-    checkpoint = createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs });
+    checkpoint = createScanDeadline({ deadlineMs: limits.scanDeadlineMs });
     try {
       return scan();
     } finally {
       checkpoint = () => {};
     }
   };
+  const matcher = bounded(() => createPrivateMatcher(listEntries, () => checkpoint()));
   const findings = [];
   const unscannable = [];
-  for (const commit of commits) {
-    const emitter = createEmitter({ commit: commit.sha, matcher });
-    const { entries } = await readCommitObjects({ repo: options.repo, commit: commit.sha, limits: config.limits, signal });
-    unscannable.push(...unscannableEntries(entries, config, emitter).map((entry) => ({ commit: commit.sha, ...entry })));
-    findings.push(...bounded(() => [
-      ...scanPrivate({ entries, matcher, emitter, limits: config.limits }).map((finding) => ({ ...finding, commit: commit.sha })),
-      ...commitFindings(commit, { matcher, identity: options.identity, limits: config.limits }),
-    ]));
-    if (findings.length > config.limits.maxReportEntries || unscannable.length > config.limits.maxReportEntries) {
-      throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} findings or unscannable entries`);
+  const requireWithinLimit = () => {
+    if (findings.length > limits.maxReportEntries || unscannable.length > limits.maxReportEntries) {
+      throw new GateInputError('limit:maxReportEntries', `more than ${limits.maxReportEntries} findings or unscannable entries`);
     }
+  };
+  for (const commit of commits) {
+    const { entries } = await readCommitObjects({ repo: options.repo, commit: commit.sha, limits, signal });
+    unscannable.push(...unscannableEntries(entries, config).map((problem) => ({ commit: commit.sha, ...problem })));
+    findings.push(...bounded(() => [
+      ...scanPrivate({ entries, matcher, limits }).map((finding) => ({ ...finding, commit: commit.sha })),
+      ...commitFindings(commit, { matcher, identity: options.identity, limits }),
+    ]));
+    requireWithinLimit();
   }
-  for (const { where, value } of prText?.strings ?? []) {
-    for (const line of bounded(() => matcher.linesIn(Buffer.from(value), config.limits.maxReportEntries))) findings.push({ rule: PRIVATE_RULE_ID, kind: 'pr-text', location: where, line });
+  for (const { item, string, value } of prText?.strings ?? []) {
+    for (const line of bounded(() => matcher.entryLines(value, limits.maxReportEntries + 1))) findings.push({ rule: PRIVATE_RULE_ID, kind: 'pr-text', item, string, line });
+    requireWithinLimit();
   }
-  findings.sort(byKey((finding) => [finding.rule, finding.kind, finding.commit ?? '', finding.location, String(finding.line ?? '').padStart(12, '0')].join('\0')));
+  findings.sort(compareFindings);
   const found = (rule) => findings.some((finding) => finding.rule === rule);
   const rules = [
     { id: IDENTITY_RULE_ID, status: !options.identity ? 'not-run' : found(IDENTITY_RULE_ID) ? 'findings' : 'passed' },
     { id: PRIVATE_RULE_ID, status: found(PRIVATE_RULE_ID) ? 'findings' : unscannable.length > 0 ? 'unscannable' : 'passed' },
   ];
-  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, privateListSha256: list.sha256, expectedRoot: options.expectedRoot, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
-  const reporter = createEmitter({ commit: null, matcher });
-  reporter.report(options.out ? 'gate.report-file' : 'gate.stdout', { scope: 'history', target: { heads, commits: commits.length }, scanner, rules, unscannable, findings }, options.out);
+  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, expectedRoot: options.expectedRoot, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
+  const report = buildHistoryReport({ heads, commits: commits.length, scanner, rules, unscannable, findings });
+  await publish({ report }, { out: options.out });
   if (unscannable.length > 0) return EXIT.unusable;
   return findings.length > 0 ? EXIT.findings : EXIT.pass;
 }
 
 /** Runs the history mode for `argv` and returns the exit code: 0 pass, 1 findings, 2 missing input, interrupt, limit or unscannable target. */
 async function main(argv, signal) {
-  const session = { matcher: null };
   try {
-    return await runHistory(argv, signal, session);
+    return await runHistory(argv, signal);
   } catch (error) {
-    const known = error instanceof ChoiceError || error instanceof GateInputError;
-    createEmitter({ commit: null, matcher: session.matcher }).text('gate.stderr', `${known ? error.cause : 'internal-error'}: ${known ? error.message : error.name}`);
+    await writeDiagnostic(error instanceof ChoiceError || error instanceof GateInputError ? error.cause : 'internal-error');
     return EXIT.unusable;
   }
 }
