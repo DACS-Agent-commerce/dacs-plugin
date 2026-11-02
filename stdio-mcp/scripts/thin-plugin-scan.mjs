@@ -24,6 +24,19 @@ export function createModuleScanner(context) {
   // writes (f.days[day] = ..., out[k] = v) are not export surfaces.
   const unparen = x => { while (x && ts.isParenthesizedExpression(x)) x = x.expression; return x; };
   const exportTarget = x => { x = unparen(x); return (ts.isIdentifier(x) && ['exports', 'globalThis', 'global', 'self', 'window'].includes(x.text)) || (ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) && x.expression.text === 'module' && x.name.text === 'exports'); };
+  const globalObject = x => { x = unparen(x); return ts.isIdentifier(x) && ['globalThis', 'global', 'self', 'window'].includes(x.text); };
+  // eval/Function count wherever they are read as a value (bare, aliased, comma, or as a
+  // member of the global object), not only when called by their bare name.
+  const reflectiveRead = n => {
+    if (ts.isElementAccessExpression(n)) return globalObject(n.expression) && ts.isStringLiteralLike(n.argumentExpression) && ['eval', 'Function'].includes(n.argumentExpression.text);
+    if (!ts.isIdentifier(n) || !['eval', 'Function'].includes(n.text)) return false;
+    const p = n.parent;
+    if (ts.isPropertyAccessExpression(p) && p.name === n) return globalObject(p.expression);
+    if (ts.isTypeOfExpression(p) || (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword && p.right === n)) return false;
+    if ((ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isPropertySignature(p) || ts.isMethodSignature(p)) && p.name === n) return false;
+    for (let a = p; a; a = a.parent) { if (ts.isTypeNode(a) || ts.isInterfaceDeclaration(a) || ts.isTypeAliasDeclaration(a)) return false; if (ts.isFunctionLike(a) || ts.isSourceFile(a)) break; }
+    return true;
+  };
   const computedDefinitionRisk = n => { const r = unparen(n.right); return exportTarget(n.left.expression) || ts.isFunctionLike(r) || ts.isClassExpression(r); };
 
   return function scan(file) {
@@ -162,18 +175,21 @@ export function createModuleScanner(context) {
         const r = n.moduleSpecifier && addImport(n, n.moduleSpecifier, 'import', n.isTypeOnly || (ts.isNamedExports(n.exportClause ?? {}) && n.exportClause.elements.length > 0 && n.exportClause.elements.every(e => e.isTypeOnly)));
         // An export specifier is a definition unless its binding resolves, through local
         // imports/barrels, to a locked registry package boundary.
-        for (const e of n.exportClause?.elements ?? []) if (r?.kind !== 'package' && r?.kind !== 'builtin' && exportOrigin(file, e.name.text) !== 'package') primitive(e, e.name.text);
+        for (const e of n.exportClause?.elements ?? []) if (!n.isTypeOnly && !e.isTypeOnly && r?.kind !== 'package' && r?.kind !== 'builtin' && exportOrigin(file, e.name.text) !== 'package') primitive(e, e.name.text);
       }
       if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference)) addImport(n, n.moduleReference.expression, 'require');
       if (ts.isCallExpression(n)) {
         if (n.expression.kind === ts.SyntaxKind.ImportKeyword || n.expression.getText(ast) === 'require' || n.expression.getText(ast).endsWith('.require')) addImport(n, n.arguments[0], n.expression.kind === ts.SyntaxKind.ImportKeyword ? 'import' : 'require');
         if (['registerTool', 'register', ...(config.registrationCalls ?? [])].includes(ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text : n.expression.getText(ast)) && ts.isStringLiteralLike(n.arguments[0] ?? {})) result.registrations.push(n.arguments[0].text);
-        if (['eval', 'Function', 'require.resolve', 'import.meta.resolve'].includes(n.expression.getText(ast))) flag('unverifiable', 'reflective-loader', file, lineOf(n));
+        if (['require.resolve', 'import.meta.resolve'].includes(n.expression.getText(ast))) flag('unverifiable', 'reflective-loader', file, lineOf(n));
+        // A call through a non-literal key (x[k](), x['a' + 'b']()) can reach a readback member unseen.
+        const callee = unparen(n.expression);
+        if (refNames.size && ts.isElementAccessExpression(callee) && !ts.isStringLiteralLike(callee.argumentExpression) && !ts.isNumericLiteral(callee.argumentExpression)) flag('unverifiable', 'computed-member-call', file, lineOf(n));
       }
+      if (reflectiveRead(n)) flag('unverifiable', 'reflective-loader', file, lineOf(n));
       if (ts.isIdentifier(n) && n.text === 'require' && !(ts.isCallExpression(n.parent) && n.parent.expression === n) && !(ts.isPropertyAccessExpression(n.parent) && (n.parent.name === n || n.parent.expression === n)) && !(ts.isVariableDeclaration(n.parent) && n.parent.name === n) && !ts.isImportEqualsDeclaration(n.parent)) flag('unverifiable', 'aliased-require', file, lineOf(n));
       if (ts.isCallExpression(n) && ts.isCallExpression(n.expression) && n.expression.expression.getText(ast) === 'createRequire') flag('unverifiable', 'aliased-require', file, lineOf(n));
       if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left)) { if (ts.isStringLiteralLike(n.left.argumentExpression)) primitive(n, n.left.argumentExpression.text); else if (computedDefinitionRisk(n) || functionValued(n.right)) flag('unverifiable', 'computed-export', file, lineOf(n)); }
-      if (ts.isNewExpression(n) && n.expression.getText(ast) === 'Function') flag('unverifiable', 'reflective-loader', file, lineOf(n));
       if (ts.isComputedPropertyName(n) && !ts.isStringLiteralLike(n.expression)) flag('unverifiable', 'computed-member', file, lineOf(n));
       if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left)) primitive(n, n.left.name.text);
       if (ts.isBindingElement(n) && n.initializer && ts.isIdentifier(n.name)) primitive(n, n.name.text);

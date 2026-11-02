@@ -70,6 +70,16 @@ test('non-literal and reflective imports come back as unverifiable, not clean', 
     ['aliased-require', 'aliased-require', 'nonliteral-import', 'nonliteral-import', 'reflective-loader', 'reflective-loader', 'reflective-loader']);
 });
 
+test('eval and Function read through the global object, an alias or a comma are unverifiable', t => {
+  const p = project(t, {'r.mjs': [
+    'globalThis.eval("1");', 'globalThis["Function"]("return 1")();', 'window.eval("1 + 1");', '(0, eval)("1 + 1");',
+    'const e = eval; e("1 + 1");', 'new globalThis.Function("return 1")();', '',
+  ].join('\n'), 'ok.ts': 'export const isFn = (x: unknown): x is Function => typeof eval === "function" && x instanceof Function;\nexport const o = {eval: 1};\n'});
+  p.scan('r.mjs'); p.scan('ok.ts');
+  assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.rule}:${r.line}`),
+    [1, 2, 3, 4, 5, 6].map(l => `r.mjs:reflective-loader:${l}`));
+});
+
 test('a waiver without a reason is refused, and an unused waiver is reported', t => {
   const p = project(t, {
     'ok.ts': '// thin-plugin-waiver primitive:job-id -- display-only label, never signed\nexport function deriveJobId() { return 1; }\n',
@@ -90,13 +100,16 @@ test('transaction-by-hash references are flagged through members, destructuring 
     'alias.ts': 'export function e(c: any) { const read = c.getTxByHash; return read("h"); }\n',
     'param.ts': 'export function f({getTxByHash: unused}: any) { return 1; }\n',
     'escape.ts': 'declare const c: any;\nc.getTxByHash("h");\n',
+    'computed.ts': 'export function g(c: any) { const key = "getTxByHash"; return c[key]("h"); }\nexport function h(c: any) { return c["getTx" + "ByHash"]("h"); }\nexport function k(xs: any[]) { return xs[0](); }\n',
+    'handoff.ts': '// thin-plugin-waiver primitive:execution-readback -- display only, never gates a payment\nexport function setup(c: any) {\n  const read = c.getTxByHash;\n  return {\n    pay: (h: string) => read(h),\n  };\n}\n',
     'type.ts': 'export type Reader = { getTxByHash(h: string): unknown };\n',
   });
-  for (const f of ['member.ts', 'element.ts', 'destructure.ts', 'alias.ts', 'param.ts', 'escape.ts', 'type.ts']) p.scan(f);
+  for (const f of ['member.ts', 'element.ts', 'destructure.ts', 'alias.ts', 'param.ts', 'escape.ts', 'type.ts', 'computed.ts', 'handoff.ts']) p.scan(f);
   assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`).sort(), [
-    'alias.ts:execution-readback:e', 'destructure.ts:execution-readback:d', 'element.ts:execution-readback:b', 'member.ts:execution-readback:a', 'param.ts:execution-readback:f',
+    'alias.ts:execution-readback:e', 'destructure.ts:execution-readback:d', 'element.ts:execution-readback:b', 'handoff.ts:execution-readback:pay', 'member.ts:execution-readback:a', 'param.ts:execution-readback:f',
   ]);
-  assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.rule}`), ['escape.ts:readback-reference-escape']);
+  assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.rule}:${r.line}`).sort(),
+    ['computed.ts:computed-member-call:1', 'computed.ts:computed-member-call:2', 'escape.ts:readback-reference-escape:2']);
 });
 
 test('a waived readback helper makes its importer readback too', t => {
@@ -106,6 +119,17 @@ test('a waived readback helper makes its importer readback too', t => {
   });
   p.scan('caller.ts');
   assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`), ['caller.ts:execution-readback:decide']);
+});
+
+test('a type-only re-export is not a primitive definition', t => {
+  const p = project(t, {
+    'types.ts': 'export type deriveJobId = (x: string) => string;\n',
+    'a.ts': 'export type {deriveJobId} from "./types.js";\n',
+    'b.ts': 'export {type deriveJobId} from "./types.js";\n',
+    'c.ts': 'export {deriveJobId} from "./types.js";\n',
+  });
+  for (const f of ['a.ts', 'b.ts', 'c.ts']) p.scan(f);
+  assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`), ['c.ts:job-id:deriveJobId']);
 });
 
 test('the scan returns each module\'s import edges with type-only flags', t => {
