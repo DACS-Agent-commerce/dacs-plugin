@@ -144,7 +144,10 @@ overwrites a file, and there is no `--private-evidence`.
 - **Commits.** `R-PRIVATE` also scans each commit's message (kind `message`, with the line), its author and committer lines
   (kinds `author` and `committer`) and its other headers (kind `header`). A commit finding's location is `<commit>:<field>`,
   the field (`author`, `committer`, `header` or `message`) it was found in. `R-ACCOUNT` scans the same fields for an email
-  that `refusedMetadataEmails` refuses (kinds `author`, `committer`, `header` and `message`, the last with the line).
+  that `refusedMetadataEmails` refuses, `R-HOST` for a host that `refusedMetadataHosts` refuses (read as in non-code text) and
+  `R-IP` for an IP literal that `refusedMetadataIps` refuses (kinds `author`, `committer`, `header` and `message`, the last with
+  the line). Metadata has no path or blob, so only `allowedHosts` and the permitted address classes pass there: no
+  `scopedAllowances` or `ipDispositions` entry applies.
 - **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
   identity (kind `author` or `committer`) and every time zone other than `+0000` (kind `timezone`). Without the flag the rule
   is `not-run`.
