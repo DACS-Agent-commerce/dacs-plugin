@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID } from './rules-address.mjs';
+import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID } from './rules-files.mjs';
 import { PRIVATE_RULE_ID } from './rules-private.mjs';
 
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
@@ -11,7 +12,7 @@ export const SHA256_HEX = /^[0-9a-f]{64}$/;
 export const STATUSES = ['passed', 'findings', 'not-run', 'unscannable'];
 export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition'];
 const SCOPES = ['generic', 'complete'];
-const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, PRIVATE_RULE_ID];
+const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, PRIVATE_RULE_ID];
 const KINDS = ['path', 'content'];
 
 /** The fixed text printed after each cause; nothing else ever reaches stderr. A `limit:<name>` cause has one shared text. */

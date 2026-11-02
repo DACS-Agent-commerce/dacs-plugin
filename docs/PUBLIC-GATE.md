@@ -1,8 +1,8 @@
 # Public-content gate
 
 Reads one commit from Git objects (never the working tree or index, never following a symlink) and reports, under a
-declared scope, what the rules it runs found in it. The gate currently runs four rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
-(the address rules) and `R-PRIVATE` (the private list). Exit 0 in complete scope means no rule found anything and every file
+declared scope, what the rules it runs found in it. The gate currently runs seven rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
+(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules) and `R-PRIVATE` (the private list). Exit 0 in complete scope means no rule found anything and every file
 could be read; it does not show that the content may become public. Generic scope runs the address rules and reports
 `R-PRIVATE` as `not-run`, so its exit 0 is never a complete pass.
 
@@ -64,6 +64,20 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   (`url`, `host-port`, `quoted`, `bare` or `email`). `public-gate.config.json` may also hold the values its own entries name. A
   malformed section, `ipDispositions` included, makes the run exit 2 with cause `invalid-config`. Findings carry the rule, kind (`path` or `content`),
   location and line, never the host or email.
+- **Env templates (`R-ENV`, both scopes).** Runs over files named `.env.example`, `.env.sample`, `.env.template` or ending in `.env.<one of
+  these>`, line by line; a commented-out assignment (`# KEY=value`) is read like any other. A line that is neither blank, a comment nor
+  `KEY=value` is refused. `DACS_ACCESS_TOKEN_TTL_SECONDS` must be empty or a whole number from 60 to 3600, as `http-mcp/src/config.mjs` reads it.
+  `DACS_OAUTH_COOKIE_KEYS` may only be empty or a placeholder. Any other key whose name reads as a secret may only be empty or a
+  placeholder too: the name is split on `_`, `-`, `.` and camelCase boundaries and compared in lower case, and it is secret when a word is
+  `secret`, `token`, `password`, `passphrase`, `mnemonic`, `seed`, `credential` (or a plural or run-together form such as `apikey`), or
+  `key` after `signing`, `private`, `secret`, `api`, `access`, `auth`, `encryption`, `master` or `cookie`. No key is exempt for its name. A
+  placeholder is an angle-bracket or `${...}` slot, `REPLACE_ME`, `CHANGE_ME`, `your-...-here` or a run of `x`; one pair of quotes around a value is ignored.
+- **Hosting files (`R-HOSTING`, both scopes).** Refuses by path, in any letter case: everything under a `deploy` directory, a file ending in
+  `.service`, a file named `Caddyfile` and a real env file (`.env`, `.env.<name>`, `<name>.env`). A name ending in `.example`, `.sample` or
+  `.template` is not refused for its name; the content rules read it.
+- **Archives (`R-ARCHIVE`, both scopes).** Refuses every blob that holds an archive signature, whatever its name and even when a
+  `binaryDispositions` entry lets it be read: a gzip stream (`1f 8b 08`), a zip archive (`PK` with `03 04`, `05 06` or `07 08`) or a tar
+  header (`ustar` at byte 257). Refuses any path under a `vendor` directory, in any letter case.
 - **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
   run exits 2 (cause `unexpected-root`) without a report.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`; complete
