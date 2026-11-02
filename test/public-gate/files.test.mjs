@@ -59,6 +59,10 @@ test('env templates: a line that is not an assignment fails, and only env templa
   assert.deepEqual(envFindings(`API_TOKEN = ${realValue()}\n`), ['R-ENV content .env.example 1']);
   const planted = `API_TOKEN=${realValue()}\n`;
   for (const file of ['.env.example', 'prod.env.example', 'prod.env.sample', 'http-mcp/.env.sample', 'http-mcp/.env.template']) assert.deepEqual(envFindings(planted, file), [`R-ENV content ${file} 1`], file);
+  for (const file of ['.env.production.example', 'http-mcp/.env.local.sample', '.env.prod.template', 'app/.ENV.Staging.Example', '.env.a.b.example', 'prod.env.local.sample', 'env.production.example']) {
+    assert.deepEqual(envFindings(planted, file), [`R-ENV content ${file} 1`], `${file} is read by R-ENV`);
+    assert.deepEqual(scanned(scanHostingFiles, { [file]: planted }), [], `${file} is not refused by name, since R-ENV reads it`);
+  }
   for (const file of ['http-mcp/env.mjs', 'notes.example', 'config.env.json', 'http-mcp/.env.example.md']) assert.deepEqual(envFindings(planted, file), [], file);
 });
 

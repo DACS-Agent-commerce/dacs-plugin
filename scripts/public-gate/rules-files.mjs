@@ -10,7 +10,8 @@ export const ARCHIVE_RULE_ID = 'R-ARCHIVE';
 
 const LINE_BREAK = /\r\n|\r|\n/;
 const TEMPLATE_SUFFIX = /\.(?:example|sample|template)$/;
-const ENV_TEMPLATE_NAME = /(?:^|\.)env\.(?:example|sample|template)$/;
+/** An env template name: `env`, any stage segments, then a template suffix (`.env.example`, `.env.production.sample`, `prod.env.template`). */
+const ENV_TEMPLATE_NAME = /(?:^|\.)env(?:\.[^.]*)*\.(?:example|sample|template)$/;
 const REAL_ENV_NAME = /(?:^\.env|\.env)(?:\.|$)/;
 const SYSTEMD_UNIT_NAME = /\.service$/;
 const CADDYFILE_NAME = 'caddyfile';
@@ -93,7 +94,7 @@ function isRefusedEnvAssignment({ key, value }) {
 }
 
 /**
- * R-ENV: in `*.env.example`, `*.env.sample` and `*.env.template` files, refuses a line that is not an assignment, a typed
+ * R-ENV: in `.env[.<stage>].example`, `.sample` and `.template` files (also `<name>.env...`), refuses a line that is not an assignment, a typed
  * setting outside its range, and a credential or secret-named key (commented out or not) whose value is neither empty nor a
  * placeholder. Returns findings { rule, kind: 'content', entry, line }.
  */

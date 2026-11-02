@@ -64,8 +64,8 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   (`url`, `host-port`, `quoted`, `bare` or `email`). `public-gate.config.json` may also hold the values its own entries name. A
   malformed section, `ipDispositions` included, makes the run exit 2 with cause `invalid-config`. Findings carry the rule, kind (`path` or `content`),
   location and line, never the host or email.
-- **Env templates (`R-ENV`, both scopes).** Runs over files named `.env.example`, `.env.sample`, `.env.template` or ending in `.env.<one of
-  these>`, line by line; a commented-out assignment (`# KEY=value`) is read like any other. A line that is neither blank, a comment nor
+- **Env templates (`R-ENV`, both scopes).** Runs over files named `.env.example`, `.env.sample`, `.env.template`, those with stage
+  segments (`.env.production.example`, `.env.local.sample`) or ending in `.env[.<stage>].<one of these>`, line by line; a commented-out assignment (`# KEY=value`) is read like any other. A line that is neither blank, a comment nor
   `KEY=value` is refused. `DACS_ACCESS_TOKEN_TTL_SECONDS` must be empty or a whole number from 60 to 3600, as `http-mcp/src/config.mjs` reads it.
   `DACS_OAUTH_COOKIE_KEYS` may only be empty or a placeholder. Any other key whose name reads as a secret may only be empty or a
   placeholder too: the name is split on `_`, `-`, `.` and camelCase boundaries and compared in lower case, and it is secret when a word is
@@ -74,7 +74,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   placeholder is an angle-bracket or `${...}` slot, `REPLACE_ME`, `CHANGE_ME`, `your-...-here` or a run of `x`; one pair of quotes around a value is ignored.
 - **Hosting files (`R-HOSTING`, both scopes).** Refuses by path, in any letter case: everything under a `deploy` directory, a file ending in
   `.service`, a file named `Caddyfile` and a real env file (`.env`, `.env.<name>`, `<name>.env`). A name ending in `.example`, `.sample` or
-  `.template` is not refused for its name; the content rules read it.
+  `.template` is not refused for its name; a `.env` template is read by `R-ENV`.
 - **Archives (`R-ARCHIVE`, both scopes).** Refuses every blob that holds an archive signature, whatever its name and even when a
   `binaryDispositions` entry lets it be read: a gzip stream (`1f 8b 08`), a zip archive (`PK` with `03 04`, `05 06` or `07 08`) or a tar
   header (`ustar` at byte 257). Refuses any path under a `vendor` directory, in any letter case.
