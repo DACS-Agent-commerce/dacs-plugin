@@ -48,17 +48,17 @@ test('a path name is public content: a private-list value in a file name fails, 
   assert.equal(result.status, 1);
   const report = JSON.parse(result.stdout);
   assert.deepEqual(report.findings.map(({ rule, kind, location }) => ({ rule, kind, location })), [
-    { rule: 'R-PRIVATE', kind: 'path', location: `${repo.commit}:entry-1` },
+    { rule: 'R-PRIVATE', kind: 'path', location: `${repo.commit}:1` },
   ]);
   assert.ok(!result.stdout.includes(PLANTED));
 });
 
-test('paths are NUL-separated, so names with spaces or newlines are handled exactly internally, and harmless ones are reported exactly; two temporary-repo tracked names differing only in invalid UTF-8 bytes exit 2 as unscannable before keying, name only opaque locations, and neither occurrence is merged, dropped or overwritten; history uses this same decoder', async () => {
+test('paths are NUL-separated, so names with spaces or newlines are handled exactly internally, and every path is reported by its opaque position; two temporary-repo tracked names differing only in invalid UTF-8 bytes exit 2 as unscannable, name only opaque locations, and neither occurrence is merged, dropped or overwritten', async () => {
   const awkward = 'dir with space/line\nbreak.txt';
   const readable = createRepo([{ path: awkward, content: `${PLANTED}\n` }]);
   assert.equal((await readTarget(readable)).entries[0].path, awkward);
   const listed = runGate(completeArgs(readable, writeList([PLANTED])));
-  assert.equal(JSON.parse(listed.stdout).findings[0].location, awkward);
+  assert.equal(JSON.parse(listed.stdout).findings[0].location, `${readable.commit}:1`);
 
   const invalid = createRepo([
     { path: Buffer.from([0x78, 0xff, 0x79]), content: 'one\n' },
@@ -74,8 +74,8 @@ test('paths are NUL-separated, so names with spaces or newlines are handled exac
   assert.equal(result.status, 2);
   const report = JSON.parse(result.stdout);
   assert.deepEqual(report.unscannable, [
-    { location: `${invalid.commit}:invalid-path-1`, cause: 'invalid-utf8-path' },
-    { location: `${invalid.commit}:invalid-path-2`, cause: 'invalid-utf8-path' },
+    { location: `${invalid.commit}:1`, cause: 'invalid-utf8-path' },
+    { location: `${invalid.commit}:2`, cause: 'invalid-utf8-path' },
   ]);
   assert.ok(report.rules.every((rule) => rule.status !== 'passed'));
 });
@@ -92,8 +92,8 @@ test('a tracked symlink is reported by its link text and never followed; a submo
   const result = runGate(completeArgs(repo, writeList([PLANTED])));
   assert.equal(result.status, 2);
   const report = JSON.parse(result.stdout);
-  assert.deepEqual(report.findings.map(({ location, line }) => [location, line]), [['link', 1]]);
-  assert.deepEqual(report.unscannable, [{ location: 'vendor/module', cause: 'submodule' }]);
+  assert.deepEqual(report.findings.map(({ location, line }) => [location, line]), [[`${repo.commit}:1`, 1]]);
+  assert.deepEqual(report.unscannable, [{ location: `${repo.commit}:2`, cause: 'submodule' }]);
 });
 
 test('a blob over the size limit or a tree over the object-count limit fails as unscannable, naming the limit', async () => {

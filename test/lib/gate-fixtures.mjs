@@ -95,12 +95,13 @@ export function writeList(entries) {
   return file;
 }
 
-/** Runs the gate script with `args` and returns { status, stdout, stderr }. */
-export function runGate(args, { env } = {}) {
+/** Runs the gate script with `args`, killed after `timeout` ms, and returns { status, stdout, stderr }. */
+export function runGate(args, { env, timeout = 120_000 } = {}) {
   const result = spawnSync(process.execPath, [GATE_SCRIPT, ...args], {
     env: { ...process.env, ...env },
     encoding: 'utf8',
     maxBuffer: 1 << 26,
+    timeout,
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }

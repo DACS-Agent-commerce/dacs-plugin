@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ChoiceError, parseChoice, parseFlags } from '../lib/choice.mjs';
 import { classifyBlob } from './classify.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
-import { createEmitter } from './redact.mjs';
+import { buildOutputs, publish, writeDiagnostic } from './redact.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -70,10 +70,10 @@ function readOptions(argv) {
   return options;
 }
 
-export function unscannableEntries(entries, config, emitter) {
+export function unscannableEntries(entries, config) {
   return entries.flatMap((entry) => {
     const problem = entry.problem ?? (entry.bytes ? classifyBlob(entry.path, entry.bytes, config).problem : undefined);
-    return problem ? [{ location: emitter.locate(entry), cause: problem }] : [];
+    return problem ? [{ entry, cause: problem }] : [];
   });
 }
 
@@ -95,44 +95,41 @@ export function createScanDeadline({ deadlineMs, clock = () => performance.now()
 }
 
 export const byKey = (key) => (first, second) => (key(first) < key(second) ? -1 : 1);
+const compareText = (first, second) => (first === second ? 0 : first < second ? -1 : 1);
 
-async function runGate(argv, signal, session) {
+/** Orders findings by rule, kind, position and line, the numbers compared as numbers; equal findings compare 0. */
+const compareFindings = (first, second) => compareText(first.rule, second.rule) || compareText(first.kind, second.kind)
+  || first.entry.position - second.entry.position || (first.line ?? 0) - (second.line ?? 0);
+
+async function runGate(argv, signal) {
   const options = readOptions(argv);
   const config = loadConfig();
-  const list = options.privateList && readPrivateList(options.privateList, config.limits);
-  let checkpoint = () => {};
-  const matcher = list ? createPrivateMatcher(list.entries, () => checkpoint()) : null;
-  session.matcher = matcher;
-  const emitter = createEmitter({ commit: options.commit, matcher });
+  const listEntries = options.privateList && readPrivateList(options.privateList, { repo: options.repo, limits: config.limits });
   const { entries, ...target } = await readCommitObjects({ repo: options.repo, commit: options.commit, limits: config.limits, signal });
   if (options.expectedRoot) {
     const { commits } = await readHistory({ repo: options.repo, refs: [options.commit], limits: config.limits, signal });
     requireExpectedRoot(commits, options.expectedRoot);
   }
-  checkpoint = createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs });
-  const unscannable = unscannableEntries(entries, config, emitter);
+  const matcher = listEntries && createPrivateMatcher(listEntries, createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs }));
+  const unscannable = unscannableEntries(entries, config);
   if (unscannable.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} unscannable entries`);
-  const context = { entries, matcher, emitter, limits: config.limits };
-  const findings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run(context))
-    .sort(byKey((finding) => [finding.rule, finding.kind, finding.location, String(finding.line ?? '').padStart(12, '0')].join('\0')));
-  checkpoint = () => {};
-  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256 };
-  if (list) Object.assign(scanner, { privateListSha256: list.sha256, expectedRoot: options.expectedRoot });
-  const rules = RULES.map((rule) => ({ id: rule.id, status: ruleStatus(rule, { scope: options.scope, findings, unscannable }) })).sort(byKey((rule) => rule.id));
-  if (options.privateEvidence) emitter.writePrivateMapping(options.privateEvidence);
-  emitter.report(options.out ? 'gate.report-file' : 'gate.stdout', { scope: options.scope, target, scanner, rules, unscannable, findings }, options.out);
+  const findings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, limits: config.limits }))
+    .sort(compareFindings);
+  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...(options.expectedRoot ? { expectedRoot: options.expectedRoot } : {}) };
+  const rules = RULES.map((rule) => ({ id: rule.id, status: ruleStatus(rule, { scope: options.scope, findings, unscannable }) }))
+    .sort((first, second) => compareText(first.id, second.id));
+  const outputs = buildOutputs({ scope: options.scope, target, scanner, rules, unscannable, findings });
+  await publish(outputs, { out: options.out, evidenceFile: options.privateEvidence });
   if (unscannable.length > 0) return EXIT.unusable;
   return findings.length > 0 ? EXIT.findings : EXIT.pass;
 }
 
 /** Runs the gate for `argv` and returns the exit code: 0 pass, 1 findings, 2 missing input, interrupt, limit or unscannable target. */
 async function main(argv, signal) {
-  const session = { matcher: null };
   try {
-    return await runGate(argv, signal, session);
+    return await runGate(argv, signal);
   } catch (error) {
-    const known = error instanceof ChoiceError || error instanceof GateInputError;
-    createEmitter({ commit: null, matcher: session.matcher }).text('gate.stderr', `${known ? error.cause : 'internal-error'}: ${known ? error.message : error.name}`);
+    await writeDiagnostic(error instanceof ChoiceError || error instanceof GateInputError ? error.cause : 'internal-error');
     return EXIT.unusable;
   }
 }
