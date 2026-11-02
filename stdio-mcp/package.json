@@ -1,0 +1,58 @@
+{
+  "name": "demos-mcp",
+  "version": "0.1.0",
+  "description": "MCP server + Claude Code plugin for the Demos Network: read chain state, verify DACS receipts, and run human-confirmed wallet writes (pay, identity attest, DACS offer/accept).",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "demos-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist/",
+    "scripts/",
+    ".claude-plugin/",
+    ".mcp.json",
+    "commands/",
+    "skills/",
+    "adapters/",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE",
+    "alignment/"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "test": "tsx --test test/unit/*.test.ts",
+    "test:integration": "tsx --test test/integration/*.test.ts",
+    "validate:plugin": "claude plugin validate ."
+  },
+  "keywords": [
+    "demos",
+    "kynesys",
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "plugin",
+    "dacs",
+    "wallet"
+  ],
+  "dependencies": {
+    "@kynesyslabs/demosdk": "4.0.17",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@noble/ed25519": "^2.3.0",
+    "@noble/hashes": "^1.8.0",
+    "canonicalize": "^2.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

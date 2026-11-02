@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DACS showcase: beyond fixed price</title>
+<link rel="stylesheet" href="showcase.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <p class="brand">DACS showcase</p>
+  <nav aria-label="Showcase pages">
+    <ul>
+      <li><a href="./">Start</a></li>
+      <li><a href="walkthrough.html">Walkthrough</a></li>
+      <li><a href="beyond-fixed-price.html" aria-current="page">Beyond fixed price</a></li>
+    </ul>
+  </nav>
+  <p class="scope" role="note">Read-only. Nothing on these pages can sign, pay or buy, and every example is illustrative, not a real transaction.</p>
+</header>
+<main id="main">
+  <h1>What DACS defines beyond a fixed price</h1>
+  <p class="lead">The DACS Standard defines more ways to agree a price and more ways to pay than this app uses. Being defined in the Standard does not mean this app, or any live service, supports it.</p>
+
+  <p>Three separate questions for each item: is it in the Standard's draft specification, is it in the DACS SDK build this app ships with, and does this app use it? As of 2026-10-08: the Standard's draft chapters DACS-3, DACS-4 and DACS-5, and the SDK build <code>@kynesyslabs/dacs</code> 0.1.0-alpha.0.</p>
+
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Support by layer, scrollable">
+    <table>
+      <caption>Support by layer</caption>
+      <thead>
+        <tr><th scope="col">Item</th><th scope="col">DACS Standard (draft)</th><th scope="col">SDK build in this app</th><th scope="col">This app</th></tr>
+      </thead>
+      <tbody>
+        <tr data-row="fixed-price"><th scope="row">Fixed price</th><td>Defined (DACS-3 §8.4.1)</td><td>Yes</td><td>Only on servers set up for live purchases (Demos testnet)</td></tr>
+        <tr data-row="rfq"><th scope="row">Request for quote (bounded offer and counter-offer)</th><td>Defined (DACS-3 §8.4.2)</td><td>Experimental profile only; no general RFQ module</td><td>No</td></tr>
+        <tr data-row="sealed-envelope"><th scope="row">Sealed bids (demand and procurement)</th><td>Defined (DACS-3 §8.4.3–8.4.4)</td><td>Core: bid commitment, reveal checks and winner selection</td><td>No</td></tr>
+        <tr data-row="pay-dem"><th scope="row">Native DEM payment</th><td>Defined (DACS-4, <code>pay-dem</code>)</td><td>Yes</td><td>Only on servers set up for live purchases; testnet DEM only</td></tr>
+        <tr data-row="pay-evm-erc20"><th scope="row">ERC-20 tokens on EVM chains</th><td>Defined (DACS-4, <code>pay-evm-erc20</code>)</td><td>Yes</td><td>No</td></tr>
+        <tr data-row="pay-x402"><th scope="row">x402 (HTTP 402 payments)</th><td>Defined (DACS-4, <code>pay-x402</code>)</td><td>Yes</td><td>No</td></tr>
+        <tr data-row="completion-bundle"><th scope="row">Completion bundle (Verify)</th><td>Defined (DACS-5)</td><td>Bundle finalisation helpers</td><td>Not in live purchases yet: completion audit pending</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <section class="example" data-example="rfq" aria-labelledby="h-rfq">
+    <p class="example-label">Illustrative example</p>
+    <h2 id="h-rfq">Request for quote</h2>
+    <p>A buyer asks one translation agent for a quote on a 2,000-word document. The seller replies with a price; the buyer counters once, within the limits the seller's Listing allows, and they sign an Agreement at the agreed price. To compare agents, the buyer runs a separate exchange with each. The bargaining happens on a private channel: by default the public chain sees only the commitment to the final Agreement, and the transcript is anchored, encrypted, only if both parties agree.</p>
+    <p>This app cannot run this example.</p>
+  </section>
+
+  <section class="example" data-example="sealed-envelope" aria-labelledby="h-sealed">
+    <p class="example-label">Illustrative example</p>
+    <h2 id="h-sealed">Sealed bids</h2>
+    <p>Five agents bid to supply compute for a batch job. Each first publishes only a hash of its bid, then reveals the bid within a set window. A selection rule fixed in advance picks the winner, so nobody can change a bid after seeing the others.</p>
+    <p>This app cannot run this example.</p>
+  </section>
+
+  <section class="example" data-example="other-rails" aria-labelledby="h-rails">
+    <p class="example-label">Illustrative example</p>
+    <h2 id="h-rails">Other payment rails</h2>
+    <p>The same fixed-price purchase could be paid in a stablecoin on an EVM chain, or through an HTTP 402 paywall, with the payment evidence recorded the same way. Each rail has its own checks for what counts as paid.</p>
+    <p>This app cannot run this example: it pays only in testnet DEM.</p>
+  </section>
+
+  <p><a href="./">Back to the start</a></p>
+</main>
+<footer>
+  <p>Read-only showcase pages. They make no requests to the app's purchase, wallet or account services.</p>
+</footer>
+</body>
+</html>

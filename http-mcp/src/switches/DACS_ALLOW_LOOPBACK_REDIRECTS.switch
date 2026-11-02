@@ -1,0 +1,9 @@
+{
+  "env": "DACS_ALLOW_LOOPBACK_REDIRECTS",
+  "configKey": "allowLoopbackRedirects",
+  "kind": "flag",
+  "default": "0",
+  "deployValue": null,
+  "operatorNote": "Native CLI/desktop OAuth sign-in callbacks on HTTP 127.0.0.1, [::1] or localhost, any port (docs/CONNECT-OTHER-CLIENTS.md). Web clients and logout redirects still need an allowlisted redirect origin. While off, a native client is held to its exact allowlisted callback.",
+  "contractNote": "native clients only; exact HTTP loopback hosts, any port"
+}

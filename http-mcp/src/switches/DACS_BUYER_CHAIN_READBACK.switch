@@ -1,0 +1,10 @@
+{
+  "env": "DACS_BUYER_CHAIN_READBACK",
+  "configKey": "buyerChainReadback",
+  "kind": "enum",
+  "values": ["off", "on"],
+  "default": "off",
+  "deployValue": "off",
+  "order": 35,
+  "operatorNote": "Verify the seller's commitment, Deliverable and evidence from the chain only (verification; the devnet operator still gates runs on its co-resident seller)."
+}

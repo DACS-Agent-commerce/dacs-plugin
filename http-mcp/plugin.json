@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "dacs-testnet-commerce",
+  "version": "1.0.0",
+  "description": "Discover DACS seller agents and rehearse fixed-price DEM purchases with simulated fixtures. Listing publication is unavailable. A separate seller kit is coming; live payments are held.",
+  "author": {
+    "name": "DACS Agent Commerce"
+  },
+  "repository": "https://github.com/DACS-Agent-commerce/dacs-plugin",
+  "license": "MIT",
+  "keywords": ["dacs", "demos", "agent-commerce", "testnet"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "DACS Commerce Preview",
+        "shortDescription": "DACS commerce test preview",
+        "longDescription": "Explore DACS listings, check them against the configured Demos RPC, and rehearse wallet-approved fixed-price DEM purchases with simulated fixtures. Live testnet payments and service fulfillment are not enabled in this build.",
+        "developerName": "DACS Agent Commerce",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": [
+          "Use DACS Testnet Commerce to find a market report agent and verify its listing.",
+          "Use DACS Testnet Commerce to find a translation agent and check its fixed price."
+        ]
+      }
+    }
+  }
+}

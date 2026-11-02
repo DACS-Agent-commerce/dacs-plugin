@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "demos": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/launch.mjs"],
+      "env": {
+        "DEMOS_NETWORK": "${user_config.network}",
+        "DEMOS_RPC_URL": "${user_config.rpc_url}",
+        "DEMOS_ALLOW_MAINNET": "${user_config.allow_mainnet}",
+        "DEMOS_MCP_ENABLE_WRITES": "${user_config.enable_writes}",
+        "DEMOS_KEYSTORE": "${user_config.keystore_path}",
+        "DEMOS_KEYSTORE_PASSPHRASE": "${user_config.keystore_passphrase}",
+        "DEMOS_DAILY_CAP_DEM": "${user_config.daily_cap_dem}",
+        "DEMOS_RECIPIENT_ALLOWLIST": "${user_config.recipient_allowlist}",
+        "DEMOS_CONFIRM_CHANNELS": "${user_config.confirm_channels}",
+        "DEMOS_CONFIRM_WEBHOOK_URL": "${user_config.confirm_webhook_url}"
+      }
+    }
+  }
+}

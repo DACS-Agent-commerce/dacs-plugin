@@ -1,0 +1,10 @@
+{
+  "env": "DACS_DELIVERY_DEADLINE_WATCH",
+  "configKey": "deliveryDeadlineWatch",
+  "kind": "enum",
+  "values": ["off", "on"],
+  "default": "off",
+  "deployValue": "off",
+  "order": 30,
+  "operatorNote": "Local missed-delivery observations only; no bundles or refunds."
+}

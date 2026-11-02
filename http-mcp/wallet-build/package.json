@@ -1,0 +1,12 @@
+{
+  "name": "dacs-embedded-wallet-build",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Isolated, experimental build inputs for the embedded wallet browser bundle (public/portal/embedded-wallet/demos-runtime.mjs). Not part of the plugin runtime package.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@kynesyslabs/demosdk": "4.0.16",
+    "esbuild": "0.25.12"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "demos-mcp",
+  "version": "0.1.0",
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "demos": {
+      "command": "demos-mcp",
+      "args": [],
+      "env": {
+        "DEMOS_NETWORK": "testnet"
+      }
+    }
+  }
+}

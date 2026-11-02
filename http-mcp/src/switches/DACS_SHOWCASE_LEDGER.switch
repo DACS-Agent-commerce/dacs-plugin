@@ -1,0 +1,9 @@
+{
+  "env": "DACS_SHOWCASE_LEDGER",
+  "configKey": "showcaseLedger",
+  "kind": "flag",
+  "default": "0",
+  "deployValue": null,
+  "order": 26,
+  "operatorNote": "Read-only five-stage purchase ledger in the portal and MCP App view. Refused together with DACS_SHOWCASE_REPORT_VIEW=1 (both change the status App)."
+}

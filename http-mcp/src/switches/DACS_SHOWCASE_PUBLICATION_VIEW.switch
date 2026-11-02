@@ -1,0 +1,8 @@
+{
+  "env": "DACS_SHOWCASE_PUBLICATION_VIEW",
+  "configKey": "showcasePublicationView",
+  "kind": "flag",
+  "default": "0",
+  "deployValue": null,
+  "operatorNote": "Retired in v2: accepted for existing configurations, with no publication tools or view."
+}

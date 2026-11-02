@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "dacs-testnet-commerce": {
+      "type": "streamable-http",
+      "url": "https://dacs-plugin.example.invalid/mcp"
+    }
+  }
+}

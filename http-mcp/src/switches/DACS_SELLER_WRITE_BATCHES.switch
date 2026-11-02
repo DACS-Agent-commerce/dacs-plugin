@@ -1,0 +1,14 @@
+{
+  "env": "DACS_SELLER_WRITE_BATCHES",
+  "configKey": "sellerWriteBatches",
+  "kind": "enum",
+  "values": ["off", "on"],
+  "default": "off",
+  "deployValue": "off",
+  "held": {
+    "on": "DACS_SELLER_WRITE_BATCHES=on is held until native SDK preparation and batch transport integration are reviewed"
+  },
+  "order": 20,
+  "operatorNote": "Seller batching preparation seam; on is held pending native integration.",
+  "contractNote": "on is refused by loadConfig (and createApp) pending native SDK preparation and batch transport integration"
+}

@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { startDevnetLiveCompositionApp } from './helpers/devnet-live-composition-app.mjs';
+import { runNativeSellerTimeoutFlow } from './helpers/native-seller-timeout-flow.mjs';
+
+test('a seller result delayed beyond the client bound stays held during the live job and recovers exactly after completion',{timeout:150000},async t=>{
+  const h=await startDevnetLiveCompositionApp({sellerNativeEvidenceDelayMs:16000});
+  t.after(async()=>{await h.sellerTiming.waitForIdle({timeoutMs:60000}).catch(()=>{});await h.close();});
+  const flow=await runNativeSellerTimeoutFlow(t,h);
+  const initial=await flow.api('report',{txHash:flow.sent.data.hash});
+  assert.equal(initial.evidence.protocol.stage,'payment-observed',JSON.stringify(initial.evidence));
+  const held=[];
+  for(let attempt=0;attempt<4;attempt++)held.push((await flow.verify()).protocol?.stage);
+  assert.deepEqual(held,['payment-observed','payment-observed','payment-observed','payment-observed']);
+  const during=h.sellerTiming.snapshot();
+  assert.equal(during.active,1,JSON.stringify(during));
+  assert.equal(during.delayedAnchors,1,JSON.stringify(during));
+  assert.equal(h.transport.chain.record.accepted.length,1);
+  await h.sellerTiming.waitForIdle({timeoutMs:60000});
+  const recovered=await flow.verify();
+  assert.equal(recovered.protocol?.stage,'delivery-ready',JSON.stringify(recovered));
+  assert.equal(recovered.protocol.nativeEvidence?.delivery,'delivery-ready');
+  assert.equal(recovered.protocol.nativeEvidence?.deliveryReadback?.disposition,'present');
+  assert.equal(h.transport.chain.record.accepted.length,1);
+  assert.equal(h.transport.chain.wire.record.accepted.length,7);
+  const repeated=await flow.verify();
+  assert.equal(repeated.protocol?.stage,'delivery-ready');
+  assert.deepEqual(repeated.protocol.delivery.report,recovered.protocol.delivery.report);
+  assert.equal(h.transport.chain.record.accepted.length,1);
+  assert.equal(h.transport.chain.wire.record.accepted.length,7);
+  t.diagnostic(JSON.stringify({held,stage:recovered.protocol.stage,creates:7,payments:1,resends:0,timing:h.sellerTiming.snapshot()}));
+});

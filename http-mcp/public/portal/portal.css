@@ -1,0 +1,29 @@
+:root { color-scheme: light dark; font: 15px/1.45 system-ui, sans-serif; }
+body { max-width: 760px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.4rem; margin: 0 0 4px; }
+h2 { font-size: 1.1rem; margin: 0 0 8px; }
+.card { border: 1px solid #8885; border-radius: 12px; padding: 14px 16px; margin: 12px 0; }
+.muted { opacity: .75; }
+.ok { color: #1a7f37; }
+.bad { color: #cf222e; }
+.warn { color: #9a6700; font-weight: 600; border-left: 4px solid #d4a72c; padding-left: 8px; }
+button { font: inherit; padding: 8px 14px; border-radius: 10px; border: 1px solid #8887; cursor: pointer; }
+button[disabled] { opacity: .5; cursor: not-allowed; }
+button.primary { background: #0969da; color: #fff; border-color: #0969da; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0 0 12px; }
+dt { font-weight: 600; }
+dd { margin: 0; word-break: break-all; }
+code, pre { font-size: 12px; word-break: break-all; white-space: pre-wrap; }
+pre { background: #8881; padding: 8px; border-radius: 8px; max-height: 220px; overflow: auto; }
+#log p { margin: 2px 0; font-size: 13px; }
+.purchased-report-text { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-height: 360px; overflow: auto; unicode-bidi: plaintext; }
+.purchased-report { overflow-wrap: anywhere; }
+.seller-content { border: 1px dashed #b35900; border-left: 4px solid #b35900; border-radius: 6px; padding: 6px 10px; margin: 8px 0; }
+.seller-content-label { font-size: 12px; font-weight: 600; margin: 0 0 4px; }
+.purchased-report-artifact { box-sizing: border-box; width: 100%; min-height: 96px; font: 12px monospace; unicode-bidi: plaintext; direction: ltr; }
+.stages { margin: 0 0 12px; padding-left: 22px; }
+.stages li { margin: 2px 0; word-break: break-all; }
+.stages li[data-stage-state="verified"] { color: #1a7f37; }
+.stages li[data-stage-state="action_required"] { font-weight: 600; }
+.stages li[data-stage-state="reported"], .stages li[data-stage-state="waiting"], .stages li[data-stage-state="unknown"] { color: #9a6700; }
+.stages li[data-stage-state="failed"] { color: #cf222e; }

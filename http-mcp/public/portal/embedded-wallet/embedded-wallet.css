@@ -1,0 +1,32 @@
+/* Experimental embedded wallet. Scoped ew- classes on top of portal.css. */
+.ew-badge { font-size: .75rem; font-weight: 600; vertical-align: middle; padding: 2px 8px; border-radius: 999px; border: 1px solid #d4a72c; color: #9a6700; }
+.ew-root h2 { font-size: 1.1rem; margin: 12px 0 8px; }
+.ew-root h2:focus { outline: 2px solid #0969da; outline-offset: 2px; }
+.ew-root h3 { font-size: 1rem; margin: 0 0 6px; }
+.ew-notice { border: 1px solid #d4a72c; border-left-width: 4px; border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; background: #d4a72c14; }
+.ew-notice p { margin: 4px 0; }
+.ew-status { font-weight: 600; margin: 8px 0; }
+.ew-error { color: #cf222e; font-weight: 600; margin: 8px 0; }
+.ew-muted { opacity: .75; }
+.ew-hint { font-size: 13px; margin: 2px 0 0; }
+.ew-warn { color: #9a6700; font-weight: 600; border-left: 4px solid #d4a72c; padding-left: 8px; }
+.ew-section { border-top: 1px solid #8884; padding: 12px 0 4px; margin-top: 12px; }
+.ew-field { margin: 8px 0; }
+.ew-field label { display: block; font-weight: 600; }
+.ew-root input[type="password"], .ew-root textarea { display: block; width: 100%; box-sizing: border-box; font: inherit; padding: 6px 8px; margin-top: 4px; border-radius: 8px; border: 1px solid #8887; }
+.ew-root [hidden] { display: none !important; }
+.ew-root textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.ew-root button { margin: 6px 6px 6px 0; }
+.ew-root button:focus-visible, .ew-root input:focus-visible, .ew-root textarea:focus-visible, .ew-root a:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+.ew-primary { background: #0969da; color: #fff; border-color: #0969da; }
+.ew-danger { color: #cf222e; border-color: #cf222e; }
+.ew-words { columns: 3 8em; font-family: ui-monospace, monospace; padding-left: 2.2em; margin: 8px 0; }
+.ew-words li { margin: 2px 0; }
+.ew-backup-text { min-height: 8em; }
+.ew-storage { font-size: 13px; margin-top: 12px; }
+.ew-approval { max-width: 640px; width: calc(100% - 32px); border: 1px solid #8888; border-radius: 12px; padding: 16px; }
+.ew-approval::backdrop { background: #0008; }
+.ew-approval-purpose { font-weight: 600; }
+.ew-approval-content { max-height: 260px; }
+.ew-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.ew-actions button { margin: 0; }

@@ -1,0 +1,8 @@
+{
+  "env": "DACS_READBACK_CACHE",
+  "configKey": "readbackCache",
+  "kind": "flag",
+  "default": "0",
+  "deployValue": "0",
+  "operatorNote": "Reuse this purchase's exact verified Agreement inclusion (memory only)."
+}

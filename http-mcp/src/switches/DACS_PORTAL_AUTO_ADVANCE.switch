@@ -1,0 +1,11 @@
+{
+  "env": "DACS_PORTAL_AUTO_ADVANCE",
+  "configKey": "portalAutoAdvance",
+  "kind": "enum",
+  "values": ["off", "on"],
+  "default": "off",
+  "deployValue": "off",
+  "order": 25,
+  "operatorNote": "Buyer purchase page polling and five-minute idle wallet lock (opt-in). Not together with DACS_INTENT_APPROVAL=on: the server refuses the pair.",
+  "contractNote": "on is refused by loadConfig (and createApp) together with DACS_INTENT_APPROVAL=on"
+}

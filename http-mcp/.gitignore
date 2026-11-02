@@ -1,0 +1,11 @@
+node_modules/
+test-results.jsonl
+test-results.jsonl.failures/
+test-results.runner.txt
+.data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.tgz
+!vendor/*.tgz
+.pack-smoke/

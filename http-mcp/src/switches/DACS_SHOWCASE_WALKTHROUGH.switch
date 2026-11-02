@@ -1,0 +1,10 @@
+{
+  "env": "DACS_SHOWCASE_WALKTHROUGH",
+  "configKey": "showcaseWalkthrough",
+  "kind": "enum",
+  "values": ["off", "on"],
+  "default": "off",
+  "deployValue": "off",
+  "order": 40,
+  "operatorNote": "Read-only showcase walkthrough at /portal/showcase/ and its starter tool; no purchase capability."
+}

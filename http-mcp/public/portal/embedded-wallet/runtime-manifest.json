@@ -1,0 +1,142 @@
+{
+  "schema": "dacs-embedded-wallet-runtime-manifest/1",
+  "entry": "demos-runtime.mjs",
+  "runtimeLabel": "upstream-demosdk-4.0.16-browser-bundle",
+  "sdk": {
+    "name": "@kynesyslabs/demosdk",
+    "version": "4.0.16"
+  },
+  "esbuild": "0.25.12",
+  "shippedPackages": [
+    "@kynesyslabs/demosdk@4.0.16",
+    "@noble/hashes@1.8.0",
+    "@noble/hashes@2.4.0",
+    "@noble/post-quantum@0.4.1",
+    "@scure/bip39@2.4.0",
+    "axios@1.20.0",
+    "base64-js@1.5.1",
+    "buffer@6.0.3",
+    "comlink@4.4.2",
+    "falcon-sign@1.0.4",
+    "ieee754@1.2.1",
+    "node-forge@1.4.0",
+    "tlsn-js@0.1.0-alpha.12.0"
+  ],
+  "noticePackages": [
+    "@cryptkeeperzk/ejs@3.1.9",
+    "@cryptkeeperzk/ffjavascript@0.2.59",
+    "@cryptkeeperzk/snarkjs@0.7.2",
+    "@iden3/bigarray@0.0.2",
+    "@iden3/binfileutils@0.0.11",
+    "@kynesyslabs/demosdk@4.0.16",
+    "@noble/hashes@1.8.0",
+    "@noble/hashes@2.4.0",
+    "@noble/post-quantum@0.4.1",
+    "@scure/bip39@2.4.0",
+    "axios@1.20.0",
+    "b4a@1.9.0",
+    "base64-js@1.5.1",
+    "big-integer@1.6.52",
+    "blake2b-wasm@2.4.0",
+    "buffer@6.0.3",
+    "circom_runtime@0.1.23",
+    "comlink@4.4.2",
+    "falcon-sign@1.0.4",
+    "fastfile@0.0.20",
+    "ffjavascript@0.2.59",
+    "ffjavascript@0.2.63",
+    "ieee754@1.2.1",
+    "js-sha3@0.8.0",
+    "nanoassert@2.0.0",
+    "node-forge@1.4.0",
+    "node-seal@5.1.7",
+    "poseidon-lite@0.3.0",
+    "r1csfile@0.0.46",
+    "tlsn-js@0.1.0-alpha.12.0",
+    "wasmbuilder@0.0.16",
+    "wasmcurves@0.2.1",
+    "web-worker@1.5.0"
+  ],
+  "files": [
+    {
+      "path": "demos-runtime.mjs",
+      "bytes": 433454,
+      "sha256": "fe938adbf6b0bc4e6d70bafa3b67afd0a11e58d7b052a18e126c7f8f2be75dcf",
+      "imports": [
+        "runtime-chunks/entry-AVSAFOKW.mjs"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "path": "runtime-chunks/chunk-3UJPRL3I.mjs",
+      "bytes": 28744,
+      "sha256": "b3979c29ee57e4fbf0f4edf342b3ab0304d8f7cc68ebbd1c4948e301225e9676",
+      "imports": [],
+      "dynamicImports": []
+    },
+    {
+      "path": "runtime-chunks/chunk-6EJ2AFTE.mjs",
+      "bytes": 259,
+      "sha256": "0a5be4e92487230395a1aa67549b921754c365ff1ad626de8af6b0833610e84a",
+      "imports": [
+        "runtime-chunks/chunk-3UJPRL3I.mjs"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "path": "runtime-chunks/chunk-7OGVXGZV.mjs",
+      "bytes": 442115,
+      "sha256": "490765d47d1517a38ca9c239a15f02cb81412b1adcd2732dc6ff0ab60773d4cf",
+      "imports": [
+        "runtime-chunks/chunk-3UJPRL3I.mjs",
+        "runtime-chunks/chunk-SSXDWXVZ.mjs"
+      ],
+      "dynamicImports": [
+        "runtime-chunks/chunk-GEQKB2PE.mjs"
+      ]
+    },
+    {
+      "path": "runtime-chunks/chunk-GEQKB2PE.mjs",
+      "bytes": 245,
+      "sha256": "06b8ce0552bcc2596431c81f842d4ce5672a840c421754874203dd96c5521635",
+      "imports": [
+        "runtime-chunks/chunk-3UJPRL3I.mjs",
+        "runtime-chunks/chunk-6EJ2AFTE.mjs"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "path": "runtime-chunks/chunk-SSXDWXVZ.mjs",
+      "bytes": 296,
+      "sha256": "e05b230bff996dc6eff47fbb8c782c77dab46298f84502c20388fcc5000662d1",
+      "imports": [
+        "runtime-chunks/chunk-3UJPRL3I.mjs"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "path": "runtime-chunks/chunk-YUIZVLEY.mjs",
+      "bytes": 78804,
+      "sha256": "1a6aa2ee94c51cc227a0b9ecdacba868b4f3cd6b8db80761a6987f63f45f6b10",
+      "imports": [
+        "runtime-chunks/chunk-3UJPRL3I.mjs",
+        "runtime-chunks/chunk-7OGVXGZV.mjs",
+        "runtime-chunks/chunk-SSXDWXVZ.mjs"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "path": "runtime-chunks/entry-AVSAFOKW.mjs",
+      "bytes": 78522,
+      "sha256": "3fbb64b8f2e65a90ab7334bc0508c624d5c5742106313e39168523dcd340b5f8",
+      "imports": [
+        "runtime-chunks/chunk-3UJPRL3I.mjs",
+        "runtime-chunks/chunk-7OGVXGZV.mjs",
+        "runtime-chunks/chunk-SSXDWXVZ.mjs"
+      ],
+      "dynamicImports": [
+        "runtime-chunks/chunk-YUIZVLEY.mjs"
+      ]
+    }
+  ]
+}

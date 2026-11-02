@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>DACS wallet portal</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/portal/assets/portal.css">
+</head>
+<body>
+  <header>
+    <h1 id="portal-title">DACS wallet portal</h1>
+    <p class="muted"><span id="network-scope">Demos <strong>testnet</strong> only.</span> With the Demos wallet extension, this page never asks for seed phrases or private keys. If you choose the optional experimental embedded wallet, its recovery phrase and password are typed and kept only in this page; they are never sent to ChatGPT, an AI model or the DACS server. Every action is approved in your own wallet.</p>
+  </header>
+  <main>
+    <section id="wallet" class="card">
+      <h2>Wallet</h2>
+      <p id="wallet-status" class="muted" data-state="searching">Looking for a Demos wallet extension…</p>
+      <div id="wallet-setup" hidden>
+        <h3>Set up your Demos wallet</h3>
+        <ol>
+          <li>Install the Demos wallet extension in this browser, or enable it if it is already installed.</li>
+          <li>Open the extension and choose <strong>Create</strong> for a new account, or <strong>Import</strong> for an account you already have. This happens only inside your wallet. On this extension path, this page never asks for your recovery phrase or private key.</li>
+          <li>Come back to this page and select <strong>Check for wallet again</strong>. Then connect, and the portal receives only your public address.</li>
+        </ol>
+        <p id="wallet-network-note" class="muted">This page cannot see which network your wallet uses. Check that it is set to Demos testnet in the wallet itself.</p>
+        <button id="recheck" type="button">Check for wallet again</button>
+      </div>
+      <button id="connect" type="button" disabled>Connect wallet</button>
+      <div id="embedded-choice">
+        <h3>Optional: experimental embedded wallet</h3>
+        <p class="muted">Instead of the extension, you can use a test wallet that runs only in this page. It is experimental, local-only and not security reviewed. Your recovery phrase and password stay in this page and are never sent to ChatGPT, an AI model or the DACS server. By default it supports sign-in and wallet linking only: payments, listing publication and identity changes are not available with it, so use the Demos wallet extension for those. Only a server explicitly set up with a local SIMULATED fixture chain also allows them, and only against that fixture.</p>
+        <button id="use-embedded" type="button">Use the experimental embedded wallet</button>
+      </div>
+      <div id="embedded-panel" hidden>
+        <div id="embedded-wallet" aria-label="Experimental embedded wallet"></div>
+        <button id="use-extension" type="button">Stop using the embedded wallet</button>
+      </div>
+    </section>
+    <section id="flow" class="card">
+      <p class="muted">Loading…</p>
+    </section>
+    <section id="log" class="card" aria-live="polite"></section>
+  </main>
+  <script type="module" src="/portal/assets/portal.js"></script>
+</body>
+</html>

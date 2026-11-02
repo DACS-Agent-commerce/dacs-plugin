@@ -1,0 +1,21 @@
+# Exact secret-scanner exceptions (gitleaks path:rule:line). No wildcards; each entry was reviewed.
+#
+# Generated wallet bundle (node-forge TLS code). The matches are field names such as
+# pre_master_secret and getPrivateKey in library source, not credentials. The file is
+# build output and is not edited by hand.
+http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs:generic-api-key:15
+#
+# Byte-identical copy of the public DACS-Standard conformance vector
+# conformance/vectors/security/listing-preserve-unknown-v0.1.json at Standard commit
+# 4bb9e48a1095ab32c06c25b7c0b52018d3ce4091 (blob 6e64f1110858e005b52b2fe8559810bd41514943).
+# The matches are Ed25519 public keys and signatures of a deterministic test fixture.
+# Editing the file would break its signatures.
+stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:113
+stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:127
+stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:131
+stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:138
+stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:194
+stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:28
+stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:42
+stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:46
+stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:53

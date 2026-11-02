@@ -1,0 +1,81 @@
+{
+  "name": "demos",
+  "displayName": "Demos Network",
+  "version": "0.1.0",
+  "description": "Bring your AI agent to Demos in about five minutes (/demos-onboard), then read chain state, verify DACS receipts, and run human-approved writes (pay, attest identity, accept and pay for offers). Testnet by default; every write is approved by you on a local page.",
+  "author": {
+    "name": "demos-mcp contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "demos",
+    "kynesys",
+    "dacs",
+    "wallet",
+    "mcp",
+    "web3",
+    "identity"
+  ],
+  "userConfig": {
+    "network": {
+      "type": "string",
+      "title": "Network",
+      "description": "testnet (default) or mainnet. Mainnet also needs 'Allow mainnet' and an explicit RPC URL.",
+      "default": "testnet"
+    },
+    "rpc_url": {
+      "type": "string",
+      "title": "RPC URL",
+      "description": "Demos node RPC for read-only use. There is no built-in default.",
+      "default": ""
+    },
+    "allow_mainnet": {
+      "type": "boolean",
+      "title": "Allow mainnet / unlisted RPC writes",
+      "description": "Explicit opt-in for mainnet writes only. Testnet writes are refused in this release.",
+      "default": false
+    },
+    "enable_writes": {
+      "type": "boolean",
+      "title": "Enable wallet writes",
+      "description": "Off by default. When on, transfers, identity attestations and DACS signatures become available. Each one is prepared unsigned and runs only after you approve it on a local approval page (link sent to you out-of-band), with a one-time code as fallback.",
+      "default": false
+    },
+    "keystore_path": {
+      "type": "file",
+      "title": "Encrypted keystore",
+      "description": "Optional. Leave empty to let /demos-onboard create a wallet for you (stored in ~/.demos-mcp, chmod 600). Or point to a keystore made with 'demos-mcp keystore create'. Never paste a mnemonic here.",
+      "default": ""
+    },
+    "keystore_passphrase": {
+      "type": "string",
+      "title": "Keystore passphrase",
+      "description": "Stored in your OS credential store, passed only to the server process.",
+      "sensitive": true
+    },
+    "daily_cap_dem": {
+      "type": "string",
+      "title": "Daily spend cap (DEM)",
+      "description": "Maximum DEM (amount + fees) the server will spend per UTC day.",
+      "default": "10"
+    },
+    "recipient_allowlist": {
+      "type": "string",
+      "title": "Recipient allow-list",
+      "description": "Optional comma-separated Demos addresses; when set, payments to any other address are refused.",
+      "default": ""
+    },
+    "confirm_channels": {
+      "type": "string",
+      "title": "Approval channels",
+      "description": "Where approval links / fallback codes are sent: desktop (also opens the page in your browser), tty, webhook, stderr (comma-separated). desktop or webhook recommended for Claude Code.",
+      "default": "desktop,tty"
+    },
+    "confirm_webhook_url": {
+      "type": "string",
+      "title": "Confirmation webhook (https)",
+      "description": "Optional https URL (e.g. an ntfy.sh topic) that receives confirmation codes on your phone.",
+      "sensitive": true
+    }
+  }
+}

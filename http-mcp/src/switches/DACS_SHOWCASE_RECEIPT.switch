@@ -1,0 +1,10 @@
+{
+  "env": "DACS_SHOWCASE_RECEIPT",
+  "configKey": "showcaseReceipt",
+  "kind": "enum",
+  "values": ["off", "on"],
+  "default": "off",
+  "deployValue": "off",
+  "order": 10,
+  "operatorNote": "Owner-scoped historical receipt/evidence projection (server module only)."
+}

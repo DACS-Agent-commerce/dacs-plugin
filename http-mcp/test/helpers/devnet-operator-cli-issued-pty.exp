@@ -1,0 +1,16 @@
+#!/usr/bin/expect -f
+log_user 1
+set timeout -1
+if {[llength $argv] == 0} {
+  puts stderr "usage: devnet-operator-cli-issued-pty.exp command ?args...?"
+  exit 64
+}
+spawn -noecho {*}$argv
+set child $spawn_id
+interact
+set status [wait -i $child]
+puts "\nDACS_TEST_PTY_WAIT [join $status {|}]"
+if {[llength $status] >= 5 && [lindex $status 4] eq "CHILDKILLED"} {
+  exit 0
+}
+exit [lindex $status 3]

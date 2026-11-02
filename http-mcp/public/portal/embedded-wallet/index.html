@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>DACS embedded wallet (experimental)</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="../portal.css">
+  <link rel="stylesheet" href="./embedded-wallet.css">
+</head>
+<body>
+  <header>
+    <h1>DACS embedded wallet <span class="ew-badge">Experimental</span></h1>
+    <p class="muted">A local-only test wallet that runs in this page. From this page it never contacts any network (not Demos testnet, not a fixture chain). No live transactions. Not security reviewed.</p>
+  </header>
+  <main id="embedded-wallet" class="card" data-vault-store="indexeddb" aria-label="Embedded wallet">
+    <p class="muted">Loading the experimental wallet…</p>
+    <noscript><p>This wallet needs JavaScript. Nothing is stored or sent without it.</p></noscript>
+  </main>
+  <!-- main.mjs imports ./ui.mjs, then ./sdk-provider.mjs and ./demos-runtime.mjs on first use. All local; no CDN. -->
+  <script type="module" src="./main.mjs"></script>
+</body>
+</html>

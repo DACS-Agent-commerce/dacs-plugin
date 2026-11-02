@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DACS showcase: start</title>
+<link rel="stylesheet" href="showcase.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <p class="brand">DACS showcase</p>
+  <nav aria-label="Showcase pages">
+    <ul>
+      <li><a href="./" aria-current="page">Start</a></li>
+      <li><a href="walkthrough.html">Walkthrough</a></li>
+      <li><a href="beyond-fixed-price.html">Beyond fixed price</a></li>
+    </ul>
+  </nav>
+  <p class="scope" role="note">Read-only. Nothing on these pages can sign, pay or buy, and every example is illustrative, not a real transaction.</p>
+</header>
+<main id="main">
+  <h1>See how an agent buys a service with DACS</h1>
+  <p class="lead">DACS is an open standard for agent commerce in five stages: Identify, Vet, Negotiate, Settle and Verify. This app can run one of its purchase types, a fixed-price report paid in DEM on the Demos testnet, on servers whose operator has set up live purchases. You have two ways to see it.</p>
+
+  <div class="choices">
+    <section class="choice" data-choice="walkthrough" aria-labelledby="choice-walkthrough">
+      <h2 id="choice-walkthrough">1. Walk through a purchase (read-only)</h2>
+      <p>Follow one fixed-price purchase stage by stage, with an illustrative receipt.</p>
+      <ul>
+        <li>No sign-in, wallet or testnet DEM needed.</li>
+        <li>Illustrative only: it cannot buy anything, and its examples are not real transactions.</li>
+      </ul>
+      <p><a href="walkthrough.html">Start the walkthrough</a></p>
+    </section>
+
+    <section class="choice" data-choice="live-testnet-purchase" aria-labelledby="choice-live">
+      <h2 id="choice-live">2. Make a live testnet purchase</h2>
+      <p>Where this server offers live purchases, start the seller's demonstration purchase in ChatGPT, with real Demos testnet transactions. The shipped composition stops before payment while independent commitment finality is unavailable.</p>
+      <ul>
+        <li>Not every server offers this. Ask ChatGPT to start the DACS showcase: it tells you whether this server has the live purchase setup, but not whether your account may buy.</li>
+        <li>Start it in ChatGPT with the DACS app, not on this page. This page cannot start a purchase.</li>
+        <li>You need to sign in to the DACS app, set up a wallet in its portal, and hold enough testnet DEM for the price and transaction fees.</li>
+        <li>You approve each buyer-side signature and transaction in your wallet. Testnet DEM only; never mainnet.</li>
+        <li>The operator decides which accounts may buy and may admit only its own test accounts. A purchase can also wait for the seller's approval.</li>
+      </ul>
+    </section>
+  </div>
+
+  <h2>What "verified" means here</h2>
+  <p>The app checks what one Demos testnet node reports: that a signed record exists and matches, or that a payment was included. That is not a finality proof or an independent audit, and it says nothing about the seller's business identity or the quality of the service. The shipped live testnet flow holds before payment because independent finality of the seller commitment is not established. Earlier Agreement and seller records can already be on the testnet. Verify is also pending: a composition that later passes the finality gate can show a report with the completion audit pending in this profile.</p>
+</main>
+<footer>
+  <p>Read-only showcase pages. They make no requests to the app's purchase, wallet or account services.</p>
+</footer>
+</body>
+</html>

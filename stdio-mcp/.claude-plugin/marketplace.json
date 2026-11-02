@@ -1,0 +1,13 @@
+{
+  "name": "demos-mcp",
+  "owner": { "name": "demos-mcp contributors" },
+  "description": "Demos Network MCP server and Claude Code plugin",
+  "plugins": [
+    {
+      "name": "demos",
+      "source": "./",
+      "description": "Demos Network wallet, identity and DACS commerce tools with human-confirmed writes",
+      "category": "development"
+    }
+  ]
+}

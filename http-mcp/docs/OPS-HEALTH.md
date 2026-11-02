@@ -1,0 +1,155 @@
+# Operator health report
+
+Run from `http-mcp/` with Node 22. The npm package exposes `dacs-ops-health`; both container layouts ship `/app/bin/dacs-ops-health.mjs`. The source checkout also retains `scripts/ops-health.mjs` as a compatibility wrapper. Nothing runs automatically: this CLI is opt-in, with no server configuration, MCP tool or portal change.
+
+```sh
+node bin/dacs-ops-health.mjs
+node bin/dacs-ops-health.mjs --json
+node bin/dacs-ops-health.mjs --data-dir /srv/dacs/state/app
+node bin/dacs-ops-health.mjs --operator-config /srv/dacs/operator.json --json
+```
+
+`--operator-config` reads only the operator config, using `stateDirectory` for paths; it never follows custody paths. Alternatively, use `--operator-state /srv/dacs/state`; its database defaults to `app/dacs-chatgpt.sqlite`. This selects the three historical public journals for read-only inspection of previously issued effects. It does not select the seller approval ledger. Without a selected operator directory the seller sections are unavailable. Missing optional journals are explicitly reported; malformed present state is an error. Only real absence is optional: a dangling selected journal link, or an absent journal whose `-wal`, `-shm` or `-journal` file remains, exits 2.
+
+`--database FILE` selects a database directly. When seller state is selected, the database must resolve to exactly `app/dacs-chatgpt.sqlite` in that operator directory (the name the operator's app opens), and `app/` must be a real directory, not a link. An `app/` link to another service, a renamed database, or mixed service roots fail with exit 2. Otherwise `DACS_DATABASE_PATH`, then the selected data directory's `dacs-chatgpt.sqlite`, are used. The data directory is `--data-dir`, the operator directory's `app/`, `DACS_DATA_DIR`, or `.data` in that order. The CLI does not load `.env` files: export these variables or pass flags. V2 no longer reports seller policy limits, budget usage or in-flight policy preparations.
+
+Run as a user who can read the live database, its WAL and the selected journals while the server runs. The command opens SQLite with the driver's `readOnly: true` flag and `query_only`, without calling store initializers, migrating or taking operator locks. SQLite normally changes live SHM reader metadata even with `readOnly`. To preserve **all** live bytes, the command reads DB/WAL bytes twice, refuses a changing pair, and opens a private temporary copy. Each selected database is validated as one file set before anything is copied or swept: database symlinks are followed to the real file, whose `-wal`, `-shm` and `-journal` sidecars must be regular files (sidecar links are refused, exit 2). A sidecar left under any other name the database is reached through (such as a renamed database's WAL at its old name), SHM without WAL in a WAL-mode database, a rollback journal, or WAL/SHM beside a database not in WAL mode all exit 2. Names, inodes and sidecar existence are checked again after the copy is written; any change exits 2. Only scratch copies/SHM are written, in a mode-0700 temporary directory with mode-0600 copies, removed on completion, process exit, SIGINT and SIGTERM. `TMPDIR` must resolve outside every selected state directory (including symlink targets); overlap returns exit 2. Scratch needs room for the database plus its WAL and SHM; the Compose deployment's `/tmp` is only 16 MB, so see [deploy/README.md](../deploy/README.md#persistent-data) for pointing `TMPDIR` at a separate writable mount. After SIGKILL or a crash, the next run using the same temporary root sweeps only private, same-user CLI directories with matching ownership markers, dead PIDs and recognized regular files. Live PIDs, links and unrecognized files are retained. Live database, WAL, SHM, journal and evidence files are never changed or locked. There is no chain read or network call. An actively changing file can cause exit 2; run the command again. Different databases are independent snapshots, not one atomic cross-store view.
+
+## Reading the output
+
+- `HEALTHY` means no purchase exceeds its threshold, no purchase's attempt history leaves a write unresolved, no possible seller Vet write is left unread (see [Seller Vet writes](#seller-vet-writes-need-the-seller-journal)), no selected seller journal retains an unresolved write, and no open legacy publication remains. `STUCK` means at least one does. Exit **0** is healthy, **1** needs attention, **2** means state/options could not be read safely. Errors are fixed text, including with `--json`; raw paths, parser errors or stored fields are never printed.
+- `purchase` gives its ID, effective stage, age in milliseconds and outcome: `recorded`, `not-sent` (the last attempt was refused locally before dispatch), `unknown-readback-required` (an unresolved write, see below), `seller-journal-not-read` or `seller-journal-checked` (the Agreement-context provider may have written seller Vet records, see below), or `unresolved-read` (the last recorded attempt was `indeterminate` or `unknown` but is not a write; it is a notice only and never changes the exit code), or `operator-action-required` (with `DACS_BUYER_CHAIN_READBACK=on`, a final purchase that can no longer obtain the signed CREATE bytes its chain readback needs, `state.protocol.chainReadbackHeld`; it is `stuck` at once and keeps its verified result, and it stays `operator-action-required` when its last attempt was not sent; see `SELLER-SESSION-DELEGATION.md`). The JSON also lists the purchase's `unresolvedWrites` steps. A trusted local refusal adds `lastAttemptDispatched: false` to JSON and ` last-attempt=not-sent` to text. A not-sent attempt never resolves an earlier unknown write; that purchase keeps `unknown-readback-required`. Timelines default to the 100 most recently created purchases updated within 24 hours. `--limit N` (1–10000) and `--recent-hours N` change display only; **all purchases are checked for stuck stages**, including older ones.
+- Indented timeline lines show UTC timestamp, `gapMs` since the preceding recorded stage, and the lane: `purchase` for payment status, `protocol` for DACS stages. Both are retained because payment settlement alone does not complete delivery. Repeated same-stage polls are collapsed and never reset stage age. Initial protocol `identity` is inferred at the recorded creation event, matching the existing purchase initializer. If a current stage lacks an entry event, its age falls back to `updated_at`.
+- `--log /path/to/server.log` adds `stage-change` entries from the existing `purchase_step` / `purchase_timeline` parser. They are labelled `log` / `server-log`, can overlap database entries, and do not change stuck decisions. A log is optional because the database does not retain every wallet/broadcast timing. Arbitrary log fields and payloads are discarded.
+- `stuck` includes ID, stage, age, threshold, `writes=` with the unresolved write steps (when there are any) and the next expected event. `unknown-readback-required` always means original-write readback, **never failure or permission to resend**. Human approval stages can be idle intentionally. `delivery-ready`, `delivered` and other held profiles may intentionally defer later protocol events: the alert describes retained progress, without enabling those events.
+- `seller readback` shows each unresolved journal record's source, hashed record ID, optional transaction hash, stage and required readback. Multiple rows may represent the **same** write in artifact, wallet and transport journals; they are not a count of unique broadcasts. Intent, issued, unknown, broadcast and SR-2 handoff/authorization stages remain unresolved; a source transport record clears at `observed`, an artifact/adapter at `verified`, and a wallet lane (`demo/wallet/` in the artifact journal or `sr2/wallet/` in the wallet journal) at `broadcast-accepted` after readback. `prepared` and `denied` are not issued writes. These unresolved records fence the seller's next write under the one-unconfirmed-write rule, so they cause exit 1 immediately (even during ordinary short-lived inclusion waits). No stage-entry time is retained uniformly in these journals.
+- Transport records are attributed by public seller addresses in purchase terms and seller journals; only explicitly known buyer wallets from purchase terms in this operator's own bound database are excluded (another service's purchases can never be read in its place). Every pending transport owner that is neither a known seller nor a known buyer (including missing owners) fails closed with exit 2. Absent journals are not evidence of confirmed writes.
+- The source transport journal also keeps three per-payer records with no stage for the native payment cancel/send exclusion: `devnet/cancelled-payments/` (a cancelled payment's settlement terms), `devnet/transfer-claims/` (the transfers signature leases have claimed) and `devnet/refused-transfers/` (the transfers refused for a cancelled payment's terms). They hold no hash or signed transaction, so they are not issued writes and are not listed. Each is accepted only in the exact shape `src/wallet/devnet-native-transport.mjs` writes it (one claim per lease; one refusal per payload, that is its terms and payload digest, and at most 64), on a `[network, chainIdentity, wallet]` lane that is a purchase's own in this database (its terms' `domain.network`, `domain.chainIdentity` and buyer wallet), and a cancellation only when it names a purchase on that lane. Any other key or shape under these prefixes, a lane on another network or chain or for any other wallet, a cancellation of any other purchase, or such a record in a seller journal exits 2.
+- A wallet-Agreement purchase on the source broker also leaves its buyer's browser Agreement CREATE handoff in the source transport journal once its CREATE is requested (a purchase cancelled or expired before then leaves none): `devnet-browser-agreement/create/<purchase>`, at `completed` once the CREATE was accepted. It holds only the unsigned CREATE request; the signed CREATE is the buyer's own `sr2/wallet/` lane record, and the purchase's Agreement attempts keep its outcome, so it is not an issued write and is not listed. It is accepted only as its producer (`src/portal/devnet-agreement-transport-broker.mjs`) writes it: keyed to a purchase in this database, with that purchase's account, buyer wallet, terms hash, job, planned Agreement hash and network in its binding; the exact envelope, binding and request, including the request's `profile` and the job's Agreement `logicalAddress`, whose one transaction is the unsigned storage CREATE of that purchase's Agreement (the planned Agreement with its content and envelope hashes, byte for byte the Agreement the purchase retained for its wallet CREATE, signatures included, since the content hash leaves signatures out; at its derived storage address, from the buyer wallet, on the purchase's network and chain identity, bound to its transport); one of the producer's six stages (`queued`, `issued-to-browser`, `expired`, `completed`, `uncertain`, `denied`), each of which it can leave at rest; `transactionHash` only at `completed` and `uncertain`, where it is required; `errorCode` (non-empty, at most 80 characters) only at `uncertain` and `denied`, where it is optional. Any other key, stage or shape under that prefix, a purchase that is not in this database, or any other account, wallet, job, Agreement, network, chain or transport exits 2. A seller journal gets no such recognition: there, as before, such a record exits 2 at every stage but `denied`, a known journal stage.
+- Two more buyer records stay at rest in the source transport journal at a stage no seller journal uses; neither is an issued write or listed. `failed`: the buyer's native transfer read back as failed at its saved nonce fence, or with its nonce consumed by another transfer (`src/wallet/devnet-native-transport.mjs` readback), kept under `devnet/native-transfer/<hash>` and on the buyer's `devnet/native-wallet/` lane; it is resolved and never resent, as an `observed` transfer is. `denied-unsigned`: the purchase's Agreement CREATE plan under `sr2/adapter/<plan>`, retired after the wallet's denial once no signed record, no program of its name and an unconsumed nonce proved it unsent (`src/dacs/demos-sr2-adapter.mjs` retireDeniedHandoff, run by the broker's resume for a `denied` handoff). A failed record must retain the signed native-send body, a matching SHA-256 hash of its JSON content, and a valid Ed25519 signature by its sender. A denied plan must retain the exact unsigned CREATE validated above, matching descriptor metadata, nonce, program name and derived address, and the producer-derived scope, plan ID and authorization message (hashed before the handoff adds network and chain identity); its next nonce must remain a safe integer. Each is accepted only in its producer's exact shape, for the buyer wallet of a purchase in this database on that purchase's network and chain identity (and a denied plan only for that purchase's job and the Agreement it retained). Any other shape at these stages, one for another wallet, network, chain, job or Agreement, or either in a seller journal exits 2. The denied purchase's wallet CREATE intent still has no resolving readback, so that purchase itself shows `unknown-readback-required` (exit 1).
+
+Output contains only IDs, hashes, recognized stages, timestamps, counts, amounts and fixed explanatory text. Full signed transactions, approval bytes, report contents, keys, session material, tokens and cookies are never projected.
+
+## Thresholds
+
+Alerts fire strictly **after** the threshold, not at equality. Override any active stage with repeated `--threshold STAGE=SECONDS` flags (positive integer seconds), for example:
+
+```sh
+node bin/dacs-ops-health.mjs --operator-state /srv/dacs/state \
+  --threshold agreement-anchored=600 --threshold payment_uncertain=120
+```
+
+| Default | Stages | Reason |
+| --- | --- | --- |
+| 30 min | `identity`, `committed`, `seller-committed`, `awaiting_approval`, `awaiting-countersignature` | Human review and wallet approvals; aligns with the existing payment approval window. |
+| 10 min | `agreement_pending`, `agreement-signing`, `delivery-ready`, `delivered` | Multi-party Agreement review/publication or deliberately deferred completion. |
+| 5 min | `agreement-anchored`, `approved`, `payment_handoff`, `broadcast_reported`, `payment_uncertain`, `unknown`, `payment-observed`, `awaiting-claim`, `native-payment-evidence-held`, `payment-evidenced` | Exceeds the current 240-second seller request timeout and allows multiple block/readback intervals. |
+
+Elapsed `awaiting_approval` and `agreement_pending` windows are reported as `expired` without persisting a transition, matching `createPurchaseService().status()`. Other statuses retain their readback requirements. Expiry changes only the displayed stage; unresolved writes are judged from the attempt history, below. Cancelled, expired, superseded, changed/withdrawn listing, rejected and completed stages are terminal. Legacy `settled_verified` is terminal; a DACS purchase with unfinished protocol state continues to be checked. Unsupported schema versions, unknown stage labels, corrupt journal digests, invalid timestamps and malformed selected journal records fail closed with exit 2.
+
+## Unresolved writes: the attempt table
+
+Each protocol step that `protocol-purchases.mjs` records with `note()` appends an attempt to the purchase and a `protocol_<step>` event carrying its outcome. The CLI classifies the **whole** event history, plus the stored last-ten attempts, against an explicit table (`ATTEMPT_EFFECTS` in `src/ops/health.mjs`, one row per `(step, outcome)` pair the code can record, each citing its `note()` line). Each pair is one of:
+
+- **write, possibly issued and unresolved.** The call may have made a write, or asked the seller to, and its outcome is unknown: the wallet Agreement CREATE intent (below), `agreement`/`indeterminate`, `commit-request`/`unavailable` (`seller.commit()` lost its answer), `claim`/`unavailable`, `accepted`, `indeterminate` or any other seller status (the seller says it wrote payment evidence, or answered without delivering), the buyer copy intent (below), `buyer-copy`/`unavailable`, `absent` or `rejected` (the buyer copy write was sent once and has not been read back), `seller-copy`/`unavailable` and `native-evidence`/`held`.
+- **resolves** earlier unresolved writes of named steps only, by a verified readback or anchor receipt: `agreement`/`anchored` → `agreement` and the wallet CREATE intent; `commitment`/`verified` → `commit-request`; `payment-evidence`/`verified` → `claim`; `buyer-copy`/`anchored` (an authenticated readback of the buyer copy) → `buyer-copy`; `seller-copy`/`verified` → `seller-copy`; `native-evidence`/`verified-fixture-native-read`, and `delivery`/`verified` or `rejected` (recorded only after the native evidence read back present) → `native-evidence`.
+- **neither:** refusals, reads that are not there yet or failed, rejections, local checks, the bundle request and the seller's read-only buyer-copy confirmation. These resolve nothing.
+
+**Write intents.** Some writes are retained before they are issued, with no attempt until the write answers. The wallet Agreement path saves a `protocol_wallet_anchor_intent` event (and the retained CREATE) before the one-shot wallet anchor. The CLI replays it in order with the attempts (`INTENT_EFFECTS` in `src/ops/health.mjs`) as an unresolved `wallet-anchor` write, so a process that stopped after the intent, before any attempt, still alerts. Only `protocol_wallet_anchor_not_issued` (the fresh intent was withdrawn before anything was sent) or a later `agreement`/`anchored` clears it; a rejection, a wait or any other readback does not. Likewise, the buyer's counter-signature is saved with a `protocol_buyer_copy_intent` event before the one buyer copy write, which is never sent again. It is an unresolved `buyer-copy` write until a `buyer-copy`/`anchored` readback. A purchase, at any stage, with a saved counter-signature whose copy is not marked as read back is also an unresolved `buyer-copy` write: older code saved the copy reference from the write acknowledgement. On a completed or counter-signing purchase the purchase flow shows it as awaiting the readback, and a re-check (`verify_deal`) reads the copy back. A `bundle-rejected` purchase is never re-checked, so its alert cannot clear. For such a purchase, read the buyer copy at its canonical address (`bundleAddress(jobId, 'buyer')`) on the anchor substrate and check it against the purchase's bundle hash. If it is there, the write was applied. If it is absent, the write was not applied, and the purchase is rejected anyway. Either way, never resend the copy.
+
+**Checks that were not saved.** Purchase state is saved with a revision check: a check that read an older revision saves nothing, and its event is logged as `protocol_check_not_saved`, with the event it would have saved under `data.event` and that event's data (an attempt's outcome) beside it. The CLI replays it in order: a write or possible Vet write it made still alerts, but its readbacks resolve nothing, because nothing of the check was saved. A check is not saved only because another check saved first, so its write can be logged after that check's saved readback, which is not recorded again. Each such write targets the one canonical address of its step for the job. So a saved resolving readback of the same step (for example `commitment`/`verified` for `commit-request`) settles it, wherever it is in the log. A write with no saved resolving readback still alerts. A not-saved write intent, or any other not-saved event, sent nothing (the write follows only a saved intent). Its stage never enters the timeline. A not-saved event the CLI cannot classify exits 2.
+
+**Attempts on a cancelled or expired purchase.** If a purchase is cancelled, or its expiry is persisted, while a step's call is in flight, the attempt can no longer be saved on the purchase. Its `protocol_<step>` event is still written, so the CLI sees the write. The same holds for the Agreement-context provider read: when it answers anything but `present` and the purchase changed, or its approval window elapsed, during the read, its `protocol_agreement-context` event is written before the plan is refused. The purchase itself behaves as before (same error, status and stored attempts). Such an attempt is settled by a saved resolving readback in the same way as a not-saved check.
+
+A saved write stays unresolved across any number of later attempts (including attempts that scrolled out of the stored ten) until a resolving attempt comes after it. While it is unresolved, its purchase is `stuck` with `unknown-readback-required` and `writes=<steps>` immediately (`thresholdMs=0`), on any stage, whether fresh, expired, cancelled or completed, logically or as persisted. A pair that is not in the table, a missing or non-string step, a missing outcome, or a malformed stored attempt cannot be classified and exits 2. Round-3 behaviour is kept for a missing Agreement-context provider (nothing planned or signed) and for a seller confirmation without a status on a completed purchase: both stay `HEALTHY` (`unresolved-read`). Payment stages (`payment_uncertain`, `unknown`) keep their stage thresholds, as before.
+
+### Seller Vet writes need the seller journal
+
+Local journals describe the selected in-process seller composition or retained historical effects. Keep unresolved writes visible until their original readback resolves them.
+
+`agreement-context` is not always a read. In the devnet composition the Agreement-context provider publishes the buyer's and seller's Vet records through the seller's wallet before it answers. Those writes are only visible through seller readback, which this CLI does through the seller artifact journal (`seller-artifacts.sqlite`, which journals `intent` before every write). An `agreement-context` attempt is therefore a possible seller Vet write unless it carries the structured `written: false` mark. Only the consumer sets that mark, and only when no provider is configured, so none was invoked. Nothing an invoked provider answers or throws can set it: a provider that failed before its first publish is still a possible write, because only the provider's own code could say so. An answer or thrown value the consumer cannot read (for example, one whose properties throw when read) is recorded as an `indeterminate` attempt like any other provider failure, never as a server error with no attempt. The consumer reads each field of an answer once, so a property that returns a different value on each read cannot pass its checks with one value and reach the result with another: the first value it returned decides. A result that is not a usable `present` answer is always held as `absent`, `rejected` or `indeterminate`. Reason text (including `CONTEXT_PROVIDER_UNAVAILABLE:`) and error codes come from the provider, or from code downstream of it, and never count. Attempts recorded before this mark existed are treated as possible writes.
+
+- With `--database` alone, or with operator state that has no `seller-artifacts.sqlite`, such a purchase is `stuck` with `seller-journal-not-read` and `seller Vet write readback: rerun with --operator-state …; never resend`, the report says `seller journals: not selected` (or lists what was found), and the exit code is 1. It never clears from the database alone.
+- With `--operator-state` and the seller artifact journal present, the journal decides. A retained Vet `intent`/`issued`/`unknown` row appears under `seller readback` and exits 1. Once the journal shows the write `verified` (or `denied`), the purchase is `seller-journal-checked` and does not alert.
+- The party Vet store (`seller-party-vet.sqlite`) is not read. It holds the provider's per-job binding, written-ahead signing bytes and signatures, none of which is a chain write until the anchor journals its `intent` in `seller-artifacts.sqlite`. A plan refused as `legacy_party_vet_state_missing` is an `agreement-context` `rejected` attempt with no mark, so it is handled like any other possible Vet write above. The store's capacity is reported by `GET /health` (`dependencies.partyVetStore`), not by this CLI.
+
+Seller policy budgets and balance are outside this CLI. The in-process seller still enforces its policy; this command no longer displays its budget. This CLI reports local purchase state and selected journal records only.
+
+## V2 health signals
+
+Kept: liveness/configuration, read-only snapshot fencing, purchase stages and
+age thresholds, timelines, structured transport causes, unknown payment and
+unresolved-write alerts, operator-action holds, buyer transport-journal
+validation and historical issued-effect readback. Unknown outcomes still
+require original readback and never permit resend.
+
+Dropped: seller approval mode, policy limits source, rolling-hour approval
+count/DEM budget and its near/at/over status, and the excluded in-flight
+preparation estimate. These describe the in-process seller policy, which v2 health no longer reads.
+The ops-health module no longer imports `src/devnet-demo/*` or reads its approval ledger.
+
+## JSON contract v2 and legacy publications
+
+Success and error envelopes now identify `dacs-ops-health/v2`. Consumers must
+migrate from v1: `seller.policyMode`, `seller.limitsSource` and `seller.budget`
+were removed. `seller.journals` and `seller.unconfirmed` remain.
+
+`legacyPublications` lists every `listing_publication` in `publication_handoff`,
+`broadcast_reported` or `publication_uncertain`, and every `cancelled` one with a
+saved handoff that no readback has verified (its write can still land after
+the cancel), once its five-minute readback
+window has elapsed, regardless of expiry or purchase display limits. Fresh
+publications are normal work in progress. All publication IDs and statuses are
+validated, including terminal rows. Unknown labels exit 2.
+Only handoff and broadcast-reported rows reserve the wallet lane; uncertain
+rows do not guarantee a fence. Every row's window starts at its saved handoff,
+so changing status does not restart the window.
+Overdue open publications make health unhealthy and exit **1**. Cancelled
+publications remain visible as informational history and do not affect
+`healthy` or the exit code. An ordinary cancellation can leave a write that
+will never land, so it must not keep health failed permanently. Stuck purchases,
+unresolved seller writes and other open publications still fail health.
+This command reads local state only, so it cannot prove that another
+transaction consumed a cancelled publication's nonce (a settling body signed by
+an alternate key leaves the wallet's nonce free). It therefore never clears
+that history on inference: a cancelled handoff whose write never lands stays
+listed until a readback verifies it.
+For builds that still serve publication, use `verify_agent_publication` or the
+portal verify route for original readback. After publication retirement, use
+the preserved-v1 procedure below. Never prepare a new handoff or re-publish.
+
+For an unsent v1 publication, its owner can use v2 `cancel_wallet_handoff` with the saved `pub_` operation ID and `dacs.agents.write`. It cancels only a pre-send state whose wallet nonce still equals the saved fence, preserving the original coordinates. This releases the wallet for purchases and identity actions without sending anything. Reported, uncertain or nonce-advanced writes require the operator readback below; never resend or re-publish.
+
+### Recover an open v1 publication (readback only)
+
+The operator owns recovery. Keep the seller service stopped, stop v2, and take
+a consistent backup of its database and journals before opening the same state
+with the preserved v1 code, which the operator keeps separately.
+V1 and this v2 use the same `meta.schema_version = 2` and unchanged database,
+operation and coordinate stores. This is not a downgrade procedure for a
+different schema: stop if the version differs. Never run both services against
+the state concurrently.
+
+Use the v1 HTTP MCP service with the publication owner's existing account and
+`dacs.agents.write` scope. For the saved agent ID, issue only this MCP request
+(there is no standalone publication-recovery CLI):
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"verify_agent_publication","arguments":{"agentId":"<saved agent ID>"}}}
+```
+
+This reads the original saved storage address and checks its owner and exact
+signed Listing bytes. It sends no transaction, signature or registration;
+it **does** persist local observations and publication status. Never prepare
+a new handoff, resend, re-publish, delete rows or remove nonce reservations.
+An absent/unavailable readback leaves the publication listed; open rows keep
+their health alert. Retry only the readback later. Investigate a mismatch before
+further wallet use. After a verified readback records `chain_verified`, stop v1, restart v2,
+and run `node bin/dacs-ops-health.mjs --data-dir /srv/dacs/state/app --json`
+against the recovered state. The operator confirms that the publication has
+left `legacyPublications`; health clears that alert from persisted evidence,
+without a manual alert reset. Retain the backup and recovery evidence.
+
+Launcher and VPS pane retirement is separate from this health change.
+Where those entrypoints refuse startup, keep the legacy service stopped.
+Never run a second service against state being recovered with preserved v1 code.

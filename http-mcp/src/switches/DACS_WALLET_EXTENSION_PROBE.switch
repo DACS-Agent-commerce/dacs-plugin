@@ -1,0 +1,9 @@
+{
+  "env": "DACS_WALLET_EXTENSION_PROBE",
+  "configKey": "walletExtensionProbe",
+  "kind": "flag",
+  "default": "0",
+  "deployValue": null,
+  "operatorNote": "Owner-run discovery and sign-only page at /portal/wallet-extension-probe. Built-in sign-in only: with DACS_AUTH_MODE=external every probe path is refused. No confirm, broadcast or extension purchase payment is available. Needs DACS_WALLET_EXTENSION_PROBE_OWNER_ACCOUNT; unset keeps probes hidden.",
+  "contractNote": "Owner-run portal discovery and sign-only probes; never enables extension purchases"
+}

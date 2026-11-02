@@ -1,0 +1,9 @@
+[
+  {
+    "file": "test/devnet-operator-seller-disposition-prefixed.test.mjs",
+    "test": "one same-process API workflow exposes genuine first seller failure and later read-only reconciliation disposition without resend",
+    "reason": "Recorded in the source repository: the seller-disposition assertion observed 7 CREATEs instead of 5, with one payment. The test file cannot load in this repository, so this entry excuses nothing here.",
+    "class": "main-defect",
+    "expect": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  {\n+   creates: 7,\n-   creates: 5,\n    payments: 1\n  }\n"
+  }
+]

@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:,">
+<title>DACS offline tester dashboard (SIMULATED)</title>
+<link rel="stylesheet" href="/tester/dashboard.css">
+<script type="module" src="/tester/dashboard.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to steps</a>
+<header class="banner" role="banner">
+  <p class="banner-title"><strong>SIMULATED ONLY</strong></p>
+  <p>No real funds. Not Demos testnet. Not ChatGPT. Not security reviewed. A fixture receipt is not settlement.</p>
+</header>
+<main id="main" tabindex="-1">
+  <h1>DACS offline tester dashboard</h1>
+  <p>Listing publication is unavailable in this plugin. A separate seller kit is coming; it has not been released. Contact the operator about existing v1 publications.</p>
+  <p class="lede">Work through the steps in order. Each button calls the plugin the same way an MCP client would. You approve everything yourself in the existing wallet and portal pages; this page never asks for your password, recovery phrase or backup.</p>
+  <p id="live" class="sr-only" role="status" aria-live="polite"></p>
+  <p id="restart-notice" class="alert" role="alert" hidden>The offline launcher was restarted since this page last loaded. Every launcher start is a fresh run: earlier sign-ins, listings, purchases and identities are gone. Start again from step 1 (wallets you created in your browser still exist, but are no longer signed in).</p>
+  <p id="offline-notice" class="alert" role="alert" hidden>This page cannot reach the offline launcher. If you stopped it (Ctrl-C), start it again and reload this page; a new start is a fresh run with empty state.</p>
+
+  <nav id="steps-nav" aria-label="Tester steps">
+    <h2 class="nav-title">Steps</h2>
+    <ol>
+      <li><a href="#start">1 Start: throwaway wallets</a></li>
+      <li><a href="#sign-in">2 Buyer sign-in</a></li>
+      <li><a href="#listing">3 Find and verify a service</a></li>
+      <li><a href="#purchase">4 Simulated purchase</a></li>
+      <li><a href="#identity">5 GitHub and Twitter identities</a></li>
+      <li><a href="#checklist">6 Manual checks</a></li>
+      <li><a href="#feedback">7 Feedback export</a></li>
+      <li><a href="#evidence">8 Evidence download</a></li>
+      <li><a href="#help">Help and recovery</a></li>
+    </ol>
+    <p class="next-step">Suggested next: <a id="next-step-link" href="#start">1 Start</a></p>
+  </nav>
+
+  <section id="resume" class="resume" aria-labelledby="resume-h" tabindex="-1" hidden>
+    <h2 id="resume-h">Unfinished steps</h2>
+    <p>These were started but are not finished. Reloading this page never repeats them; follow the hint to continue or cancel.</p>
+    <ul id="resume-list"></ul>
+  </section>
+
+  <section id="start" aria-labelledby="start-h" tabindex="-1">
+    <h2 id="start-h"><span class="num">1</span> Start: create a throwaway wallet</h2>
+    <dl class="facts">
+      <dt>Plugin</dt><dd id="health-status">Checking…</dd>
+      <dt>Evidence</dt><dd id="evidence-label">simulated-fixture (local fixtures only)</dd>
+      <dt>Run</dt><dd id="run-id" class="mono">—</dd>
+    </dl>
+    <p>Open the built-in wallet page and create a <strong>throwaway</strong> wallet. Set its password and write down its recovery phrase <em>there</em>. Use it only for this test. No browser extension is needed.</p>
+    <p><a id="wallet-link" class="button-link" target="_blank" rel="noopener noreferrer" href="#">Open the built-in wallet page</a></p>
+    <p class="note">Use a throwaway buyer wallet. The seller and baseline listing are supplied by the local fixture.</p>
+  </section>
+
+  <section id="sign-in" aria-labelledby="sign-in-h" tabindex="-1">
+    <h2 id="sign-in-h"><span class="num">2</span> Sign in</h2>
+    <p>Buyer sign-in. Signs in through the plugin's normal OAuth portal. In the portal, choose the experimental embedded wallet, unlock it, connect it and approve the <code>account-login</code> request. Declining there is fine: nothing is linked. Use your throwaway buyer wallet; the fixture supplies the seller.</p>
+    <div class="actions">
+      <button type="button" data-action="sign-in">Sign in</button>
+      <button type="button" data-action="restart-sign-in" class="secondary" hidden>Start sign-in again</button>
+      <button type="button" data-action="refresh-account" class="secondary" hidden>Refresh account</button>
+      <button type="button" data-action="buyer-start-over" class="secondary" hidden>Start over as a new buyer</button>
+    </div>
+    <p id="sign-in-status" class="status">Not signed in.</p>
+    <p id="buyer-wallet-hint" class="hint">Your built-in wallet is stored in this browser profile. Keep using the same browser window for the whole run. Lost it (new window or profile, cleared site data)? Press <strong>Start over as a new buyer</strong> and sign in with a new wallet, or restart the launcher.</p>
+    <div id="buyer-earlier" hidden>
+      <h3>Earlier buyer sign-ins in this run (as last observed)</h3>
+      <ul id="buyer-earlier-list"></ul>
+    </div>
+    <p id="sign-in-fallback" hidden>If the portal did not open, use this link: <a id="sign-in-link" href="#">continue to the sign-in portal</a></p>
+    <p id="sign-in-error" class="error" role="alert" tabindex="-1" hidden></p>
+  </section>
+
+  <section id="listing" aria-labelledby="listing-h" tabindex="-1">
+    <h2 id="listing-h"><span class="num">3</span> Find the test service</h2>
+    <p>Looks the fixture listing up in the directory (an unverified hint), then verifies it separately against the fixture chain. You can search for another fixture service below.</p>
+    <div class="actions"><button type="button" data-action="find-listing">Find test service</button></div>
+    <form id="search-form" class="actions" novalidate>
+      <label for="search-query">Search the directory by title</label>
+      <input id="search-query" name="query" type="search" maxlength="200" autocomplete="off" aria-describedby="search-hint">
+      <button type="submit" data-action="search-listings">Search directory</button>
+    </form>
+    <p id="search-hint" class="hint">Search results are unverified directory hints. Choose one to verify it against the fixture chain.</p>
+    <p id="search-summary" class="status" hidden></p>
+    <ul id="search-results" class="results" aria-label="Search results"></ul>
+    <div class="split">
+      <div>
+        <h3>Directory discovery <span class="tag">unverified hint</span></h3>
+        <p id="discovery-empty" class="empty">Not looked up yet.</p>
+        <dl id="discovery" class="facts" hidden>
+          <dt>Title</dt><dd id="d-title"></dd>
+          <dt>Seller</dt><dd id="d-seller"></dd>
+          <dt>Price hint</dt><dd id="d-price"></dd>
+          <dt>Evidence</dt><dd id="d-evidence"></dd>
+        </dl>
+      </div>
+      <div>
+        <h3>Verification <span class="tag">fixture chain readback</span></h3>
+        <p id="verify-empty" class="empty">Not verified yet.</p>
+        <dl id="verification" class="facts" hidden>
+          <dt>Result</dt><dd id="v-result"></dd>
+          <dt>Title</dt><dd id="v-title"></dd>
+          <dt>Price</dt><dd id="v-price"></dd>
+          <dt>Seller</dt><dd id="v-seller" class="mono"></dd>
+          <dt>Checks</dt><dd id="v-checks"></dd>
+          <dt>Evidence</dt><dd id="v-evidence"></dd>
+        </dl>
+      </div>
+    </div>
+    <p id="listing-error" class="error" role="alert" tabindex="-1" hidden></p>
+  </section>
+
+  <section id="purchase" aria-labelledby="purchase-h" tabindex="-1">
+    <h2 id="purchase-h"><span class="num">4</span> Simulated purchase</h2>
+    <p>Prepares the purchase only. You review and approve the exact terms in the portal, in your wallet. Pressing Prepare again returns the same pending purchase. Once a purchase has finished (settled, cancelled or failed), Prepare starts a new one; the finished purchase and its receipt stay listed below.</p>
+    <p id="p-target" class="status">Buying: nothing verified yet (step 3).</p>
+    <div class="actions">
+      <button type="button" data-action="prepare-purchase">Prepare simulated purchase</button>
+      <button type="button" data-action="refresh-receipt" class="secondary">Refresh receipt</button>
+      <button type="button" data-action="cancel-purchase" class="secondary" hidden>Cancel pending purchase</button>
+    </div>
+    <p id="purchase-empty" class="empty">No purchase prepared yet.</p>
+    <div id="purchase-body" hidden>
+      <p><a id="purchase-review" class="button-link" target="_blank" rel="noopener noreferrer" href="#">Open review in the portal</a></p>
+      <p class="hint">Approve with the same built-in wallet that signed in as buyer (same browser profile). Lost it? Use <strong>Start over as a new buyer</strong> in step 2; this purchase stays with the old wallet.</p>
+      <dl class="facts">
+        <dt>Status</dt><dd id="p-status"></dd>
+        <dt>Next</dt><dd id="p-next"></dd>
+        <dt>Listing</dt><dd id="p-listing" class="mono"></dd>
+        <dt>Amount</dt><dd id="p-amount"></dd>
+        <dt>Network</dt><dd id="p-network"></dd>
+        <dt>Pays</dt><dd id="p-payee" class="mono"></dd>
+        <dt>Operation</dt><dd id="p-op" class="mono"></dd>
+        <dt>Idempotency key</dt><dd id="p-key" class="mono"></dd>
+      </dl>
+      <div id="receipt" class="receipt" hidden>
+        <h3>Simulated purchase receipt <span class="tag warn">SIMULATED, not settlement</span></h3>
+        <dl class="facts">
+          <dt>Amount</dt><dd id="r-amount"></dd>
+          <dt>Network</dt><dd id="r-network"></dd>
+          <dt>Payer</dt><dd id="r-payer" class="mono"></dd>
+          <dt>Payee</dt><dd id="r-payee" class="mono"></dd>
+          <dt>Transaction</dt><dd id="r-tx" class="mono"></dd>
+          <dt>Evidence</dt><dd id="r-mode"></dd>
+        </dl>
+      </div>
+      <p id="receipt-waiting" class="waiting" hidden>No receipt yet. Waiting or unavailable is <strong>not</strong> completion.</p>
+    </div>
+    <div id="purchase-history" hidden>
+      <h3>Finished purchases kept from this sign-in</h3>
+      <ul id="purchase-history-list"></ul>
+    </div>
+    <p id="purchase-error" class="error" role="alert" tabindex="-1" hidden></p>
+  </section>
+
+  <section id="identity" aria-labelledby="identity-h" tabindex="-1">
+    <h2 id="identity-h"><span class="num">5</span> Test GitHub and Twitter identities</h2>
+    <p>Prepares a GitHub or Twitter link change and gives you the portal review link. You get proof text from your wallet there, publish it on the <a id="proof-link" target="_blank" rel="noopener noreferrer" href="#">local proof publisher</a> (a fixture: nothing is posted to GitHub or X; choose the matching kind there), and approve in your wallet. Results are a fixture chain observation, not KYC or a verified legal identity.</p>
+    <div class="actions">
+      <button type="button" data-action="identity-add">Add test GitHub identity</button>
+      <button type="button" data-action="identity-add-twitter">Add test Twitter identity</button>
+      <button type="button" data-action="refresh-identities" class="secondary">Refresh identities</button>
+    </div>
+    <p id="add-body" hidden>Add: <span id="add-status"></span> <a id="add-review" target="_blank" rel="noopener noreferrer" href="#">Open add review in the portal</a></p>
+    <p id="tw-add-body" hidden>Twitter add: <span id="tw-add-status"></span> <a id="tw-add-review" target="_blank" rel="noopener noreferrer" href="#">Open Twitter add review in the portal</a></p>
+    <form id="remove-form" class="actions" hidden>
+      <label for="remove-handle">Observed handle</label>
+      <select id="remove-handle" name="username"></select>
+      <button type="submit" data-action="identity-remove">Remove test GitHub identity</button>
+    </form>
+    <form id="tw-remove-form" class="actions" hidden>
+      <label for="tw-remove-handle">Observed Twitter handle</label>
+      <select id="tw-remove-handle" name="username"></select>
+      <button type="submit" data-action="identity-remove-twitter">Remove test Twitter identity</button>
+    </form>
+    <p id="remove-body" hidden>Remove: <span id="remove-status"></span> <a id="remove-review" target="_blank" rel="noopener noreferrer" href="#">Open remove review in the portal</a></p>
+    <p id="tw-remove-body" hidden>Twitter remove: <span id="tw-remove-status"></span> <a id="tw-remove-review" target="_blank" rel="noopener noreferrer" href="#">Open Twitter remove review in the portal</a></p>
+    <p id="identity-empty" class="empty">Identities not read yet.</p>
+    <dl id="observed" class="facts" hidden>
+      <dt>Readback</dt><dd id="o-status"></dd>
+      <dt>GitHub handles</dt><dd id="o-handles"></dd>
+      <dt>Twitter handles</dt><dd id="o-twitter"></dd>
+      <dt>Observed at</dt><dd id="o-at"></dd>
+    </dl>
+    <p class="note">Removing unlinks on the fixture chain; it does not delete the published proof. A removal is prepared only for a handle the last readback observed.</p>
+    <p class="note">Use GitHub-valid handles (letters, digits, single hyphens); the portal refuses other GitHub handles at the proof step, and you can paste a corrected URL there. If the wallet stops an identity request before sending anything, or you cancel it on its portal page before approving, the action is closed (failed_before_send or cancelled). Press Add again to start a new one in this same run; no restart is needed.</p>
+    <p id="identity-error" class="error" role="alert" tabindex="-1" hidden></p>
+  </section>
+
+  <section id="checklist" aria-labelledby="checklist-h" tabindex="-1">
+    <h2 id="checklist-h"><span class="num">6</span> Manual checks</h2>
+    <p>Do these in the wallet and portal pages, then tick what you did. Ticks are <strong>your own marks</strong>; the dashboard does not observe them.</p>
+    <fieldset>
+      <legend>Tester-marked steps</legend>
+      <label><input type="checkbox" data-item="lock"> Locked the wallet (wallet page: Lock)</label>
+      <label><input type="checkbox" data-item="unlock"> Unlocked it again with the password</label>
+      <label><input type="checkbox" data-item="backup"> Exported an encrypted backup in the wallet page and kept it outside this page</label>
+      <label><input type="checkbox" data-item="restore"> Restored the backup in a fresh browser profile (same page address) and saw the same wallet address</label>
+      <label><input type="checkbox" data-item="decline"> Tried declining: rejected a request in the portal or wallet and saw nothing sent</label>
+    </fieldset>
+    <p class="note">To cancel: close the portal tab or press Reject in the wallet dialog. A declined sign-in links nothing; a rejected purchase can be cancelled here; a rejected identity change reports "rejected before send". Nothing is retried automatically.</p>
+  </section>
+
+  <section id="feedback" aria-labelledby="feedback-h" tabindex="-1">
+    <h2 id="feedback-h"><span class="num">7</span> Feedback export</h2>
+    <p>Creates a small file with step statuses, your ticks and the note below. It contains no addresses, links, keys or logs and is not sent anywhere.</p>
+    <label for="feedback-text">Your note (do not paste passwords, recovery phrases or backups)</label>
+    <textarea id="feedback-text" maxlength="2000" rows="4"></textarea>
+    <div class="actions"><button type="button" id="export-button">Download feedback file</button></div>
+    <p id="export-status" class="status"></p>
+    <p id="export-error" class="error" role="alert" hidden></p>
+  </section>
+
+  <section id="evidence" aria-labelledby="evidence-h" tabindex="-1">
+    <h2 id="evidence-h"><span class="num">8</span> Evidence download</h2>
+    <p>Downloads a JSON file with the public workflow states this dashboard observed: the buyer's search, verified target, purchase and simulated receipt, identity readback, unfinished steps and recent activity. It includes public wallet addresses and fixture transaction hashes, and never portal links, sign-in values, passwords, recovery phrases, backups or keys. It is created on this computer and not sent anywhere. Everything in it is SIMULATED.</p>
+    <div class="actions"><button type="button" id="evidence-button">Download evidence file</button></div>
+    <p id="evidence-status" class="status"></p>
+    <p id="evidence-error" class="error" role="alert" hidden></p>
+    <h3>Recent activity</h3>
+    <ol id="activity" class="activity" aria-label="Recent dashboard activity"></ol>
+    <p id="activity-empty" class="empty">Nothing yet.</p>
+  </section>
+
+  <section id="help" aria-labelledby="help-h" tabindex="-1">
+    <h2 id="help-h">Help and recovery</h2>
+    <details>
+      <summary>What is simulated?</summary>
+      <p>Everything. The chain, directory and proof publisher are local fixtures started by the offline launcher. Fixture DEM has no value; a receipt is a fixture chain observation, not settlement. Nothing is sent to Demos testnet, GitHub, X or ChatGPT.</p>
+    </details>
+    <details>
+      <summary>Why two wallets and two windows?</summary>
+      <p>Use a throwaway buyer wallet. The fixture supplies the seller and its Listing.</p>
+    </details>
+    <details>
+      <summary>I reloaded, closed a tab or got interrupted</summary>
+      <p>Reloading this page is safe: the state lives in the launcher and nothing is repeated. The "Unfinished steps" box lists anything started but not finished. Reopen the portal link shown in that step to continue, or cancel it. Pressing Prepare again returns the same pending purchase or listing instead of creating a second one. A wallet approval you closed or rejected was not sent.</p>
+    </details>
+    <details>
+      <summary>The launcher was restarted</summary>
+      <p>Every start is a fresh run with new fixtures. A red notice appears and all earlier dashboard state is gone. Sign in again; the wallets in your browser still exist.</p>
+    </details>
+    <details>
+      <summary>Cancelling and declining</summary>
+      <p>Press Reject (or Escape) in the wallet dialog, or close the portal tab, to decline. Pressing Lock in the wallet while a request is open cancels it; nothing is signed or sent. A pending purchase or an unpublished listing can be cancelled here; a cancelled one never shows a receipt or a published stage.</p>
+    </details>
+    <details>
+      <summary>Keyboard use</summary>
+      <p>Tab and Shift+Tab move between controls; Enter or Space presses buttons and Enter submits the listing and search forms. The "Skip to steps" link and the step list above jump to each section. After a problem, focus moves to the message that explains it; for the listing form, to the first field to fix.</p>
+    </details>
+    <details>
+      <summary>Common messages</summary>
+      <p>"Sign in first": finish the matching sign-in. "Find and verify the test service first": verify a listing in step 3. "The buyer wallet is the seller wallet": sign in as the buyer from the other window. "still being published" or "still awaiting_approval": finish or cancel the pending one first.</p>
+    </details>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DACS showcase: walkthrough</title>
+<link rel="stylesheet" href="showcase.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <p class="brand">DACS showcase</p>
+  <nav aria-label="Showcase pages">
+    <ul>
+      <li><a href="./">Start</a></li>
+      <li><a href="walkthrough.html" aria-current="page">Walkthrough</a></li>
+      <li><a href="beyond-fixed-price.html">Beyond fixed price</a></li>
+    </ul>
+  </nav>
+  <p class="scope" role="note">Read-only. Nothing on these pages can sign, pay or buy, and every example is illustrative, not a real transaction.</p>
+</header>
+<main id="main">
+  <h1>A fixed-price purchase, stage by stage</h1>
+  <p class="lead">You ask ChatGPT to buy a short report from a seller agent. ChatGPT prepares the purchase; your wallet approves it; the seller and the app each record what happened on the Demos testnet. Here is what each stage does, including the current payment hold and the later gated stages.</p>
+
+  <section class="stage" id="identify" aria-labelledby="h-identify">
+    <h2 id="h-identify">1. Identify</h2>
+    <dl>
+      <dt>What happens</dt>
+      <dd>ChatGPT searches the directory for seller agents, then reads the chosen seller's signed Listing: the service, the price in DEM, who gets paid, and the delivery terms.</dd>
+      <dt>What the app checks</dt>
+      <dd>It reads the Listing back from the Demos testnet and checks its signature and content. Directory results are only hints; only a Listing that passes this check can be bought.</dd>
+      <dt>What you see</dt>
+      <dd>The seller, the service, the exact price and the checks that passed. Missing evidence stays visibly unknown.</dd>
+    </dl>
+  </section>
+
+  <section class="stage" id="vet" aria-labelledby="h-vet">
+    <h2 id="h-vet">2. Vet</h2>
+    <dl>
+      <dt>What happens</dt>
+      <dd>Before any agreement, the seller records a verification record for each party: one for you and one for itself.</dd>
+      <dt>What the app checks</dt>
+      <dd>The seller's side of the app creates both records, checks them and reads them back. The buyer's side only binds their references into the Agreement and does not read them back itself, so the example receipt below leaves Vet pending. A seller's linked accounts, such as GitHub, show a narrower fact than business identity or service quality.</dd>
+    </dl>
+  </section>
+
+  <section class="stage" id="negotiate" aria-labelledby="h-negotiate">
+    <h2 id="h-negotiate">3. Negotiate</h2>
+    <dl>
+      <dt>What happens</dt>
+      <dd>For a fixed price there is nothing to bargain over: you accept the Listing's terms. You and the seller both sign one Agreement, which is stored on the testnet, and the seller then records its commitment to that Agreement.</dd>
+      <dt>What the app checks</dt>
+      <dd>Before you pay, it reads the seller's commitment back and checks that the Agreement binds the same recipient and amount you were shown. The shipped composition then holds here: independent finality of that commitment is not established. It offers no payment approval or handoff, even when one node reports the record as included.</dd>
+    </dl>
+  </section>
+
+  <section class="stage" id="settle" aria-labelledby="h-settle">
+    <h2 id="h-settle">4. Settle</h2>
+    <dl>
+      <dt>What happens</dt>
+      <dd>After independent commitment finality is established, you can pay the agreed DEM from your wallet. The shipped composition currently holds before this step. The seller records payment evidence and then publishes the Deliverable, the report you bought.</dd>
+      <dt>What the app checks</dt>
+      <dd>It watches for a transfer that matches the approved payer, recipient and amount, as one testnet node reports it, and reads the Deliverable back before showing it. Payment, the report being available and delivery evidence are separate facts, shown separately.</dd>
+      <dt>What you see</dt>
+      <dd>The report text and its content hash, from the purchase status. The built-in operator's report is configured demonstration content plus a purchase-specific settlement reference.</dd>
+    </dl>
+  </section>
+
+  <section class="stage" id="verify" aria-labelledby="h-verify">
+    <h2 id="h-verify">5. Verify</h2>
+    <dl>
+      <dt>What happens in DACS</dt>
+      <dd>Both parties sign matching copies of a completion bundle, which can then be checked by anyone and counted towards reputation.</dd>
+      <dt>In this live testnet flow today</dt>
+      <dd>The shipped composition holds before payment and cannot reach a report. If a separately authenticated composition passes that gate and reaches delivery, the report is available with the completion audit pending; Verify is not implemented in this profile yet.</dd>
+    </dl>
+  </section>
+
+  <h2 id="protections">What stops a bad purchase</h2>
+  <p>Each check below either stops the payment transaction before it is handed to your wallet, or refuses to count a transaction that doesn't match. Records written earlier stay on the testnet: the seller's Vet records, the Agreement you signed and its testnet record, and the seller's commitment are not undone.</p>
+  <ul>
+    <li><strong>The Listing changed</strong> after you prepared the purchase, or no longer verifies: the payment transaction is not handed to your wallet; prepare a new purchase to see the current terms.</li>
+    <li><strong>The seller's commitment doesn't read back</strong> before payment: the payment stays held.</li>
+    <li><strong>The Agreement binds a different recipient or amount</strong> than you were shown: the payment stays held.</li>
+    <li><strong>A transaction doesn't match</strong> the approved terms: it is not accepted as payment.</li>
+    <li><strong>A response is lost</strong> or times out: the app reads back what happened. It never asks you to pay a second time for the same purchase.</li>
+  </ul>
+
+  <section class="example" data-example="receipt" aria-labelledby="h-receipt">
+    <p class="example-label">Illustrative example</p>
+    <h2 id="h-receipt">What a receipt looks like</h2>
+    <p>This is an illustrative summary of the later stages after independent commitment finality is established. The shipped composition currently holds before payment and cannot reach this receipt. The references are placeholders, not real transactions.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Stages (illustrative), scrollable">
+      <table>
+        <caption>Stages (illustrative)</caption>
+        <thead><tr><th scope="col">Stage</th><th scope="col">Status</th><th scope="col">Why</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Identify</th><td class="status-done">done</td><td>The Listing read back and verified when the purchase was prepared.</td></tr>
+          <tr><th scope="row">Vet</th><td class="status-pending">pending</td><td>The buyer's side did not read the Vet records back itself.</td></tr>
+          <tr><th scope="row">Negotiate</th><td class="status-done">done</td><td>Both parties signed the Agreement and the seller's commitment read back.</td></tr>
+          <tr><th scope="row">Settle</th><td class="status-pending">observed</td><td>Payment and the report were observed; delivery evidence was not recorded, so Settle is not marked done.</td></tr>
+          <tr><th scope="row">Verify</th><td class="status-pending">pending</td><td>Report available; completion audit pending.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <details>
+      <summary>Evidence slots (illustrative)</summary>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Evidence slots (illustrative), scrollable">
+        <table>
+          <caption>Each record the receipt can point to</caption>
+          <thead><tr><th scope="col">Record</th><th scope="col">Status</th><th scope="col">Reference</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Listing</th><td>recorded</td><td class="ref">EXAMPLE-LISTING</td></tr>
+            <tr><th scope="row">Vet record for the buyer</th><td>recorded</td><td class="ref">EXAMPLE-VET-BUYER</td></tr>
+            <tr><th scope="row">Vet record for the seller</th><td>recorded</td><td class="ref">EXAMPLE-VET-SELLER</td></tr>
+            <tr><th scope="row">Agreement</th><td>recorded</td><td class="ref">EXAMPLE-AGREEMENT</td></tr>
+            <tr><th scope="row">Seller commitment</th><td>recorded</td><td class="ref">EXAMPLE-COMMITMENT</td></tr>
+            <tr><th scope="row">Payment</th><td>recorded</td><td class="ref">EXAMPLE-PAYMENT</td></tr>
+            <tr><th scope="row">Payment evidence</th><td>recorded</td><td class="ref">EXAMPLE-PAYMENT-EVIDENCE</td></tr>
+            <tr><th scope="row">Deliverable</th><td>recorded</td><td class="ref">EXAMPLE-DELIVERABLE</td></tr>
+            <tr><th scope="row">Delivery evidence</th><td>missing</td><td>Not recorded</td></tr>
+            <tr><th scope="row">Buyer's completion copy</th><td>missing</td><td>Not recorded</td></tr>
+            <tr><th scope="row">Seller's completion copy</th><td>missing</td><td>Not recorded</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <p><a href="beyond-fixed-price.html">Next: what DACS defines beyond a fixed price</a></p>
+</main>
+<footer>
+  <p>Read-only showcase pages. They make no requests to the app's purchase, wallet or account services.</p>
+</footer>
+</body>
+</html>
