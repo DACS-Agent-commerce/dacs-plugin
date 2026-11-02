@@ -83,12 +83,12 @@ test('paths are NUL-separated, so names with spaces or newlines are handled exac
 test('a tracked symlink is reported by its link text and never followed; a submodule is unscannable', async () => {
   const repo = createRepo([
     { path: 'link', content: `../${PLANTED}`, mode: '120000' },
-    { path: 'vendor/module', content: 'b'.repeat(40), mode: '160000' },
+    { path: 'submodules/module', content: 'b'.repeat(40), mode: '160000' },
   ]);
   const files = byPath(await readTarget(repo));
   assert.equal(files.link.kind, 'symlink');
   assert.equal(files.link.bytes.toString(), `../${PLANTED}`);
-  assert.equal(files['vendor/module'].problem, 'submodule');
+  assert.equal(files['submodules/module'].problem, 'submodule');
   const result = runGate(completeArgs(repo, writeList([PLANTED])));
   assert.equal(result.status, 2);
   const report = JSON.parse(result.stdout);
