@@ -3,7 +3,7 @@
  * options onto these variables). Defaults are the safe ones: testnet, writes
  * off, a small daily cap.
  */
-import { existsSync, realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { demToOs } from './amount.js';
@@ -140,7 +140,9 @@ export function loadConfig(e: NodeJS.ProcessEnv = process.env): Config {
   const codeFallback = env(e, 'DEMOS_CODE_FALLBACK') === undefined ? true : truthy(env(e, 'DEMOS_CODE_FALLBACK'));
   if (!approvalPage && !codeFallback) throw new Error('at least one of DEMOS_APPROVAL_PAGE / DEMOS_CODE_FALLBACK must be on');
 
-  const walletMode = env(e, 'DEMOS_WALLET_MODE');
+  // not env(): an unsubstituted ${...} reference must refuse here, not read as unset
+  const rawWalletMode = e.DEMOS_WALLET_MODE?.trim();
+  const walletMode = rawWalletMode === '' ? undefined : rawWalletMode;
   // never echo the value: it is operator input of any length
   if (walletMode !== undefined && walletMode !== 'purchase-only') throw new Error('DEMOS_WALLET_MODE must be unset or purchase-only');
 
@@ -188,6 +190,17 @@ function purchaseOnlyMarkerPaths(keystorePath: string): string[] {
   return paths;
 }
 
+/** The marker's own directory entry counts, even a symlink to a missing target. */
+function markerPresent(p: string): boolean {
+  try {
+    lstatSync(p);
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw e;
+  }
+}
+
 /**
  * Why writes may NOT run with this config, or null if they may.
  * Writes need: the explicit enable flag, a key source, and either a known
@@ -196,7 +209,7 @@ function purchaseOnlyMarkerPaths(keystorePath: string): string[] {
  */
 export function writeBlocker(c: Config): string | null {
   if (c.purchaseOnly) return 'purchase-only wallet: legacy signing is disabled';
-  if (c.keystorePath && purchaseOnlyMarkerPaths(c.keystorePath).some((p) => existsSync(p))) return 'purchase-only wallet: legacy signing is disabled';
+  if (c.keystorePath && purchaseOnlyMarkerPaths(c.keystorePath).some(markerPresent)) return 'purchase-only wallet: legacy signing is disabled';
   if (!c.writesEnabled) return 'writes are disabled (set DEMOS_MCP_ENABLE_WRITES=1)';
   // The mainnet opt-in never opens testnet writes on an unlisted RPC.
   if (!c.rpcIsKnownTestnet && (c.network === 'testnet' || !c.allowMainnet)) {

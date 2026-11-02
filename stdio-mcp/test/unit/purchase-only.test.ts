@@ -108,12 +108,27 @@ test('a marker beside a symlinked keystore path, or beside its target, fences th
   }
 });
 
+test('a marker that is a symlink to a missing target still blocks a prepared transfer before signing', async () => {
+  const h = await harness();
+  const key = join(h.config.stateDir, 'wallet.keystore.json');
+  writeFileSync(key, 'synthetic placeholder');
+  h.config.keystorePath = key;
+  const p = await h.call('demos_tx_prepare', { to: ADDR_B, amount_dem: '1' });
+  assert.equal(p.isError, false, p.text);
+  const code = h.channel.last().code;
+  symlinkSync(join(h.config.stateDir, 'missing-target'), `${key}.purchase-only`);
+  const r = await h.call('demos_tx_submit', { prepared_id: p.json.prepared_id, confirmation_code: code });
+  assert.equal(r.isError, true);
+  assert.match(r.text, FENCED);
+  assert.equal(h.wallet.broadcasts.length, 0);
+});
+
 test('DEMOS_WALLET_MODE accepts only unset or purchase-only, and never echoes the value', () => {
   const dir = mkdtempSync(join(tmpdir(), 'purchase-only-'));
   assert.equal(loadConfig({ DEMOS_STATE_DIR: dir }).purchaseOnly, false);
   assert.equal(loadConfig({ DEMOS_STATE_DIR: dir, DEMOS_WALLET_MODE: '' }).purchaseOnly, false);
   assert.equal(loadConfig({ DEMOS_STATE_DIR: dir, DEMOS_WALLET_MODE: 'purchase-only' }).purchaseOnly, true);
-  for (const value of ['PURCHASE-ONLY', 'purchase-onlly', 'x'.repeat(100_000)]) {
+  for (const value of ['PURCHASE-ONLY', 'purchase-onlly', '${purchase-only}', '${DEMOS_WALLET_MODE}', 'x'.repeat(100_000)]) {
     assert.throws(
       () => loadConfig({ DEMOS_STATE_DIR: dir, DEMOS_MCP_ENABLE_WRITES: '1', DEMOS_WALLET_MODE: value }),
       (e: Error) => e.message === 'DEMOS_WALLET_MODE must be unset or purchase-only' && !e.message.includes(value),
