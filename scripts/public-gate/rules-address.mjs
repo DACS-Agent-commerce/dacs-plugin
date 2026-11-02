@@ -25,11 +25,16 @@ const HOST_TOP_LEVEL_NAMES = new Set(['com', 'org', 'net', 'io', 'dev', 'ai', 'x
 const LINE_BREAK = /\r\n|\r|\n/;
 /** A dotted name within DNS limits (labels of at most 63 characters, at most 127 of them): bounded so a long dotted line cannot exhaust the regex stack. */
 const NAME_LABELS = String.raw`(?:[a-z0-9_-]{1,63}\.){1,127}[a-z]{2,63}`;
-const URL_HOST = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/(?:[^\s/?#@]*@)?(?<host>\[[^\]\s]*\]|[^\s/?#:@"'<>)\]\\,;`]+)/gi;
+const URL_HOST = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/(?:[^\s/\\?#@]*@)?(?<host>\[[^\]\s]*\]|[^\s/?#:@"'<>)\]\\,;`]+)/gi;
 const HOST_PORT = new RegExp(String.raw`(?<![\w.@/:-])(?<host>${NAME_LABELS}):\d{1,5}(?!\w)`, 'gi');
 const BARE_NAME = new RegExp(String.raw`(?<![\w.@/:-])(?<host>${NAME_LABELS})(?![\w-]|\.[a-z0-9_-]|@)`, 'gi');
 const QUOTED_NAME = new RegExp(String.raw`(?<quote>['"\`])(?<host>${NAME_LABELS})\k<quote>`, 'gi');
 const EMAIL = new RegExp(String.raw`(?<![\w.%+-])(?<user>[a-z0-9_.%+-]+)@(?<domain>${NAME_LABELS}|localhost)(?![\w-])`, 'gi');
+/**
+ * An email whose domain is one label (a machine or mail-system name): read only when no `/` precedes the user
+ * (`actions/checkout@v4`, `@scope/pkg@1`) and the label starts with a letter (`name@1.2.3`).
+ */
+const DOTLESS_EMAIL = /(?<![\w.%+\/-])(?<user>[a-z0-9_.%+-]+)@(?<domain>[a-z][a-z0-9_-]{0,62})(?![\w-]|\.[a-z0-9_-]|@)/gi;
 /** A host this rule leaves to others: a template placeholder, a relative path (`..`) or an IP literal in digits and dots (the IP rule). */
 const NOT_A_NAME = /[${}%<>*]|^\[|^\.|^[\d.]+$/;
 const IDENTITY = /^[^<>]+ <[^<>\s]+>$/;
@@ -74,9 +79,9 @@ function unlistedHostsIn(line, { code, listedHosts }) {
       && !isReservedName(value) && !listedHosts.has(value));
 }
 
-const emailsIn = (text) => matchesOf(EMAIL, 'email', text, ({ user, domain }) => `${user}@${domain}`);
+const emailsIn = (text) => [EMAIL, DOTLESS_EMAIL].flatMap((pattern) => matchesOf(pattern, 'email', text, ({ user, domain }) => `${user}@${domain}`));
 
-/** Whether an email needs no entry: a reserved domain, or the SSH form (`git@host:` or `git@host/`) of a listed host. */
+/** Whether an email needs no entry: a reserved domain, or the SSH form (`git@` then the host, then `:` or `/`) of a listed host. */
 function isPermittedEmail({ value, user, next }, listedHosts) {
   const domain = value.slice(value.lastIndexOf('@') + 1);
   return isReservedName(domain) || (user === SSH_USER && (next === ':' || next === '/') && listedHosts.has(domain));
@@ -88,15 +93,25 @@ const accountsIn = (line, { listedHosts }) => emailsIn(line).filter((email) => !
 export function refusedMetadataEmails(text, config) {
   const identityEmails = new Set(config.publicIdentities.map((identity) => identity.slice(identity.lastIndexOf('<') + 1, -1).toLowerCase()));
   const listedHosts = new Set(config.allowedHosts.map(({ value }) => value));
-  return emailsIn(text).filter((email) => !identityEmails.has(email.value) && !isPermittedEmail(email, listedHosts)).map(({ value }) => value);
+  const refused = viewsOf(text).flatMap(emailsIn).filter((email) => !identityEmails.has(email.value) && !isPermittedEmail(email, listedHosts));
+  return [...new Set(refused.map(({ value }) => value))];
 }
 
 /** A file's text, or null for a blob that is not valid UTF-8 text (a reviewed binary is not read as text). */
 const textOf = (entry) => (entry.bytes && !entry.bytes.includes(0) ? decodeUtf8Strict(entry.bytes) : null);
 
+/** A backslash escaping a URL or email delimiter (`\/`, `\@`, `\:`), as JSON and JavaScript strings write them. `\n`, `\t` and `\.` stay: they are control characters and regex syntax. */
+const ESCAPED_DELIMITER = /\\([/@:])/g;
+
+/** A line as written, and with its escaped delimiters unescaped when it has any, so `https:\/\/host\/x` reads as the URL it decodes to. */
+function viewsOf(line) {
+  const unescaped = line.replace(ESCAPED_DELIMITER, '$1');
+  return unescaped === line ? [line] : [line, unescaped];
+}
+
 /**
- * Builds a rule that reads the address occurrences `occurrencesIn(line, context)` of every path and text blob and
- * returns findings { rule, kind: 'path' | 'content', entry, line? }, one per line. An occurrence passes when `config.scopedAllowances`
+ * Builds a rule that reads the address occurrences `occurrencesIn(view, { code, listedHosts })` of every path and text blob, each line as written
+ * and with its escaped delimiters unescaped, and returns findings { rule, kind: 'path' | 'content', entry, line? }, one per line. An occurrence passes when `config.scopedAllowances`
  * holds an entry for this exact path, rule, value and context; in the configuration file itself, also when the value is one
  * that an entry names. Throws GateInputError(limit:maxReportEntries) past that many findings.
  */
@@ -108,8 +123,8 @@ function createAddressRule(ruleId, occurrencesIn) {
     const isAllowed = (entry, { value, context }) => allowances.has([entry.path, ruleId, value, context].join('\0'))
       || (entry.path === CONFIG_PATH && reviewedValues.has(value));
     const findings = [];
-    const refusedLines = (lines, entry, code) => lines.flatMap((text, index) => (occurrencesIn(text, { code, listedHosts })
-      .some((occurrence) => !isAllowed(entry, occurrence)) ? [index + 1] : []));
+    const refusedLines = (lines, entry, code) => lines.flatMap((text, index) => (viewsOf(text)
+      .some((view) => occurrencesIn(view, { code, listedHosts }).some((occurrence) => !isAllowed(entry, occurrence))) ? [index + 1] : []));
     const add = (finding) => {
       findings.push({ rule: ruleId, ...finding });
       if (findings.length > limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${limits.maxReportEntries} findings`);

@@ -28,7 +28,9 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   from a precomposed letter) and no one-to-many folding (`ß` is not `ss`). CRLF, a lone CR and a lone LF each end a line.
   A text blob is also read with its backslashes removed (line breaks kept, so the line is the blob's own), so an entry
   written with regex or string escapes is found.
-- **Hosts (`R-HOST`, both scopes).** Every path and every text blob is read line by line. A dotted name is a host when it is the
+- **Hosts (`R-HOST`, both scopes).** Every path and every text blob is read line by line, as written and with its
+  escaped delimiters `\/`, `\@` and `\:` unescaped (`https:\/\/host\/x` is read as the URL it decodes to); a backslash ends a URL host.
+  An escaped dot (`\.`) is not unescaped, because it is regex syntax in the code's own host patterns. A dotted name is a host when it is the
   host of a URL (any top-level name), a `host:port` pair, a quoted name in code (`.cjs .css .js .mjs .mts .sh .ts .tsx`), or a
   bare name in any other text and in path names; the last three count only under a top-level name listed in
   `HOST_TOP_LEVEL_NAMES`, so file names and property chains are not hosts. A host passes only on an exact, lower-case match with an
@@ -37,7 +39,9 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label), a template placeholder
   and an IP literal are not read here; the private list covers labels, and IP literals belong to the IP rule.
 - **Accounts (`R-ACCOUNT`, both scopes).** An email address passes when its domain is a reserved name or it is the SSH form
-  (`git@host:` or `git@host/`) of a host in `allowedHosts`. In commit metadata (`refusedMetadataEmails`) an email also passes when it is
+  (`git@<host>:` or `git@<host>/`) of a host in `allowedHosts`. A domain of one label (`user@<label>`) is an email too, unless a `/`
+  precedes the user (`actions/checkout@v4`) or the label starts with a digit (`name@1.2.3`); a reference that ends in a word
+  after `@` (a package tag or a plugin marketplace) therefore needs a `scopedAllowances` entry. In commit metadata (`refusedMetadataEmails`) an email also passes when it is
   part of an exact `publicIdentities` entry (`Name <email>`); that does not approve the identity itself, which the
   identity rule of history mode still checks. The configuration starts with `publicIdentities` holding the publication identity.
 - **Allow-list entries.** A lockfile or generated bundle gets no exemption: a host or email there passes only through a

@@ -62,7 +62,11 @@
     { "path": "http-mcp/test/github-signals.test.mjs", "rule": "R-ACCOUNT", "value": "user@gist.github.com", "context": "email", "reason": "look-alike address the test feeds the identity signals to see it refused" },
     { "path": "http-mcp/test/oauth-loopback.test.mjs", "rule": "R-HOST", "value": "127.0.0.1.evil.com", "context": "quoted", "reason": "look-alike loopback host the test feeds the redirect check to see it refused" },
     { "path": "http-mcp/test/oauth-loopback.test.mjs", "rule": "R-HOST", "value": "localhost.evil.com", "context": "quoted", "reason": "look-alike loopback host the test feeds the redirect check to see it refused" },
-    { "path": "http-mcp/test/oauth-logout.test.mjs", "rule": "R-ACCOUNT", "value": "evil.example@chatgpt.com", "context": "email", "reason": "look-alike address the test feeds the logout check to see it refused" }
+    { "path": "http-mcp/test/oauth-logout.test.mjs", "rule": "R-ACCOUNT", "value": "evil.example@chatgpt.com", "context": "email", "reason": "look-alike address the test feeds the logout check to see it refused" },
+    { "path": "stdio-mcp/package-lock.json", "rule": "R-ACCOUNT", "value": "uuid@latest", "context": "email", "reason": "package tag in a dependency's deprecation notice, not an email address" },
+    { "path": "http-mcp/wallet-build/package-lock.json", "rule": "R-ACCOUNT", "value": "uuid@latest", "context": "email", "reason": "package tag in a dependency's deprecation notice, not an email address" },
+    { "path": "http-mcp/test/fixtures/mcp-seller-content-baseline.json", "rule": "R-ACCOUNT", "value": "test@v1", "context": "email", "reason": "version tag in recorded tool output, not an email address" },
+    { "path": "stdio-mcp/README.md", "rule": "R-ACCOUNT", "value": "demos@demos-mcp", "context": "email", "reason": "plugin and marketplace name in the install command, not an email address" }
   ],
   "publicIdentities": ["DACS Agent Commerce <dacs-plugin@users.noreply.invalid>"]
 }

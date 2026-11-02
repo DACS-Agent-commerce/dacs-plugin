@@ -108,6 +108,34 @@ test('accounts: an email outside reserved domains fails in content; the SSH form
   assert.ok(JSON.parse(identity.stdout).findings.some((finding) => finding.rule === 'R-IDENTITY'));
 });
 
+test('hosts and accounts: a backslash before a delimiter does not hide a host or an email, and a backslash does not make a listed host the host of a URL', () => {
+  const files = {
+    'conf/escaped.json': [
+      String.raw`{"u": "https:\/\/${OTHER}\/rpc"}`, String.raw`{"u": "https:\/\/example.com\/rpc"}`, String.raw`{"m": "dev\@${OTHER}"}`, String.raw`{"m": "git\@github.com:org/repo.git"}`,
+    ].join('\n') + '\n',
+    'src/escaped.mjs': [`const a = "https:\\/\\/${OTHER}";`, `const b = 'http://${OTHER}\\@github.com/';`, `const c = 'http://github.com\\@${OTHER}/';`].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), ['R-HOST content conf/escaped.json 1', 'R-HOST content src/escaped.mjs 1', 'R-HOST content src/escaped.mjs 2', 'R-HOST content src/escaped.mjs 3']);
+  assert.deepEqual(scanned(scanAccounts, files), ['R-ACCOUNT content conf/escaped.json 3', 'R-ACCOUNT content src/escaped.mjs 2', 'R-ACCOUNT content src/escaped.mjs 3']);
+  const controls = { 'src/controls.mjs': `const a = 'https://example.com\\nrest';\nconst b = /^https:\\/\\/(${LISTED.replaceAll('.', '\\.')})\\//;\n` };
+  assert.deepEqual(scanned(scanHosts, controls), []);
+});
+
+test('accounts: an email whose domain has no dot fails unless reserved or reviewed; package and action references are not emails', () => {
+  const internal = ['admin', 'corp'].join('@');
+  const files = {
+    'docs/internal.md': [
+      `Mail ${internal} now`, `Mail ${internal}.`, `Mail ${internal.toUpperCase()}, please`, `Clone ${['git', 'corp'].join('@')}:org/repo.git`, 'Mail dev@localhost and dev@example.invalid',
+      'Install name@1.2.3 and @scope/pkg@1.2.3 with uses: actions/checkout@v4', `Version ${internal}.example.invalid is reserved`,
+    ].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanAccounts, files), ['R-ACCOUNT content docs/internal.md 1', 'R-ACCOUNT content docs/internal.md 2', 'R-ACCOUNT content docs/internal.md 3', 'R-ACCOUNT content docs/internal.md 4']);
+  const reviewed = withAllowances({ path: 'docs/internal.md', rule: 'R-ACCOUNT', value: internal, context: 'email' });
+  assert.deepEqual(scanned(scanAccounts, files, reviewed), ['R-ACCOUNT content docs/internal.md 4']);
+  assert.deepEqual(refusedMetadataEmails(`author Other <${internal}>`, CONFIG), [internal]);
+  assert.deepEqual(refusedMetadataEmails(`author Other <${internal}>`, { ...CONFIG, publicIdentities: [`Other <${internal}>`] }), []);
+});
+
 test('lockfiles and generated bundles: an inserted unlisted host or account fails; only a reviewed value in its reviewed context passes', () => {
   const lock = `{\n  "resolved": "https://${LISTED}/pkg/-/pkg-1.0.0.tgz",\n  "homepage": "${LISTED}",\n  "author": "dev@${LISTED}"\n}\n`;
   const bundle = `var url = 'https://${LISTED}/x';\n`;
