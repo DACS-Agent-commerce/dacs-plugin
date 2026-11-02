@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { GateInputError } from '../../scripts/public-gate/objects.mjs';
-import { hasValidAddressConfig, refusedMetadataEmails, scanAccounts, scanHosts } from '../../scripts/public-gate/rules-address.mjs';
-import { createHistory, createRepo, gateArgs, git, historyArgs, REPO_ROOT, runGate, runHistory, writeList } from '../lib/gate-fixtures.mjs';
+import { hasValidAddressConfig, hasValidIpDispositions, refusedMetadataEmails, scanAccounts, scanHosts, scanIps } from '../../scripts/public-gate/rules-address.mjs';
+import { CONFIG_FILE, createHistory, createRepo, gateArgs, git, historyArgs, REPO_ROOT, runGate, runHistory, sha256, writeList } from '../lib/gate-fixtures.mjs';
 
 /** Planted names are built here, so no unlisted host or account is written out in this file. */
 const name = (...labels) => labels.join('.');
@@ -31,13 +31,15 @@ const CONFIG = {
 const withHosts = (...values) => ({ ...CONFIG, allowedHosts: [...CONFIG.allowedHosts, ...values.map((value) => ({ value, reason: 'reviewed in this test' }))] });
 const withAllowances = (...entries) => ({ ...CONFIG, scopedAllowances: entries.map((entry) => ({ ...entry, reason: 'reviewed in this test' })) });
 
-function toEntries(files) {
-  return Object.entries(files).map(([file, content], index) => ({ position: index + 1, path: file, bytes: Buffer.from(content) }));
+const PLANTED_BLOB = 'b'.repeat(40);
+
+function toEntries(files, oid) {
+  return Object.entries(files).map(([file, content], index) => ({ position: index + 1, path: file, oid, bytes: Buffer.from(content) }));
 }
 
-/** Each finding as `<rule> <kind> <path> <line>`, in the order the rule returned them. */
-function scanned(scan, files, config = CONFIG) {
-  return scan({ entries: toEntries(files), config, limits: LIMITS }).map((finding) => `${finding.rule} ${finding.kind} ${finding.entry.path} ${finding.line ?? '-'}`);
+/** Each finding as `<rule> <kind> <path> <line>`, in the order the rule returned them; every file is the blob `oid`. */
+function scanned(scan, files, config = CONFIG, oid = PLANTED_BLOB) {
+  return scan({ entries: toEntries(files, oid), config, limits: LIMITS }).map((finding) => `${finding.rule} ${finding.kind} ${finding.entry.path} ${finding.line ?? '-'}`);
 }
 
 test('hosts: a host with no exact allow-list entry in a URL or host:port fails with rule, file and line in code, Markdown, JSON, YAML and a path name', () => {
@@ -176,6 +178,117 @@ test('lockfiles and generated bundles: the configuration file may hold the value
   assert.deepEqual(scanned(scanHosts, unreviewed, reviewed), ['R-HOST content public-gate.config.json 1']);
 });
 
+/** Planted address literals are built here from their parts, so none is written out in this file. */
+const ipv4 = (...octets) => octets.join('.');
+const ipv6 = (...groups) => groups.join(':');
+const PUBLIC_V4 = ipv4(8, 8, 4, 4);
+const PRIVATE_V4 = ipv4(10, 0, 0, 7);
+const SHARED_V4 = ipv4(100, 64, 0, 1);
+const LINK_LOCAL_V4 = ipv4(169, 254, 1, 1);
+const PUBLIC_V6 = ipv6('2606', '4700', '', '1111');
+const UNIQUE_LOCAL_V6 = ipv6('fd12', '3456', '789a', '', '1');
+const LINK_LOCAL_V6 = ipv6('fe80', '', '1');
+const MAPPED_PUBLIC = ipv6('', '', 'ffff', PUBLIC_V4);
+const MAPPED_PUBLIC_HEX = ipv6('', '', 'ffff', '808', '404');
+const MAPPED_LOOPBACK = ipv6('', '', 'ffff', ipv4(127, 0, 0, 1));
+const MAPPED_LOOPBACK_HEX = ipv6('', '', 'ffff', '7f00', '1');
+const EXPANDED_LOOPBACK = ipv6(0, 0, 0, 0, 0, 0, 0, 1);
+const COMMON_NAME_OID = ipv4(2, 5, 4, 3);
+const QUOTED_CONTEXT ="= '<ip>';";
+const OID_CHUNK = 'http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs';
+const OID_CHUNK_BLOB = 'c420e04e0b82c351d8726241668da69301690713';
+const OID_LINE = 5;
+const LOOPBACK_TEST = 'http-mcp/test/oauth-loopback.test.mjs';
+const LOOPBACK_LINE = 161;
+const SHIPPED_CONFIG = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
+const NO_DISPOSITIONS = { ...CONFIG, ipDispositions: [] };
+
+const disposition = (file, line, value, oid = PLANTED_BLOB) => ({ path: file, blob: oid, line, context: QUOTED_CONTEXT, sha256: sha256(value), reason: 'reviewed in this test' });
+
+/** A reviewed target's own blob, read from Git at test time. */
+function blobAt(file) {
+  const shown = spawnSync('git', ['-C', REPO_ROOT, 'show', `HEAD:${file}`], { maxBuffer: 1 << 26 });
+  assert.equal(shown.status, 0, shown.stderr.toString());
+  return { oid: git(REPO_ROOT, ['rev-parse', `HEAD:${file}`]), text: shown.stdout.toString('utf8') };
+}
+
+/** The lines on which R-IP reports `text` as the blob `oid` at `file`, under `config`. */
+const refusedLinesOf = (file, { oid, text }, config) => scanIps({ entries: [{ position: 1, path: file, oid, bytes: Buffer.from(text) }], config, limits: LIMITS }).map(({ line }) => line);
+
+/** `text` with `edit` applied to its 1-based line `number`. */
+const withLineEdited = ({ oid, text }, number, edit) => ({ oid, text: text.split('\n').map((line, index) => (index + 1 === number ? edit(line) : line)).join('\n') });
+
+test('addresses: public, private IPv4, shared, unique-local IPv6 and link-local literals each fail when planted in code, config, prose and a path name; loopback and unspecified bind settings, reserved documentation examples, the two IPv4-mapped loopback literals and the expanded IPv6 loopback literal at http-mcp/test/oauth-loopback.test.mjs:161 pass; the 55 ASN.1 object-identifier tokens on line 5 of http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs pass only under their exact per-token dispositions; a public address added on that line outside the listed tokens and a mapped non-loopback address fail; an exact reviewed disposition passes only its own path, blob, line, context and value', () => {
+  const planted = {
+    'src/server.mjs': `const ok = 1;\nconst host = '${PUBLIC_V4}';\n`,
+    'conf/net.json': `{\n  "peer": "${PRIVATE_V4}:8080"\n}\n`,
+    'docs/net.md': [`shared ${SHARED_V4} here`, `link ${LINK_LOCAL_V4}.`, `unique [${UNIQUE_LOCAL_V6}]:443`, `scoped ${LINK_LOCAL_V6}%eth0`, `public ${PUBLIC_V6}`].join('\n') + '\n',
+    [`mirrors/${PUBLIC_V4}/notes.md`]: 'nothing here\n',
+    [`${PRIVATE_V4}.md`]: 'nothing here\n',
+    [`nodes/${LINK_LOCAL_V6}/notes.md`]: 'nothing here\n',
+  };
+  assert.deepEqual(scanned(scanIps, planted, NO_DISPOSITIONS), [
+    'R-IP content src/server.mjs 2', 'R-IP content conf/net.json 2', 'R-IP content docs/net.md 1', 'R-IP content docs/net.md 2', 'R-IP content docs/net.md 3',
+    'R-IP content docs/net.md 4', 'R-IP content docs/net.md 5', `R-IP path mirrors/${PUBLIC_V4}/notes.md -`, `R-IP path ${PRIVATE_V4}.md -`, `R-IP path nodes/${LINK_LOCAL_V6}/notes.md -`,
+  ]);
+
+  const permitted = {
+    'conf/bind.yaml': [
+      'host: 127.0.0.1', `bind: ${ipv4(127, 8, 9, 10)}:3000`, 'listen: 0.0.0.0', 'v6: ::1', 'v6: [::1]:8080', 'any: [::]:80',
+      `docs: ${ipv4(192, 0, 2, 1)}, ${ipv4(198, 51, 100, 77)}, ${ipv4(203, 0, 113, 254)}`, `doc6: ${ipv6('2001', 'db8', '', 1)} and ${ipv6('2001', 'db8', 0, 0, 0, 0, 0, 'ff')} and ${ipv6('2001', 'DB8', '', 2)}`,
+    ].join('\n') + '\n',
+    'docs/not-addresses.md': ['version 1.2.3.4.5 and 1.3.6.1.4.1.311', 'time 12:30:45 and mac aa:bb:cc:dd:ee:ff', 'call std::vector and a ::: b', `range ${ipv4(300, 1, 1, 1)} and v1.2.3.4`].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanIps, permitted, NO_DISPOSITIONS), []);
+
+  const mapped = ({ quote = "'", loopback = MAPPED_LOOPBACK, extra = '' } = {}) => ({ 'src/mapped.mjs': [
+    `a = '${MAPPED_PUBLIC}';`, `b = '${MAPPED_PUBLIC_HEX}';`, `c = ${quote}${loopback}${quote};`, `d = '${MAPPED_LOOPBACK_HEX}';`, `e = '${EXPANDED_LOOPBACK}';${extra}`,
+  ].join('\n') + '\n' });
+  const reviewed = (oid = PLANTED_BLOB, file = 'src/mapped.mjs') => ({ ...CONFIG, ipDispositions: [
+    disposition(file, 3, MAPPED_LOOPBACK, oid), disposition(file, 4, MAPPED_LOOPBACK_HEX, oid), disposition(file, 5, EXPANDED_LOOPBACK, oid),
+  ] });
+  const lines = (files, config, oid) => scanned(scanIps, files, config, oid).map((finding) => Number(finding.split(' ').at(-1)));
+  assert.deepEqual(lines(mapped(), NO_DISPOSITIONS), [1, 2, 3, 4, 5]);
+  assert.deepEqual(lines(mapped(), reviewed()), [1, 2]);
+  assert.deepEqual(lines(mapped({ loopback: ipv6('', '', 'ffff', ipv4(127, 0, 0, 2)) }), reviewed()), [1, 2, 3]);
+  assert.deepEqual(lines(mapped({ quote: '"' }), reviewed()), [1, 2, 3]);
+  assert.deepEqual(lines(mapped({ extra: ' // more' }), reviewed()), [1, 2, 5], 'the three characters after an occurrence are part of its context');
+  assert.deepEqual(lines(mapped(), reviewed(), 'c'.repeat(40)), [1, 2, 3, 4, 5]);
+  assert.deepEqual(lines(mapped(), reviewed(PLANTED_BLOB, 'src/other.mjs')), [1, 2, 3, 4, 5]);
+  assert.deepEqual(lines({ 'src/mapped.mjs': `\n${mapped()['src/mapped.mjs']}` }, reviewed()), [2, 3, 4, 5, 6]);
+
+  const chunk = blobAt(OID_CHUNK);
+  assert.equal(chunk.oid, OID_CHUNK_BLOB);
+  const oidDispositions = SHIPPED_CONFIG.ipDispositions.filter((entry) => entry.path === OID_CHUNK);
+  assert.equal(oidDispositions.length, 55);
+  assert.ok(oidDispositions.every((entry) => entry.blob === OID_CHUNK_BLOB && entry.line === OID_LINE));
+  assert.deepEqual(refusedLinesOf(OID_CHUNK, chunk, SHIPPED_CONFIG), []);
+  assert.deepEqual(refusedLinesOf(OID_CHUNK, chunk, NO_DISPOSITIONS), [OID_LINE]);
+  assert.deepEqual(refusedLinesOf(OID_CHUNK, chunk, { ...SHIPPED_CONFIG, ipDispositions: SHIPPED_CONFIG.ipDispositions.slice(1) }), [OID_LINE], 'a token without its own disposition fails');
+  assert.deepEqual(refusedLinesOf(OID_CHUNK, withLineEdited(chunk, OID_LINE, (line) => `${line};x="${PUBLIC_V4}"`), SHIPPED_CONFIG), [OID_LINE]);
+  assert.deepEqual(refusedLinesOf(OID_CHUNK, withLineEdited(chunk, OID_LINE, (line) => `${line};O("${PUBLIC_V4}","x")`), SHIPPED_CONFIG), [OID_LINE]);
+  assert.deepEqual(refusedLinesOf(OID_CHUNK, withLineEdited(chunk, OID_LINE, (line) => line.replace(`O("${COMMON_NAME_OID}"`, `P("${COMMON_NAME_OID}"`)), SHIPPED_CONFIG), [OID_LINE]);
+  assert.deepEqual(refusedLinesOf(OID_CHUNK, { ...chunk, text: `\n${chunk.text}` }, SHIPPED_CONFIG), [OID_LINE + 1]);
+  assert.deepEqual(refusedLinesOf('http-mcp/public/other.mjs', chunk, SHIPPED_CONFIG), [OID_LINE]);
+  assert.deepEqual(refusedLinesOf(OID_CHUNK, { ...chunk, oid: 'c'.repeat(40) }, SHIPPED_CONFIG), [OID_LINE]);
+
+  const loopback = blobAt(LOOPBACK_TEST);
+  assert.deepEqual(refusedLinesOf(LOOPBACK_TEST, loopback, SHIPPED_CONFIG), []);
+  assert.deepEqual(refusedLinesOf(LOOPBACK_TEST, loopback, NO_DISPOSITIONS), [LOOPBACK_LINE]);
+  assert.deepEqual(refusedLinesOf(LOOPBACK_TEST, withLineEdited(loopback, LOOPBACK_LINE, (line) => line.replace(MAPPED_LOOPBACK_HEX, MAPPED_PUBLIC_HEX)), SHIPPED_CONFIG), [LOOPBACK_LINE]);
+  assert.deepEqual(refusedLinesOf(LOOPBACK_TEST, withLineEdited(loopback, LOOPBACK_LINE, (line) => line.replace(MAPPED_LOOPBACK, MAPPED_PUBLIC)), SHIPPED_CONFIG), [LOOPBACK_LINE]);
+});
+
+test('a malformed IP disposition is invalid configuration', () => {
+  const entry = disposition(LOCKFILE, 3, PUBLIC_V4);
+  assert.equal(hasValidIpDispositions({ ipDispositions: [entry] }), true);
+  const malformed = [
+    undefined, {}, [null], [{ ...entry, path: '' }], [{ ...entry, blob: 'abc123' }], [{ ...entry, blob: 'B'.repeat(40) }], [{ ...entry, line: 0 }], [{ ...entry, line: '3' }],
+    [{ ...entry, line: 1.5 }], [{ ...entry, context: '= value' }], [{ ...entry, sha256: sha256('x').slice(1) }], [{ ...entry, sha256: PUBLIC_V4 }], [{ ...entry, reason: '' }], [entry, { ...entry, reason: undefined }],
+  ];
+  for (const ipDispositions of malformed) assert.equal(hasValidIpDispositions({ ipDispositions }), false, JSON.stringify(ipDispositions));
+});
+
 test('a malformed allow-list section is invalid configuration', () => {
   const scoped = { path: LOCKFILE, rule: 'R-HOST', value: LISTED, context: 'url', reason: 'reviewed' };
   assert.equal(hasValidAddressConfig({ ...CONFIG, scopedAllowances: [scoped] }), true);
@@ -194,21 +307,22 @@ test('more findings than maxReportEntries stop the scan with the limit cause', (
   assert.throws(() => scanHosts({ entries: toEntries(files), config: CONFIG, limits: { maxReportEntries: 2 } }), (error) => error instanceof GateInputError && error.cause === 'limit:maxReportEntries');
 });
 
-test('generic scope runs both rules; a finding names rule, kind, location and line but never the host', () => {
-  const clean = createRepo([{ path: 'a.md', content: 'See https://example.com/ and mail dev@example.com\n' }]);
+test('generic scope runs the three address rules; a finding names rule, kind, location and line but never the host, email or address', () => {
+  const clean = createRepo([{ path: 'a.md', content: 'See https://example.com/ and mail dev@example.com on 127.0.0.1\n' }]);
   const passing = runGate(gateArgs(clean, 'generic'));
   assert.equal(passing.status, 0, passing.stderr);
-  assert.deepEqual(JSON.parse(passing.stdout).rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }]);
-  const planted = createRepo([{ path: 'a.md', content: `ok\nSee https://${OTHER}/ and mail dev@${LISTED}\n` }]);
+  assert.deepEqual(JSON.parse(passing.stdout).rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }]);
+  const planted = createRepo([{ path: 'a.md', content: `ok\nSee https://${OTHER}/ and mail dev@${LISTED} via ${PUBLIC_V4}\n` }]);
   const failing = runGate(gateArgs(planted, 'generic'));
   assert.equal(failing.status, 1);
   const report = JSON.parse(failing.stdout);
   assert.deepEqual(report.findings, [
     { rule: 'R-ACCOUNT', kind: 'content', location: `${planted.commit}:1`, line: 2 },
     { rule: 'R-HOST', kind: 'content', location: `${planted.commit}:1`, line: 2 },
+    { rule: 'R-IP', kind: 'content', location: `${planted.commit}:1`, line: 2 },
   ]);
-  assert.deepEqual(report.rules.map((rule) => rule.status), ['findings', 'findings', 'not-run']);
-  for (const text of [OTHER, LISTED, 'a.md']) assert.ok(!`${failing.stdout}${failing.stderr}`.includes(text));
+  assert.deepEqual(report.rules.map((rule) => rule.status), ['findings', 'findings', 'findings', 'not-run']);
+  for (const text of [OTHER, LISTED, PUBLIC_V4, 'a.md']) assert.ok(!`${failing.stdout}${failing.stderr}`.includes(text));
 });
 
 test('a long unbroken line of letters, dots or hyphens scans in linear time and the gate passes', () => {

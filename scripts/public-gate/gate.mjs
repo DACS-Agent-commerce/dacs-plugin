@@ -6,7 +6,7 @@ import { ChoiceError, parseChoice, parseFlags } from '../lib/choice.mjs';
 import { classifyBlob } from './classify.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { buildOutputs, publish, writeDiagnostic } from './redact.mjs';
-import { ACCOUNT_RULE_ID, HOST_RULE_ID, hasValidAddressConfig, scanAccounts, scanHosts } from './rules-address.mjs';
+import { ACCOUNT_RULE_ID, HOST_RULE_ID, hasValidAddressConfig, hasValidIpDispositions, IP_RULE_ID, scanAccounts, scanHosts, scanIps } from './rules-address.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -21,6 +21,7 @@ export const EXIT = { pass: 0, findings: 1, unusable: 2 };
 const RULES = [
   { id: ACCOUNT_RULE_ID, run: scanAccounts },
   { id: HOST_RULE_ID, run: scanHosts },
+  { id: IP_RULE_ID, run: scanIps },
   { id: PRIVATE_RULE_ID, completeOnly: true, run: scanPrivate },
 ];
 
@@ -40,7 +41,7 @@ export function loadConfig() {
   const valid = LIMIT_NAMES.every((name) => Number.isSafeInteger(config.limits?.[name]) && config.limits[name] > 0)
     && Array.isArray(config.textExtensions) && Array.isArray(config.binaryDispositions)
     && config.binaryDispositions.every((entry) => entry.path && /^[0-9a-f]{64}$/.test(entry.sha256) && entry.reason)
-    && hasValidAddressConfig(config);
+    && hasValidAddressConfig(config) && hasValidIpDispositions(config);
   if (!valid) throw new GateInputError('invalid-config', 'public-gate.config.json is malformed');
   return { ...config, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
