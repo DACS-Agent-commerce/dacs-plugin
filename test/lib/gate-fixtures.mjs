@@ -1,12 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const GATE_SCRIPT = path.join(REPO_ROOT, 'scripts', 'public-gate', 'gate.mjs');
 export const CONFIG_FILE = path.join(REPO_ROOT, 'public-gate.config.json');
+export const ROOT_COMMIT = 'a'.repeat(40);
 
 const GIT_IDENTITY = {
   GIT_AUTHOR_NAME: 'Fixture',
@@ -53,4 +55,43 @@ export function createRepo(entries) {
   const commit = git(dir, ['commit-tree', tree, '-m', 'fixture'], { env });
   spawnSync('rm', ['-f', indexFile]);
   return { dir, commit, tree };
+}
+
+export function writeList(entries) {
+  const file = path.join(makeTempDir('list'), 'private-list.txt');
+  writeFileSync(file, `${entries.join('\n')}\n`);
+  return file;
+}
+
+/** Runs the gate script with `args`, killed after `timeout` ms, and returns { status, stdout, stderr }. */
+export function runGate(args, { env, timeout = 120_000 } = {}) {
+  const result = spawnSync(process.execPath, [GATE_SCRIPT, ...args], {
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+    maxBuffer: 1 << 26,
+    timeout,
+  });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+export function gateArgs(repo, scope, extra = []) {
+  return ['--repo', repo.dir, '--commit', repo.commit, '--scope', scope, ...extra];
+}
+
+export function completeArgs(repo, listFile, extra = []) {
+  return gateArgs(repo, 'complete', ['--private-list', listFile, '--expected-root', ROOT_COMMIT, ...extra]);
+}
+
+/** Hashes every file under `dir` (including .git) so a test can prove a run changed nothing. */
+export function snapshotTree(dir) {
+  const lines = [];
+  const walk = (current) => {
+    for (const name of readdirSync(current).sort()) {
+      const full = path.join(current, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else lines.push(`${path.relative(dir, full)} ${sha256(readFileSync(full))}`);
+    }
+  };
+  walk(dir);
+  return lines.join('\n');
 }
