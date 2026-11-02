@@ -6,10 +6,11 @@ import { ChoiceError, parseChoice, parseFlags } from '../lib/choice.mjs';
 import { classifyBlob } from './classify.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { buildOutputs, publish, writeDiagnostic } from './redact.mjs';
+import { ACCOUNT_RULE_ID, HOST_RULE_ID, hasValidAddressConfig, scanAccounts, scanHosts } from './rules-address.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const GATE_SOURCES = ['scripts/lib/choice.mjs', ...['check-report', 'classify', 'gate', 'history', 'objects', 'redact', 'rules-private'].map((name) => `scripts/public-gate/${name}.mjs`)];
+const GATE_SOURCES = ['scripts/lib/choice.mjs', ...['check-report', 'classify', 'gate', 'history', 'objects', 'redact', 'rules-address', 'rules-private'].map((name) => `scripts/public-gate/${name}.mjs`)];
 const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'gitDeadlineMs', 'scanDeadlineMs'];
 const SCOPES = ['generic', 'complete'];
 const FLAGS = ['--repo', '--commit', '--scope', '--private-list', '--private-evidence', '--expected-root', '--out'];
@@ -17,7 +18,11 @@ const COMPLETE_ONLY_FLAGS = ['--private-list', '--private-evidence', '--expected
 export const EXIT = { pass: 0, findings: 1, unusable: 2 };
 
 /** The rules this gate runs; a `completeOnly` rule needs the private list and reports `not-run` in generic scope. */
-const RULES = [{ id: PRIVATE_RULE_ID, completeOnly: true, run: scanPrivate }];
+const RULES = [
+  { id: ACCOUNT_RULE_ID, run: scanAccounts },
+  { id: HOST_RULE_ID, run: scanHosts },
+  { id: PRIVATE_RULE_ID, completeOnly: true, run: scanPrivate },
+];
 
 /** The ids of the registered rules; a report only counts as complete when it lists exactly these. */
 export const REGISTERED_RULE_IDS = Object.freeze(RULES.map(({ id }) => id));
@@ -34,7 +39,8 @@ export function loadConfig() {
   const config = JSON.parse(bytes);
   const valid = LIMIT_NAMES.every((name) => Number.isSafeInteger(config.limits?.[name]) && config.limits[name] > 0)
     && Array.isArray(config.textExtensions) && Array.isArray(config.binaryDispositions)
-    && config.binaryDispositions.every((entry) => entry.path && /^[0-9a-f]{64}$/.test(entry.sha256) && entry.reason);
+    && config.binaryDispositions.every((entry) => entry.path && /^[0-9a-f]{64}$/.test(entry.sha256) && entry.reason)
+    && hasValidAddressConfig(config);
   if (!valid) throw new GateInputError('invalid-config', 'public-gate.config.json is malformed');
   return { ...config, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
@@ -116,7 +122,7 @@ async function runGate(argv, signal) {
   const matcher = listEntries && createPrivateMatcher(listEntries, createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs }));
   const unscannable = unscannableEntries(entries, config);
   if (unscannable.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} unscannable entries`);
-  const findings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, limits: config.limits }))
+  const findings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, config, limits: config.limits }))
     .sort(compareFindings);
   const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...(options.expectedRoot ? { expectedRoot: options.expectedRoot } : {}) };
   const rules = RULES.map((rule) => ({ id: rule.id, status: ruleStatus(rule, { scope: options.scope, findings, unscannable }) }))
