@@ -57,7 +57,7 @@ function deliver(route, text, file) {
 
 /**
  * Builds the public report and the private evidence. The report is built field by field from enum values, object ids,
- * SHA-256 digests and positive integers, each checked against its schema.
+ * SHA-256 digests and positive integers, each checked against its schema, so its bytes never depend on the private list.
  * Each location is `<commit>:<position>` (the object reader's position); the evidence maps each to its exact path, or
  * `hex:<bytes>` for a name that is not UTF-8. `unscannable` is [{ entry, cause }], `findings` [{ rule, kind, entry, line? }].
  * Returns { report, evidence } as text; throws Error when a value is outside the schema.
@@ -70,13 +70,12 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
     exactPaths.set(entry.position, [location, entry.path ?? `hex:${entry.pathBytes.toString('hex')}`]);
     return location;
   };
-  const { gateRevision, configSha256, privateListSha256, expectedRoot } = scanner;
+  const { gateRevision, configSha256, expectedRoot } = scanner;
   const report = {
     scope: checked(scope, SCOPES),
     target: { commit, tree: checked(target.tree, FULL_OBJECT_ID) },
     scanner: {
       gateRevision: checked(gateRevision, SHA256_HEX), configSha256: checked(configSha256, SHA256_HEX),
-      ...(privateListSha256 === undefined ? {} : { privateListSha256: checked(privateListSha256, SHA256_HEX) }),
       ...(expectedRoot === undefined ? {} : { expectedRoot: checked(expectedRoot, FULL_OBJECT_ID) }),
     },
     rules: rules.map(({ id, status }) => ({ id: checked(id, RULE_IDS), status: checked(status, STATUSES) })),

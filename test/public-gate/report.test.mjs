@@ -11,6 +11,17 @@ import {
 const PLANTED = ['quartz', 'lantern'].join('-');
 const configSha256 = () => sha256(readFileSync(CONFIG_FILE));
 
+/** Every key path in `value`, array items as `[]`, sorted and without repeats. */
+function keyPaths(value, prefix = '') {
+  if (Array.isArray(value)) return [...new Set(value.flatMap((item) => keyPaths(item, `${prefix}[]`)))].sort();
+  if (value === null || typeof value !== 'object') return [];
+  return [...new Set(Object.entries(value).flatMap(([key, item]) => [`${prefix}.${key}`, ...keyPaths(item, `${prefix}.${key}`)]))].sort();
+}
+
+const REPORT_KEYS = ['.findings', '.findings[].kind', '.findings[].line', '.findings[].location', '.findings[].rule', '.rules', '.rules[].id', '.rules[].status',
+  '.scanner', '.scanner.configSha256', '.scanner.expectedRoot', '.scanner.gateRevision', '.scope', '.target', '.target.commit', '.target.tree',
+  '.unscannable', '.unscannable[].cause', '.unscannable[].location'];
+
 test('generic scope exits 0 with the private rule not-run; complete scope without the list exits 2; both reports carry scope, target, scanner identity and each rule\'s status', () => {
   const repo = createRepo([{ path: 'a.txt', content: 'clean\n' }]);
   const generic = runGate(gateArgs(repo, 'generic'));
@@ -25,13 +36,31 @@ test('generic scope exits 0 with the private rule not-run; complete scope withou
   assert.equal(missingList.status, 2);
   assert.equal(missingList.stdout, '');
 
-  const listFile = writeList([PLANTED]);
-  const complete = JSON.parse(runGate(completeArgs(repo, listFile)).stdout);
+  const complete = JSON.parse(runGate(completeArgs(repo, writeList([PLANTED]))).stdout);
   assert.equal(complete.scope, 'complete');
-  assert.deepEqual(complete.scanner, {
-    gateRevision: gateRevision(), configSha256: configSha256(), privateListSha256: sha256(readFileSync(listFile)), expectedRoot: ROOT_COMMIT,
-  });
+  assert.deepEqual(complete.scanner, { gateRevision: gateRevision(), configSha256: configSha256(), expectedRoot: ROOT_COMMIT });
   assert.deepEqual(complete.rules, [{ id: 'R-PRIVATE', status: 'passed' }]);
+});
+
+test('the report holds nothing derived from the list: different, reordered, repeated or overlapping lists give byte-identical reports with only the fixed keys and no list digest', () => {
+  const clean = createRepo([{ path: 'a.txt', content: 'clean\n' }]);
+  const found = createRepo([{ path: 'a.txt', content: 'clean\n' }, { path: `b/${PLANTED}.txt`, content: `x\n${PLANTED}\n` }]);
+  const lists = [
+    writeList([PLANTED]),
+    writeList(['other-entry', PLANTED, 'third-entry']),
+    writeList(['third-entry', PLANTED, PLANTED.slice(0, 9), PLANTED, 'other-entry']),
+  ];
+  for (const repo of [clean, found]) {
+    const outputs = lists.map((list) => runGate(completeArgs(repo, list)));
+    assert.deepEqual(outputs.map((output) => output.status), repo === clean ? [0, 0, 0] : [1, 1, 1]);
+    outputs.forEach((output) => assert.equal(output.stdout, outputs[0].stdout));
+    for (const list of lists) assert.ok(!outputs[0].stdout.includes(sha256(readFileSync(list))));
+  }
+  const report = JSON.parse(runGate(completeArgs(found, lists[2])).stdout);
+  assert.deepEqual(report.findings.map((finding) => finding.location), [`${found.commit}:2`, `${found.commit}:2`]);
+  const submodule = createRepo([{ path: 'm', content: 'b'.repeat(40), mode: '160000' }, { path: PLANTED, content: `${PLANTED}\n` }]);
+  const full = JSON.parse(runGate(completeArgs(submodule, lists[0])).stdout);
+  assert.deepEqual(keyPaths(full), REPORT_KEYS);
 });
 
 test('findings sort by position and line as numbers', () => {

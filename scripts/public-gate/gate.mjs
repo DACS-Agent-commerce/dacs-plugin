@@ -111,7 +111,6 @@ async function runGate(argv, signal) {
   const findings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, limits: config.limits }))
     .sort(compareFindings);
   const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...(options.expectedRoot ? { expectedRoot: options.expectedRoot } : {}) };
-  if (listEntries) scanner.privateListSha256 = createHash('sha256').update(readFileSync(options.privateList)).digest('hex');
   const rules = RULES.map((rule) => ({ id: rule.id, status: ruleStatus(rule, { scope: options.scope, findings, unscannable }) }))
     .sort((first, second) => compareText(first.id, second.id));
   const outputs = buildOutputs({ scope: options.scope, target, scanner, rules, unscannable, findings });

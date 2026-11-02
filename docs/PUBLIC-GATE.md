@@ -26,9 +26,9 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   per code point exactly as JavaScript's `/iu`: simple case folding, no Unicode normalization (a combining accent differs
   from a precomposed letter) and no one-to-many folding (`ß` is not `ss`). CRLF, a lone CR and a lone LF each end a line.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`; complete
-  scope adds `privateListSha256`, the SHA-256 of the list file, and `expectedRoot`, recorded but not yet checked), `rules`
-  (`id`, `status`: `passed`, `findings`, `not-run`, `unscannable`), `unscannable` (`location`, `cause`) and sorted
-  `findings` (`rule`, `kind`, `location`, `line`). It holds only fixed words, object ids, digests and numbers. Every location is
+  scope adds `expectedRoot`, recorded but not yet checked), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
+  `unscannable`), `unscannable` (`location`, `cause`) and sorted `findings` (`rule`, `kind`, `location`, `line`). It holds
+  only fixed words, object ids, digests and numbers; no field is derived from the list itself. Every location is
   `<commit>:<position>`, the entry's 1-based position in the commit's listing. `--private-evidence` (mode `0600`, written
   only after the report) maps each location to its exact path, or `hex:<bytes>` for a name that is not UTF-8. The two
   writes are not atomic together: a crash between them leaves a report without evidence.
