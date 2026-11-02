@@ -15,10 +15,11 @@ import { installConsoleGuard, log } from './log.js';
 import { DemosChain } from './chain.js';
 import { ConfirmationGate, buildChannels } from './confirm.js';
 import { SpendLedger } from './spend.js';
-import { loadMnemonic, encryptMnemonic, writeKeystore } from './keystore.js';
+import { encryptMnemonic, writeKeystore } from './keystore.js';
 import { createServer, VERSION } from './server.js';
 import { Demos } from '@kynesyslabs/demosdk/websdk';
 import { ApprovalServer } from './approval.js';
+import { createLegacyWalletOpener } from './wallet-policy.js';
 import { dailyAnchor } from './receipts.js';
 
 const HELP = `demos-mcp ${VERSION} — MCP server for the Demos Network
@@ -142,7 +143,7 @@ async function serve(): Promise<void> {
     chain,
     gate,
     ledger,
-    openWallet: async () => chain.openWallet(loadMnemonic(config, guard)),
+    openWallet: createLegacyWalletOpener(config, guard, chain),
     walletFactory: {
       // generated locally by the Demos SDK; never leaves this process except on the local page
       newMnemonic: () => new Demos().newMnemonic(128),

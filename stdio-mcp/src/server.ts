@@ -227,7 +227,9 @@ export function createServer(deps: Deps): McpServer {
   };
 
   const getWallet = async (): Promise<Wallet> => {
-    if (blocker) throw new Error(blocker);
+    // rechecked on every use: a keystore fenced after startup blocks an already-open wallet
+    const current = writeBlocker(config);
+    if (current) throw new Error(current);
     if (!wallet) {
       walletPromise ??= deps.openWallet().catch((e) => {
         walletPromise = null;
@@ -509,7 +511,7 @@ export function createServer(deps: Deps): McpServer {
 
   const requestConsent = (action: any) => action.payload?.request?.args?.private_consent === true;
   let activeConduct: {action: any; receipt: any} | null = null;
-  const assertActiveConduct = () => { if (!activeConduct) throw new Error('alignment missing execute permit'); requireDecision(conduct.checkpoint(activeConduct.action, activeConduct.receipt)); checkKill(); };
+  const assertActiveConduct = () => { const b = writeBlocker(config); if (b) throw new Error(b); if (!activeConduct) throw new Error('alignment missing execute permit'); requireDecision(conduct.checkpoint(activeConduct.action, activeConduct.receipt)); checkKill(); };
 
   /** Sign + node-confirm at SUBMIT time and re-check everything the human approved. */
   const signAndCheckPay = async (w: Wallet, to: string, amountOs: bigint, quoteOs: bigint): Promise<PreparedTx> => {
