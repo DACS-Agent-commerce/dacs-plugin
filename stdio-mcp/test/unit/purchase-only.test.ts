@@ -123,6 +123,40 @@ test('a marker that is a symlink to a missing target still blocks a prepared tra
   assert.equal(h.wallet.broadcasts.length, 0);
 });
 
+test('a marker that appears while the transfer is being signed stops it before broadcast', async () => {
+  const h = await harness();
+  const key = join(h.config.stateDir, 'wallet.keystore.json');
+  writeFileSync(key, 'synthetic placeholder');
+  h.config.keystorePath = key;
+  const p = await h.call('demos_tx_prepare', { to: ADDR_B, amount_dem: '1' });
+  assert.equal(p.isError, false, p.text);
+  const code = h.channel.last().code;
+  const preparePay = h.wallet.preparePay.bind(h.wallet);
+  h.wallet.preparePay = async (...args) => {
+    const tx = await preparePay(...args);
+    writeFileSync(`${key}.purchase-only`, '');
+    return tx;
+  };
+  const r = await h.call('demos_tx_submit', { prepared_id: p.json.prepared_id, confirmation_code: code });
+  // signed bytes reached the RPC at confirm, so the outcome stays unknown, but nothing is broadcast
+  assert.equal(r.json.status, 'unknown');
+  assert.match(r.text, FENCED);
+  assert.equal(h.wallet.prepares, 1);
+  assert.equal(h.wallet.broadcasts.length, 0);
+});
+
+test('a stop marker that is a symlink to a missing target stops the opener before key loading', async () => {
+  for (const marker of ['STOP', 'KILL']) {
+    const dir = mkdtempSync(join(tmpdir(), 'purchase-only-'));
+    const config = loadConfig({ DEMOS_MCP_ENABLE_WRITES: '1', DEMOS_STATE_DIR: dir, DEMOS_MNEMONIC_FILE: join(dir, 'missing') });
+    config.rpcIsKnownTestnet = true;
+    const { calls, chain } = countingChain();
+    symlinkSync(join(dir, 'missing-target'), join(dir, marker));
+    await assert.rejects(createLegacyWalletOpener(config, new SecretGuard(), chain)(), /^Error: Writes are stopped$/);
+    assert.deepEqual(calls, []);
+  }
+});
+
 test('DEMOS_WALLET_MODE accepts only unset or purchase-only, and never echoes the value', () => {
   const dir = mkdtempSync(join(tmpdir(), 'purchase-only-'));
   assert.equal(loadConfig({ DEMOS_STATE_DIR: dir }).purchaseOnly, false);

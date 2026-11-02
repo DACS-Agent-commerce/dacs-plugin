@@ -191,7 +191,7 @@ function purchaseOnlyMarkerPaths(keystorePath: string): string[] {
 }
 
 /** The marker's own directory entry counts, even a symlink to a missing target. */
-function markerPresent(p: string): boolean {
+export function markerPresent(p: string): boolean {
   try {
     lstatSync(p);
     return true;

@@ -17,7 +17,7 @@ import path from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Alignment, CARD_HASH, cardStatus, hash as conductHash, verifyReceipts } from '../alignment/index.mjs';
 import type { Config } from './config.js';
-import { normalizeAddress, writeBlocker } from './config.js';
+import { markerPresent, normalizeAddress, writeBlocker } from './config.js';
 import type { AttestKind, ChainReader, PreparedTx, Wallet } from './chain.js';
 import { TransmittedError } from './chain.js';
 import type { ConfirmationGate, ApprovedBy } from './confirm.js';
@@ -472,7 +472,7 @@ export function createServer(deps: Deps): McpServer {
 
   const checkRecipient = (to: string) => assertAllowlisted(config.recipientAllowlist, to);
   const checkKill = () => {
-    if (killSwitchEngaged(config.stateDir) || fs.existsSync(path.join(config.stateDir, 'STOP'))) throw new Error(`kill switch engaged (${config.stateDir}/KILL exists): all writes are refused`);
+    if (killSwitchEngaged(config.stateDir) || markerPresent(path.join(config.stateDir, 'STOP'))) throw new Error(`kill switch engaged (${config.stateDir}/KILL exists): all writes are refused`);
   };
   const feeQuoteOs = () => quoteFeeOs(chain);
 
