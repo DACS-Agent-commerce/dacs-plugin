@@ -5,7 +5,11 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ApprovalServer } from '../../src/approval.js';
+import { loadConfig } from '../../src/config.js';
 
 const card = { headline: 'Approve', rows: [['Amount', '1 DEM']] as Array<[string, string]>, digest: 'a'.repeat(64) };
 
@@ -129,4 +133,12 @@ test('instant table: invalid expiries refuse; a valid one works until expiresAt 
       h.setNow(1000);
     }
   }
+});
+
+test('a fractional confirmation TTL still gives a whole-millisecond approval deadline', async (t) => {
+  const config = loadConfig({ DEMOS_STATE_DIR: mkdtempSync(join(tmpdir(), 'approval-ttl-')), DEMOS_CONFIRM_TTL_SEC: '30.0001' });
+  assert.equal(config.confirmTtlMs, 30_000);
+  const h = fixture(t);
+  const url = await h.page.register('A', card, 1000 + config.confirmTtlMs);
+  assert.equal((await h.request(url + '/approve').done).status, 200);
 });
