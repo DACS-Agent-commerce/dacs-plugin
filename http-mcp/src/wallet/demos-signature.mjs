@@ -53,13 +53,67 @@ export function decodeSignature(value) {
   throw new WalletFormatError('signature must be 64 bytes encoded as hex or base64url');
 }
 
+// Ed25519 point arithmetic (RFC 8032 section 5.1) on BigInt, used only to decide
+// whether a public key may be used. node:crypto accepts every on-curve encoding,
+// so the check is made here, from the key's group order rather than from a list.
+const P = 2n ** 255n - 19n;
+const modPow = (base, exponent) => {
+  let result = 1n, b = base % P;
+  for (let e = exponent; e > 0n; e >>= 1n, b = b * b % P) if (e & 1n) result = result * b % P;
+  return result;
+};
+const D = (P - 121665n * modPow(121666n, P - 2n) % P) % P;
+const SQRT_M1 = modPow(2n, (P - 1n) / 4n);
+
+// Extended coordinates [X, Y, Z, T]. The unified formula is complete on this
+// curve, so it also doubles.
+function addPoints([x1, y1, z1, t1], [x2, y2, z2, t2]) {
+  const a = (y1 - x1) * (y2 - x2) % P, b = (y1 + x1) * (y2 + x2) % P;
+  const c = 2n * D * t1 % P * t2 % P, d = 2n * z1 * z2 % P;
+  const e = b - a, f = d - c, g = d + c, h = b + a;
+  return [(e * f % P + P) % P, (g * h % P + P) % P, (f * g % P + P) % P, (e * h % P + P) % P];
+}
+
+// Decodes 32 bytes to a point. Returns null unless the encoding is canonical
+// (y < p, and a set sign bit only when x != 0) and the point is on the curve.
+function decodePoint(raw) {
+  const bytes = Buffer.from(raw);
+  if (bytes.length !== 32) return null;
+  const sign = bytes[31] >> 7;
+  bytes[31] &= 0x7f;
+  const y = BigInt(`0x${Buffer.from(bytes).reverse().toString('hex')}`);
+  if (y >= P) return null;
+  const y2 = y * y % P, x2 = (y2 - 1n + P) % P * modPow((D * y2 + 1n) % P, P - 2n) % P;
+  let x = modPow(x2, (P + 3n) / 8n);
+  if (x * x % P !== x2) x = x * SQRT_M1 % P;
+  if (x * x % P !== x2) return null;
+  if (x === 0n && sign === 1) return null;
+  if (Number(x & 1n) !== sign) x = (P - x) % P;
+  return [x, y, 1n, x * y % P];
+}
+
+// True for a canonical, on-curve key whose order is not 1, 2, 4 or 8, that is,
+// where [8]A is not the identity. Every other input is refused.
+export function isUsableEd25519PublicKey(raw) {
+  try {
+    let point = decodePoint(raw);
+    if (!point) return false;
+    for (let i = 0; i < 3; i++) point = addPoints(point, point);
+    return !(point[0] === 0n && point[1] === point[2]);
+  } catch {
+    return false;
+  }
+}
+
 function publicKeyObject(address) {
   const raw = Buffer.from(normalizeDemosAddress(address).slice(2), 'hex');
+  if (!isUsableEd25519PublicKey(raw)) throw new WalletFormatError('wallet address is not a usable Ed25519 public key');
   return createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
 }
 
 // Returns true only for a valid Ed25519 signature by `address` over the exact
-// UTF-8 bytes of `message`. Malformed input returns false, never throws.
+// UTF-8 bytes of `message`. Small-order and non-canonical public keys are
+// refused. Malformed input returns false, never throws.
 export function verifyDemosSignature({ address, message, signature }) {
   try {
     const sig = decodeSignature(signature);

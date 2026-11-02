@@ -315,8 +315,8 @@ test('unavailable view cannot claim current delivery', () => {
   assert.equal(row(result, 'protocol.view').status, 'unavailable'); assert.equal(row(result, 'deliverable.current').status, 'unavailable');
 });
 
-// Small-order Ed25519 public keys (little-endian y, both sign bits,
-// and non-canonical y >= p) accept R = identity, S = 0 for some messages.
+// Small-order Ed25519 public keys (little-endian y, both sign bits, and
+// non-canonical y >= p). The shared helper refuses every one of them.
 const SMALL_ORDER_KEYS = ['01' + '00'.repeat(31), '01' + '00'.repeat(30) + '80', 'ec' + 'ff'.repeat(30) + '7f', 'ec' + 'ff'.repeat(31),
   '00'.repeat(32), '00'.repeat(31) + '80', '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05', '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85',
   'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a', 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa',
@@ -328,23 +328,33 @@ function resignAgreement(f, signers) {
   f.p.agreement.artifact = { ...unsigned, signatures: unsigned.parties.map((party, i) => ({ party: party.primaryClaim, algorithm: 'ed25519', value: signers[i](message) })) };
   f.p.agreement.hash = hash;
 }
-test('identity-key Agreement forgery accepted by the shared helper is rejected', () => {
+test('the shared helper refuses a small-order key on an Agreement signature, and so does the evaluator', () => {
   const f = fixture(), key = SMALL_ORDER_KEYS[0];
   f.operation.terms.buyer.wallet = `0x${key}`; f.p.agreement.artifact.parties[0].primaryClaim = `did:demos:agent:${key}`;
   resignAgreement(f, [() => FORGED, (m) => f.seller.signBytes(m).toString('base64url')]);
-  assert.equal(verifyDemosSignature({ address: `0x${key}`, message: `${ARTIFACT_SEPARATORS.PayeeBoundAgreementDocument}${f.p.agreement.hash}`, signature: FORGED }), true);
+  assert.equal(verifyDemosSignature({ address: `0x${key}`, message: `${ARTIFACT_SEPARATORS.PayeeBoundAgreementDocument}${f.p.agreement.hash}`, signature: FORGED }), false);
   expect(f, 'agreement.signed', 'mismatch', 'agreement.signature');
 });
-for (const key of SMALL_ORDER_KEYS) test(`small-order key ${key.slice(0, 8)}…${key.slice(-2)} cannot forge a bundle signature`, () => {
-  const f = fixture(); let found = false;
-  for (let i = 0; i < 256 && !found; i++) {
-    const bundleHash = sha256Hex(`forge-${i}`), message = `${ARTIFACT_SEPARATORS.FaultAttestationBundle}${bundleHash}`;
-    found = verifyDemosSignature({ address: `0x${key}`, message, signature: FORGED });
-    if (found) Object.assign(f.p.bundle, { bundleHash, message, buyerSignature: FORGED });
+for (const key of SMALL_ORDER_KEYS) test(`small-order key ${key.slice(0, 8)}…${key.slice(-2)} is refused by the shared helper`, () => {
+  // A plain Ed25519 verify accepts the constant signature for some or all messages with these keys.
+  for (let i = 0; i < 256; i++) {
+    const message = `${ARTIFACT_SEPARATORS.FaultAttestationBundle}${sha256Hex(`constant-${i}`)}`;
+    assert.equal(verifyDemosSignature({ address: `0x${key}`, message, signature: FORGED }), false, message);
   }
-  assert.ok(found, 'the shared helper accepts a constant forgery for this key');
+});
+for (const key of SMALL_ORDER_KEYS) test(`small-order key ${key.slice(0, 8)}…${key.slice(-2)} gives a bundle signature mismatch in the evaluator`, () => {
+  const f = fixture(), bundleHash = sha256Hex('constant-0');
+  Object.assign(f.p.bundle, { bundleHash, message: `${ARTIFACT_SEPARATORS.FaultAttestationBundle}${bundleHash}`, buyerSignature: FORGED });
   f.operation.terms.buyer.wallet = `0x${key}`;
   expect(f, 'bundle.buyer.signature', 'mismatch', 'bundle.signature-invalid');
+});
+test('an ordinary valid signature still passes and a different message still fails', () => {
+  const wallet = createEphemeralWallet(), message = `${ARTIFACT_SEPARATORS.FaultAttestationBundle}${sha256Hex('ordinary')}`;
+  const hex = wallet.signHex(message), base64url = Buffer.from(hex.slice(2), 'hex').toString('base64url');
+  assert.equal(verifyDemosSignature({ address: wallet.address, message, signature: hex }), true);
+  assert.equal(verifyDemosSignature({ address: wallet.address, message, signature: base64url }), true);
+  assert.equal(verifyDemosSignature({ address: wallet.address, message: `${message}x`, signature: hex }), false);
+  assert.equal(verifyDemosSignature({ address: createEphemeralWallet().address, message, signature: hex }), false);
 });
 for (const [name, parties] of [['null', [null]], ['null beside a party', 'mixed'], ['number', [42]], ['string', ['buyer']], ['array', [[]]], ['non-array', 'buyer']]) {
   test(`malformed Agreement party entry (${name}) is a shape mismatch, not a crash`, () => {
