@@ -34,7 +34,8 @@ const SECRET_WORDS = new Set(['secret', 'secrets', 'token', 'tokens', 'password'
   'credential', 'credentials', 'privatekey', 'apikey', 'signingkey', 'secretkey', 'accesskey']);
 const KEY_WORDS = new Set(['key', 'keys']);
 const KEY_QUALIFIERS = new Set(['signing', 'private', 'secret', 'api', 'access', 'auth', 'encryption', 'master', 'cookie']);
-const CAMEL_CASE_BOUNDARY = /([a-z\d])([A-Z])/g;
+const SECRET_WORD_ENDINGS = [...SECRET_WORDS, ...[...KEY_QUALIFIERS].flatMap((qualifier) => [...KEY_WORDS].map((keyWord) => `${qualifier}${keyWord}`))];
+const CAMEL_CASE_BOUNDARY =/([a-z\d])([A-Z])/g;
 const NAME_SEPARATORS = /[^A-Za-z\d]+/;
 
 const TAR_MAGIC = Buffer.from('ustar');
@@ -42,6 +43,10 @@ const TAR_MAGIC_OFFSET = 257;
 const GZIP_MAGIC = Buffer.from([0x1f, 0x8b, 0x08]);
 /** The zip signatures of a local file header, an empty archive and a spanned archive. */
 const ZIP_MAGICS = [[0x50, 0x4b, 0x03, 0x04], [0x50, 0x4b, 0x05, 0x06], [0x50, 0x4b, 0x07, 0x08]].map((bytes) => Buffer.from(bytes));
+const ZIP_END_MAGIC = ZIP_MAGICS[1];
+const ZIP_END_RECORD_BYTES = 22;
+const ZIP_COMMENT_LENGTH_OFFSET = 20;
+const ZIP_MAX_COMMENT_BYTES = 0xffff;
 
 /** The lower-case directory segments of `file` and its lower-case file name. */
 function lowerCaseParts(file) {
@@ -67,10 +72,13 @@ function createFileRule(ruleId, scanEntry) {
 
 const wordsOf = (key) => key.replace(CAMEL_CASE_BOUNDARY, '$1 $2').split(NAME_SEPARATORS).filter(Boolean).map((word) => word.toLowerCase());
 
-/** Whether `key` names a secret: split on `_`, `-`, `.` and camelCase boundaries and compared case-insensitively. */
+/**
+ * Whether `key` names a secret: split on `_`, `-`, `.` and camelCase boundaries and compared case-insensitively. A word also
+ * counts when it ends with a secret word or a qualifier and `key`, so `GITHUBTOKEN` and `AUTHKEY` read as secrets.
+ */
 function isSecretName(key) {
   const words = wordsOf(key);
-  return words.some((word, index) => SECRET_WORDS.has(word) || (KEY_WORDS.has(word) && KEY_QUALIFIERS.has(words[index - 1])));
+  return words.some((word, index) => SECRET_WORD_ENDINGS.some((ending) => word.endsWith(ending)) || (KEY_WORDS.has(word) && KEY_QUALIFIERS.has(words[index - 1])));
 }
 
 const unquoted = (value) => QUOTED_VALUE.exec(value)?.groups.inner ?? value;
@@ -121,8 +129,21 @@ export const scanHostingFiles = createFileRule(HOSTING_RULE_ID, (entry, add) => 
 
 const startsWith = (bytes, magic, offset = 0) => bytes.subarray(offset, offset + magic.length).equals(magic);
 
-/** Whether `bytes` begin as a gzip stream or a zip archive, or hold the `ustar` mark of a tar header. */
-const hasArchiveSignature = (bytes) => startsWith(bytes, GZIP_MAGIC) || ZIP_MAGICS.some((magic) => startsWith(bytes, magic)) || startsWith(bytes, TAR_MAGIC, TAR_MAGIC_OFFSET);
+/**
+ * Whether `bytes` hold a zip end-of-central-directory record in their last 64 KiB plus the record: the 4-byte signature, 18
+ * more bytes, and a comment length that fits in what follows. Zip readers find the archive from this record, so a stub
+ * before the first header does not hide it.
+ */
+function hasZipEndRecord(bytes) {
+  const last = bytes.length - ZIP_END_RECORD_BYTES;
+  for (let offset = last; offset >= 0 && offset >= last - ZIP_MAX_COMMENT_BYTES; offset -= 1) {
+    if (startsWith(bytes, ZIP_END_MAGIC, offset) && bytes.readUInt16LE(offset + ZIP_COMMENT_LENGTH_OFFSET) <= last - offset) return true;
+  }
+  return false;
+}
+
+/** Whether `bytes` begin as a gzip stream or a zip archive, hold the `ustar` mark of a tar header, or end as a zip archive. */
+const hasArchiveSignature = (bytes) => startsWith(bytes, GZIP_MAGIC) || ZIP_MAGICS.some((magic) => startsWith(bytes, magic)) || startsWith(bytes, TAR_MAGIC, TAR_MAGIC_OFFSET) || hasZipEndRecord(bytes);
 
 /**
  * R-ARCHIVE: refuses every blob that holds a tar, gzip or zip signature, whatever its name or its binary classification,

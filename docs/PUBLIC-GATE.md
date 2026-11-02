@@ -70,14 +70,16 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `DACS_OAUTH_COOKIE_KEYS` may only be empty or a placeholder. Any other key whose name reads as a secret may only be empty or a
   placeholder too: the name is split on `_`, `-`, `.` and camelCase boundaries and compared in lower case, and it is secret when a word is
   `secret`, `token`, `password`, `passphrase`, `mnemonic`, `seed`, `credential` (or a plural or run-together form such as `apikey`), or
-  `key` after `signing`, `private`, `secret`, `api`, `access`, `auth`, `encryption`, `master` or `cookie`. No key is exempt for its name. A
+  `key` after `signing`, `private`, `secret`, `api`, `access`, `auth`, `encryption`, `master` or `cookie`. A word that ends with one of
+  those words, or with one of those qualifiers and `key`, counts too (`GITHUBTOKEN`, `CLIENTSECRET`, `AUTHKEY`, `COOKIEKEY`). No key is exempt for its name. A
   placeholder is an angle-bracket or `${...}` slot, `REPLACE_ME`, `CHANGE_ME`, `your-...-here` or a run of `x`; one pair of quotes around a value is ignored.
 - **Hosting files (`R-HOSTING`, both scopes).** Refuses by path, in any letter case: everything under a `deploy` directory, a file ending in
   `.service`, a file named `Caddyfile` and a real env file (`.env`, `.env.<name>`, `<name>.env`). A name ending in `.example`, `.sample` or
   `.template` is not refused for its name; a `.env` template is read by `R-ENV`.
 - **Archives (`R-ARCHIVE`, both scopes).** Refuses every blob that holds an archive signature, whatever its name and even when a
   `binaryDispositions` entry lets it be read: a gzip stream (`1f 8b 08`), a zip archive (`PK` with `03 04`, `05 06` or `07 08`) or a tar
-  header (`ustar` at byte 257). Refuses any path under a `vendor` directory, in any letter case.
+  header (`ustar` at byte 257), or a zip end-of-central-directory record (`PK` `05 06`) in the last 64 KiB, which finds a zip that has
+  a stub before its first header. Refuses any path under a `vendor` directory, in any letter case.
 - **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
   run exits 2 (cause `unexpected-root`) without a report.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`; complete

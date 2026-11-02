@@ -54,6 +54,16 @@ test('env templates: the carried http-mcp template passes as it stands; the toke
   assert.deepEqual(envFindings(`LOG_LEVEL=${realValue()}\nDACS_LOG_LEVEL=info\n`), []);
 });
 
+test('env templates: a secret or qualifier word run together with another word is still a secret name; non-secret names stay clear', () => {
+  const runTogether = ['AUTHKEY', 'COOKIEKEY', 'COOKIEKEYS', 'CLIENTSECRET', 'GITHUBTOKEN', 'SESSIONSECRET', 'JWTSECRET', 'ADMINPASSWORD', 'APIKEY', 'dacsAuthkey', 'DACS_GITHUBTOKEN'];
+  for (const key of runTogether) {
+    assert.deepEqual(envFindings(`${key}=${realValue()}\n`), ['R-ENV content .env.example 1'], `${key} real value`);
+    assert.deepEqual(envFindings(`# ${key}=${realValue()}\n`), ['R-ENV content .env.example 1'], `${key} commented real value`);
+    for (const value of ['', 'REPLACE_ME', '<your-key>']) assert.deepEqual(envFindings(`${key}=${value}\n`), [], `${key} ${value}`);
+  }
+  for (const key of ['MONKEY', 'TURKEY', 'HOTKEY', 'KEYBOARD', 'LOG_LEVEL', 'DACS_PORT', 'NODE_ENV']) assert.deepEqual(envFindings(`${key}=${realValue()}\n`), [], `${key} is not a secret name`);
+});
+
 test('env templates: a line that is not an assignment fails, and only env template names are read', () => {
   assert.deepEqual(envFindings(`first=1\n${realValue()}\n\n# comment\n`), ['R-ENV content .env.example 2']);
   assert.deepEqual(envFindings(`API_TOKEN = ${realValue()}\n`), ['R-ENV content .env.example 1']);
@@ -92,6 +102,37 @@ test('archives: a committed tarball, gzip or zip fails by content signature what
   const nearMiss = Buffer.alloc(TAR_BLOCK_BYTES);
   nearMiss.write('ustar', TAR_MAGIC_OFFSET + 1);
   assert.deepEqual(scanned(scanArchives, { 'x.bin': nearMiss }), []);
+});
+
+test('archives: a zip with a prepended stub or trailing bytes fails by its end-of-central-directory record; text that only mentions the signature passes', () => {
+  const END_RECORD_BYTES = 22;
+  const COMMENT_LENGTH_OFFSET = 20;
+  const endRecord = (comment = '') => {
+    const record = Buffer.alloc(END_RECORD_BYTES);
+    record.set([0x50, 0x4b, 0x05, 0x06]);
+    record.writeUInt16LE(comment.length, COMMENT_LENGTH_OFFSET);
+    return Buffer.concat([record, Buffer.from(comment)]);
+  };
+  const stub = Buffer.from('#!/bin/sh\nexec unzip "$0"\n');
+  const prefixed = Buffer.concat([stub, zipArchive(), endRecord()]);
+  const planted = {
+    'tools/setup.sh': prefixed,
+    'tools/commented.dat': Buffer.concat([stub, endRecord('built by a stub')]),
+    'tools/trailing.dat': Buffer.concat([stub, endRecord(), Buffer.from('padding')]),
+    'tools/large.dat': Buffer.concat([Buffer.alloc(100000, 0x41), endRecord()]),
+  };
+  const entries = Object.entries(planted).map(([file, bytes], index) => ({ position: index + 1, path: file, oid: PLANTED_BLOB, bytes }));
+  assert.deepEqual(scanArchives({ entries, config: {}, limits: LIMITS }).map((finding) => [finding.rule, finding.kind, finding.entry.path]), Object.keys(planted).map((file) => ['R-ARCHIVE', 'content', file]));
+
+  const lying = endRecord();
+  lying.writeUInt16LE(500, COMMENT_LENGTH_OFFSET);
+  const clear = {
+    'a/far.dat': Buffer.concat([stub, endRecord(), Buffer.alloc(70000, 0x41)]),
+    'a/lying.dat': Buffer.concat([stub, lying]),
+    'a/cut.dat': Buffer.concat([stub, endRecord().subarray(0, END_RECORD_BYTES - 1)]),
+    'a/text.md': 'the PK\x05\x06 marker\n',
+  };
+  assert.deepEqual(scanned(scanArchives, clear), []);
 });
 
 test('archives: an archive classified as binary still fails the archive rule', () => {
