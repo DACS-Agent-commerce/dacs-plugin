@@ -110,6 +110,13 @@ test('a blob over the size limit or a tree over the object-count limit fails as 
   await assert.rejects(readTarget(crowded, { ...LIMITS, maxTotalBlobBytes: 2 }), { cause: 'limit:maxTotalBlobBytes' });
 });
 
+test('the total-bytes limit counts every path, so identical blobs under several paths add up', async () => {
+  const repeated = createRepo([{ path: 'a.txt', content: 'abcd' }, { path: 'b.txt', content: 'abcd' }]);
+  await assert.rejects(readTarget(repeated, { ...LIMITS, maxTotalBlobBytes: 5 }), { cause: 'limit:maxTotalBlobBytes' });
+  const target = await readTarget(repeated, { ...LIMITS, maxTotalBlobBytes: 8 });
+  assert.deepEqual(target.entries.map((entry) => entry.bytes.toString()), ['abcd', 'abcd']);
+});
+
 test('a code, config or doc file holding a NUL byte or invalid UTF-8 is unscannable; a binary asset without a reviewed disposition is unscannable; binary classification never skips the path or private-list checks', () => {
   const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
   const textTypes = ['code.mjs', 'settings.json', 'guide.md'];

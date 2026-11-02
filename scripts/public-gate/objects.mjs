@@ -112,12 +112,14 @@ function parseBatch(output, wanted) {
 }
 
 async function readBlobs(base, entries) {
-  const wanted = new Map(entries.filter((entry) => !entry.problem).map((entry) => [entry.oid, entry.size]));
-  const total = [...wanted.values()].reduce((sum, size) => sum + size, 0);
-  if (total > base.limits.maxTotalBlobBytes) throw new GateInputError('limit:maxTotalBlobBytes', `the blobs hold more than ${base.limits.maxTotalBlobBytes} bytes`);
+  const readable = entries.filter((entry) => !entry.problem);
+  const pathBytesTotal = readable.reduce((sum, entry) => sum + entry.size, 0);
+  if (pathBytesTotal > base.limits.maxTotalBlobBytes) throw new GateInputError('limit:maxTotalBlobBytes', `the blobs hold more than ${base.limits.maxTotalBlobBytes} bytes`);
+  const wanted = new Map(readable.map((entry) => [entry.oid, entry.size]));
   if (wanted.size === 0) return new Map();
   const input = `${[...wanted.keys()].join('\n')}\n`;
-  return parseBatch(await git({ ...base, args: ['cat-file', '--batch'], input, maxBytes: total + wanted.size * BATCH_RECORD_SLACK_BYTES }), wanted);
+  const distinctBytes = [...wanted.values()].reduce((sum, size) => sum + size, 0);
+  return parseBatch(await git({ ...base, args: ['cat-file', '--batch'], input, maxBytes: distinctBytes + wanted.size * BATCH_RECORD_SLACK_BYTES }), wanted);
 }
 
 /**
