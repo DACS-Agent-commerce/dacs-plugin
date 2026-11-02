@@ -2,7 +2,9 @@
 
 Every file in this repository's first commit, except this manifest, came from an
 earlier private plugin repository at the same path (two fixture files carry a
-new name, noted in their rows), or was added for this repository. Each row gives the blob in the first commit and whether the file is
+new name, noted in their rows), or was added for this repository. Files marked `added` that are not in the first commit (the root package, `scripts/`, `test/`
+and `public-gate.config.json`) were added by later changes. Each row gives the blob (the first
+commit's, or for a later addition the current one) and whether the file is
 byte-for-byte unchanged from that repository (`verbatim`), was edited before
 import (with the reason), or was added.
 
@@ -31,9 +33,9 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 728 (verbatim 511, edited 215, added 2).
+Files: 742 (verbatim 511, edited 215, added 16).
 
-| Path | First-commit blob | Disposition |
+| Path | Blob | Disposition |
 | --- | --- | --- |
 | `.gitleaksignore` | `5f6b32b9b0f7f675ea49a6dae958c1f8b0016d90` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
@@ -696,6 +698,13 @@ Files: 728 (verbatim 511, edited 215, added 2).
 | `http-mcp/wallet-build/package-lock.json` | `3eb3a13163a28d7612ec08546d84a8261ef90ca3` | verbatim |
 | `http-mcp/wallet-build/package.json` | `6370d54fbf15b44f14e0005bb3471ed93999b52e` | verbatim |
 | `http-mcp/wallet-build/shims.mjs` | `b90f32a3c063bf436cd25a96ab7b27d61491c43c` | verbatim |
+| `package-lock.json` | `02b053fab55700b6fe75742c85076e26dc230628` | added: lockfile of the root package |
+| `package.json` | `6f4d7ca0f0796a019620e088672d8e4b9a32da9f` | added: root package with the test command |
+| `public-gate.config.json` | `bdc4436dc7824caa9ac2978a170ffc0f37d982d3` | added: gate limits, text extensions and binary dispositions |
+| `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
+| `scripts/public-gate/classify.mjs` | `afe007bda11127b8e9d1baa181a5bba277545bc2` | added: public-content gate source |
+| `scripts/public-gate/objects.mjs` | `8ed33ee35b5077a3b580f535b1d61a8ebb355db3` | added: public-content gate source |
+| `scripts/public-gate/rules-private.mjs` | `500e30d16d7ee7b6984008c7958c9844192fead6` | added: public-content gate source |
 | `stdio-mcp/.claude-plugin/marketplace.json` | `d84732871f473d7f9e0bc6a1144bae8b0646af0f` | verbatim |
 | `stdio-mcp/.claude-plugin/plugin.json` | `c977a78af1a20e73a71e8fb05ac88dfc15f6b66a` | edited: RPC and opt-in descriptions name no host and do not direct testnet writes to the mainnet opt-in |
 | `stdio-mcp/.gitignore` | `db95153686d0c7bbbc1ffe2b84468bf9a5f979af` | verbatim |
@@ -763,3 +772,10 @@ Files: 728 (verbatim 511, edited 215, added 2).
 | `stdio-mcp/test/unit/workflow-pins.test.ts` | `d0b825c89dc87d986e1abf74ad0757837d5bfaf0` | edited: header comment: internal identifiers removed; skip message and comment reworded |
 | `stdio-mcp/test/unit/workflow-settings.test.ts` | `d30cca6e6e28275e7044eed3e5fe413e1114a654` | edited: header comment: internal identifiers removed; skip message and comment reworded |
 | `stdio-mcp/tsconfig.json` | `3cf94395ce469d74d6c8ba7abcb763df04e51863` | verbatim |
+| `test/ci/carry-state.test.mjs` | `ad09f5acfeaac7b1623e4400bc8e984326a0817d` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/ci/root-script.test.mjs` | `1113534311581054298466b4a169d518b8afc40b` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/lib/choice.test.mjs` | `26f4d0970e0315c810c5d39d4bf81a054a3c0976` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/lib/gate-fixtures.mjs` | `e3949a8476e4ce470a0d8f5c37a6232744531fd5` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/engine.test.mjs` | `ca2f9f68e01c766454f6d26d72a515f46d9681b7` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/private-list.test.mjs` | `b372088cb4aef80c627531654314f80be171e0d7` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/private-matcher.test.mjs` | `7cea6ab6e576663cc6566a3c033cfacc55e14620` | added: tests of the public-content gate and of the carried-file inventory |
