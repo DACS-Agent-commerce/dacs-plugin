@@ -40,7 +40,7 @@ Files: 750 (verbatim 511, edited 215, added 24).
 | `.gitleaksignore` | `5f6b32b9b0f7f675ea49a6dae958c1f8b0016d90` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
 | `README.md` | `857e78943e5bf734cb2542f4ae8691c0e55259a9` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch |
-| `docs/PUBLIC-GATE.md` | `1421a117fb5839c22d7340e757b4b0d8ac22a876` | added: documentation of the public-content gate |
+| `docs/PUBLIC-GATE.md` | `342d571ac60274e52df6337f87810ab0cee045d0` | added: documentation of the public-content gate |
 | `http-mcp/.dockerignore` | `aae035eb68f5747b0bda683606503b97ca99afdf` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/.env.example` | `61149650b005fca4655a1ba4d338e3b2a5f52f7d` | verbatim |
 | `http-mcp/.gitignore` | `1a8d076aff4a0fae67103239e52b41dd82b25daf` | verbatim |
@@ -705,7 +705,7 @@ Files: 750 (verbatim 511, edited 215, added 24).
 | `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
 | `scripts/public-gate/classify.mjs` | `afe007bda11127b8e9d1baa181a5bba277545bc2` | added: public-content gate source |
 | `scripts/public-gate/gate.mjs` | `c6dedb2f53de9761f5a81fed62ab0497f0f8803b` | added: public-content gate source |
-| `scripts/public-gate/history.mjs` | `b7589e029cac81881cafd4fb26952b57cdfe86cf` | added: public-content gate source |
+| `scripts/public-gate/history.mjs` | `c885f5e9069a2f143be090b442e3acd8619cc981` | added: public-content gate source |
 | `scripts/public-gate/objects.mjs` | `c47b30b108e752869e008ab8e16136f9727e276e` | added: public-content gate source |
 | `scripts/public-gate/redact.mjs` | `0da2bab87e838ee4293f0f5c4be20b7b03797ac4` | added: public-content gate source |
 | `scripts/public-gate/rules-private.mjs` | `c74704e5ad3be7f4f2feb1298133f09d3cc67bef` | added: public-content gate source |
@@ -781,7 +781,7 @@ Files: 750 (verbatim 511, edited 215, added 24).
 | `test/lib/choice.test.mjs` | `654dead8e6a23f82bf27272959eb827a1d5db717` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/lib/gate-fixtures.mjs` | `3145570b6f9c671a666c8dc733fd8af25da8a9c5` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/engine.test.mjs` | `bd5f7814039a0f8462952dc732a7ab46d5567b60` | added: tests of the public-content gate and of the carried-file inventory |
-| `test/public-gate/history.test.mjs` | `893e8265571cff6a883dcf9f079cfbf1e8d7a1f6` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/history.test.mjs` | `85e32aeb0a686c9078095ea836ee92895166e0fd` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private-list.test.mjs` | `b372088cb4aef80c627531654314f80be171e0d7` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private-matcher.test.mjs` | `7cea6ab6e576663cc6566a3c033cfacc55e14620` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private.test.mjs` | `a90437a91d66394fd6700f7266b6e790d3045508` | added: tests of the public-content gate and of the carried-file inventory |

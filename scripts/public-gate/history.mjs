@@ -17,9 +17,12 @@ const KINDS = ['path', 'content', 'author', 'committer', 'header', 'message', 't
 /** The part of a commit object a commit finding is in; its location is `<commit>:<field>`. */
 const COMMIT_FIELDS = ['author', 'committer', 'header', 'message'];
 
+/** A string token or a bracket of JSON text: in valid JSON nothing else holds a quote or a bracket. */
+const JSON_TOKEN = /"[^"\\]*(?:\\.[^"\\]*)*"|[[\]{}]/gs;
+
 /**
- * Reads the pull-request file: a JSON array of objects. Returns the sha256 of the file and every string in it, depth first,
- * as { item, string, value }: the 1-based number of its object in the array and of the string in that object.
+ * Reads the pull-request file: a JSON array of objects. Returns the sha256 of the file and every string in it, keys
+ * and values, in file order, as { item, string, value }: the 1-based number of its object in the array and of the string in that object.
  */
 function readPrText(file, limits) {
   let bytes;
@@ -29,25 +32,39 @@ function readPrText(file, limits) {
   } catch (error) {
     throw error instanceof GateInputError ? error : new GateInputError('pr-text-unreadable', `--pr-text cannot be read (${error.code ?? error.name})`);
   }
+  const text = bytes.toString('utf8');
   let parsed;
   try {
-    parsed = JSON.parse(bytes);
+    parsed = JSON.parse(text);
   } catch {
     throw new GateInputError('pr-text-malformed', '--pr-text is not valid JSON');
   }
   if (!Array.isArray(parsed) || parsed.some((item) => item === null || typeof item !== 'object' || Array.isArray(item))) {
     throw new GateInputError('pr-text-malformed', '--pr-text must be a JSON array of objects');
   }
+  return { sha256: createHash('sha256').update(bytes).digest('hex'), strings: stringsInFileOrder(text) };
+}
+
+/**
+ * Lists every string token of a valid JSON array of objects, keys and values, repeated keys included, in file order, as
+ * { item, string, value }. `JSON.parse` cannot be walked for this: it drops the earlier value of a repeated key and skips keys.
+ */
+function stringsInFileOrder(text) {
   const strings = [];
-  parsed.forEach((object, index) => {
-    let string = 0;
-    const walk = (value) => {
-      if (typeof value === 'string') strings.push({ item: index + 1, string: (string += 1), value });
-      else if (value !== null && typeof value === 'object') Object.values(value).forEach(walk);
-    };
-    walk(object);
-  });
-  return { sha256: createHash('sha256').update(bytes).digest('hex'), strings };
+  let depth = 0;
+  let item = 0;
+  let string = 0;
+  for (const [token] of text.matchAll(JSON_TOKEN)) {
+    if (token === '[' || token === '{') {
+      depth += 1;
+      if (depth === 2) {
+        item += 1;
+        string = 0;
+      }
+    } else if (token === ']' || token === '}') depth -= 1;
+    else strings.push({ item, string: (string += 1), value: JSON.parse(token) });
+  }
+  return strings;
 }
 
 /** Findings in one raw commit object: list entries in its message and headers, and (with an allowed identity) other identities or time zones. */

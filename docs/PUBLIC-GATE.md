@@ -64,9 +64,9 @@ exit codes and output rules are those above; `--out` never overwrites a file, an
 - **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
   identity (kind `author` or `committer`) and every time zone other than `+0000` (kind `timezone`). Without the flag the rule
   is `not-run`.
-- **Pull-request text.** `--pr-text` is a JSON array of objects. `R-PRIVATE` scans every string in them, at any depth (kind
-  `pr-text`, location `pr-<n>:<m>`: the n-th object, and the m-th string in it counted depth first, both from 1, with the
-  line). Keys are never printed. Anything else in the file exits 2.
+- **Pull-request text.** `--pr-text` is a JSON array of objects. `R-PRIVATE` scans every string in them, keys and values, at any
+  depth, and every repeat of a key (kind `pr-text`, location `pr-<n>:<m>`: the n-th object, and the m-th string in it in
+  the file's order, both from 1, with the line). Keys are never printed. Anything else in the file exits 2.
 - **Report.** The same closed schema as above: fixed words, object ids, digests and positive numbers, nothing derived from
   the list. `target` is `heads` (the object ids the refs name, sorted) and `commits` (how many were read). Each finding and
   each `unscannable` item also holds its `commit`, except findings of `--pr-text`. `scanner` holds `gateRevision`,

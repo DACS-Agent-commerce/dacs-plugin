@@ -92,8 +92,8 @@ test('pull-request text is scanned in every string at any depth and located by o
   assert.equal(run.status, 1, run.stderr);
   const report = JSON.parse(run.stdout);
   assert.deepEqual(report.findings, [
-    { rule: 'R-PRIVATE', kind: 'pr-text', location: 'pr-1:2', line: 2 },
-    { rule: 'R-PRIVATE', kind: 'pr-text', location: 'pr-1:4', line: 1 },
+    { rule: 'R-PRIVATE', kind: 'pr-text', location: 'pr-1:4', line: 2 },
+    { rule: 'R-PRIVATE', kind: 'pr-text', location: 'pr-1:8', line: 1 },
   ]);
   assert.equal(report.scanner.prTextSha256, sha256(readFileSync(file)));
   assert.ok(!outputOf(run).includes(PLANTED));
@@ -107,6 +107,30 @@ test('pull-request text is scanned in every string at any depth and located by o
     assert.equal(refused.stdout, '');
   }
   assert.equal(runHistory(historyArgs(history, listFile, ['--pr-text', path.join(makeTempDir('pr'), 'missing.json')])).status, 2);
+});
+
+test('pull-request text keys, nested keys, keys written with escapes and the earlier value of a repeated key are scanned, and strings are numbered in file order', () => {
+  const history = createHistory([{}, {}]);
+  const listFile = writeList([PLANTED]);
+  const file = path.join(makeTempDir('pr'), 'prs.json');
+  const escaped = [...PLANTED].map((character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`).join('');
+  const cases = [
+    [`[{"${PLANTED}":"harmless"}]`, ['pr-1:1']],
+    [`[{"a":{"b":[{"${PLANTED}":1}]}}]`, ['pr-1:3']],
+    [`[{"${escaped}":"harmless"}]`, ['pr-1:1']],
+    [`[{"body":"leak ${PLANTED}","body":"clean"}]`, ['pr-1:2']],
+    [`[{"x":"clean"},{"${PLANTED}":"clean","1":"${PLANTED}"}]`, ['pr-2:1', 'pr-2:4']],
+    [`[{"b":"clean","1":"${PLANTED}"}]`, ['pr-1:4']],
+  ];
+  for (const [body, locations] of cases) {
+    writeFileSync(file, body);
+    const run = runHistory(historyArgs(history, listFile, ['--pr-text', file]));
+    assert.equal(run.status, 1, body);
+    assert.deepEqual(JSON.parse(run.stdout).findings.map((finding) => finding.location), locations, body);
+    assert.ok(!outputOf(run).includes(PLANTED));
+  }
+  writeFileSync(file, `[{"quote":"say \\"hi\\" and \\\\","${PLANTED}":"x"}]`);
+  assert.deepEqual(JSON.parse(runHistory(historyArgs(history, listFile, ['--pr-text', file])).stdout).findings.map((finding) => finding.location), ['pr-1:3']);
 });
 
 test('the history report holds no pull-request key path and nothing derived from the list: different, reordered, repeated or overlapping lists give byte-identical reports of fixed words, object ids, digests and numbers', () => {
@@ -125,7 +149,7 @@ test('the history report holds no pull-request key path and nothing derived from
   const report = JSON.parse(runs[0].stdout);
   const commit = history.commits[1];
   assert.deepEqual(report.findings.map(({ kind, location, line }) => [kind, location, line]), [
-    ['content', `${commit}:2`, 2], ['message', `${commit}:message`, 3], ['path', `${commit}:2`, undefined], ['pr-text', 'pr-1:2', 1], ['pr-text', 'pr-1:3', 1],
+    ['content', `${commit}:2`, 2], ['message', `${commit}:message`, 3], ['path', `${commit}:2`, undefined], ['pr-text', 'pr-1:5', 1], ['pr-text', 'pr-1:6', 1], ['pr-text', 'pr-1:7', 1],
   ]);
   const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|pr-[1-9][0-9]*:[1-9][0-9]*|history|R-IDENTITY|R-PRIVATE|path|content|message|pr-text|passed|findings)$/;
   const keys = new Set(['scope', 'target', 'heads', 'commits', 'scanner', 'gateRevision', 'configSha256', 'expectedRoot', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
