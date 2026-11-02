@@ -101,6 +101,35 @@ test('check-report refuses a generic report, a report for another head, a comple
   await t.test('refuses a report with a top-level field the schema does not have', () => {
     refused(check({ report: { ...report, verdict: 'ok' }, head, context }), 2, 'report-malformed');
   });
+
+  await t.test('refuses a report whose target is not exactly a commit and a tree object id', () => {
+    const { tree, ...withoutTree } = report.target;
+    assert.match(tree, /^[0-9a-f]{40}$/);
+    const targets = [withoutTree, { ...report.target, tree: 'nope' }, { ...report.target, note: 'x' }, { tree }, null, 'x', [report.target.commit, tree]];
+    for (const target of targets) refused(check({ report: { ...report, target }, head, context }), 2, 'report-malformed');
+  });
+
+  await t.test('refuses a report whose rules are not a list of exactly an id and a known status', () => {
+    const [first, ...others] = report.rules;
+    const rules = [
+      [{ ...first, note: 'x' }, ...others],
+      [{ id: first.id }, ...others],
+      [{ status: first.status }, ...others],
+      [{ ...first, status: 'ok' }, ...others],
+      [{ ...first, id: 7 }, ...others],
+      [null, ...others],
+      [[first.id, first.status], ...others],
+      'passed',
+      null,
+    ];
+    for (const changed of rules) refused(check({ report: { ...report, rules: changed }, head, context }), 2, 'report-malformed');
+  });
+
+  await t.test('refuses a report whose findings or unscannable entries are not lists', () => {
+    for (const field of ['findings', 'unscannable']) {
+      for (const changed of [null, {}, 'none']) refused(check({ report: { ...report, [field]: changed }, head, context }), 2, 'report-malformed');
+    }
+  });
 });
 
 test('an unusable report or context, or a malformed command line, exits 2 with its own cause and never accepts', () => {

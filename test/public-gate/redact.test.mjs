@@ -73,7 +73,8 @@ const scenarios = {
     const report = JSON.parse(runGate(completeArgs(repo, writeList([PRIVATE_VALUE]))).stdout);
     const context = { gateRevision: report.scanner.gateRevision, configSha256: report.scanner.configSha256, expectedRoot: repo.commit };
     const inputs = [
-      [{ ...report, rules: [{ id: PRIVATE_VALUE, status: PRIVATE_VALUE }] }, 'report-rules-differ', 1],
+      [{ ...report, rules: [{ id: PRIVATE_VALUE, status: 'passed' }] }, 'report-rules-differ', 1],
+      [{ ...report, rules: [{ id: PRIVATE_VALUE, status: PRIVATE_VALUE }] }, 'report-malformed', 2],
       [{ ...report, [PRIVATE_VALUE]: PRIVATE_VALUE }, 'report-malformed', 2],
       [report, 'report-not-passing', 1],
     ];

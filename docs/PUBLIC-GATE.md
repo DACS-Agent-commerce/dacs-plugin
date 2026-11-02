@@ -54,7 +54,7 @@ node scripts/public-gate/check-report.mjs --report <file> --head <full-sha> --co
 
 Exit 0 only when the report is a complete passing report for exactly this head under the current review context; a saved
 report is never trusted for what it says about itself. Exit 1 refuses a report; exit 2 means a file or an argument is
-missing, over 1 MiB, or malformed. Nothing is written on exit 0; otherwise stderr holds one cause and its fixed text.
+missing, over 1 MiB, or malformed (a report is malformed unless it has the report shape above, nested fields included). Nothing is written on exit 0; otherwise stderr holds one cause and its fixed text.
 
 - **Review context.** A JSON file in our records with exactly `gateRevision` and `configSha256` (the current reviewed
   gate's identity) and `expectedRoot` (the root commit). Every expected value comes from it, from `--head` or from this gate's

@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { ChoiceError, parseFlags } from '../lib/choice.mjs';
 import { EXIT, REGISTERED_RULE_IDS, requireValue } from './gate.mjs';
 import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
-import { SHA256_HEX, writeDiagnostic } from './redact.mjs';
+import { SHA256_HEX, STATUSES, writeDiagnostic } from './redact.mjs';
 
 /** Largest report or review context accepted; a file over it is refused after reading at most one byte more. */
 const MAX_CHECK_FILE_BYTES = 1024 * 1024;
@@ -40,9 +40,18 @@ function readJsonObject(file, subject) {
   throw new GateInputError(`${subject}-malformed`, `--${subject} is not a JSON object`);
 }
 
+const hasExactKeys = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value) && isDeepStrictEqual(Object.keys(value).sort(), keys);
+
+/** True when `report` has the shape the gate writes: `target` is exactly a commit and a tree id, `rules` entries are exactly an id and a known status, `findings` and `unscannable` are lists. */
+function hasGateShape({ target, rules, findings, unscannable }) {
+  return hasExactKeys(target, ['commit', 'tree']) && FULL_OBJECT_ID.test(target.commit) && FULL_OBJECT_ID.test(target.tree)
+    && Array.isArray(rules) && rules.every((rule) => hasExactKeys(rule, ['id', 'status']) && typeof rule.id === 'string' && STATUSES.includes(rule.status))
+    && Array.isArray(findings) && Array.isArray(unscannable);
+}
+
 function readReport(file) {
   const report = readJsonObject(file, 'report');
-  if (!isDeepStrictEqual(Object.keys(report).sort(), REPORT_KEYS)) throw new GateInputError('report-malformed', '--report does not hold exactly the report fields');
+  if (!isDeepStrictEqual(Object.keys(report).sort(), REPORT_KEYS) || !hasGateShape(report)) throw new GateInputError('report-malformed', '--report does not hold exactly the report fields');
   return report;
 }
 
