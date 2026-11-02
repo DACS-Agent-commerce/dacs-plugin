@@ -9,48 +9,96 @@ export const HOSTING_RULE_ID = 'R-HOSTING';
 export const ARCHIVE_RULE_ID = 'R-ARCHIVE';
 
 const LINE_BREAK = /\r\n|\r|\n/;
-const TEMPLATE_SUFFIX = /\.(?:example|sample|template)$/;
-/** An env template name: `env`, any stage segments, then a template suffix (`.env.example`, `.env.production.sample`, `prod.env.template`). */
-const ENV_TEMPLATE_NAME = /(?:^|\.)env(?:\.[^.]*)*\.(?:example|sample|template)$/;
-const REAL_ENV_NAME = /(?:^\.env|\.env)(?:\.|$)/;
-const SYSTEMD_UNIT_NAME = /\.service$/;
-const CADDYFILE_NAME = 'caddyfile';
+const TEMPLATE_SUFFIXES = new Set(['example', 'sample', 'template']);
+/** Last name segments that make `<name>.service.<segment>` a source file rather than a systemd unit. */
+const SOURCE_EXTENSIONS = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx']);
 const HOSTING_DIRECTORY = 'deploy';
 const VENDOR_DIRECTORY = 'vendor';
 
-const ENV_ASSIGNMENT = /^(?:export +)?(?<key>[A-Za-z_][\w.-]*)=(?<value>.*)$/;
-const COMMENTED_ENV_ASSIGNMENT = /^#\s*(?:export +)?(?<key>[A-Za-z_][\w.-]*)=(?<value>.*)$/;
+const ASSIGNMENT = /^(?:export\s+)?(?<key>[A-Za-z_][\w.-]*)=(?<value>.*)$/;
+/** A commented assignment in any form a reader would take for one: `#KEY=v`, `## KEY = v`, `# export KEY=v`, `#KEY: v`. */
+const COMMENTED_ASSIGNMENT = /^#+\s*(?:export\s+)?(?<key>[A-Za-z_][\w.-]*)\s*[=:]\s*(?<value>.*)$/;
+/** Carried prose comments of `http-mcp/.env.example` that would otherwise read as `KEY: value`; matched as whole lines. */
+const CARRIED_PROSE = new Set([
+  '# Authorization: builtin (wallet-login OAuth 2.1 server at /oauth) or external.',
+  '# builtin: comma-separated random secrets, >= 32 chars each, for OAuth cookies.',
+  "# external: your identity provider's exact issuer identifier.",
+]);
 const QUOTED_VALUE = /^(?<quote>["'])(?<inner>.*)\k<quote>$/;
-const WHOLE_NUMBER = /^\d+$/;
-/** A value that stands for a secret without being one: an angle-bracket or `${}` slot, `REPLACE_ME`, `CHANGE_ME`, `your-...-here`, or a run of x. */
-const PLACEHOLDER = /^(?:<[^<>]*>|\$\{[^{}]*\}|(?:replace|change)[-_]?me|your[-_][a-z]+(?:[-_][a-z]+)*[-_]here|x{3,})$/i;
+/** A placeholder label: lower-case letters and dashes, no digits, so a real value cannot pass as one. */
+const LABEL = '[a-z][a-z-]*';
+/** The closed set of placeholders: `REPLACE_ME`, `CHANGE_ME`, a run of x, `${NAME}`, `<label>` and `your-<label>-here`. */
+const PLACEHOLDER = new RegExp(`^(?:REPLACE_ME|CHANGE_ME|[xX]{3,}|\\$\\{[A-Za-z_]\\w*\\}|<${LABEL}>|your-${LABEL}-here)$`);
+const PORT_PLACEHOLDER = new RegExp(`:<${LABEL}>$`);
+const PLACEHOLDER_PORT = ':1';
+const WHOLE_NUMBER = /^(?:0|[1-9]\d*)$/;
+const HOST_NAME = /^[a-z\d-]+(?:\.[a-z\d-]+)+$/;
+const ABSOLUTE_PATH = /^(?:\/[\w.-]+)+$/;
+const SETTING_LABEL = new RegExp(`^${LABEL}$`);
+const WEB_PROTOCOLS = ['http:', 'https:'];
 
-/** Settings the server parses as a whole number in a range; `src/config.mjs` reads the token lifetime with `parseInteger(..., { min: 60, max: 3600 })`. */
-const INTEGER_SETTINGS = { DACS_ACCESS_TOKEN_TTL_SECONDS: { min: 60, max: 3600 } };
-/** Settings that hold a credential: only empty or a placeholder passes. */
-const CREDENTIAL_SETTINGS = new Set(['DACS_OAUTH_COOKIE_KEYS']);
-/** A key naming one of these words, or `key` after one of the qualifiers, is read as holding a secret. */
-const SECRET_WORDS = new Set(['secret', 'secrets', 'token', 'tokens', 'password', 'passwords', 'passwd', 'passphrase', 'mnemonic', 'seed',
-  'credential', 'credentials', 'privatekey', 'apikey', 'signingkey', 'secretkey', 'accesskey']);
-const KEY_WORDS = new Set(['key', 'keys']);
-const KEY_QUALIFIERS = new Set(['signing', 'private', 'secret', 'api', 'access', 'auth', 'encryption', 'master', 'cookie']);
-const SECRET_WORD_ENDINGS = [...SECRET_WORDS, ...[...KEY_QUALIFIERS].flatMap((qualifier) => [...KEY_WORDS].map((keyWord) => `${qualifier}${keyWord}`))];
-const CAMEL_CASE_BOUNDARY =/([a-z\d])([A-Z])/g;
-const NAME_SEPARATORS = /[^A-Za-z\d]+/;
+const isFlag = (value) => value === '0' || value === '1';
+const oneOf = (...choices) => (value) => choices.includes(value);
+const integerIn = (min, max) => (value) => WHOLE_NUMBER.test(value) && Number(value) >= min && Number(value) <= max;
+const listOf = (isItem) => (value) => value.split(',').every(isItem);
+const isHost = (value) => HOST_NAME.test(value);
+const isAbsolutePath = (value) => ABSOLUTE_PATH.test(value);
+const isLabel = (value) => SETTING_LABEL.test(value);
 
-const TAR_MAGIC = Buffer.from('ustar');
-const TAR_MAGIC_OFFSET = 257;
-const GZIP_MAGIC = Buffer.from([0x1f, 0x8b, 0x08]);
-/** The zip signatures of a local file header, an empty archive and a spanned archive. */
-const ZIP_MAGICS = [[0x50, 0x4b, 0x03, 0x04], [0x50, 0x4b, 0x05, 0x06], [0x50, 0x4b, 0x07, 0x08]].map((bytes) => Buffer.from(bytes));
-const ZIP_END_MAGIC = ZIP_MAGICS[1];
-const ZIP_END_RECORD_BYTES = 22;
-const ZIP_MAX_COMMENT_BYTES = 0xffff;
+/** Whether `value` is an http(s) origin, optionally with one trailing `/`, and nothing else: no credentials, path, query or fragment. A `<label>` port counts as a port. */
+function isOrigin(value) {
+  const candidate = value.replace(PORT_PLACEHOLDER, PLACEHOLDER_PORT);
+  if (!URL.canParse(candidate)) return false;
+  const { protocol, origin } = new URL(candidate);
+  return WEB_PROTOCOLS.includes(protocol) && (candidate === origin || candidate === `${origin}/`);
+}
 
-/** The lower-case directory segments of `file` and its lower-case file name. */
-function lowerCaseParts(file) {
+/** The public settings of `http-mcp/.env.example`, each with the only values it may hold; ranges and choices are those `http-mcp/src/config.mjs` accepts. */
+const PUBLIC_SETTINGS = new Map([
+  ['DACS_PUBLIC_ORIGIN', isOrigin], ['HOST', isHost], ['PORT', integerIn(0, 65535)], ['DACS_TRUST_PROXY', isFlag],
+  ['DACS_ALLOW_INSECURE_LOCALHOST', isFlag], ['DACS_DATA_DIR', isAbsolutePath],
+  ['DACS_MAX_UNPAID_PURCHASES_PER_ACCOUNT', integerIn(1, 1000)], ['DACS_MAX_UNPAID_PURCHASES_PER_WALLET', integerIn(1, 1000)],
+  ['DACS_MAX_PURCHASE_STARTS_PER_ACCOUNT_PER_HOUR', integerIn(1, 100000)], ['DACS_AUTH_MODE', oneOf('builtin', 'external')],
+  ['DACS_ACCESS_TOKEN_TTL_SECONDS', integerIn(60, 3600)], ['DACS_ALLOWED_REDIRECT_ORIGINS', listOf(isOrigin)],
+  ['DACS_CIMD_ALLOWED_HOSTS', listOf(isHost)], ['DACS_OAUTH_ISSUER', isOrigin], ['DACS_OAUTH_JWKS_URI', isOrigin],
+  ['DACS_OAUTH_SCOPE_CLAIM', isLabel], ['DACS_OAUTH_REQUIRE_AT_JWT', isFlag], ['DACS_DIRECTORY_ORIGIN', isOrigin],
+  ['DACS_CHAIN_RPC_URL', isOrigin], ['DACS_CHAIN_NETWORK', isLabel], ['DACS_DEM_AMOUNT_ENCODING', oneOf('os-string', 'dem-number')],
+  ['DACS_IDENTITY_WRITES', oneOf('held', 'simulated-fixture-only')], ['DACS_EMBEDDED_WALLET_WRITES', oneOf('off', 'simulated-loopback', 'testnet-held')],
+  ['DACS_EMBEDDED_WALLET_GITHUB_API_ORIGIN', isOrigin], ['DACS_RATE_LIMIT_PER_MINUTE', integerIn(10, 100000)],
+  ['DACS_LOG_LEVEL', oneOf('debug', 'info', 'warn', 'error', 'silent')],
+]);
+
+const TAR_BLOCK_BYTES = 512;
+const TAR_CHECKSUM_START = 148;
+const TAR_CHECKSUM_END = 156;
+const TAR_CHECKSUM_FIELD = /^ *(?<octal>[0-7]+)[ \0]*$/;
+const SPACE = 0x20;
+const SIGNED_BYTE_LIMIT = 0x80;
+const BYTE_VALUES = 0x100;
+/** The zip signatures of a central directory header, a local file header, an end record and a data descriptor. */
+const ZIP_SIGNATURES = [[0x01, 0x02], [0x03, 0x04], [0x05, 0x06], [0x07, 0x08]].map((tail) => Buffer.from([0x50, 0x4b, ...tail]));
+
+/**
+ * The lower-case directory segments of `file`, and its lower-case name split on `.` with one trailing `example`, `sample` or
+ * `template` segment taken off (`template` says whether it was). Linear in the length of the path.
+ */
+function pathParts(file) {
   const segments = file.toLowerCase().split('/');
-  return { directories: segments.slice(0, -1), name: segments.at(-1) };
+  const words = segments.at(-1).split('.');
+  const template = words.length > 1 && TEMPLATE_SUFFIXES.has(words.at(-1));
+  return { directories: segments.slice(0, -1), words: template ? words.slice(0, -1) : words, template };
+}
+
+/** Whether a name segment after the first is `segment`: `.env` and `prod.env` have one, `env.mjs` does not. */
+const hasLaterSegment = (words, segment) => words.indexOf(segment, 1) !== -1;
+
+const isEnvTemplate = ({ words, template }) => template && words.includes('env');
+
+/** A deploy path, a Caddyfile, a systemd unit (`*.service`, `*.service.<backup>`) or a real env file, template names included except env templates. */
+function isHostingFile({ directories, words, template }) {
+  return directories.includes(HOSTING_DIRECTORY) || words.includes('caddyfile')
+    || (hasLaterSegment(words, 'service') && !SOURCE_EXTENSIONS.has(words.at(-1)))
+    || (!template && hasLaterSegment(words, 'env'));
 }
 
 /**
@@ -69,84 +117,85 @@ function createFileRule(ruleId, scanEntry) {
   };
 }
 
-const wordsOf = (key) => key.replace(CAMEL_CASE_BOUNDARY, '$1 $2').split(NAME_SEPARATORS).filter(Boolean).map((word) => word.toLowerCase());
-
-/**
- * Whether `key` names a secret: split on `_`, `-`, `.` and camelCase boundaries and compared case-insensitively. A word also
- * counts when it ends with a secret word or a qualifier and `key`, so `GITHUBTOKEN` and `AUTHKEY` read as secrets.
- */
-function isSecretName(key) {
-  const words = wordsOf(key);
-  return words.some((word, index) => SECRET_WORD_ENDINGS.some((ending) => word.endsWith(ending)) || (KEY_WORDS.has(word) && KEY_QUALIFIERS.has(words[index - 1])));
-}
-
 const unquoted = (value) => QUOTED_VALUE.exec(value)?.groups.inner ?? value;
 
-/** The `{ key, value }` of an env line (a commented-out assignment counts), null for a blank or comment line, or `{ key: null }` for any other line. */
+/** The `{ key, value }` of an env line (a commented assignment counts), null for a blank or prose comment line, or `{ key: null }` for any other line. */
 function parseEnvLine(line) {
   const trimmed = line.trim();
-  if (trimmed === '') return null;
-  const match = ENV_ASSIGNMENT.exec(trimmed) ?? COMMENTED_ENV_ASSIGNMENT.exec(trimmed);
+  if (trimmed === '' || CARRIED_PROSE.has(trimmed)) return null;
+  const comment = trimmed.startsWith('#');
+  const match = (comment ? COMMENTED_ASSIGNMENT : ASSIGNMENT).exec(trimmed);
   if (match) return { key: match.groups.key, value: unquoted(match.groups.value.trim()) };
-  return trimmed.startsWith('#') ? null : { key: null };
+  return comment ? null : { key: null };
 }
 
-const isEmptyOrPlaceholder = (value) => value === '' || PLACEHOLDER.test(value);
-
+/** Whether an assignment is refused: a listed public setting must be empty or pass its check; any other key must be empty or a placeholder. */
 function isRefusedEnvAssignment({ key, value }) {
   if (key === null) return true;
-  const range = INTEGER_SETTINGS[key];
-  if (range) return value !== '' && !(WHOLE_NUMBER.test(value) && Number(value) >= range.min && Number(value) <= range.max);
-  return (CREDENTIAL_SETTINGS.has(key) || isSecretName(key)) && !isEmptyOrPlaceholder(value);
+  if (value === '') return false;
+  const isAllowed = PUBLIC_SETTINGS.get(key) ?? ((candidate) => PLACEHOLDER.test(candidate));
+  return !isAllowed(value);
 }
 
 /**
- * R-ENV: in `.env[.<stage>].example`, `.sample` and `.template` files (also `<name>.env...`), refuses a line that is not an assignment, a typed
- * setting outside its range, and a credential or secret-named key (commented out or not) whose value is neither empty nor a
- * placeholder. Returns findings { rule, kind: 'content', entry, line }.
+ * R-ENV: in every env template (a name with an `env` segment ending in `.example`, `.sample` or `.template`), refuses a line
+ * that is neither blank, a prose comment nor an assignment, and an assignment (commented or not) whose value its key does
+ * not allow. A template that is not readable text is refused whole. Returns findings { rule, kind: 'content', entry, line? }.
  */
 export const scanEnvTemplates = createFileRule(ENV_RULE_ID, (entry, add) => {
-  const text = ENV_TEMPLATE_NAME.test(lowerCaseParts(entry.path).name) ? textOf(entry) : null;
-  if (text === null) return;
+  if (!isEnvTemplate(pathParts(entry.path))) return;
+  const text = textOf(entry);
+  if (text === null) {
+    add({ kind: 'content', entry });
+    return;
+  }
   text.split(LINE_BREAK).forEach((line, index) => {
     const assignment = parseEnvLine(line);
     if (assignment !== null && isRefusedEnvAssignment(assignment)) add({ kind: 'content', entry, line: index + 1 });
   });
 });
 
-const isHostingFileName = (name) => !TEMPLATE_SUFFIX.test(name) && (name === CADDYFILE_NAME || SYSTEMD_UNIT_NAME.test(name) || REAL_ENV_NAME.test(name));
-
 /**
- * R-HOSTING: refuses any path under a `deploy` directory, a `*.service` unit, a `Caddyfile` and a real `.env` file
- * (`.env`, `.env.*`, `*.env`), in any letter case; a name ending in `.example`, `.sample` or `.template` is not refused
- * for its name and is read by the content rules. Returns findings { rule, kind: 'path', entry }.
+ * R-HOSTING: refuses by path, in any letter case, anything under a `deploy` directory, a Caddyfile (`caddyfile` as any name
+ * segment), a systemd unit (a `service` segment unless the name ends in a source extension) and a real env file (an `env`
+ * segment after the first, `config.env.json` included). Template names get the same tests, except env templates, which
+ * R-ENV reads. Returns findings { rule, kind: 'path', entry }.
  */
 export const scanHostingFiles = createFileRule(HOSTING_RULE_ID, (entry, add) => {
-  const { directories, name } = lowerCaseParts(entry.path);
-  if (directories.includes(HOSTING_DIRECTORY) || isHostingFileName(name)) add({ kind: 'path', entry });
+  if (isHostingFile(pathParts(entry.path))) add({ kind: 'path', entry });
 });
 
-const startsWith = (bytes, magic, offset = 0) => bytes.subarray(offset, offset + magic.length).equals(magic);
-
-/**
- * Whether `bytes` hold a zip end-of-central-directory signature where a record would fit, in the last 64 KiB plus the
- * record. Zip readers find the archive from this record, so a stub before the first header does not hide it; the comment
- * length field is not trusted, since a reader does not need it to be right.
- */
-function hasZipEndRecord(bytes) {
-  const last = bytes.length - ZIP_END_RECORD_BYTES;
-  const first = Math.max(0, last - ZIP_MAX_COMMENT_BYTES);
-  return last >= 0 && bytes.lastIndexOf(ZIP_END_MAGIC, last) >= first;
+/** Whether `block` is a tar header: its checksum field holds the octal sum of the block, the field counted as spaces (unsigned or signed). */
+function isTarHeader(block) {
+  const field = TAR_CHECKSUM_FIELD.exec(block.toString('latin1', TAR_CHECKSUM_START, TAR_CHECKSUM_END));
+  if (!field) return false;
+  let unsigned = 0;
+  let signed = 0;
+  block.forEach((byte, index) => {
+    const counted = index >= TAR_CHECKSUM_START && index < TAR_CHECKSUM_END ? SPACE : byte;
+    unsigned += counted;
+    signed += counted < SIGNED_BYTE_LIMIT ? counted : counted - BYTE_VALUES;
+  });
+  const checksum = parseInt(field.groups.octal, 8);
+  return checksum === unsigned || checksum === signed;
 }
 
-/** Whether `bytes` begin as a gzip stream or a zip archive, hold the `ustar` mark of a tar header, or end as a zip archive. */
-const hasArchiveSignature = (bytes) => startsWith(bytes, GZIP_MAGIC) || ZIP_MAGICS.some((magic) => startsWith(bytes, magic)) || startsWith(bytes, TAR_MAGIC, TAR_MAGIC_OFFSET) || hasZipEndRecord(bytes);
+/** Whether readable text still holds an archive: a zip signature anywhere, or a tar header in any 512-byte block (tar skips to the next valid header). */
+function holdsArchive(bytes) {
+  if (ZIP_SIGNATURES.some((signature) => bytes.includes(signature))) return true;
+  for (let offset = 0; offset + TAR_BLOCK_BYTES <= bytes.length; offset += TAR_BLOCK_BYTES) {
+    if (isTarHeader(bytes.subarray(offset, offset + TAR_BLOCK_BYTES))) return true;
+  }
+  return false;
+}
 
 /**
- * R-ARCHIVE: refuses every blob that holds a tar, gzip or zip signature, whatever its name or its binary classification,
- * and any path under a `vendor` directory. Returns findings { rule, kind: 'path' | 'content', entry }.
+ * R-ARCHIVE: the gate must be able to read every blob. Refuses a blob that is not readable text (a NUL byte or invalid UTF-8),
+ * even with a `binaryDispositions` entry, and text holding a zip signature or a tar header, whatever its name; and any path
+ * under a `vendor` directory, in any letter case. It does not find encoded or script-generated payloads. Returns findings
+ * { rule, kind: 'path' | 'content', entry }.
  */
 export const scanArchives = createFileRule(ARCHIVE_RULE_ID, (entry, add) => {
-  if (lowerCaseParts(entry.path).directories.includes(VENDOR_DIRECTORY)) add({ kind: 'path', entry });
-  if (entry.bytes && hasArchiveSignature(entry.bytes)) add({ kind: 'content', entry });
+  if (pathParts(entry.path).directories.includes(VENDOR_DIRECTORY)) add({ kind: 'path', entry });
+  if (entry.bytes && (textOf(entry) === null || holdsArchive(entry.bytes))) add({ kind: 'content', entry });
 });

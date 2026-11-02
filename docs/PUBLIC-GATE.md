@@ -64,22 +64,28 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   (`url`, `host-port`, `quoted`, `bare` or `email`). `public-gate.config.json` may also hold the values its own entries name. A
   malformed section, `ipDispositions` included, makes the run exit 2 with cause `invalid-config`. Findings carry the rule, kind (`path` or `content`),
   location and line, never the host or email.
-- **Env templates (`R-ENV`, both scopes).** Runs over files named `.env.example`, `.env.sample`, `.env.template`, those with stage
-  segments (`.env.production.example`, `.env.local.sample`) or ending in `.env[.<stage>].<one of these>`, line by line; a commented-out assignment (`# KEY=value`) is read like any other. A line that is neither blank, a comment nor
-  `KEY=value` is refused. `DACS_ACCESS_TOKEN_TTL_SECONDS` must be empty or a whole number from 60 to 3600, as `http-mcp/src/config.mjs` reads it.
-  `DACS_OAUTH_COOKIE_KEYS` may only be empty or a placeholder. Any other key whose name reads as a secret may only be empty or a
-  placeholder too: the name is split on `_`, `-`, `.` and camelCase boundaries and compared in lower case, and it is secret when a word is
-  `secret`, `token`, `password`, `passphrase`, `mnemonic`, `seed`, `credential` (or a plural or run-together form such as `apikey`), or
-  `key` after `signing`, `private`, `secret`, `api`, `access`, `auth`, `encryption`, `master` or `cookie`. A word that ends with one of
-  those words, or with one of those qualifiers and `key`, counts too (`GITHUBTOKEN`, `CLIENTSECRET`, `AUTHKEY`, `COOKIEKEY`). No key is exempt for its name. A
-  placeholder is an angle-bracket or `${...}` slot, `REPLACE_ME`, `CHANGE_ME`, `your-...-here` or a run of `x`; one pair of quotes around a value is ignored.
-- **Hosting files (`R-HOSTING`, both scopes).** Refuses by path, in any letter case: everything under a `deploy` directory, a file ending in
-  `.service`, a file named `Caddyfile` and a real env file (`.env`, `.env.<name>`, `<name>.env`). A name ending in `.example`, `.sample` or
-  `.template` is not refused for its name; a `.env` template is read by `R-ENV`.
-- **Archives (`R-ARCHIVE`, both scopes).** Refuses every blob that holds an archive signature, whatever its name and even when a
-  `binaryDispositions` entry lets it be read: a gzip stream (`1f 8b 08`), a zip archive (`PK` with `03 04`, `05 06` or `07 08`) or a tar
-  header (`ustar` at byte 257), or a zip end-of-central-directory signature (`PK` `05 06`) in the last 64 KiB, whatever the record's comment length says, which finds a zip that has
-  a stub before its first header. Refuses any path under a `vendor` directory, in any letter case.
+- **File names (`R-ENV`, `R-HOSTING`).** A name is lower-cased and split on `.`; one trailing `example`, `sample` or `template`
+  segment marks a template and is taken off, and the rest gets the same tests whether it was a template or not.
+- **Env templates (`R-ENV`, both scopes).** Runs over every template with an `env` segment (`.env.example`,
+  `.env.production.sample`, `prod.env.template`), line by line, each line trimmed. A template that is not readable
+  text is refused whole. A commented assignment is read like any other, in every form (`#KEY=v`, `## KEY = v`, `# export KEY=v`,
+  `#KEY: v`); other comments are prose and pass. Any other line that is not blank or `[export ]KEY=value` is refused. One pair of
+  quotes around a value is taken off. Each public setting of `http-mcp/.env.example` may hold only its typed value, as
+  `http-mcp/src/config.mjs` accepts it: a flag (`0`, `1`), one of its fixed choices, a whole number in its range
+  (`DACS_ACCESS_TOKEN_TTL_SECONDS` 60 to 3600), an `http(s)` origin with no credentials, path or query (a `<label>` port
+  counts), a comma-separated list of origins or host names, an absolute path or a label. Every other key, whatever its name
+  (`DACS_OAUTH_COOKIE_KEYS` included), may only be empty or a placeholder: `REPLACE_ME`, `CHANGE_ME`, a run of `x`, `${NAME}`,
+  `<label>` or `your-<label>-here`, where a label is lower-case letters and dashes.
+- **Hosting files (`R-HOSTING`, both scopes).** Refuses by path, in any letter case: everything under a `deploy` directory, a
+  Caddyfile (`caddyfile` as any name segment: `Caddyfile`, `Caddyfile.prod`, `Caddyfile.example`), a systemd unit (a `service`
+  segment after the first, unless the name ends in a source extension such as `.mjs`: `dacs.service`, `dacs.service.bak`) and a
+  real env file (an `env` segment after the first in a name that is not a template: `.env`, `.env.production`, `prod.env`, and on
+  purpose `config.env.json`). Templates of hosting files are refused too; only env templates are left to `R-ENV`.
+- **Archives (`R-ARCHIVE`, both scopes).** The gate must be able to read every blob. Refuses, whatever its name, a blob that is not
+  readable text (a NUL byte or invalid UTF-8), even when a `binaryDispositions` entry lets the other rules read it; text holding a
+  zip signature (`PK` with `01 02`, `03 04`, `05 06` or `07 08`) anywhere; and text with a tar header in any 512-byte block (its
+  checksum field holds the block's sum), with or without `ustar`. Refuses any path under a `vendor` directory, in any letter case.
+  It does not find an archive written in an encoding, such as base64, or one a script builds.
 - **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
   run exits 2 (cause `unexpected-root`) without a report.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`; complete

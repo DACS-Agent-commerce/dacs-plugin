@@ -138,7 +138,7 @@ test('a code, config or doc file holding a NUL byte or invalid UTF-8 is unscanna
   const report = JSON.parse(result.stdout);
   assert.equal(result.status, 2);
   assert.deepEqual(report.unscannable.map((entry) => entry.cause), ['binary-without-disposition']);
-  assert.deepEqual(report.findings.map((finding) => finding.kind).sort(), ['content', 'path']);
+  assert.deepEqual(report.findings.filter((finding) => finding.rule === 'R-PRIVATE').map((finding) => finding.kind).sort(), ['content', 'path']);
 });
 
 test('an empty tree or an unknown commit fails closed', () => {
