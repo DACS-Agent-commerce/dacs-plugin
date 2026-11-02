@@ -45,7 +45,6 @@ const GZIP_MAGIC = Buffer.from([0x1f, 0x8b, 0x08]);
 const ZIP_MAGICS = [[0x50, 0x4b, 0x03, 0x04], [0x50, 0x4b, 0x05, 0x06], [0x50, 0x4b, 0x07, 0x08]].map((bytes) => Buffer.from(bytes));
 const ZIP_END_MAGIC = ZIP_MAGICS[1];
 const ZIP_END_RECORD_BYTES = 22;
-const ZIP_COMMENT_LENGTH_OFFSET = 20;
 const ZIP_MAX_COMMENT_BYTES = 0xffff;
 
 /** The lower-case directory segments of `file` and its lower-case file name. */
@@ -130,16 +129,14 @@ export const scanHostingFiles = createFileRule(HOSTING_RULE_ID, (entry, add) => 
 const startsWith = (bytes, magic, offset = 0) => bytes.subarray(offset, offset + magic.length).equals(magic);
 
 /**
- * Whether `bytes` hold a zip end-of-central-directory record in their last 64 KiB plus the record: the 4-byte signature, 18
- * more bytes, and a comment length that fits in what follows. Zip readers find the archive from this record, so a stub
- * before the first header does not hide it.
+ * Whether `bytes` hold a zip end-of-central-directory signature where a record would fit, in the last 64 KiB plus the
+ * record. Zip readers find the archive from this record, so a stub before the first header does not hide it; the comment
+ * length field is not trusted, since a reader does not need it to be right.
  */
 function hasZipEndRecord(bytes) {
   const last = bytes.length - ZIP_END_RECORD_BYTES;
-  for (let offset = last; offset >= 0 && offset >= last - ZIP_MAX_COMMENT_BYTES; offset -= 1) {
-    if (startsWith(bytes, ZIP_END_MAGIC, offset) && bytes.readUInt16LE(offset + ZIP_COMMENT_LENGTH_OFFSET) <= last - offset) return true;
-  }
-  return false;
+  const first = Math.max(0, last - ZIP_MAX_COMMENT_BYTES);
+  return last >= 0 && bytes.lastIndexOf(ZIP_END_MAGIC, last) >= first;
 }
 
 /** Whether `bytes` begin as a gzip stream or a zip archive, hold the `ustar` mark of a tar header, or end as a zip archive. */

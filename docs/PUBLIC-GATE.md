@@ -78,7 +78,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `.template` is not refused for its name; a `.env` template is read by `R-ENV`.
 - **Archives (`R-ARCHIVE`, both scopes).** Refuses every blob that holds an archive signature, whatever its name and even when a
   `binaryDispositions` entry lets it be read: a gzip stream (`1f 8b 08`), a zip archive (`PK` with `03 04`, `05 06` or `07 08`) or a tar
-  header (`ustar` at byte 257), or a zip end-of-central-directory record (`PK` `05 06`) in the last 64 KiB, which finds a zip that has
+  header (`ustar` at byte 257), or a zip end-of-central-directory signature (`PK` `05 06`) in the last 64 KiB, whatever the record's comment length says, which finds a zip that has
   a stub before its first header. Refuses any path under a `vendor` directory, in any letter case.
 - **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
   run exits 2 (cause `unexpected-root`) without a report.

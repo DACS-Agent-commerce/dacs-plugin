@@ -104,7 +104,7 @@ test('archives: a committed tarball, gzip or zip fails by content signature what
   assert.deepEqual(scanned(scanArchives, { 'x.bin': nearMiss }), []);
 });
 
-test('archives: a zip with a prepended stub or trailing bytes fails by its end-of-central-directory record; text that only mentions the signature passes', () => {
+test('archives: a zip with a prepended stub or trailing bytes fails by its end-of-central-directory record whatever its comment length says; text that only mentions the signature passes', () => {
   const END_RECORD_BYTES = 22;
   const COMMENT_LENGTH_OFFSET = 20;
   const endRecord = (comment = '') => {
@@ -113,6 +113,11 @@ test('archives: a zip with a prepended stub or trailing bytes fails by its end-o
     record.writeUInt16LE(comment.length, COMMENT_LENGTH_OFFSET);
     return Buffer.concat([record, Buffer.from(comment)]);
   };
+  const overstated = (length, comment = '') => {
+    const record = endRecord(comment);
+    record.writeUInt16LE(length, COMMENT_LENGTH_OFFSET);
+    return record;
+  };
   const stub = Buffer.from('#!/bin/sh\nexec unzip "$0"\n');
   const prefixed = Buffer.concat([stub, zipArchive(), endRecord()]);
   const planted = {
@@ -120,15 +125,15 @@ test('archives: a zip with a prepended stub or trailing bytes fails by its end-o
     'tools/commented.dat': Buffer.concat([stub, endRecord('built by a stub')]),
     'tools/trailing.dat': Buffer.concat([stub, endRecord(), Buffer.from('padding')]),
     'tools/large.dat': Buffer.concat([Buffer.alloc(100000, 0x41), endRecord()]),
+    'tools/overstated.dat': Buffer.concat([stub, zipArchive(), overstated(500)]),
+    'tools/understated.dat': Buffer.concat([stub, zipArchive(), overstated(0, 'comment longer than its length')]),
+    'tools/edge.dat': Buffer.concat([stub, endRecord('c'.repeat(0xffff))]),
   };
   const entries = Object.entries(planted).map(([file, bytes], index) => ({ position: index + 1, path: file, oid: PLANTED_BLOB, bytes }));
   assert.deepEqual(scanArchives({ entries, config: {}, limits: LIMITS }).map((finding) => [finding.rule, finding.kind, finding.entry.path]), Object.keys(planted).map((file) => ['R-ARCHIVE', 'content', file]));
 
-  const lying = endRecord();
-  lying.writeUInt16LE(500, COMMENT_LENGTH_OFFSET);
   const clear = {
     'a/far.dat': Buffer.concat([stub, endRecord(), Buffer.alloc(70000, 0x41)]),
-    'a/lying.dat': Buffer.concat([stub, lying]),
     'a/cut.dat': Buffer.concat([stub, endRecord().subarray(0, END_RECORD_BYTES - 1)]),
     'a/text.md': 'the PK\x05\x06 marker\n',
   };
