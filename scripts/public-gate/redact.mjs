@@ -3,7 +3,7 @@ import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 import { PRIVATE_RULE_ID } from './rules-private.mjs';
 
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
-export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr' });
+export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr' });
 
 /** Schema values shared by every report: a SHA-256 digest, a rule status and an unscannable entry's cause. */
 export const SHA256_HEX = /^[0-9a-f]{64}$/;
@@ -30,6 +30,11 @@ const DIAGNOSTICS = {
   'pr-text-unreadable': 'the --pr-text file cannot be read', 'pr-text-malformed': 'the --pr-text file is not a JSON array of objects',
   'output-exists': 'the --out file already exists', 'output-unwritable': 'the --out file cannot be written',
   'evidence-exists': 'the --private-evidence file already exists', 'evidence-unwritable': 'the --private-evidence file cannot be written',
+  'report-unreadable': 'the --report file cannot be read as a regular file', 'report-malformed': 'the --report file is not a gate report',
+  'context-unreadable': 'the --context file cannot be read as a regular file', 'context-malformed': 'the --context file is not a review context',
+  'report-not-complete': 'the report is not a complete-scope report', 'report-other-head': 'the report is for another commit than --head',
+  'report-rules-differ': 'the report lists other rules than this gate registers', 'report-policy-differs': 'the report was made under another gate revision, configuration or root than the review context names',
+  'report-not-passing': 'the report has a finding, an unscannable entry or a rule that did not pass',
   'internal-error': 'the gate failed unexpectedly', limit: 'a configured limit was reached',
 };
 
@@ -104,8 +109,8 @@ export async function publish({ report, evidence }, { out, evidenceFile }) {
   if (evidenceFile) writeNew(evidenceFile, evidence, 'evidence', 0o600);
 }
 
-/** Writes `<cause>: <fixed text>` to stderr; a cause without a fixed text is written as internal-error. */
-export function writeDiagnostic(cause) {
+/** Writes `<cause>: <fixed text>` to stderr, on `route` (a stderr route); a cause without a fixed text is written as internal-error. */
+export function writeDiagnostic(cause, route = 'gate.stderr') {
   const known = Object.hasOwn(DIAGNOSTICS, cause) || /^limit:[A-Za-z]+$/.test(cause) ? cause : 'internal-error';
-  return deliver('gate.stderr', `${known}: ${DIAGNOSTICS[known.startsWith('limit:') ? 'limit' : known]}\n`);
+  return deliver(route, `${known}: ${DIAGNOSTICS[known.startsWith('limit:') ? 'limit' : known]}\n`);
 }

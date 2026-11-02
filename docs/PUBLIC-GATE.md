@@ -46,6 +46,28 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
 
 All output leaves through `scripts/public-gate/redact.mjs` on a route listed in `DIAGNOSTIC_ROUTES`.
 
+## Checking a saved report
+
+```
+node scripts/public-gate/check-report.mjs --report <file> --head <full-sha> --context <file>
+```
+
+Exit 0 only when the report is a complete passing report for exactly this head under the current review context; a saved
+report is never trusted for what it says about itself. Exit 1 refuses a report; exit 2 means a file or an argument is
+missing, over 1 MiB, or malformed. Nothing is written on exit 0; otherwise stderr holds one cause and its fixed text.
+
+- **Review context.** A JSON file in our records with exactly `gateRevision` and `configSha256` (the current reviewed
+  gate's identity) and `expectedRoot` (the root commit). Every expected value comes from it, from `--head` or from this gate's
+  registered rule ids, never from the report. The report's `scanner` must equal the context's three fields exactly, so a
+  field the context does not name (a later scanner policy) refuses the report until the context names it.
+- **Causes.** `report-not-complete` (scope is not `complete`), `report-other-head` (target commit is not `--head`),
+  `report-rules-differ` (the rule ids are not exactly the registered ones), `report-policy-differs` (the scanner identity
+  differs from the context), `report-not-passing` (a finding, an unscannable entry or a rule not `passed`). The exit 2
+  causes are `report-unreadable`, `report-malformed`, `context-unreadable`, `context-malformed`, `limit:maxCheckFileBytes`
+  and `bad-arguments`.
+- **Not bound yet.** The report carries no digest of the private list (nothing in it derives from the list), so a
+  corrected list is not detected by this command; the scanner policy and exception digests arrive with the secret scan.
+
 ## History mode
 
 ```
