@@ -171,10 +171,16 @@ const HEX_GROUP = /^[0-9a-f]{1,4}$/i;
 const IPV4_DOCUMENTATION_PREFIXES = ['192.0.2.', '198.51.100.', '203.0.113.'];
 /** Four dotted numbers, not inside a longer dotted number and not after a letter or digit (`v1.2.3.4`); an underscore, or a dot after a name, bounds one on the left, and an underscore or a letter on the right. */
 const IPV4_LITERAL = /(?<![A-Za-z\d])(?<!\d\.)\d{1,3}(?:\.\d{1,3}){3}(?!\d|\.\d)/g;
-/** Up to eight groups of hex digits between colons, the last perhaps a dotted IPv4 tail; a colon before a letter, digit or colon does not end an address. An underscore bounds it on the left. */
-const IPV6_LITERAL = /(?<![A-Za-z\d:.])(?:[0-9a-f]{0,4}:){2,7}(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-f]{0,4})(?!\w|:[\w:]|\.\d)/gi;
-/** A `label:` (a name that starts with a letter or `_`) directly before a hex group and colon, as in `ip:<IPv6 literal>`, and the `\n`, `\r` and `\t` escapes of a string. */
-const LABEL_COLON_OR_ESCAPE = /(?<![\w.:-])([A-Za-z_][\w.-]*):(?=[0-9a-f]{1,4}:)|\\[nrt]/gi;
+/**
+ * Up to eight groups of hex digits between colons, the last perhaps a dotted IPv4 tail (the colon units are counted to eight so `::` may
+ * stand for one group at either end, after seven written groups); a colon before a letter, digit or colon does not end an address. An underscore bounds it on the left.
+ */
+const IPV6_LITERAL = /(?<![A-Za-z\d:.])(?:[0-9a-f]{0,4}:){2,8}(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-f]{0,4})(?!\w|:[\w:]|\.\d)/gi;
+/**
+ * A `label:` (a name that starts with a letter or `_`) directly before a hex group and colon, or before `::` and a hex group, as in
+ * `ip:<IPv6 literal>` (the literal may start with `::`), and the `\n`, `\r` and `\t` escapes of a string. A bare `::` after a label is a scope (`std::vector`), not blanked.
+ */
+const LABEL_COLON_OR_ESCAPE = /(?<![\w.:-])([A-Za-z_][\w.-]*):(?=[0-9a-f]{1,4}:|::[0-9a-f]{1,4}\b)|\\[nrt]/gi;
 
 /** The four octets of a dotted IPv4 literal, or null when one is above 255. */
 function parseIpv4(literal) {

@@ -291,6 +291,17 @@ test('addresses: a literal written right after a label colon, an underscore or a
   assert.deepEqual(refusedLines(`ip:${ipv6('2001', 'db8', '', 1)}`, 'host:::1', `v${ipv4(1, 2, 3, 4)}`, 'std::vector and Node::dead', 'call a.b:12:30:45 at ns1:80', `${ipv4(1, 10, 0, 0, 5)}`), []);
 });
 
+test('addresses: seven written groups with `::` at either end, and a `::`-leading literal after a label colon, still fail; a bare scope or a nine-group run does not', () => {
+  const refusedLines = (...texts) => scanned(scanIps, { 'src/ids.txt': texts.join('\n') + '\n' }, NO_DISPOSITIONS).map((finding) => Number(finding.split(' ').at(-1)));
+  const sevenGroups = [ipv6(1, 2, 3, 4, 5, 6, 7, '', ''), ipv6('', '', 1, 2, 3, 4, 5, 6, 7), `[${ipv6(1, 2, 3, 4, 5, 6, 7, '', '')}]:443`, ipv6('2606', '4700', 1, 2, 3, 4, 5, '', ''), `at ${ipv6('', '', '2606', '4700', 1, 2, 3, 4, 5)}.`];
+  assert.deepEqual(refusedLines(...sevenGroups), sevenGroups.map((_, index) => index + 1), 'seven groups and `::` at an end');
+  const middle = [ipv6(1, '', 2, 3, 4, 5, 6, 7), ipv6(1, 2, 3, 4, 5, 6, '', 7), ipv6(1, 2, 3, 4, 5, 6, 7, 8)];
+  assert.deepEqual(refusedLines(...middle), middle.map((_, index) => index + 1), 'seven groups with `::` inside, and eight groups');
+  const afterLabelLeading = [`ip:${MAPPED_PUBLIC_HEX}`, `addr:${ipv6('', '', 'ffff', '0808', '0404')}`, `tcp6:${ipv6('', '', 2)}`, `add-host name:${MAPPED_PUBLIC}`, `ip\\:${MAPPED_PUBLIC_HEX}`, `ip:${ipv6('', '', 1, 2, 3, 4, 5, 6, 7)}`];
+  assert.deepEqual(refusedLines(...afterLabelLeading), afterLabelLeading.map((_, index) => index + 1), 'a `::`-leading literal after `label:`');
+  assert.deepEqual(refusedLines('host:::1', 'ip::: and ip:::', 'std::vector and Node::dead', ipv6(1, 2, 3, 4, 5, 6, 7, 8, 9)), [], 'permitted loopback after a label, a bare scope, a nine-group run');
+});
+
 test('a malformed IP disposition is invalid configuration', () => {
   const entry = disposition(LOCKFILE, 3, PUBLIC_V4);
   assert.equal(hasValidIpDispositions({ ipDispositions: [entry] }), true);
