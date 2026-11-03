@@ -192,10 +192,10 @@ export async function readHistory({ repo, refs, limits, signal = new AbortContro
   return { heads: [...new Set(heads)].sort(), commits: parseCommits(output, rows, limits), tags: [...tags.values()] };
 }
 
-/** Throws GateInputError('unexpected-root') unless `commits` have exactly one root commit and it is `expectedRoot`. */
+/** Throws GateInputError('unexpected-root') unless `commits` have exactly one root commit and, when `expectedRoot` is given, it is that one. */
 export function requireExpectedRoot(commits, expectedRoot) {
   const roots = commits.filter((commit) => commit.parents.length === 0).map((commit) => commit.sha);
-  if (roots.length !== 1 || roots[0] !== expectedRoot) throw new GateInputError('unexpected-root', 'the history does not have the expected single root commit');
+  if (roots.length !== 1 || (expectedRoot && roots[0] !== expectedRoot)) throw new GateInputError('unexpected-root', 'the history does not have the expected single root commit');
 }
 
 /**

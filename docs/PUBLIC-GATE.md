@@ -89,8 +89,8 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   zip signature (`PK` with `01 02`, `03 04`, `05 06` or `07 08`) anywhere; and text with a tar header in any 512-byte block (its
   checksum field holds the block's sum), with or without `ustar`. Refuses any path under a `vendor` directory, in any letter case.
   It does not find an archive written in an encoding, such as base64, or one a script builds.
-- **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
-  run exits 2 (cause `unexpected-root`) without a report.
+- **Root.** Both scopes read the history behind `--commit`, which must have exactly one root commit; a second root exits 2 (cause
+  `unexpected-root`) without a report. Complete scope also requires that root to be `--expected-root`.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`,
   `scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`; complete scope adds `expectedRoot`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
   `unscannable`), `unscannable` (`location`, `cause`) and sorted `findings` (`rule`, `kind`, `location`, `line`). It holds
@@ -151,7 +151,7 @@ All output leaves through `scripts/public-gate/redact.mjs` on a route listed in 
   before the scanner starts. Scanner fingerprints are never exception keys.
 - **Identity.** `scannerPolicySha256` is the SHA-256 of `.gitleaks.toml`; `secretExceptionsSha256` is the SHA-256 of
   `JSON.stringify({ baseline: secretBaseline, exceptions: secretExceptions })` of the config.
-- **History mode** does not run the secret scan yet: it reports `R-SECRET` as `not-run`.
+- **History mode** runs the same scan over the whole history, see History mode below.
 
 ## Checking a saved report
 
@@ -181,7 +181,7 @@ missing, over 1 MiB, or malformed (a report is malformed unless it has the repor
 
 ```
 node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --private-list <file> --expected-root <full-sha> \
-  [--allowed-identity 'Name <email>'] [--pr-text <file.json>] [--out <file>]
+  --gitleaks <file> --gitleaks-sha256 <hex> [--allowed-identity 'Name <email>'] [--pr-text <file.json>] [--out <file>]
 ```
 
 Walks every commit reachable from the refs (names or full object ids, comma-separated), parents first, and reports under
@@ -204,15 +204,26 @@ overwrites a file, and there is no `--private-evidence`.
   are scanned by `R-PRIVATE`, `R-ACCOUNT`, `R-HOST` and `R-IP`, and the finding's location is `<tag object>:<field>`, the
   tag object's id in the place of a commit's. `target.commits` counts commits only.
 - **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
-  identity (kind `author` or `committer`), every tagger line of a tag object that is not exactly that identity or is missing
-  (kind `tagger`), and every time zone other than `+0000` (kind `timezone`). Without the flag the rule is `not-run`.
+  identity or an exact `publicIdentities` entry (kind `author` or `committer`), every tagger line of a tag object that is not
+  one of them or is missing (kind `tagger`), every `Co-authored-by:` or `Signed-off-by:` trailer whose `Name <email>` is not one
+  of them (kind `message`, with the line) and every time zone other than `+0000` (kind `timezone`). Without the flag the rule is
+  `not-run`. A contributor's identity is added to `publicIdentities` in their first pull request.
+- **Secret scan.** `R-SECRET` runs the pinned gitleaks as in Secret scan, once over the whole history, with `--gitleaks` and
+  `--gitleaks-sha256` as in the gate. Every distinct (path, mode, blob) of every commit's tree is one occurrence, written once under a
+  neutral name `o<number>` (the blob's bytes are stored once), so a file `entry` and a later `entry/child.txt` never share a path and no
+  occurrence is dropped or overwritten. Each commit object and tag object is one more neutral file. A finding in a tree is located at the
+  first commit that holds the occurrence, by its position in that commit's listing, with the line; a finding in an object is located
+  by `<commit>:<field>` (`author`, `committer`, `tagger`, `header` or `message`, the last with its line). Exceptions and the baseline
+  apply per occurrence, by path and blob as in Secret scan. `maxHistoryOccurrences` bounds the distinct occurrences and
+  `maxTotalBlobBytes` the bytes of the distinct blobs; past either the run exits 2 naming the limit.
 - **Pull-request text.** `--pr-text` is a JSON array of objects. `R-PRIVATE` scans every string in them, keys and values, at any
   depth, and every repeat of a key (kind `pr-text`, location `pr-<n>:<m>`: the n-th object, and the m-th string in it in
   the file's order, both from 1, with the line). Keys are never printed. Anything else in the file exits 2.
 - **Report.** The same closed schema as above: fixed words, object ids, digests and positive numbers, nothing derived from
   the list. `target` is `heads` (the object ids the refs name, sorted) and `commits` (how many were read). Each finding and
   each `unscannable` item also holds its `commit`, except findings of `--pr-text`. `scanner` holds `gateRevision`,
-  `configSha256` and `expectedRoot`, and adds `prTextSha256` when the file is given.
+  `configSha256`, the scanner identity of Secret scan (`scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`) and
+  `expectedRoot`, and adds `prTextSha256` when the file is given.
 
 ## Bounded downloads, subprocesses and the gitleaks installer
 

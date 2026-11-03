@@ -12,8 +12,8 @@ import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } f
 import { hasValidSecretConfig, SECRET_RULE_ID, scanSecrets, secretScanIdentity } from './secret-scan.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const GATE_SOURCES = ['scripts/lib/choice.mjs', 'scripts/lib/run-bounded.mjs', ...['check-report', 'classify', 'gate', 'history', 'objects', 'redact', 'rules-address', 'rules-files', 'rules-private', 'secret-scan'].map((name) => `scripts/public-gate/${name}.mjs`)];
-const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'gitDeadlineMs', 'scanDeadlineMs', 'secretScanDeadlineMs', 'secretScanOutputBytes', 'maxScanReportBytes'];
+const GATE_SOURCES = ['scripts/lib/choice.mjs', 'scripts/lib/run-bounded.mjs', ...['check-report', 'classify', 'gate', 'history', 'history-secrets', 'objects', 'redact', 'rules-address', 'rules-files', 'rules-private', 'secret-scan'].map((name) => `scripts/public-gate/${name}.mjs`)];
+const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'maxHistoryOccurrences', 'gitDeadlineMs', 'scanDeadlineMs', 'secretScanDeadlineMs', 'secretScanOutputBytes', 'maxScanReportBytes'];
 const SCOPES = ['generic', 'complete'];
 const FLAGS = ['--repo', '--commit', '--scope', '--private-list', '--private-evidence', '--expected-root', '--out', '--gitleaks', '--gitleaks-sha256'];
 const COMPLETE_ONLY_FLAGS = ['--private-list', '--private-evidence', '--expected-root'];
@@ -128,10 +128,8 @@ async function runGate(argv, signal) {
   const config = loadConfig();
   const listEntries = options.privateList && readPrivateList(options.privateList, { repo: options.repo, limits: config.limits });
   const { entries, ...target } = await readCommitObjects({ repo: options.repo, commit: options.commit, limits: config.limits, signal });
-  if (options.expectedRoot) {
-    const { commits } = await readHistory({ repo: options.repo, refs: [options.commit], limits: config.limits, signal });
-    requireExpectedRoot(commits, options.expectedRoot);
-  }
+  const { commits } = await readHistory({ repo: options.repo, refs: [options.commit], limits: config.limits, signal });
+  requireExpectedRoot(commits, options.expectedRoot);
   const matcher = listEntries && createPrivateMatcher(listEntries, createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs }));
   const unscannable = unscannableEntries(entries, config);
   if (unscannable.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} unscannable entries`);

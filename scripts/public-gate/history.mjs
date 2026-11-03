@@ -3,16 +3,19 @@ import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { ChoiceError, parseFlags } from '../lib/choice.mjs';
 import { compareText, createScanDeadline, EXIT, gateRevision, loadConfig, REGISTERED_RULE_IDS, requireValue, TREE_RULES, unscannableEntries } from './gate.mjs';
+import { createSecretInput } from './history-secrets.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps } from './rules-address.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
-import { SECRET_RULE_ID } from './secret-scan.mjs';
+import { SEMVER, scanSecrets, secretScanIdentity } from './secret-scan.mjs';
 
-/** Id of the identity rule in reports: every author and committer is the allowed identity, in UTC. */
+/** Id of the identity rule in reports: every author, committer, tagger and trailer identity is an exact `publicIdentities` entry or the allowed identity, in UTC. */
 export const IDENTITY_RULE_ID = 'R-IDENTITY';
 
-const FLAGS = ['--repo', '--refs', '--private-list', '--expected-root', '--allowed-identity', '--pr-text', '--out'];
+const FLAGS = ['--repo', '--refs', '--private-list', '--expected-root', '--allowed-identity', '--pr-text', '--out', '--gitleaks', '--gitleaks-sha256'];
+/** A trailer that names a person: `Co-authored-by: Name <email>` or `Signed-off-by: Name <email>`; group 1 is the identity as written. */
+const IDENTITY_TRAILER = /^(?:co-authored-by|signed-off-by):[ \t]*(.*)$/i;
 const PERSON_LINE = /^(author|committer|tagger) (.*) <([^>]*)> \d+ ([+-]\d{4})$/;
 /** The header kinds that name a person in a commit object and in a tag object. */
 const COMMIT_PEOPLE = ['author', 'committer'];
@@ -81,21 +84,27 @@ const METADATA_ADDRESS_RULES = [
   { rule: IP_RULE_ID, refusedIn: refusedMetadataIps },
 ];
 
-/** The 1-based numbers of the first `maxLines` lines of `message` that hold something `refusedIn(line, config)` returns. */
-function refusedLines(message, refusedIn, config, maxLines) {
+/** The 1-based numbers of the first `maxLines` lines of `message` for which `isRefused(line)` is true. */
+function linesWhere(message, isRefused, maxLines) {
   const lines = [];
   message.split('\n').forEach((text, index) => {
-    if (lines.length < maxLines && refusedIn(text, config).length > 0) lines.push(index + 1);
+    if (lines.length < maxLines && isRefused(text)) lines.push(index + 1);
   });
   return lines;
 }
 
+/** True when `line` is a trailer naming a person whose identity, as written, is not in `identities`. */
+function isUnapprovedTrailer(line, identities) {
+  const trailer = IDENTITY_TRAILER.exec(line);
+  return trailer !== null && !identities.has(trailer[1]);
+}
+
 /**
  * Findings in one raw commit or tag object: list entries and what the address rules (email, host, IP) refuse in its message and headers, and
- * (with an allowed identity) other identities or time zones. `people` are the header kinds that name a person: with an identity each must
- * be there, and a line of any other kind is an ordinary header.
+ * (with `identities`, the set of exact `Name <email>` strings that pass) other identities, trailer identities or time zones. `people` are
+ * the header kinds that name a person: with identities each must be there, and a line of any other kind is an ordinary header.
  */
-function metadataFindings({ sha, raw }, { matcher, identity, config, limits }, people) {
+function metadataFindings({ sha, raw }, { matcher, identities, config, limits }, people) {
   const split = raw.indexOf('\n\n');
   const headers = (split < 0 ? raw : raw.subarray(0, split)).toString('utf8').split('\n');
   const findings = [];
@@ -107,16 +116,19 @@ function metadataFindings({ sha, raw }, { matcher, identity, config, limits }, p
     const kind = person ? person[1] : 'header';
     if (matcher.hasEntry(header)) add(PRIVATE_RULE_ID, kind, kind);
     for (const { rule, refusedIn } of METADATA_ADDRESS_RULES) if (refusedIn(header, config).length > 0) add(rule, kind, kind);
-    if (!person || !identity) continue;
+    if (!person || !identities) continue;
     seen.add(kind);
-    if (`${person[2]} <${person[3]}>` !== identity) add(IDENTITY_RULE_ID, kind, kind);
+    if (!identities.has(`${person[2]} <${person[3]}>`)) add(IDENTITY_RULE_ID, kind, kind);
     if (person[4] !== '+0000') add(IDENTITY_RULE_ID, 'timezone', kind);
   }
-  if (identity) for (const kind of people) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, kind);
+  if (identities) for (const kind of people) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, kind);
   const message = split < 0 ? '' : raw.subarray(split + 2).toString('utf8');
   for (const line of matcher.entryLines(message, limits.maxReportEntries + 1)) add(PRIVATE_RULE_ID, 'message', 'message', line);
   for (const { rule, refusedIn } of METADATA_ADDRESS_RULES) {
-    for (const line of refusedLines(message, refusedIn, config, limits.maxReportEntries + 1)) add(rule, 'message', 'message', line);
+    for (const line of linesWhere(message, (text) => refusedIn(text, config).length > 0, limits.maxReportEntries + 1)) add(rule, 'message', 'message', line);
+  }
+  if (identities) {
+    for (const line of linesWhere(message, (text) => isUnapprovedTrailer(text, identities), limits.maxReportEntries + 1)) add(IDENTITY_RULE_ID, 'message', 'message', line);
   }
   return findings;
 }
@@ -143,7 +155,8 @@ function buildHistoryReport({ heads, commits, scanner, rules, unscannable, findi
     scope: 'history',
     target: { heads: heads.map((head) => checked(head, FULL_OBJECT_ID)), commits: counted(commits) },
     scanner: {
-      gateRevision: checked(scanner.gateRevision, SHA256_HEX), configSha256: checked(scanner.configSha256, SHA256_HEX),
+      gateRevision: checked(scanner.gateRevision, SHA256_HEX), configSha256: checked(scanner.configSha256, SHA256_HEX), scannerVersion: checked(scanner.scannerVersion, SEMVER),
+      scannerPolicySha256: checked(scanner.scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(scanner.secretExceptionsSha256, SHA256_HEX),
       expectedRoot: checked(scanner.expectedRoot, FULL_OBJECT_ID),
       ...(scanner.prTextSha256 === undefined ? {} : { prTextSha256: checked(scanner.prTextSha256, SHA256_HEX) }),
     },
@@ -168,6 +181,7 @@ function readOptions(argv) {
     expectedRoot: requireValue(flags, '--expected-root', FULL_OBJECT_ID),
     identity: '--allowed-identity' in flags ? requireValue(flags, '--allowed-identity', /^[^<>]+ <[^<>]+>$/) : null,
     prText: '--pr-text' in flags ? requireValue(flags, '--pr-text') : null,
+    scanner: { binary: requireValue(flags, '--gitleaks'), sha256: requireValue(flags, '--gitleaks-sha256', SHA256_HEX) },
     out: '--out' in flags ? requireValue(flags, '--out') : null,
   };
 }
@@ -190,7 +204,9 @@ async function runHistory(argv, signal) {
     }
   };
   const matcher = bounded(() => createPrivateMatcher(listEntries, () => checkpoint()));
-  const metadataContext = { matcher, identity: options.identity, config, limits };
+  const identities = options.identity && new Set([...config.publicIdentities, options.identity]);
+  const metadataContext = { matcher, identities, config, limits };
+  const secrets = createSecretInput(limits);
   const findings = [];
   const unscannable = [];
   const requireWithinLimit = () => {
@@ -201,6 +217,8 @@ async function runHistory(argv, signal) {
   for (const commit of commits) {
     const { entries } = await readCommitObjects({ repo: options.repo, commit: commit.sha, limits, signal });
     unscannable.push(...unscannableEntries(entries, config).map((problem) => ({ commit: commit.sha, ...problem })));
+    secrets.addTree(commit.sha, entries);
+    secrets.addObject(commit, COMMIT_PEOPLE);
     findings.push(...bounded(() => [
       ...TREE_SCANS.flatMap((scan) => scan({ entries, matcher, config, limits }).map((finding) => ({ ...finding, commit: commit.sha }))),
       ...metadataFindings(commit, metadataContext, COMMIT_PEOPLE),
@@ -208,6 +226,7 @@ async function runHistory(argv, signal) {
     requireWithinLimit();
   }
   for (const tag of tags) {
+    secrets.addObject(tag, TAG_PEOPLE);
     findings.push(...bounded(() => metadataFindings(tag, metadataContext, TAG_PEOPLE)));
     requireWithinLimit();
   }
@@ -215,14 +234,16 @@ async function runHistory(argv, signal) {
     for (const line of bounded(() => matcher.entryLines(value, limits.maxReportEntries + 1))) findings.push({ rule: PRIVATE_RULE_ID, kind: 'pr-text', item, string, line });
     requireWithinLimit();
   }
+  findings.push(...(await scanSecrets({ entries: secrets.scanEntries(), config, scanner: options.scanner, signal })).map(secrets.locate));
+  requireWithinLimit();
   findings.sort(compareFindings);
   const found = (rule) => findings.some((finding) => finding.rule === rule);
   const scannedStatus = (id) => (found(id) ? 'findings' : unscannable.length > 0 ? 'unscannable' : 'passed');
   const rules = [
     { id: IDENTITY_RULE_ID, status: !options.identity ? 'not-run' : found(IDENTITY_RULE_ID) ? 'findings' : 'passed' },
-    ...REGISTERED_RULE_IDS.map((id) => ({ id, status: id === SECRET_RULE_ID ? 'not-run' : scannedStatus(id) })),
+    ...REGISTERED_RULE_IDS.map((id) => ({ id, status: scannedStatus(id) })),
   ].sort((first, second) => compareText(first.id, second.id));
-  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, expectedRoot: options.expectedRoot, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
+  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config), expectedRoot: options.expectedRoot, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
   const report = buildHistoryReport({ heads, commits: commits.length, scanner, rules, unscannable, findings });
   await publish({ report }, { out: options.out });
   if (unscannable.length > 0) return EXIT.unusable;
