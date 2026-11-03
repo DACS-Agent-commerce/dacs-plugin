@@ -206,7 +206,9 @@ overwrites a file, and there is no `--private-evidence`.
 - **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
   identity or an exact `publicIdentities` entry (kind `author` or `committer`), every tagger line of a tag object that is not
   one of them or is missing (kind `tagger`), every `Co-authored-by:` or `Signed-off-by:` trailer whose `Name <email>` is not one
-  of them (kind `message`, with the line) and every time zone other than `+0000` (kind `timezone`). Without the flag the rule is
+  of them (kind `message`, with the line) and every time zone other than `+0000` (kind `timezone`). A trailer is read the way git
+  and a code host read it: any case, blanks before the token and before the colon, and a CR, VT, FF, NEL, U+2028 or U+2029 ends
+  its identity as a line break does, so a CRLF message keeps its trailers checked. Without the flag the rule is
   `not-run`. A contributor's identity is added to `publicIdentities` in their first pull request.
 - **Secret scan.** `R-SECRET` runs the pinned gitleaks as in Secret scan, once over the whole history, with `--gitleaks` and
   `--gitleaks-sha256` as in the gate. Every distinct (path, mode, blob) of every commit's tree is one occurrence, written once under a

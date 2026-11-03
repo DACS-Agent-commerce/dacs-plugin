@@ -14,8 +14,13 @@ import { SEMVER, scanSecrets, secretScanIdentity } from './secret-scan.mjs';
 export const IDENTITY_RULE_ID = 'R-IDENTITY';
 
 const FLAGS = ['--repo', '--refs', '--private-list', '--expected-root', '--allowed-identity', '--pr-text', '--out', '--gitleaks', '--gitleaks-sha256'];
-/** A trailer that names a person: `Co-authored-by: Name <email>` or `Signed-off-by: Name <email>`; group 1 is the identity as written. */
-const IDENTITY_TRAILER = /^(?:co-authored-by|signed-off-by):[ \t]*(.*)$/i;
+/**
+ * A trailer that names a person: `Co-authored-by: Name <email>` or `Signed-off-by: Name <email>`, with blanks before the token and
+ * before the colon as git and the code host read it; group 1 is the identity as written. It is matched against one piece of a line.
+ */
+const IDENTITY_TRAILER = /^[ \t]*(?:co-authored-by|signed-off-by)[ \t]*:[ \t]*(.*)$/i;
+/** What ends a line for a reader other than git's `\n`: CR (so CRLF leaves no CR in a trailer), VT, FF, NEL, U+2028 and U+2029. */
+const OTHER_LINE_BREAKS = /[\r\v\f\u0085\u2028\u2029]/;
 const PERSON_LINE = /^(author|committer|tagger) (.*) <([^>]*)> \d+ ([+-]\d{4})$/;
 /** The header kinds that name a person in a commit object and in a tag object. */
 const COMMIT_PEOPLE = ['author', 'committer'];
@@ -93,10 +98,12 @@ function linesWhere(message, isRefused, maxLines) {
   return lines;
 }
 
-/** True when `line` is a trailer naming a person whose identity, as written, is not in `identities`. */
+/** True when `line`, or any piece of it between other line breaks, is a trailer naming a person whose identity, as written, is not in `identities`. */
 function isUnapprovedTrailer(line, identities) {
-  const trailer = IDENTITY_TRAILER.exec(line);
-  return trailer !== null && !identities.has(trailer[1]);
+  return line.split(OTHER_LINE_BREAKS).some((piece) => {
+    const trailer = IDENTITY_TRAILER.exec(piece);
+    return trailer !== null && !identities.has(trailer[1]);
+  });
 }
 
 /**
