@@ -101,6 +101,15 @@ export function refusedMetadataEmails(text, config) {
   return [...new Set(refused.map(({ value }) => value))];
 }
 
+/**
+ * The hosts in commit-metadata `text` that the host rule refuses: those it refuses in non-code text (URL, host:port and bare
+ * forms), as in content. Commit metadata has no path, so no `scopedAllowances` entry applies; only `allowedHosts` and reserved names pass.
+ */
+export function refusedMetadataHosts(text, config) {
+  const listedHosts = new Set(config.allowedHosts.map(({ value }) => value));
+  return [...new Set(viewsOf(text).flatMap((view) => unlistedHostsIn(view, { code: false, listedHosts })).map(({ value }) => value))];
+}
+
 /** A file's text, or null for a blob that is not valid UTF-8 text (a reviewed binary is not read as text). */
 export const textOf = (entry) => (entry.bytes && !entry.bytes.includes(0) ? decodeUtf8Strict(entry.bytes) : null);
 
@@ -270,3 +279,8 @@ export function hasValidIpDispositions(config) {
  * an exact `ipDispositions` entry for its own path, blob, line, context and value. Needs `config.ipDispositions`.
  */
 export const scanIps = createAddressRule(IP_RULE_ID, unpermittedAddressesIn, dispositionCheck);
+
+/** The IP literals in commit-metadata `text` outside the permitted classes. Commit metadata has no path or blob, so no `ipDispositions` entry can pass one. */
+export function refusedMetadataIps(text) {
+  return [...new Set(viewsOf(text).flatMap(unpermittedAddressesIn).map(({ value }) => value))];
+}

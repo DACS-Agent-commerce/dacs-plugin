@@ -5,7 +5,7 @@ import { ChoiceError, parseFlags } from '../lib/choice.mjs';
 import { compareText, createScanDeadline, EXIT, gateRevision, loadConfig, REGISTERED_RULE_IDS, requireValue, TREE_RULES, unscannableEntries } from './gate.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
-import { ACCOUNT_RULE_ID, refusedMetadataEmails } from './rules-address.mjs';
+import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps } from './rules-address.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 
 /** Id of the identity rule in reports: every author and committer is the allowed identity, in UTC. */
@@ -70,17 +70,24 @@ function stringsInFileOrder(text) {
   return strings;
 }
 
-/** The 1-based numbers of the first `maxLines` lines of `message` that hold an email the account rule refuses. */
-function refusedEmailLines(message, config, maxLines) {
+/** The address rules that also read commit metadata, each with what it refuses in a piece of text: an email, an unlisted host, a public IP literal. */
+const METADATA_ADDRESS_RULES = [
+  { rule: ACCOUNT_RULE_ID, refusedIn: refusedMetadataEmails },
+  { rule: HOST_RULE_ID, refusedIn: refusedMetadataHosts },
+  { rule: IP_RULE_ID, refusedIn: refusedMetadataIps },
+];
+
+/** The 1-based numbers of the first `maxLines` lines of `message` that hold something `refusedIn(line, config)` returns. */
+function refusedLines(message, refusedIn, config, maxLines) {
   const lines = [];
   message.split('\n').forEach((text, index) => {
-    if (lines.length < maxLines && refusedMetadataEmails(text, config).length > 0) lines.push(index + 1);
+    if (lines.length < maxLines && refusedIn(text, config).length > 0) lines.push(index + 1);
   });
   return lines;
 }
 
 /**
- * Findings in one raw commit object: list entries and emails the account rule refuses in its message and headers, and
+ * Findings in one raw commit object: list entries and what the address rules (email, host, IP) refuse in its message and headers, and
  * (with an allowed identity) other identities or time zones.
  */
 function commitFindings({ sha, raw }, { matcher, identity, config, limits }) {
@@ -93,7 +100,7 @@ function commitFindings({ sha, raw }, { matcher, identity, config, limits }) {
     const person = PERSON_LINE.exec(header);
     const kind = person ? person[1] : 'header';
     if (matcher.hasEntry(header)) add(PRIVATE_RULE_ID, kind, kind);
-    if (refusedMetadataEmails(header, config).length > 0) add(ACCOUNT_RULE_ID, kind, kind);
+    for (const { rule, refusedIn } of METADATA_ADDRESS_RULES) if (refusedIn(header, config).length > 0) add(rule, kind, kind);
     if (!person || !identity) continue;
     seen.add(kind);
     if (`${person[2]} <${person[3]}>` !== identity) add(IDENTITY_RULE_ID, kind, kind);
@@ -102,7 +109,9 @@ function commitFindings({ sha, raw }, { matcher, identity, config, limits }) {
   if (identity) for (const kind of ['author', 'committer']) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, kind);
   const message = split < 0 ? '' : raw.subarray(split + 2).toString('utf8');
   for (const line of matcher.entryLines(message, limits.maxReportEntries + 1)) add(PRIVATE_RULE_ID, 'message', 'message', line);
-  for (const line of refusedEmailLines(message, config, limits.maxReportEntries + 1)) add(ACCOUNT_RULE_ID, 'message', 'message', line);
+  for (const { rule, refusedIn } of METADATA_ADDRESS_RULES) {
+    for (const line of refusedLines(message, refusedIn, config, limits.maxReportEntries + 1)) add(rule, 'message', 'message', line);
+  }
   return findings;
 }
 
