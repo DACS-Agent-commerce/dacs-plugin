@@ -194,6 +194,52 @@ test('an import cycle cannot hide a waived readback helper from its importer', t
   assert.deepEqual(callerFirst.found.violation.map(r => `${r.file}:${r.detail}`), ['caller.ts:execution-readback:decide']);
 });
 
+test('a waived readback helper reached through a form that cannot carry the waiver is unverifiable', t => {
+  const forms = {
+    'destructure.ts': 'import * as h from "./helper.js";\nconst {show, show: s} = h;\nexport function a(c: any) { return show(c); }\nexport function b(c: any) { return s(c); }\n',
+    'equals.ts': 'import h = require("./helper.js");\nexport function a(c: any) { return h.show(c); }\nexport function b(c: any) { return (h as any).show(c); }\ntype H = typeof h;\n',
+    'late.ts': 'const {show} = h;\nexport function a(c: any) { return show(c); }\nimport * as h from "./helper.js";\n',
+    'star-as.ts': 'export * as ns from "./helper.js";\n',
+    'ns-export.ts': 'import * as h from "./helper.js";\nexport {h};\n',
+    'ns-copy.ts': 'import * as h from "./helper.js";\nconst g = h;\nexport function a(c: any) { return use(h, c); }\nexport function b(c: any) { const {...r} = h; return r; }\nexport const k = (key: string) => h[key];\n',
+    'dynamic.ts': 'export async function a(c: any) { const h = await import("./helper.js"); return h.show(c); }\nexport function b(c: any) { return require("./helper.js").show(c); }\n',
+    'equals-export.ts': 'export import h = require("./helper.js");\n',
+  };
+  const p = project(t, {'helper.ts': '// thin-plugin-waiver primitive:execution-readback -- status display only\nexport function show(c: any) { return c.getTxByHash("h"); }\n', ...forms});
+  for (const f of Object.keys(forms)) p.scan(f);
+  assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`).sort(), ['destructure.ts:execution-readback:a', 'destructure.ts:execution-readback:b', 'equals.ts:execution-readback:a', 'equals.ts:execution-readback:b', 'late.ts:execution-readback:a']);
+  assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.line}:${r.rule}`).sort(), [
+    'dynamic.ts:1:untracked-waived-import', 'dynamic.ts:2:untracked-waived-import', 'equals-export.ts:1:untracked-waived-import',
+    'ns-copy.ts:2:namespace-escape', 'ns-copy.ts:3:namespace-escape', 'ns-copy.ts:4:namespace-escape', 'ns-copy.ts:5:namespace-escape', 'ns-export.ts:2:namespace-escape', 'star-as.ts:1:untracked-waived-import',
+  ]);
+  // The same forms over a module without readback waivers add nothing.
+  const plain = project(t, {'helper.ts': 'export function show(c: any) { return c; }\n', ...forms});
+  for (const f of Object.keys(forms)) plain.scan(f);
+  assert.deepEqual(plain.found.unverifiable, []);
+});
+
+test('an import cycle through a barrel cannot hide a waived readback helper from either end', t => {
+  const helper = 'import {decide} from "./caller.js";\n// thin-plugin-waiver primitive:execution-readback -- status display only\nexport function show(c: any) { return c.getTxByHash("h"); }\nexport const again = decide;\n';
+  const barrels = {
+    from: ['export {show} from "./helper.js";\n', 'import {show} from "./barrel.js";'],
+    local: ['import {show} from "./helper.js";\nexport {show};\n', 'import {show} from "./barrel.js";'],
+    default: ['import {show} from "./helper.js";\nexport default show;\n', 'import show from "./barrel.js";'],
+  };
+  for (const [kind, [barrel, importLine]] of Object.entries(barrels)) {
+    const files = {'helper.ts': helper, 'barrel.ts': barrel, 'caller.ts': `${importLine}\nexport function decide(c: any) { return show(c); }\n`};
+    const seen = Object.fromEntries(['barrel.ts', 'caller.ts', 'helper.ts'].map(first => {
+      const p = project(t, files);
+      for (const f of [first, ...Object.keys(files)]) p.scan(f);
+      return [first, [...p.found.violation, ...p.found.unverifiable].map(r => `${r.file}:${r.rule}:${r.detail}`)];
+    }));
+    assert.deepEqual(seen, {
+      'barrel.ts': ['caller.ts:cyclic-waived-import:./barrel.js'],
+      'caller.ts': ['caller.ts:local-protocol-primitive:execution-readback:decide'],
+      'helper.ts': ['barrel.ts:cyclic-waived-import:./helper.js'],
+    }, kind);
+  }
+});
+
 test('the scan returns each module\'s import edges with type-only flags', t => {
   const p = project(t, {
     'entry.ts': [
