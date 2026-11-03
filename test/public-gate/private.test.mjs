@@ -84,3 +84,22 @@ test('a malformed, oversized, in-repository or special-file list exits 2 with on
     assert.equal(result.stdout, '');
   }
 });
+
+test('a list that separates entries with a lone carriage return keeps every entry', () => {
+  const repo = createRepo([{ path: 'a.txt', content: `hello ${PLANTED} here\n` }]);
+  const file = writeList([]);
+  writeFileSync(file, `first-entry\r${PLANTED}\r`);
+  assert.equal(runGate(completeArgs(repo, file)).status, 1);
+});
+
+test('an entry written with backslash escapes in a text blob is found on the blob\'s own line, and a near miss is not', () => {
+  const parts = ['maple', 'harbor', 'test'];
+  const repo = createRepo([
+    { path: 'src/guard.test.mjs', content: `// guard\nconst long = 'a' + \\\n  'b';\nassert.doesNotMatch(doc, /${parts.join('\\.')}/, 'names no host');\n` },
+    { path: 'src/near.mjs', content: `const pattern = /${['maple', 'harbour', 'test'].join('\\.')}/;\n` },
+  ]);
+  const result = runGate(completeArgs(repo, writeList([parts.join('.')])));
+  assert.equal(result.status, 1);
+  assert.deepEqual(JSON.parse(result.stdout).findings, [{ rule: 'R-PRIVATE', kind: 'content', location: `${repo.commit}:1`, line: 4 }]);
+  for (const form of [parts.join('.'), parts.join('\\.')]) assert.ok(!result.stdout.includes(form) && !result.stderr.includes(form));
+});
