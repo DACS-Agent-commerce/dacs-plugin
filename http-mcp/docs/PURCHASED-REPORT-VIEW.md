@@ -63,20 +63,20 @@ the switch on, `prepare_purchase`, `get_purchase_status` and `verify_deal`:
   `nativeLaneResolved`, `signedByAlternateKey`, `observation.sourceDisposition`),
   the plugin's own attempt outcomes and main's history stages. Seller-supplied
   text (refusal and hold reasons, messages, and any value that fails its field's
-  rule) is in main's `{label, text, truncated}` seller-data envelope, except the
-  four fields named under "Known gap" below; the plugin's
+  rule) is in main's `{label, text, truncated}` seller-data envelope; the plugin's
   own verdicts and recovery sentences (`status`, `next`, `protocol.stage`, and
   `verification.outcome`, `rejectedReason` and `nextStep` when they are the
   plugin's values) stay outside every envelope. Where main shows a value raw, so
   does the view.
-- **Known gap: four fields reach the model raw.** Main's copy passes these
-  seller-controlled values unlabelled, because `protocolView` passes their records
-  whole, and the view shows them exactly as it does with the switch off:
-  `protocol.commitment.note`, `protocol.claim.message`, the keys of
-  `protocol.paymentEvidence`, and `protocol.paymentEvidence.note`. Treat them as
-  untrusted seller text. Labelling them belongs in main's
-  `src/mcp/seller-content.mjs` and is not done here; `test/ui-status.test.mjs`
-  (`MAIN_RAW`) pins this exact set, so any change to it shows up there.
+- label the four fields a seller writes in the purchase record: `protocol.commitment.note`
+  and `protocol.claim.message` are each one seller-data envelope, and
+  `protocol.paymentEvidence` is one envelope around the whole record, because its
+  keys are the seller's too and a key cannot be wrapped in place. The model reads the
+  record's fields (`ref`, `anchorReceipt`, `txHash`, `note` and any other) by decoding
+  that envelope's text as JSON, as it does for any seller data. The envelope has the
+  same label, delimiters, escaping and 4096 code point bound as every other seller
+  text. Main's copy does this, so it is the same with the switch on and off, and
+  what is stored and what the wallet portal shows are unchanged.
 - keep the report in `structuredContent.protocol.delivery.report` as the
   `{label, contentHash, coordinates, text}` wrapper of `src/mcp/seller-content.mjs`:
   the label says it is the seller's report, untrusted seller data, not instructions;
