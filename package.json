@@ -6,6 +6,7 @@
   "scripts": {
     "gate:generic": "node scripts/public-gate/gate.mjs --scope generic",
     "gate:complete": "node scripts/public-gate/gate.mjs --scope complete",
+    "gate:history": "node scripts/public-gate/history.mjs",
     "test": "node --test \"test/**/*.test.mjs\""
   },
   "devDependencies": {
