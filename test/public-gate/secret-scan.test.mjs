@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { loadConfig } from '../../scripts/public-gate/gate.mjs';
 import { GateInputError, readCommitObjects } from '../../scripts/public-gate/objects.mjs';
-import { SECRET_RULE_ID, scanSecrets } from '../../scripts/public-gate/secret-scan.mjs';
-import { REPO_ROOT, createRepo, gateArgs, runGate, sha256 } from '../lib/gate-fixtures.mjs';
+import { hasValidSecretConfig, PATH_GATED_RULES, SECRET_RULE_ID, scanSecrets } from '../../scripts/public-gate/secret-scan.mjs';
+import { REPO_ROOT, completeArgs, createRepo, gateArgs, makeTempDir, runGate, sha256, writeList } from '../lib/gate-fixtures.mjs';
 import { findPinnedGitleaks, writeStubGitleaks } from '../lib/stub-gitleaks.mjs';
 
 const CONFIG = loadConfig();
@@ -32,13 +32,16 @@ test('the wrapper writes each distinct blob of the target tree once from Git obj
     { path: 'a.txt', content: `${MARKER}\n` }, { path: 'copy/a-again.txt', content: `${MARKER}\n` }, { path: 'link', content: 'a.txt', mode: '120000' },
     { path: 'other.txt', content: 'other\n' }, { path: '.gitleaks.toml', content: '# a policy the target ships\n' },
   ]);
-  await t.test('the scanner gets neutral names, the run\'s own config and an empty run-owned ignore', async () => {
+  await t.test('the scanner gets one neutral name per occurrence, each blob written once, the run\'s own config and an empty run-owned ignore', async () => {
     const stub = writeStubGitleaks();
     assert.deepEqual(await scan(repo, stub), []);
     const [call] = scanCalls(stub);
-    const contents = ['a.txt', `${MARKER}\n`, 'other\n', '# a policy the target ships\n'];
-    assert.deepEqual(Object.values(call.blobs).sort(), contents.map(sha256).sort(), 'one file per distinct blob, holding the exact bytes');
-    assert.ok(Object.keys(call.blobs).every((name) => /^b\d+$/.test(name)));
+    const entries = await readEntries(repo);
+    assert.deepEqual(Object.keys(call.blobs).sort(), entries.map(({ position }) => `o${position}`).sort(), 'one name per occurrence, by position');
+    for (const entry of entries) assert.equal(call.blobs[`o${entry.position}`], sha256(entry.bytes), 'each name holds its occurrence\'s exact bytes');
+    const inodeOf = (file) => call.inodes[`o${entries.find((entry) => entry.path === file).position}`];
+    assert.equal(inodeOf('a.txt'), inodeOf('copy/a-again.txt'), 'two occurrences of one blob are links to one written file');
+    assert.equal(new Set(Object.values(call.inodes)).size, 4, 'one written file per distinct blob');
     for (const flag of ['dir', '--redact=100', '--ignore-gitleaks-allow', '--config', '--gitleaks-ignore-path']) assert.ok(call.args.includes(flag), flag);
     assert.equal(call.configSha256, sha256(readFileSync(POLICY_FILE)), 'the policy is the gate\'s, not the target\'s');
     assert.equal(call.ignore, '');
@@ -78,9 +81,11 @@ test('every blob is written behind a one-line text header that spans every fixed
   await t.test('a finding is reported on the blob\'s own line', async () => {
     assert.deepEqual((await scan(repo, markerStub())).map(({ entry, line }) => [entry.path, line]), [['marked.txt', 2]]);
   });
-  await t.test('a finding on the header line names no line of any blob', () => rejectsWith(
-    scan(repo, writeStubGitleaks({ rawReport: JSON.stringify([{ File: 'b1', RuleID: SAMPLE_RULE, StartLine: 1 }]), exitCode: 3 })), 'scanner-report-malformed',
-  ));
+  await t.test('a finding on the header line, or on line 0 for any rule but pkcs12-file, names no line of any blob', async () => {
+    for (const StartLine of [1, 0]) {
+      await rejectsWith(scan(repo, writeStubGitleaks({ rawReport: JSON.stringify([{ File: 'o1', RuleID: SAMPLE_RULE, StartLine }]), exitCode: 3 })), 'scanner-report-malformed');
+    }
+  });
 });
 
 test('a missing binary, another version or a checksum mismatch fails before scanning', async () => {
@@ -105,39 +110,45 @@ test('a scan past its deadline is killed with its process group and fails with a
   await rejectsWith(scan(repo, writeStubGitleaks({ flood: true }), withLimits({ secretScanOutputBytes: 1024 })), 'subprocess-output-limit');
 });
 
-test('a scanner failure status, an oversized, malformed or inconsistent report, and a finding in an unknown file all fail closed with their own cause', async (t) => {
-  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
+test('a scanner failure status, an oversized, malformed or inconsistent report, a finding in an unknown file and a path-gated rule on a file not at its path all fail closed with their own cause', async (t) => {
+  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }, { path: 'k.yaml', content: 'a\n' }]);
+  const item = (File, RuleID = SAMPLE_RULE, StartLine = 2) => ({ rawReport: JSON.stringify([{ File, RuleID, StartLine }]), exitCode: 3 });
   const cases = [
     ['scanner-failed', { exitCode: 1 }, CONFIG],
     ['scanner-report-malformed', { exitCode: 3 }, CONFIG],
     ['scanner-report-malformed', { rawReport: 'not json' }, CONFIG],
     ['scanner-report-malformed', { rawReport: '{}' }, CONFIG],
-    ['scanner-report-malformed', { rawReport: JSON.stringify([{ File: 'b1', RuleID: SAMPLE_RULE, StartLine: 2 }]), exitCode: 0 }, CONFIG],
-    ['scanner-report-malformed', { rawReport: JSON.stringify([{ File: 'elsewhere', RuleID: SAMPLE_RULE, StartLine: 2 }]), exitCode: 3 }, CONFIG],
+    ['scanner-report-malformed', { ...item('o1'), exitCode: 0 }, CONFIG],
+    ...['elsewhere', 'b1', 'o3', 'o1.yaml', 'o2', './o1', 'sub/o1'].map((name) => ['scanner-report-malformed', item(name), CONFIG]),
+    ['scanner-report-malformed', item('o1', 'kubernetes-secret-yaml'), CONFIG],
+    ['scanner-report-malformed', item('o2.yaml', 'freemius-secret-key'), CONFIG],
+    ['scanner-report-malformed', item('o1', 'pkcs12-file', 0), CONFIG],
+    ['scanner-report-malformed', item('o2.yaml', 'pkcs12-file', 0), CONFIG],
     ['limit:maxScanReportBytes', { rawReport: `[${' '.repeat(2048)}]`, exitCode: 0 }, withLimits({ maxScanReportBytes: 1024 })],
-    ['limit:maxReportEntries', { rawReport: JSON.stringify(Array(3).fill({ File: 'b1', RuleID: SAMPLE_RULE, StartLine: 2 })), exitCode: 3 }, withLimits({ maxReportEntries: 2 })],
+    ['limit:maxReportEntries', { rawReport: JSON.stringify(Array(3).fill({ File: 'o1', RuleID: SAMPLE_RULE, StartLine: 2 })), exitCode: 3 }, withLimits({ maxReportEntries: 2 })],
   ];
   for (const [cause, settings, config] of cases) {
     await t.test(`${cause}: ${JSON.stringify(settings).slice(0, 60)}`, () => rejectsWith(scan(repo, writeStubGitleaks(settings), config), cause));
   }
 });
 
-test('a baseline blob with an occurrence the ruling does not cover keeps its scanner finding; a fully covered one is ignored under its neutral name', async (t) => {
+test('a baseline or exception ruling is one exact ignore line for the one occurrence it names; the same blob at another path keeps its scanner finding', async (t) => {
   const generated = createRepo([{ path: 'gen.js', content: `${MARKER}\n` }]);
   const baseline = async (repo) => [{ ...exemption(await readEntries(repo), 'gen.js', 1), reason: 'reviewed baseline' }];
-  await t.test('every occurrence covered: the ignore holds the remapped entry and the occurrence is exempt', async () => {
+  await t.test('the ignore holds the occurrence\'s own name, rule and line, and the occurrence is exempt', async () => {
     const stub = markerStub();
     const config = { ...CONFIG, secretBaseline: await baseline(generated) };
     assert.deepEqual(await scan(generated, stub, config), []);
-    const [call] = scanCalls(stub);
-    assert.equal(call.ignore, `${Object.keys(call.blobs)[0]}:${SAMPLE_RULE}:2\n`, 'the ignore line counts the one-line header');
+    assert.equal(scanCalls(stub)[0].ignore, `o1:${SAMPLE_RULE}:2\n`, 'the ignore line counts the one-line header');
   });
-  await t.test('a copy at another path: no scanner-level ignore, the copy still fails', async () => {
+  await t.test('a copy at another path: only the named occurrence is ignored, the copy still fails', async () => {
     const copied = createRepo([{ path: 'gen.js', content: `${MARKER}\n` }, { path: 'copy.js', content: `${MARKER}\n` }]);
-    const stub = markerStub();
-    const findings = await scan(copied, stub, { ...CONFIG, secretBaseline: await baseline(copied) });
-    assert.equal(scanCalls(stub)[0].ignore, '');
-    assert.deepEqual(foundPaths(findings), ['copy.js']);
+    for (const list of ['secretBaseline', 'secretExceptions']) {
+      const stub = markerStub();
+      const findings = await scan(copied, stub, { ...CONFIG, [list]: await baseline(copied) });
+      assert.equal(scanCalls(stub)[0].ignore, `o2:${SAMPLE_RULE}:2\n`, list);
+      assert.deepEqual(foundPaths(findings), ['copy.js'], list);
+    }
   });
   await t.test('a changed blob at the baseline path is not covered', async () => {
     const changed = createRepo([{ path: 'gen.js', content: `${MARKER}\nchanged\n` }]);
@@ -146,39 +157,47 @@ test('a baseline blob with an occurrence the ruling does not cover keeps its sca
   });
 });
 
-test('a blob with an occurrence at a path a path-gated default rule needs is also written once under a neutral suffix, mapped to those occurrences only; baseline rulings and exceptions apply per occurrence', async (t) => {
+test('an occurrence at a path a path-gated default rule needs gets that rule\'s neutral suffix and nothing else of its path; baseline rulings and exceptions apply per occurrence', async (t) => {
   const repo = createRepo([
     { path: 'k8s/db.yaml', content: `${MARKER}\n` }, { path: 'copy/other.YML', content: `${MARKER}\n` }, { path: 'a.txt', content: `${MARKER}\n` },
-    { path: 'infra/main.tf', content: 'terraform\n' }, { path: 'infra/vars.hcl', content: 'terraform\n' }, { path: 'cfg/NuGet.Config', content: 'nuget\n' },
-    { path: 'web/index.php', content: 'php\n' }, { path: 'plain.yaml.txt', content: 'plain\n' },
+    { path: 'infra/main.tf', content: 'terraform\n' }, { path: 'infra/vars.HCL', content: 'terraform\n' }, { path: 'cfg/NuGet.Config', content: 'nuget\n' },
+    { path: 'web/index.PHP', content: 'php\n' }, { path: 'certs/c.PFX', content: 'php\n' }, { path: 'plain.yaml.txt', content: 'plain\n' },
   ]);
   const yamlStub = () => writeStubGitleaks({ finds: [{ marker: MARKER, rule: 'kubernetes-secret-yaml', file: '\\.yaml$' }] });
-  await t.test('each suffix names no directory or path of the target, and a blob is written once per suffix', async () => {
+  await t.test('each name is o<position> and at most one suffix, the one the occurrence\'s own path needs', async () => {
     const stub = writeStubGitleaks();
     await scan(repo, stub);
-    const [call] = scanCalls(stub);
-    const suffixesOf = (content) => Object.entries(call.blobs).filter(([, digest]) => digest === sha256(content)).map(([name]) => name.replace(/^b\d+/, '')).sort();
-    assert.deepEqual(suffixesOf(`${MARKER}\n`), ['', '.yaml']);
-    assert.deepEqual(suffixesOf('terraform\n'), ['', '.tf']);
-    assert.deepEqual(suffixesOf('nuget\n'), ['', '.nuget.config']);
-    assert.deepEqual(suffixesOf('php\n'), ['', '.php']);
-    assert.deepEqual(suffixesOf('plain\n'), ['']);
-    assert.ok(Object.keys(call.blobs).every((name) => /^b\d+(?:\.php|\.tf|\.yaml|\.nuget\.config)?$/.test(name)));
+    const entries = await readEntries(repo);
+    const suffixes = Object.fromEntries(Object.keys(scanCalls(stub)[0].blobs).map((name) => {
+      const [, position, suffix] = /^o(\d+)(.*)$/.exec(name);
+      return [entries[position - 1].path, suffix];
+    }));
+    assert.deepEqual(suffixes, {
+      'k8s/db.yaml': '.yaml', 'copy/other.YML': '.yaml', 'a.txt': '', 'infra/main.tf': '.tf', 'infra/vars.HCL': '.tf', 'cfg/NuGet.Config': '.nuget.config',
+      'web/index.PHP': '.php', 'certs/c.PFX': '.p12', 'plain.yaml.txt': '',
+    });
   });
-  await t.test('a finding on the suffixed copy is reported for the occurrences at paths that need the suffix, not for the same blob elsewhere', async () => {
+  await t.test('a finding under a suffix is reported for the occurrences at paths that need it, not for the same blob elsewhere', async () => {
     assert.deepEqual(foundPaths(await scan(repo, yamlStub())), ['copy/other.YML', 'k8s/db.yaml']);
   });
   await t.test('an exception for one of those occurrences leaves the other', async () => {
     const config = { ...CONFIG, secretExceptions: [{ ...exemption(await readEntries(repo), 'k8s/db.yaml'), rule: 'kubernetes-secret-yaml' }] };
     assert.deepEqual(foundPaths(await scan(repo, yamlStub(), config)), ['copy/other.YML']);
   });
-  await t.test('a baseline ruling for the only occurrence is remapped to the plain and the suffixed name', async () => {
+  await t.test('a baseline ruling for a suffixed occurrence is one ignore line under its suffixed name', async () => {
     const single = createRepo([{ path: 'gen.yaml', content: `${MARKER}\n` }]);
     const stub = yamlStub();
     const config = { ...CONFIG, secretBaseline: [{ ...exemption(await readEntries(single), 'gen.yaml'), rule: 'kubernetes-secret-yaml', reason: 'reviewed baseline' }] };
     assert.deepEqual(await scan(single, stub, config), []);
-    assert.equal(scanCalls(stub)[0].ignore, 'b1:kubernetes-secret-yaml:2\nb1.yaml:kubernetes-secret-yaml:2\n');
+    assert.equal(scanCalls(stub)[0].ignore, 'o1.yaml:kubernetes-secret-yaml:2\n');
   });
+});
+
+test('results the scanner repeats, or several rules on one line of one occurrence, are one finding', async () => {
+  const repo = createRepo([{ path: 'a.txt', content: `x\n${MARKER}\n` }]);
+  const repeated = [{ File: 'o1', RuleID: SAMPLE_RULE, StartLine: 3 }, { File: 'o1', RuleID: SAMPLE_RULE, StartLine: 3 }, { File: 'o1', RuleID: 'github-pat', StartLine: 3 }];
+  const findings = await scan(repo, writeStubGitleaks({ rawReport: JSON.stringify(repeated), exitCode: 3 }));
+  assert.deepEqual(findings.map(({ entry, line }) => [entry.path, line]), [['a.txt', 2]]);
 });
 
 test('an exception names one occurrence and a stale one fails before the scanner starts', async (t) => {
@@ -208,30 +227,64 @@ test('an exception names one occurrence and a stale one fails before the scanner
   });
 });
 
-test('every entry named *.p12 or *.pfx is a finding without a line, whatever its content, mode or name encoding; no exception covers it and other names are not affected', async (t) => {
+test('an entry named *.p12 or *.pfx is scanned under a .p12 name, so the scanner\'s pkcs12-file result is one finding without a line that no exception covers; other names get no .p12 suffix', async (t) => {
   const repo = createRepo([
     { path: 'text.p12', content: 'plain text\n' }, { path: 'deep/dir/Bundle.PFX', content: Buffer.from([0x30, 0x82, 0x00, 0x01, 0x00]) }, { path: 'link.pfx', content: 'text.p12', mode: '120000' },
     { path: 'empty.p12', content: '' }, { path: 'p12', content: 'x\n' }, { path: 'a.p12.txt', content: 'x\n' }, { path: 'dir.p12/file.txt', content: 'x\n' }, { path: 'x.p120', content: 'x\n' }, { path: 'xp12', content: 'x\n' },
   ]);
   const flagged = ['deep/dir/Bundle.PFX', 'empty.p12', 'link.pfx', 'text.p12'];
+  const pkcs12Stub = (finds = []) => writeStubGitleaks({ finds: [{ rule: 'pkcs12-file', file: '\\.p12$' }, ...finds] });
   await t.test('a text, a binary, an empty and a symlink entry are each reported, with no line', async () => {
-    const findings = await scan(repo, writeStubGitleaks());
+    const findings = await scan(repo, pkcs12Stub());
     assert.deepEqual(foundPaths(findings), flagged);
-    assert.ok(findings.every(({ rule, kind, line }) => rule === SECRET_RULE_ID && kind === 'content' && line === undefined));
+    assert.ok(findings.every((finding) => finding.rule === SECRET_RULE_ID && finding.kind === 'content' && !('line' in finding)));
   });
-  await t.test('an exception cannot cover it, and the path is still reported when the scanner also finds a value in the blob', async () => {
-    const entries = await readEntries(repo);
-    const config = { ...CONFIG, secretExceptions: [exemption(entries, 'text.p12')] };
-    assert.deepEqual(foundPaths(await scan(repo, writeStubGitleaks(), config)), flagged);
-    const both = await scan(repo, writeStubGitleaks({ finds: [{ marker: 'plain text', rule: SAMPLE_RULE }] }));
+  await t.test('an exception cannot cover it, and a value the scanner also finds in the blob is its own finding', async () => {
+    const config = { ...CONFIG, secretExceptions: [{ ...exemption(await readEntries(repo), 'text.p12'), rule: 'pkcs12-file' }] };
+    assert.deepEqual(foundPaths(await scan(repo, pkcs12Stub(), config)), flagged);
+    const both = await scan(repo, pkcs12Stub([{ marker: 'plain text', rule: SAMPLE_RULE }]));
     assert.deepEqual(foundPaths(both), [...flagged, 'text.p12'].sort());
   });
-  await t.test('a name that is not UTF-8 is judged by its bytes', async () => {
+  await t.test('an entry whose name is not UTF-8 is never written (the gate reports it unscannable as invalid-utf8-path)', async () => {
     const entry = { position: 1, pathBytes: Buffer.from([0x66, 0xff, 0x2e, 0x70, 0x31, 0x32]), path: null, mode: '100644', kind: 'blob', oid: 'a'.repeat(40), size: 0, problem: 'invalid-utf8-path', bytes: null };
-    const stub = writeStubGitleaks();
-    const findings = await scanSecrets({ entries: [entry], config: CONFIG, scanner: { binary: stub.binary, sha256: stub.sha256 } });
-    assert.deepEqual(findings.map(({ rule, line }) => [rule, line]), [[SECRET_RULE_ID, undefined]]);
+    const stub = pkcs12Stub();
+    assert.deepEqual(await scanSecrets({ entries: [entry], config: CONFIG, scanner: { binary: stub.binary, sha256: stub.sha256 } }), []);
+    assert.deepEqual(scanCalls(stub)[0].blobs, {});
   });
+});
+
+test('the findings never outnumber maxReportEntries: one blob at many paths, many .p12 paths and a mix of both pass at the cap and fail one past it', async (t) => {
+  const cap = 10;
+  const config = withLimits({ maxReportEntries: cap });
+  const stub = writeStubGitleaks({ finds: [{ marker: MARKER, rule: SAMPLE_RULE }, { rule: 'pkcs12-file', file: '\\.p12$' }] });
+  const shapes = {
+    'one blob at many paths': (count) => Array.from({ length: count }, (_, index) => ({ path: `d/f${index}.txt`, content: `${MARKER}\n` })),
+    'many .p12 paths': (count) => Array.from({ length: count }, (_, index) => ({ path: `d/f${index}.p12`, content: 'x\n' })),
+    'a mix of both': (count) => Array.from({ length: count }, (_, index) => ({ path: `d/f${index}${index % 2 ? '.p12' : '.txt'}`, content: index % 2 ? 'x\n' : `${MARKER}\n` })),
+  };
+  for (const [shape, files] of Object.entries(shapes)) {
+    await t.test(shape, async () => {
+      for (const count of [cap - 1, cap]) assert.equal((await scan(createRepo(files(count)), stub, config)).length, count);
+      await rejectsWith(scan(createRepo(files(cap + 1)), stub, config), 'limit:maxReportEntries');
+    });
+  }
+});
+
+test('hasValidSecretConfig accepts the shipped config and refuses each malformed scanner pin or ruling', () => {
+  assert.equal(hasValidSecretConfig(CONFIG), true);
+  const ruling = { path: 'a.js', blob: 'a'.repeat(40), rule: SAMPLE_RULE, line: 1, reason: 'reviewed' };
+  const withoutReason = Object.fromEntries(Object.entries(ruling).filter(([key]) => key !== 'reason'));
+  const bad = {
+    'scanner.version 8.30': { scanner: { version: '8.30' } }, 'no scanner': { scanner: undefined }, 'baseline not a list': { secretBaseline: {} },
+    'exceptions missing': { secretExceptions: undefined }, 'extra key': [{ ...ruling, commit: 'x' }], 'missing reason': [withoutReason],
+    'empty reason': [{ ...ruling, reason: '' }], 'line 0': [{ ...ruling, line: 0 }], 'line 1.5': [{ ...ruling, line: 1.5 }], 'line as text': [{ ...ruling, line: '1' }],
+    'short blob': [{ ...ruling, blob: 'a'.repeat(39) }], 'empty path': [{ ...ruling, path: '' }],
+    'rule with a separator': [{ ...ruling, rule: 'generic-api-key:1\no1' }], 'empty rule': [{ ...ruling, rule: '' }], 'null ruling': [null],
+  };
+  for (const [name, change] of Object.entries(bad)) {
+    const lists = Array.isArray(change) ? [{ secretBaseline: change }, { secretExceptions: change }] : [change];
+    for (const changed of lists) assert.equal(hasValidSecretConfig({ ...CONFIG, ...changed }), false, name);
+  }
 });
 
 const realScanner = findPinnedGitleaks();
@@ -303,19 +356,71 @@ test('real scanner: a secret in a PHP, Terraform, Kubernetes YAML or NuGet confi
   const renamed = (file) => `plain/${path.posix.basename(file)}.txt`;
   const plain = createRepo(Object.entries(files).map(([file, content]) => ({ path: renamed(file), content })));
   assert.deepEqual(await scanReal(plain, { ...CONFIG, secretExceptions: await exemptGeneric(plain, renamed) }), [], 'at a plain path only the generic rule sees them');
+  const both = createRepo([...Object.entries(files), ...Object.entries(files).map(([file, content]) => [renamed(file), content])].map(([file, content]) => ({ path: file, content })));
+  const bothConfig = { ...CONFIG, secretExceptions: [...await exemptGeneric(both), ...await exemptGeneric(both, renamed)] };
+  assert.deepEqual(foundPaths(await scanReal(both, bothConfig)), Object.keys(files).sort(), 'the same blob at a matching and a plain path: only the matching occurrence');
 });
 
-test('real scanner: a text .p12 or .pfx file, which the scanner flags by its path alone, is a finding in the gate under its neutral name; a file at a plain path is not', async (t) => {
+test('real scanner: a key-shaped value is found on its own line under every neutral suffix', async (t) => {
   if (needsRealScanner(t)) return;
-  const repo = createRepo([{ path: 'certs/client.p12', content: 'not a key\n' }, { path: 'certs/client.PFX', content: 'not a key\n' }, { path: 'certs/client.txt', content: 'not a key\n' }]);
-  assert.deepEqual(foundPaths(await scanReal(repo)), ['certs/client.PFX', 'certs/client.p12']);
+  const content = `x\nconst token = "${plantedKey()}";\n`;
+  const files = ['a.txt', 'a.php', 'a.tf', 'a.yml', 'NuGet.Config', 'a.pfx'];
+  const findings = await scanReal(createRepo(files.map((file) => ({ path: file, content }))));
+  assert.deepEqual(findings.filter(({ line }) => line === 2).map(({ entry }) => entry.path).sort(), [...files].sort());
 });
 
-test('real scanner: the pinned default rules gate on exactly the five path patterns the wrapper accounts for (four by suffix, pkcs12-file by the path check)', (t) => {
+test('real scanner: a text, binary, empty or symlink .p12 or .pfx entry, in any case and at any depth, is one finding without a line that no exception covers; near-miss names are not', async (t) => {
   if (needsRealScanner(t)) return;
-  const embedded = [...readFileSync(realScanner.binary, 'latin1').matchAll(/^path = '''(.*)'''$/gm)].map(([, pattern]) => pattern).sort();
-  const accounted = ['(?i)\\.php$', '(?i)\\.(?:tf|hcl)$', '(?i)\\.ya?ml$', '(?i)nuget\\.config$', '(?i)(?:^|\\/)[^\\/]+\\.p(?:12|fx)$'].sort();
+  const flagged = {
+    'certs/client.p12': 'not a key\n', 'certs/client.PFX': 'not a key\n', 'a/b/c/Deep.pFx': Buffer.from([0x30, 0x82, 0x00, 0x01, 0x00, 0xff]), 'empty.p12': '',
+  };
+  const repo = createRepo([
+    ...Object.entries(flagged).map(([file, content]) => ({ path: file, content })), { path: 'link.p12', content: 'certs/client.p12', mode: '120000' },
+    ...['p12', 'a.p12.txt', 'dir.p12/file.txt', 'x.p120', 'xp12', 'certs/client.txt'].map((file) => ({ path: file, content: 'not a key\n' })),
+  ]);
+  const expected = [...Object.keys(flagged), 'link.p12'].sort();
+  const findings = await scanReal(repo);
+  assert.deepEqual(foundPaths(findings), expected);
+  assert.ok(findings.every((finding) => !('line' in finding)));
+  const entries = await readEntries(repo);
+  const exceptions = expected.map((file) => ({ ...exemption(entries, file), rule: 'pkcs12-file' }));
+  assert.deepEqual(foundPaths(await scanReal(repo, { ...CONFIG, secretExceptions: exceptions })), expected);
+});
+
+test('real scanner: the pinned default rules that test a path are exactly PATH_GATED_RULES, by rule id and path pattern', (t) => {
+  if (needsRealScanner(t)) return;
+  const embedded = Object.fromEntries(readFileSync(realScanner.binary, 'latin1').split('\n[[rules]]\n').slice(1)
+    .map((block) => [/^id = "([^"]+)"$/m.exec(block)?.[1], /^path = '''(.*)'''$/m.exec(block)?.[1]]).filter(([, pattern]) => pattern !== undefined));
+  const accounted = Object.fromEntries(PATH_GATED_RULES.map(({ rule, pattern }) => [rule, `(?${pattern.flags})${pattern.source.replace('[^/]', '[^\\/]')}`]));
   assert.deepEqual(embedded, accounted);
+});
+
+test('real scanner: one secret blob at maxReportEntries + 1 paths fails the complete gate with limit:maxReportEntries, publishes nothing and leaves no run folder', async (t) => {
+  if (needsRealScanner(t)) return;
+  const content = `const token = "${plantedKey()}";\n`;
+  const repo = createRepo(Array.from({ length: CONFIG.limits.maxReportEntries + 1 }, (_, index) => ({ path: `d/f${index}.js`, content })));
+  const temp = makeTempDir('secret-cap-tmp');
+  const out = path.join(makeTempDir('secret-cap-out'), 'report.json');
+  const result = runGate(completeArgs(repo, writeList(['unrelated-word']), ['--gitleaks', realScanner.binary, '--gitleaks-sha256', realScanner.sha256, '--out', out]), { env: { TMPDIR: temp } });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /^limit:maxReportEntries\b/);
+  assert.equal(existsSync(out), false, 'no report is published');
+  assert.deepEqual(readdirSync(temp), [], 'the run folder is removed');
+});
+
+test('real scanner: a key on a blob\'s first line, on a deep line and across a 100 KiB read boundary is found on its own line, either side of the long-header size', async (t) => {
+  if (needsRealScanner(t)) return;
+  const keyLine = () => `const token = "${plantedKey()}";\n`;
+  const sized = (bytes, line) => Buffer.concat([Buffer.from(line), Buffer.alloc(bytes - line.length - 1, 'a'), Buffer.from('\n')]);
+  const files = [];
+  for (const size of [32_774 - 262 - 1, 32_774 - 262]) files.push({ path: `first-${size}.txt`, content: sized(size, keyLine()), line: 1 });
+  files.push({ path: 'deep.txt', content: `${'line\n'.repeat(29_999)}${keyLine()}`, line: 30_000 });
+  for (const offset of [-30, -10, 0]) {
+    const line = keyLine();
+    files.push({ path: `boundary${offset}.txt`, content: `${'b'.repeat(102_400 + offset - 262)} ${line}`, line: 1 });
+  }
+  const findings = await scanReal(createRepo(files));
+  assert.deepEqual(findings.map(({ entry, line }) => [entry.path, line]).sort(), files.map(({ path: file, line }) => [file, line]).sort());
 });
 
 /** [offset, bytes] pairs the scanner's file-type check takes for an application type: at offset 0, and at the fixed offsets of tar (257), DICOM (128) and ISO (32769), also one either side. */

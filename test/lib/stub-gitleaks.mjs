@@ -9,9 +9,11 @@ const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 /**
  * The stub's program: `version` prints the configured version; `dir` records what it was given (arguments, working folder,
- * the SHA-256 of every file under its source folder after the wrapper's one-line header, that header's size and line count,
- * the ignore and config files) to the log, then reports one finding per configured marker found in a file, on the line the
- * real scanner would give (counted from the first line of the file, header included), and exits with the configured status.
+ * the SHA-256 of every file under its source folder after the wrapper's one-line header, that header's size, each file's
+ * inode, the ignore and config files) to the log, then reports one finding per configured marker found in a file, on the
+ * line the real scanner would give (counted from the first line of the file, header included; line 0 for a find with no
+ * marker, which matches on the file name alone), leaves out each one the ignore file names as `file:rule:line`, as the
+ * real scanner does, and exits with the configured status.
  * `hang` never exits; `flood` writes past any cap.
  */
 const STUB_SOURCE = (settings) => `#!${process.execPath}
@@ -34,14 +36,18 @@ const readOptional = (file) => (file && fs.existsSync(file) ? fs.readFileSync(fi
 fs.appendFileSync(settings.log, JSON.stringify({
   args, self: process.argv[1], cwd: process.cwd(), source, blobs: Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, digest(afterHeader(bytes))])),
   headers: Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, { bytes: headerBytes(bytes), first: bytes.subarray(0, 1).toString('latin1'), size: bytes.length }])),
+  inodes: Object.fromEntries(Object.keys(files).map((name) => [name, fs.statSync(source + '/' + name).ino])),
   ignore: readOptional(after('--gitleaks-ignore-path')), configSha256: digest(fs.readFileSync(after('--config'))),
 }) + '\\n');
 if (settings.flood) { process.stdout.write(Buffer.alloc(1 << 20, 97)); }
 if (settings.hang) setInterval(() => {}, 1000);
 else {
+  const ignored = new Set((readOptional(after('--gitleaks-ignore-path')) ?? '').split('\\n'));
+  const lineOf = (bytes, marker) => (marker === undefined ? 0 : 1 + bytes.subarray(0, bytes.indexOf(marker)).filter((byte) => byte === 10).length);
   const found = Object.entries(files).flatMap(([name, bytes]) => settings.finds
-    .filter(({ marker, file }) => bytes.toString('latin1').includes(marker) && (file === undefined || new RegExp(file).test(name)))
-    .map(({ marker, rule }) => ({ File: name, RuleID: rule, StartLine: 1 + bytes.subarray(0, bytes.indexOf(marker)).filter((byte) => byte === 10).length })));
+    .filter(({ marker, file }) => (marker === undefined || bytes.toString('latin1').includes(marker)) && (file === undefined || new RegExp(file).test(name)))
+    .map(({ marker, rule }) => ({ File: name, RuleID: rule, StartLine: lineOf(bytes, marker) })))
+    .filter(({ File, RuleID, StartLine }) => !ignored.has(File + ':' + RuleID + ':' + StartLine));
   fs.writeFileSync(after('--report-path'), settings.rawReport ?? JSON.stringify(found));
   process.exit(settings.exitCode ?? (found.length > 0 ? 3 : 0));
 }
@@ -50,7 +56,7 @@ else {
 /**
  * Writes a stub gitleaks program. Returns { binary, sha256, calls() } where `calls()` lists every invocation it logged; a
  * `version` call is { args, self } and a `dir` call also holds the folder, blob digests, ignore and config it was given.
- * `settings`: version, finds [{ marker, rule, file? }] (`file`: a pattern the scanned file's name must match), exitCode, rawReport, hang, flood.
+ * `settings`: version, finds [{ marker?, rule, file? }] (`file`: a pattern the scanned file's name must match), exitCode, rawReport, hang, flood.
  */
 export function writeStubGitleaks(settings = {}) {
   const directory = mkdtempSync(path.join(tmpdir(), 'gate-stub-gitleaks-'));

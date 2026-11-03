@@ -117,17 +117,15 @@ All output leaves through `scripts/public-gate/redact.mjs` on a route listed in 
   folder, checks the copy's SHA-256 and that it reports the pinned version, and runs only that copy, so a replacement after the
   check changes nothing. A missing file, another checksum or another version fails before anything is written
   (`scanner-missing`, `scanner-checksum-mismatch`, `scanner-version-mismatch`; exit 2).
-- **Input.** Each distinct blob is written once, from the object reader, as `b<n>` (no extension) in a fresh folder; a
-  symlink is its link text. The scanner's default path skips (lockfiles, `.gitleaks.toml` names, `node_modules`, images) therefore
-  cannot hide a blob, and no file in the target is read as policy. The gate keeps the exact mapping from each name to every
-  (path, mode) occurrence. Findings come back by occurrence; the report names a location, rule and line only.
-  Four default rules also test the file's path, so a bare `b<n>` can never match them: `freemius-secret-key` (`.php`),
-  `hashicorp-tf-password` (`.tf`, `.hcl`), `kubernetes-secret-yaml` (`.yaml`, `.yml`) and `nuget-config-password`
-  (`nuget.config`). A blob with an occurrence at such a path is written once more as `b<n>.php`, `b<n>.tf`, `b<n>.yaml` or
-  `b<n>.nuget.config`, mapped to those occurrences only; the suffix is the only part of a path the scanner sees, and no
-  default path skip matches it. `pkcs12-file` matches on the path alone, which the neutral names hide, so the gate
-  reports an `R-SECRET` finding (no line) for every entry named `*.p12` or `*.pfx`, whatever its content, mode or reviewed binary
-  disposition; no exception covers it.
+- **Input.** The gate first lists, in memory, one neutral name for each entry whose bytes it read: `o<position>` (the
+  entry's position in the listing), plus one suffix when its path matches one of the default rules that also test the
+  path: `.php` for `freemius-secret-key`, `.tf` for `hashicorp-tf-password` (`.tf`, `.hcl`), `.yaml` for
+  `kubernetes-secret-yaml` (`.yaml`, `.yml`), `.nuget.config` for `nuget-config-password` and `.p12` for `pkcs12-file`
+  (`*.p12`, `*.pfx`, which tests the path alone and reports no line). Those path patterns never match the same path, the
+  suffix is the only part of a path the scanner sees, and no default path skip matches a neutral name, so the scanner's
+  path skips (lockfiles, `.gitleaks.toml` names, `node_modules`, images) cannot hide an entry and no file in the target is
+  read as policy. In a fresh private folder each distinct blob is then written once, from the object reader (a symlink
+  is its link text), and each name is a hard link to it in the scanned folder.
   The scanner also skips a file whose first read looks like an application type (PDF, bzip2, PostScript, ELF, tar at offset 257,
   ISO at offset 32769 and others), so every blob is written behind a one-line text header: 262 bytes, or 32774 for a blob
   that can reach offset 32769. No byte the target controls sits at a fixed offset the check reads. Lines are counted from the
@@ -136,15 +134,21 @@ All output leaves through `scripts/public-gate/redact.mjs` on a route listed in 
   rules, never a target file) and a run-owned ignore file, under `secretScanDeadlineMs` and `secretScanOutputBytes`
   (`subprocess-timeout`, `subprocess-output-limit`; the process group is killed). Status 0 means no finding, 3 means findings, any
   other status is `scanner-failed`. The report file is at most `maxScanReportBytes` and `maxReportEntries` items, and must agree
-  with the status and name only files of the scan (`scanner-report-malformed`, `limit:maxScanReportBytes`, `limit:maxReportEntries`).
+  with the status (`scanner-report-malformed`, `limit:maxScanReportBytes`, `limit:maxReportEntries`).
+- **Findings.** Each scanner result names one neutral name, so it maps to exactly one occurrence; the report names a
+  location, rule and line only. A result for a name the scan did not write, a path rule on a name without its suffix, a
+  line on the header, or line 0 from any rule but `pkcs12-file` is `scanner-report-malformed`. Results on one line of one
+  occurrence (repeated, or from several rules) are one finding, so `R-SECRET` never has more findings than
+  `maxReportEntries`.
 - **Baseline.** `secretBaseline` holds the ten reviewed non-secret rulings of the imported tree (path, blob id, rule, line,
-  reason). The run-owned ignore holds such a ruling, under the blob's neutral name, only when the blob has no other occurrence; the same
-  bytes at another path, a changed blob or a shifted line are not covered, and a `.gitleaksignore` in the target is never read.
-  The imported `.gitleaksignore` stays in the tree as the record of these rulings.
-- **Exceptions.** `secretExceptions` is empty. An entry has exactly `path`, `blob`, `rule`, `line` and `reason` and exempts only
-  that occurrence: the same value at another path, in another blob or on another line still fails. An entry naming a path and
-  blob the target does not hold is stale and fails the run (`stale-secret-exception`, exit 2) before the scanner starts.
-  Scanner fingerprints are never exception keys.
+  reason). Each ruling, and each exception, is one exact line of the run-owned ignore, `<neutral name>:<rule>:<line + 1>`,
+  for the one occurrence at its path and blob, so the scanner drops exactly that result; the same bytes at another path, a
+  changed blob or a shifted line are not covered, and a `.gitleaksignore` in the target is never read. A ruling's line is at
+  least 1, so no ruling covers a `pkcs12-file` result. The imported `.gitleaksignore` stays in the tree as the record of these rulings.
+- **Exceptions.** `secretExceptions` is empty. An entry has exactly `path`, `blob`, `rule` (a scanner rule id), `line` and
+  `reason` and exempts only that occurrence: the same value at another path, in another blob or on another line still fails.
+  An entry naming a path and blob the target does not hold is stale and fails the run (`stale-secret-exception`, exit 2)
+  before the scanner starts. Scanner fingerprints are never exception keys.
 - **Identity.** `scannerPolicySha256` is the SHA-256 of `.gitleaks.toml`; `secretExceptionsSha256` is the SHA-256 of
   `JSON.stringify({ baseline: secretBaseline, exceptions: secretExceptions })` of the config.
 - **History mode** does not run the secret scan yet: it reports `R-SECRET` as `not-run`.
@@ -212,7 +216,7 @@ overwrites a file, and there is no `--private-evidence`.
 
 ## Bounded downloads, subprocesses and the gitleaks installer
 
-Library code and an installer; the gate and no workflow run them yet.
+Library code and an installer. The secret scan runs the scanner through `run-bounded.mjs`; no workflow runs them yet.
 
 - **`fetch-bounded.mjs`.** Downloads one https address to a new file and checks its SHA-256. The byte cap and the total deadline
   (redirects included) are enforced while the body streams, before the checksum; a `Content-Length` over the cap is refused first.

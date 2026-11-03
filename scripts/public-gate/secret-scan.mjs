@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +22,8 @@ const VERSION_OUTPUT_BYTES = 4096;
 /** A scanner version: three dot-separated numbers. */
 export const SEMVER = /^\d+\.\d+\.\d+$/;
 const RULING_KEYS = ['blob', 'line', 'path', 'reason', 'rule'];
+/** A scanner rule id; a ruling's rule becomes part of one ignore line, so it can hold no separator or line break. */
+const RULE_ID = /^[a-z0-9-]+$/;
 /**
  * The scanner skips a file as binary when the file type of its first read is an application type, and some of those types
  * are recognised by bytes at a fixed offset (tar at 257, DICOM at 128, ISO at 32769) as well as at offset 0. Each blob is
@@ -32,10 +34,11 @@ const RULING_KEYS = ['blob', 'line', 'path', 'reason', 'rule'];
 const SHORT_HEADER_BYTES = 262;
 const LONG_HEADER_BYTES = 32_774;
 const HEADER_LINES = 1;
+const PKCS12_RULE = 'pkcs12-file';
 
 const sha256Of = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const isRuling = (entry) => entry !== null && typeof entry === 'object' && isDeepStrictEqual(Object.keys(entry).sort(), RULING_KEYS)
-  && typeof entry.path === 'string' && entry.path !== '' && FULL_OBJECT_ID.test(entry.blob) && typeof entry.rule === 'string' && entry.rule !== ''
+  && typeof entry.path === 'string' && entry.path !== '' && FULL_OBJECT_ID.test(entry.blob) && typeof entry.rule === 'string' && RULE_ID.test(entry.rule)
   && Number.isSafeInteger(entry.line) && entry.line > 0 && typeof entry.reason === 'string' && entry.reason !== '';
 
 /** True when `config` names the scanner version and holds `secretBaseline` and `secretExceptions` as lists of exact rulings: path, blob id, rule id, line and reason. */
@@ -50,8 +53,6 @@ export function secretScanIdentity(config) {
     secretExceptionsSha256: sha256Of(JSON.stringify({ baseline: config.secretBaseline, exceptions: config.secretExceptions })),
   };
 }
-
-const coversOccurrence = (rulings, entry, rule, line) => rulings.some((ruling) => ruling.path === entry.path && ruling.blob === entry.oid && ruling.rule === rule && ruling.line === line);
 
 function requireNoStaleException(entries, exceptions) {
   const stale = exceptions.find((exception) => !entries.some((entry) => entry.path === exception.path && entry.oid === exception.blob));
@@ -80,58 +81,57 @@ const scanHeader = (blobBytes) => {
 };
 
 /**
- * The pinned default rules that read a file's path as well as its content, so they cannot fire on a bare `b<n>`: the path
- * pattern each one needs (as in gitleaks 8.30.1) and a neutral suffix that matches it. `pkcs12-file` also has a path
- * pattern but no content test, so no neutral copy can trigger it: PKCS12_PATH is judged on the path itself.
+ * The pinned default rules that test a file's path as well as (or, for `pkcs12-file`, instead of) its content: the rule
+ * id, its path pattern exactly as gitleaks 8.30.1 has it, and one neutral suffix that matches it. No two patterns match
+ * the same path, so an occurrence's neutral name gets at most one suffix.
  */
-const PATH_GATED_RULES = [
-  { pattern: /\.php$/i, suffix: '.php' },
-  { pattern: /\.(?:tf|hcl)$/i, suffix: '.tf' },
-  { pattern: /\.ya?ml$/i, suffix: '.yaml' },
-  { pattern: /nuget\.config$/i, suffix: '.nuget.config' },
-];
-
-/** The path `pkcs12-file` reads (as in gitleaks 8.30.1): a file named `*.p12` or `*.pfx`, at any depth. */
-const PKCS12_PATH = /(?:^|\/)[^/]+\.p(?:12|fx)$/i;
-
-/** One finding, with no line, for every entry at a PKCS#12 path, whatever its content, mode or reviewed disposition; the name is matched as bytes, so a name that is not UTF-8 is judged too. */
-const pkcs12PathFindings = (entries) => entries
-  .filter((entry) => PKCS12_PATH.test(entry.pathBytes.toString('latin1')))
-  .map((entry) => ({ rule: SECRET_RULE_ID, kind: 'content', entry }));
-
-/** The suffixes a blob at `filePath` is written under: none, and each one a path-gated rule needs for that path. */
-const copySuffixes = (filePath) => ['', ...PATH_GATED_RULES.filter(({ pattern }) => pattern.test(filePath)).map(({ suffix }) => suffix)];
+export const PATH_GATED_RULES = Object.freeze([
+  { rule: 'freemius-secret-key', pattern: /\.php$/i, suffix: '.php' },
+  { rule: 'hashicorp-tf-password', pattern: /\.(?:tf|hcl)$/i, suffix: '.tf' },
+  { rule: 'kubernetes-secret-yaml', pattern: /\.ya?ml$/i, suffix: '.yaml' },
+  { rule: 'nuget-config-password', pattern: /nuget\.config$/i, suffix: '.nuget.config' },
+  { rule: PKCS12_RULE, pattern: /(?:^|\/)[^/]+\.p(?:12|fx)$/i, suffix: '.p12' },
+]);
+const PATH_GATED_RULE_IDS = new Set(PATH_GATED_RULES.map(({ rule }) => rule));
 
 /**
- * Writes each distinct blob once under the neutral name `b<n>`, behind its one-line header, and once more as `b<n><suffix>`
- * for each suffix a path-gated rule needs for one of its paths; the name never carries a directory or the path's own name.
- * Returns Map(name -> the entries that hold that blob, for a suffixed copy only those whose path needs the suffix).
+ * The scan's manifest, built before anything is written: one record for each entry whose bytes were read, named
+ * `o<position>` plus the suffix of the path-gated rule its path needs, if any, with the number of its distinct blob. No other
+ * part of a target path reaches a file name. Returns Map(name -> { entry, blob, gatedRule }).
  */
-async function exportBlobs(entries, directory) {
-  const occurrences = new Map();
+function scanManifest(entries) {
   const blobNumbers = new Map();
+  const manifest = new Map();
   for (const entry of entries.filter(({ bytes }) => bytes)) {
     if (!blobNumbers.has(entry.oid)) blobNumbers.set(entry.oid, blobNumbers.size + 1);
-    for (const suffix of copySuffixes(entry.path)) {
-      const name = `b${blobNumbers.get(entry.oid)}${suffix}`;
-      if (!occurrences.has(name)) {
-        occurrences.set(name, []);
-        await writeFile(path.join(directory, name), Buffer.concat([Buffer.from(scanHeader(entry.bytes.length)), entry.bytes]), { flag: 'wx', mode: 0o600 });
-      }
-      occurrences.get(name).push(entry);
-    }
+    const gated = PATH_GATED_RULES.find(({ pattern }) => pattern.test(entry.path));
+    manifest.set(`o${entry.position}${gated?.suffix ?? ''}`, { entry, blob: blobNumbers.get(entry.oid), gatedRule: gated?.rule });
   }
-  return occurrences;
+  return manifest;
 }
 
-/** The run-owned ignore: a baseline ruling, remapped to a neutral name, only for a blob whose every occurrence is that ruling's own path and blob. */
-function remappedBaseline(baseline, occurrences) {
-  return [...occurrences].flatMap(([name, entries]) => baseline
-    .filter((ruling) => entries.every((entry) => entry.path === ruling.path && entry.oid === ruling.blob))
-    .map((ruling) => `${name}:${ruling.rule}:${ruling.line + HEADER_LINES}\n`)).join('');
+/** Writes each distinct blob once into `store`, behind its one-line header, and hard-links every manifest name to it in `scanFolder`. */
+async function writeScanInput(manifest, { store, scanFolder }) {
+  const written = new Set();
+  for (const [name, { entry, blob }] of manifest) {
+    const stored = path.join(store, String(blob));
+    if (!written.has(blob)) {
+      written.add(blob);
+      await writeFile(stored, Buffer.concat([Buffer.from(scanHeader(entry.bytes.length)), entry.bytes]), { flag: 'wx', mode: 0o600 });
+    }
+    await link(stored, path.join(scanFolder, name));
+  }
 }
+
+/** The run-owned ignore: for each baseline or exception ruling, the exact `name:rule:line` of the one occurrence it names (the scanner's line counts the header). */
+const runIgnore = (manifest, rulings) => [...manifest].flatMap(([name, { entry }]) => rulings
+  .filter((ruling) => ruling.path === entry.path && ruling.blob === entry.oid)
+  .map((ruling) => `${name}:${ruling.rule}:${ruling.line + HEADER_LINES}\n`)).join('');
 
 const malformedReport = (why) => new GateInputError('scanner-report-malformed', `the scanner report ${why}`);
+
+/** A result's line is on a blob, below the header; only `pkcs12-file`, which tests the path alone, reports line 0. */
+const hasBlobLine = ({ RuleID, StartLine }) => Number.isSafeInteger(StartLine) && (RuleID === PKCS12_RULE ? StartLine === 0 : StartLine > HEADER_LINES);
 
 /** Reads the scanner's JSON report: at most `maxScanReportBytes`, a list of at most `maxReportEntries` items of { File, RuleID, StartLine }. */
 async function readReport(file, limits) {
@@ -145,61 +145,64 @@ async function readReport(file, limits) {
   }
   if (!Array.isArray(items)) throw malformedReport('is not a list');
   if (items.length > limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `the scanner reported more than ${limits.maxReportEntries} findings`);
-  const valid = items.every((item) => typeof item?.File === 'string' && typeof item.RuleID === 'string' && Number.isSafeInteger(item.StartLine) && item.StartLine > 0);
-  if (!valid) throw malformedReport('has an item without a file, rule and line');
+  if (!items.every((item) => typeof item?.File === 'string' && typeof item.RuleID === 'string' && hasBlobLine(item))) throw malformedReport('has an item without a file, rule and blob line');
   return items;
 }
 
-/** Maps each reported (neutral name, rule, line) to its occurrences, with the line counted from the blob's own first line, and keeps those no ruling covers, one finding per occurrence and line. */
-function occurrenceFindings(items, occurrences, rulings) {
+/**
+ * Maps each reported (name, rule, line) to the one occurrence the name stands for, with the line counted from the blob's
+ * own first line (no line for `pkcs12-file`). A name the scan did not write, or a path-gated rule on a name without its
+ * suffix, fails closed. Results on one line of one occurrence are one finding, so there are never more findings than items.
+ */
+function occurrenceFindings(items, manifest) {
   const findings = new Map();
   for (const { File, RuleID, StartLine } of items) {
-    const entries = occurrences.get(path.posix.basename(File));
-    if (!entries) throw malformedReport('names a file the scan did not hold');
-    const line = StartLine - HEADER_LINES;
-    if (line < 1) throw malformedReport('names a line of the header, not of a blob');
-    for (const entry of entries.filter((candidate) => !coversOccurrence(rulings, candidate, RuleID, line))) {
-      findings.set(`${entry.position}:${line}`, { rule: SECRET_RULE_ID, kind: 'content', entry, line });
-    }
+    const record = manifest.get(File);
+    if (!record) throw malformedReport('names a file the scan did not hold');
+    if (PATH_GATED_RULE_IDS.has(RuleID) && record.gatedRule !== RuleID) throw malformedReport('names a path-gated rule on a file not at its path');
+    const line = RuleID === PKCS12_RULE ? undefined : StartLine - HEADER_LINES;
+    findings.set(`${record.entry.position}:${line}`, { rule: SECRET_RULE_ID, kind: 'content', entry: record.entry, ...(line === undefined ? {} : { line }) });
   }
   return [...findings.values()];
 }
 
 /**
  * Scans the exact blobs of `entries` (from readCommitObjects) with the pinned gitleaks, which `scanner` ({ binary, sha256 })
- * names. A private copy of the binary must match the SHA-256 and report `config.scanner.version` before anything is
- * written. Each distinct blob is written once under a neutral name (and once more with a neutral suffix for each path-gated
- * rule its paths need) in a fresh private folder (removed on every exit) and scanned with the gate's own policy and a run-owned ignore. Findings are judged per occurrence: one that a baseline or
- * `secretExceptions` ruling covers exactly (path, blob, rule, line) is dropped. Every entry at a `.p12` or `.pfx` path is also a
- * finding without a line, whatever its content (the scanner's `pkcs12-file` rule reads the path alone, which the neutral names
- * hide); no ruling covers it. Returns findings `{ rule, kind, entry, line? }`.
+ * names. A private copy of the binary must match the SHA-256 and report `config.scanner.version` before the scan input is
+ * written. In a fresh private folder (removed on every exit) each distinct blob is written once, and each occurrence is a
+ * hard link to it under its own neutral name; the scanner runs with the gate's own policy and a run-owned ignore that holds
+ * exactly the occurrences the baseline and `secretExceptions` rulings name (path, blob, rule, line). Each scanner result is
+ * at most one finding, so `maxReportEntries` bounds the findings. Returns findings `{ rule, kind, entry, line? }`.
  * Throws GateInputError: stale-secret-exception, scanner-missing, -checksum-mismatch, -version-mismatch, -failed,
  * scanner-report-malformed, limit:maxScanReportBytes or limit:maxReportEntries; RunBoundedError for a deadline, an output
  * over the cap, an interrupt or a spawn failure.
  */
 export async function scanSecrets({ entries, config, scanner, signal }) {
   requireNoStaleException(entries, config.secretExceptions);
+  const manifest = scanManifest(entries);
   const directory = await mkdtemp(path.join(tmpdir(), RUN_DIRECTORY_PREFIX));
   try {
     const environment = { LC_ALL: 'C', HOME: directory };
     const binary = await privateVerifiedBinary({ binary: scanner.binary, sha256: scanner.sha256, version: config.scanner.version, directory, environment, signal });
-    const blobDirectory = path.join(directory, 'blobs');
-    await mkdir(blobDirectory);
-    const occurrences = await exportBlobs(entries, blobDirectory);
+    const store = path.join(directory, 'store');
+    const scanFolder = path.join(directory, 'scan');
+    await mkdir(store);
+    await mkdir(scanFolder);
+    await writeScanInput(manifest, { store, scanFolder });
     const ignoreFile = path.join(directory, IGNORE_FILE_NAME);
     const reportFile = path.join(directory, 'report.json');
-    await writeFile(ignoreFile, remappedBaseline(config.secretBaseline, occurrences), { flag: 'wx', mode: 0o600 });
+    await writeFile(ignoreFile, runIgnore(manifest, [...config.secretBaseline, ...config.secretExceptions]), { flag: 'wx', mode: 0o600 });
     const args = [
       'dir', '--config', POLICY_FILE, '--gitleaks-ignore-path', ignoreFile, '--redact=100', '--ignore-gitleaks-allow', '--no-banner',
       '--report-format', 'json', '--report-path', reportFile, '--exit-code', String(LEAKS_EXIT_CODE), '.',
     ];
     const { status } = await runBounded({
-      command: binary, args, cwd: blobDirectory, env: environment, signal, maxOutputBytes: config.limits.secretScanOutputBytes, deadlineMs: config.limits.secretScanDeadlineMs,
+      command: binary, args, cwd: scanFolder, env: environment, signal, maxOutputBytes: config.limits.secretScanOutputBytes, deadlineMs: config.limits.secretScanDeadlineMs,
     });
     if (status !== 0 && status !== LEAKS_EXIT_CODE) throw new GateInputError('scanner-failed', `the scanner exited with status ${status}`);
     const items = await readReport(reportFile, config.limits);
     if ((status === LEAKS_EXIT_CODE) !== (items.length > 0)) throw malformedReport('disagrees with the scanner status');
-    return [...pkcs12PathFindings(entries), ...occurrenceFindings(items, occurrences, [...config.secretBaseline, ...config.secretExceptions])];
+    return occurrenceFindings(items, manifest);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
