@@ -90,6 +90,16 @@ export function createHistory(steps, refs = { main: steps.length - 1 }) {
   return { dir, commits };
 }
 
+/**
+ * Adds an annotated tag `name` on `target` (a commit, or an earlier tag for a tag of a tag), tagged by `tagger` ({ name, email })
+ * at `tz`. Returns the object id of the tag object.
+ */
+export function createAnnotatedTag(dir, name, target, { message = 'tag', tagger = PROJECT, tz = '+0000' } = {}) {
+  const env = { GIT_COMMITTER_NAME: tagger.name, GIT_COMMITTER_EMAIL: tagger.email, GIT_COMMITTER_DATE: `1700000000 ${tz}` };
+  git(dir, ['tag', '-a', '-m', message, name, target], { env });
+  return git(dir, ['rev-parse', `refs/tags/${name}`]);
+}
+
 export function writeList(entries) {
   const file = path.join(makeTempDir('list'), 'private-list.txt');
   writeFileSync(file, `${entries.join('\n')}\n`);
