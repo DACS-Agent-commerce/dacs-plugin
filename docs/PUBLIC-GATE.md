@@ -121,6 +121,10 @@ All output leaves through `scripts/public-gate/redact.mjs` on a route listed in 
   symlink is its link text. The scanner's default path skips (lockfiles, `.gitleaks.toml` names, `node_modules`, images) therefore
   cannot hide a blob, and no file in the target is read as policy. The gate keeps the exact mapping from each name to every
   (path, mode) occurrence. Findings come back by occurrence; the report names a location, rule and line only.
+  The scanner also skips a file whose first read looks like an application type (PDF, bzip2, PostScript, ELF, tar at offset 257,
+  ISO at offset 32769 and others), so every blob is written behind a one-line text header: 262 bytes, or 32774 for a blob
+  that can reach offset 32769. No byte the target controls sits at a fixed offset the check reads. Lines are counted from the
+  blob's own first line (the scanner's line minus the header's one).
 - **Scanner run.** `gitleaks dir` with `--redact=100`, `--ignore-gitleaks-allow`, `--config .gitleaks.toml` (the default
   rules, never a target file) and a run-owned ignore file, under `secretScanDeadlineMs` and `secretScanOutputBytes`
   (`subprocess-timeout`, `subprocess-output-limit`; the process group is killed). Status 0 means no finding, 3 means findings, any

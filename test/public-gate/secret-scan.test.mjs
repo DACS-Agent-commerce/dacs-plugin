@@ -24,7 +24,7 @@ const scan = async (repo, stub, config = CONFIG) => scanSecrets({ entries: await
 const rejectsWith = (promise, cause) => assert.rejects(promise, (error) => error instanceof GateInputError && error.cause === cause);
 const foundPaths = (findings) => findings.map(({ entry }) => entry.path).sort();
 const scanCalls = (stub) => stub.calls().filter((call) => call.args[0] === 'dir');
-const markerStub = (settings = {}) => writeStubGitleaks({ finds: [{ marker: MARKER, rule: SAMPLE_RULE, line: 1 }], ...settings });
+const markerStub = (settings = {}) => writeStubGitleaks({ finds: [{ marker: MARKER, rule: SAMPLE_RULE }], ...settings });
 const exemption = (entries, filePath, line = 1) => ({ path: filePath, blob: entries.find((entry) => entry.path === filePath).oid, rule: SAMPLE_RULE, line, reason: 'test occurrence' });
 
 test('the wrapper writes each distinct blob of the target tree once from Git objects under a neutral name in a fresh directory, keeps the exact mapping to every occurrence, runs the pinned gitleaks in dir mode with redaction, --ignore-gitleaks-allow and the run\'s own config and trusted run-owned ignore passed explicitly, and fails on a finding', async (t) => {
@@ -61,6 +61,28 @@ test('the wrapper writes each distinct blob of the target tree once from Git obj
   });
 });
 
+test('every blob is written behind a one-line text header that spans every fixed offset a file-type check reads, a short one unless the blob can reach offset 32769; findings count lines from the blob\'s own first line, and one on the header line fails closed', async (t) => {
+  const small = '#!/bin/sh\n';
+  const large = `${'x'.repeat(40_000)}\n`;
+  const marked = `first\n${MARKER}\n`;
+  const repo = createRepo([{ path: 'small.txt', content: small }, { path: 'large.txt', content: large }, { path: 'marked.txt', content: marked }]);
+  await t.test('the header is one line of 262 bytes for a small blob and 32774 for a blob that can reach the ISO check', async () => {
+    const stub = writeStubGitleaks();
+    await scan(repo, stub);
+    const [call] = scanCalls(stub);
+    const headerOf = (content) => call.headers[Object.keys(call.blobs).find((name) => call.blobs[name] === sha256(content))];
+    assert.deepEqual(headerOf(small), { bytes: 262, first: '#', size: 262 + small.length });
+    assert.deepEqual(headerOf(large), { bytes: 32_774, first: '#', size: 32_774 + large.length });
+    assert.equal(headerOf(marked).bytes, 262);
+  });
+  await t.test('a finding is reported on the blob\'s own line', async () => {
+    assert.deepEqual((await scan(repo, markerStub())).map(({ entry, line }) => [entry.path, line]), [['marked.txt', 2]]);
+  });
+  await t.test('a finding on the header line names no line of any blob', () => rejectsWith(
+    scan(repo, writeStubGitleaks({ rawReport: JSON.stringify([{ File: 'b1', RuleID: SAMPLE_RULE, StartLine: 1 }]), exitCode: 3 })), 'scanner-report-malformed',
+  ));
+});
+
 test('a missing binary, another version or a checksum mismatch fails before scanning', async () => {
   const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
   const entries = await readEntries(repo);
@@ -90,10 +112,10 @@ test('a scanner failure status, an oversized, malformed or inconsistent report, 
     ['scanner-report-malformed', { exitCode: 3 }, CONFIG],
     ['scanner-report-malformed', { rawReport: 'not json' }, CONFIG],
     ['scanner-report-malformed', { rawReport: '{}' }, CONFIG],
-    ['scanner-report-malformed', { rawReport: JSON.stringify([{ File: 'b1', RuleID: SAMPLE_RULE, StartLine: 1 }]), exitCode: 0 }, CONFIG],
-    ['scanner-report-malformed', { rawReport: JSON.stringify([{ File: 'elsewhere', RuleID: SAMPLE_RULE, StartLine: 1 }]), exitCode: 3 }, CONFIG],
+    ['scanner-report-malformed', { rawReport: JSON.stringify([{ File: 'b1', RuleID: SAMPLE_RULE, StartLine: 2 }]), exitCode: 0 }, CONFIG],
+    ['scanner-report-malformed', { rawReport: JSON.stringify([{ File: 'elsewhere', RuleID: SAMPLE_RULE, StartLine: 2 }]), exitCode: 3 }, CONFIG],
     ['limit:maxScanReportBytes', { rawReport: `[${' '.repeat(2048)}]`, exitCode: 0 }, withLimits({ maxScanReportBytes: 1024 })],
-    ['limit:maxReportEntries', { rawReport: JSON.stringify(Array(3).fill({ File: 'b1', RuleID: SAMPLE_RULE, StartLine: 1 })), exitCode: 3 }, withLimits({ maxReportEntries: 2 })],
+    ['limit:maxReportEntries', { rawReport: JSON.stringify(Array(3).fill({ File: 'b1', RuleID: SAMPLE_RULE, StartLine: 2 })), exitCode: 3 }, withLimits({ maxReportEntries: 2 })],
   ];
   for (const [cause, settings, config] of cases) {
     await t.test(`${cause}: ${JSON.stringify(settings).slice(0, 60)}`, () => rejectsWith(scan(repo, writeStubGitleaks(settings), config), cause));
@@ -108,7 +130,7 @@ test('a baseline blob with an occurrence the ruling does not cover keeps its sca
     const config = { ...CONFIG, secretBaseline: await baseline(generated) };
     assert.deepEqual(await scan(generated, stub, config), []);
     const [call] = scanCalls(stub);
-    assert.equal(call.ignore, `${Object.keys(call.blobs)[0]}:${SAMPLE_RULE}:1\n`);
+    assert.equal(call.ignore, `${Object.keys(call.blobs)[0]}:${SAMPLE_RULE}:2\n`, 'the ignore line counts the one-line header');
   });
   await t.test('a copy at another path: no scanner-level ignore, the copy still fails', async () => {
     const copied = createRepo([{ path: 'gen.js', content: `${MARKER}\n` }, { path: 'copy.js', content: `${MARKER}\n` }]);
@@ -131,7 +153,7 @@ test('an exception names one occurrence and a stale one fails before the scanner
     { path: 'four.js', content: `x\n${lateMarker}\n` },
   ]);
   const entries = await readEntries(repo);
-  const stub = markerStub({ finds: [{ marker: MARKER, rule: SAMPLE_RULE, line: 1 }, { marker: lateMarker, rule: SAMPLE_RULE, line: 2 }] });
+  const stub = markerStub({ finds: [{ marker: MARKER, rule: SAMPLE_RULE }, { marker: lateMarker, rule: SAMPLE_RULE }] });
   await t.test('only the named path and blob is exempt; the same blob elsewhere and another blob still fail', async () => {
     const config = { ...CONFIG, secretExceptions: [exemption(entries, 'one.js')] };
     assert.deepEqual(foundPaths(await scan(repo, stub, config)), ['four.js', 'three.js', 'two.js']);
@@ -198,4 +220,23 @@ test('real scanner: an exact secretExceptions entry exempts only its own occurre
   assert.ok((await scanReal(changed)).length > 0, 'a changed blob and shifted lines are not covered');
   const ignoring = createRepo([...baselineFiles, { path: 'extra.js', content: line }, { path: '.gitleaksignore', content: 'extra.js:github-pat:1\nb1:github-pat:1\n' }]);
   assert.deepEqual(foundPaths(await scanReal(ignoring)), ['extra.js']);
+});
+
+/** [offset, bytes] pairs the scanner's file-type check takes for an application type: at offset 0, and at the fixed offsets of tar (257), DICOM (128) and ISO (32769), also one either side. */
+const SKIPPED_TYPE_MAGICS = {
+  pdf: [0, '%PDF-1.4'], bzip2: [0, 'BZh9'], postscript: [0, '%!PS-Adobe-3.0'], mz: [0, 'MZ'], sqlite: [0, 'SQLite format 3'], elf: [0, '\x7fELF'], zip: [0, 'PK\x03\x04'],
+  tarAtOffset: [257, 'ustar'], tarOneBefore: [256, 'ustar'], tarOneAfter: [258, 'ustar'], dicom: [128, 'DICM'], isoAtOffset: [32_769, 'CD001'], isoOneBefore: [32_768, 'CD001'],
+};
+
+test('real scanner: a key-shaped value is found in a text file that carries a skipped file type\'s bytes at offset 0 or at a fixed offset (tar 257, DICOM 128, ISO 32769, also shifted by one), on its own line', async (t) => {
+  if (needsRealScanner(t)) return;
+  const withMagic = ([offset, magic]) => {
+    const head = Buffer.alloc(offset + magic.length, 'a');
+    head.write(magic, offset, 'latin1');
+    return Buffer.concat([head, Buffer.from(`\nconst token = "${plantedKey()}";\n`)]);
+  };
+  const files = Object.entries(SKIPPED_TYPE_MAGICS).map(([name, spec]) => ({ path: `${name}.txt`, content: withMagic(spec) }));
+  const findings = await scanReal(createRepo(files));
+  assert.deepEqual(foundPaths(findings), files.map(({ path: file }) => file).sort());
+  assert.deepEqual([...new Set(findings.map(({ line }) => line))], [2]);
 });

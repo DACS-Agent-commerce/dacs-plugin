@@ -22,6 +22,16 @@ const VERSION_OUTPUT_BYTES = 4096;
 /** A scanner version: three dot-separated numbers. */
 export const SEMVER = /^\d+\.\d+\.\d+$/;
 const RULING_KEYS = ['blob', 'line', 'path', 'reason', 'rule'];
+/**
+ * The scanner skips a file as binary when the file type of its first read is an application type, and some of those types
+ * are recognised by bytes at a fixed offset (tar at 257, DICOM at 128, ISO at 32769) as well as at offset 0. Each blob is
+ * therefore written behind a one-line header of text that spans every such offset the blob could reach, so no byte the
+ * target controls sits where the scanner looks: SHORT_HEADER_BYTES passes the last offset below 262 (tar's `ustar` ends
+ * at 261); a blob that can reach the ISO check (a first read of 32774 bytes or more) gets LONG_HEADER_BYTES instead.
+ */
+const SHORT_HEADER_BYTES = 262;
+const LONG_HEADER_BYTES = 32_774;
+const HEADER_LINES = 1;
 
 const sha256Of = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const isRuling = (entry) => entry !== null && typeof entry === 'object' && isDeepStrictEqual(Object.keys(entry).sort(), RULING_KEYS)
@@ -63,7 +73,13 @@ async function privateVerifiedBinary({ binary, sha256, version, directory, envir
   return copy;
 }
 
-/** Writes each distinct blob once under the neutral name `b<n>`; returns Map(name -> the entries that hold that blob). */
+/** The text a blob is written behind: one line `#` plus spaces, long enough that no fixed-offset file-type check can read the blob's bytes. */
+const scanHeader = (blobBytes) => {
+  const size = blobBytes + SHORT_HEADER_BYTES >= LONG_HEADER_BYTES ? LONG_HEADER_BYTES : SHORT_HEADER_BYTES;
+  return `#${' '.repeat(size - 2)}\n`;
+};
+
+/** Writes each distinct blob once under the neutral name `b<n>`, behind its one-line header; returns Map(name -> the entries that hold that blob). */
 async function exportBlobs(entries, directory) {
   const occurrences = new Map();
   const namesByBlob = new Map();
@@ -72,7 +88,7 @@ async function exportBlobs(entries, directory) {
       const name = `b${namesByBlob.size + 1}`;
       namesByBlob.set(entry.oid, name);
       occurrences.set(name, []);
-      await writeFile(path.join(directory, name), entry.bytes, { flag: 'wx', mode: 0o600 });
+      await writeFile(path.join(directory, name), Buffer.concat([Buffer.from(scanHeader(entry.bytes.length)), entry.bytes]), { flag: 'wx', mode: 0o600 });
     }
     occurrences.get(namesByBlob.get(entry.oid)).push(entry);
   }
@@ -83,7 +99,7 @@ async function exportBlobs(entries, directory) {
 function remappedBaseline(baseline, occurrences) {
   return [...occurrences].flatMap(([name, entries]) => baseline
     .filter((ruling) => entries.every((entry) => entry.path === ruling.path && entry.oid === ruling.blob))
-    .map((ruling) => `${name}:${ruling.rule}:${ruling.line}\n`)).join('');
+    .map((ruling) => `${name}:${ruling.rule}:${ruling.line + HEADER_LINES}\n`)).join('');
 }
 
 const malformedReport = (why) => new GateInputError('scanner-report-malformed', `the scanner report ${why}`);
@@ -105,14 +121,16 @@ async function readReport(file, limits) {
   return items;
 }
 
-/** Maps each reported (neutral name, rule, line) to its occurrences and keeps those no ruling covers, one finding per occurrence and line. */
+/** Maps each reported (neutral name, rule, line) to its occurrences, with the line counted from the blob's own first line, and keeps those no ruling covers, one finding per occurrence and line. */
 function occurrenceFindings(items, occurrences, rulings) {
   const findings = new Map();
   for (const { File, RuleID, StartLine } of items) {
     const entries = occurrences.get(path.posix.basename(File));
     if (!entries) throw malformedReport('names a file the scan did not hold');
-    for (const entry of entries.filter((candidate) => !coversOccurrence(rulings, candidate, RuleID, StartLine))) {
-      findings.set(`${entry.position}:${StartLine}`, { rule: SECRET_RULE_ID, kind: 'content', entry, line: StartLine });
+    const line = StartLine - HEADER_LINES;
+    if (line < 1) throw malformedReport('names a line of the header, not of a blob');
+    for (const entry of entries.filter((candidate) => !coversOccurrence(rulings, candidate, RuleID, line))) {
+      findings.set(`${entry.position}:${line}`, { rule: SECRET_RULE_ID, kind: 'content', entry, line });
     }
   }
   return [...findings.values()];
