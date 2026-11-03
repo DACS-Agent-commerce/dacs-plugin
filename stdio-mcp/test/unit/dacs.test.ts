@@ -9,7 +9,7 @@ import * as ed from '@noble/ed25519';
 import { sha256 } from '@noble/hashes/sha256';
 import canonicalizeMod from 'canonicalize';
 import { verifyArtifact, logicalBundleAddress } from '../../src/dacs/verify.js';
-import { decodeSig6 } from '../../src/dacs/sig.js';
+import { decodeSig6, verifyDomainSig } from '../../src/dacs/sig.js';
 import { canonicalBytes } from '../../src/dacs/jcs.js';
 import { harness, keypair, MockWallet } from '../helpers.js';
 
@@ -403,4 +403,16 @@ test('settlement evidence needs real payment evidence; unknown phases are not ac
   assert.equal((await verifyArtifact(badFinality, h.chain, { expectedSigner: signer })).decision, 'reject');
   const noDelivery = mk({ phase: 'deliver-storage-program' });
   assert.equal((await verifyArtifact(noDelivery, h.chain, { expectedSigner: signer })).decision, 'reject');
+});
+
+test('domain signature: an ordinary key verifies, another message fails, small-order keys are refused', () => {
+  const hash = H('domain-sig'), sign = (h: string) => Buffer.from(ed.sign(new TextEncoder().encode('dacs-evidence:v1:' + h), buyer.priv)).toString('base64url');
+  assert.equal(verifyDomainSig('dacs-evidence:v1:', hash, claim(buyer), 'ed25519', sign(hash)).decision, 'pass');
+  assert.equal(verifyDomainSig('dacs-evidence:v1:', hash, claim(buyer), 'ed25519', sign(H('other'))).decision, 'fail');
+  const constant = Buffer.from('01' + '00'.repeat(63), 'hex').toString('base64url'); // R = identity, S = 0
+  for (const key of ['01' + '00'.repeat(31), '00'.repeat(32), 'ec' + 'ff'.repeat(31), '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05']) {
+    const r = verifyDomainSig('dacs-evidence:v1:', hash, 'key:' + key, 'ed25519', constant);
+    assert.equal(r.decision, 'fail', key);
+    assert.match(r.reason ?? '', /small-order or not canonical/);
+  }
 });
