@@ -44,7 +44,7 @@ function readListBytes(file, repo, maxBytes) {
 export function readPrivateList(file, { repo, limits }) {
   const text = decodeUtf8Strict(readListBytes(file, repo, limits.maxPrivateListBytes));
   if (text === null) throw new GateInputError('private-list-malformed', 'the private list is not valid UTF-8');
-  const lines = text.replace(/^﻿/, '').split(/\r\n|\r|\n/);
+  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
   const padded = lines.findIndex((line) => line !== line.trim() && !line.startsWith('#'));
   if (padded >= 0) throw new GateInputError('private-list-malformed', `line ${padded + 1} of the private list has leading or trailing whitespace`);
   const entries = lines.filter((line) => line !== '' && !line.startsWith('#'));
