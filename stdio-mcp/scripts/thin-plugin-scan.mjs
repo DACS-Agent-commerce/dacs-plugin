@@ -22,7 +22,8 @@ export function createModuleScanner(context) {
   // A computed-key write is only an export or definition risk when it targets an export object
   // or assigns a function/class under a name the primitive matcher cannot see. Ordinary data
   // writes (f.days[day] = ..., out[k] = v) are not export surfaces.
-  const unparen = x => { while (x && ts.isParenthesizedExpression(x)) x = x.expression; return x; };
+  // Parentheses and type-only wrappers (as, !, <T>, satisfies) never change the value.
+  const unparen = x => { while (x && (ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || ts.isNonNullExpression(x) || ts.isTypeAssertionExpression(x) || ts.isSatisfiesExpression(x))) x = x.expression; return x; };
   const exportTarget = x => { x = unparen(x); return (ts.isIdentifier(x) && ['exports', 'globalThis', 'global', 'self', 'window'].includes(x.text)) || (ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) && x.expression.text === 'module' && x.name.text === 'exports'); };
   const globalObject = x => { x = unparen(x); return ts.isIdentifier(x) && ['globalThis', 'global', 'self', 'window'].includes(x.text); };
   // eval/Function count wherever they are read as a value (bare, aliased, comma, or as a
@@ -55,8 +56,8 @@ export function createModuleScanner(context) {
       ts.forEachChild(n, collectComments);
     }; collectComments(ast);
     for (const range of comments.values()) if (range.kind === ts.SyntaxKind.SingleLineCommentTrivia) {
-      const m = text.slice(range.pos, range.end).match(/^\/\/\s*thin-plugin-waiver primitive:([\w-]+) -- (\S.*)$/);
-      if (m) commentWaivers.push({primitive: m[1], line: ast.getLineAndCharacterOfPosition(range.pos).line + 1, reason: m[2].trim(), used: false});
+      const m = text.slice(range.pos, range.end).match(/^\/\/\s*thin-plugin-waiver primitive:([\w-]+)(?:\s+--\s*(.*))?$/);
+      if (m) commentWaivers.push({primitive: m[1], line: ast.getLineAndCharacterOfPosition(range.pos).line + 1, reason: (m[2] ?? '').trim(), used: false});
     }
     // Reference-tracked calls (primitive `references`, e.g. getTxByHash): any member
     // reference (x.m, x?.m, x['m']), destructured property, bare use, lexical alias
@@ -64,7 +65,9 @@ export function createModuleScanner(context) {
     // readback function counts as the call, so an alias cannot hide it.
     const refRules = config.primitives.filter(r => Array.isArray(r.references) && r.references.length);
     const refNames = new Set(refRules.flatMap(r => r.references));
-    const aliasOf = new Map(), waivedMethods = new Map(), checkedTargets = new Set(), refNodes = [];
+    // A module whose readback waivers are not settled yet (an import cycle) cannot vouch for them.
+    result.readbackWaivers = commentWaivers.some(w => refRules.some(r => r.id === w.primitive));
+    const aliasOf = new Map(), namespaceOf = new Map(), waivedMethods = new Map(), checkedTargets = new Set(), refNodes = [];
     const inType = n => { for (let a = n.parent; a; a = a.parent) { if (ts.isTypeNode(a) || ts.isInterfaceDeclaration(a) || ts.isTypeAliasDeclaration(a)) return true; if (ts.isFunctionLike(a) || ts.isSourceFile(a)) return false; } return false; };
     const ambient = n => ast.isDeclarationFile || (() => { for (let a = n; a; a = a.parent) if (ts.canHaveModifiers(a) && ts.getModifiers(a)?.some(m => m.kind === ts.SyntaxKind.DeclareKeyword)) return true; return false; })();
     const bindingNames = (name, out = []) => { if (ts.isIdentifier(name)) out.push(name); else for (const e of name.elements ?? []) if (!ts.isOmittedExpression(e)) bindingNames(e.name, out); return out; };
@@ -98,6 +101,10 @@ export function createModuleScanner(context) {
       let name = null;
       if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) name = memberRef(n);
       if (!name && ts.isPropertyAccessExpression(n) && waivedMethods.has(n.name.text) && ts.isCallExpression(n.parent) && n.parent.expression === n) name = waivedMethods.get(n.name.text);
+      if (!name && (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) && namespaceOf.size && ts.isIdentifier(unparen(n.expression))) {
+        const b = resolveBinding(unparen(n.expression)), key = ts.isPropertyAccessExpression(n) ? n.name.text : ts.isStringLiteralLike(n.argumentExpression) ? n.argumentExpression.text : null;
+        if (b && key && namespaceOf.get(b)?.has(key)) name = namespaceOf.get(b).get(key);
+      }
       if (!name && ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent)) { const key = n.propertyName ?? n.name; if ((ts.isIdentifier(key) || ts.isStringLiteralLike(key)) && refNames.has(key.text)) name = key.text; }
       if (!name && ts.isIdentifier(n) && !isDeclName(n)) {
         if (refNames.has(n.text)) name = n.text;
@@ -116,10 +123,25 @@ export function createModuleScanner(context) {
       const collectAliases = n => {
         if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && memberRef(n.initializer)) aliasOf.set(n.name, memberRef(n.initializer));
         if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent) && ts.isIdentifier(n.name)) { const key = n.propertyName ?? n.name; if ((ts.isIdentifier(key) || ts.isStringLiteralLike(key)) && refNames.has(key.text)) aliasOf.set(n.name, key.text); }
-        // Waived readback functions in a local dependency count as readback for their importers.
-        if (ts.isImportDeclaration(n) && ts.isStringLiteralLike(n.moduleSpecifier) && n.importClause?.namedBindings && ts.isNamedImports(n.importClause.namedBindings)) {
-          const r = resolve(n.moduleSpecifier.text, file);
-          if (r?.kind === 'local') { const dep = scan(r.file); for (const e of n.importClause.namedBindings.elements) { const ref = dep.waivedReadback?.get((e.propertyName ?? e.name).text); if (ref) aliasOf.set(e.name, ref); } }
+        // Waived readback functions in a local dependency count as readback for their importers,
+        // through named, renamed, default and namespace imports and through re-exports.
+        const depWaivers = (decl) => {
+          const r = resolve(decl.moduleSpecifier.text, file);
+          if (r?.kind !== 'local') return null;
+          const dep = scan(r.file);
+          if (!dep.settled && dep.readbackWaivers) flag('unverifiable', 'cyclic-waived-import', file, lineOf(decl), decl.moduleSpecifier.text);
+          return dep.waivedReadback?.size ? dep.waivedReadback : null;
+        };
+        if (ts.isImportDeclaration(n) && ts.isStringLiteralLike(n.moduleSpecifier) && n.importClause) {
+          const c = n.importClause, w = depWaivers(n);
+          if (w && c.name && w.has('default')) aliasOf.set(c.name, w.get('default'));
+          if (w && c.namedBindings && ts.isNamedImports(c.namedBindings)) for (const e of c.namedBindings.elements) { const ref = w.get((e.propertyName ?? e.name).text); if (ref) aliasOf.set(e.name, ref); }
+          if (w && c.namedBindings && ts.isNamespaceImport(c.namedBindings)) namespaceOf.set(c.namedBindings.name, w);
+        }
+        if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteralLike(n.moduleSpecifier)) {
+          const w = depWaivers(n);
+          if (w && !n.exportClause) for (const [k, v] of w) { if (k !== 'default') result.waivedReadback.set(k, v); }
+          if (w && n.exportClause && ts.isNamedExports(n.exportClause)) for (const e of n.exportClause.elements) { const ref = w.get((e.propertyName ?? e.name).text); if (ref) result.waivedReadback.set(e.name.text, ref); }
         }
         ts.forEachChild(n, collectAliases);
       }; collectAliases(ast);
@@ -140,8 +162,14 @@ export function createModuleScanner(context) {
             const ref = rule.references[0]; d.done = changed = true;
             if (d.method) waivedMethods.set(d.id.text, ref); else aliasOf.set(d.id, ref);
             result.waivedReadback.set(d.id.text, ref);
+            if (ts.getModifiers(d.node)?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword)) result.waivedReadback.set('default', ref);
           }
         }
+      }
+      // Local re-exports of a readback binding (export {show as view}, export default show).
+      for (const s of ast.statements) {
+        if (ts.isExportDeclaration(s) && !s.moduleSpecifier && s.exportClause && ts.isNamedExports(s.exportClause)) for (const e of s.exportClause.elements) { const b = resolveBinding(e.propertyName ?? e.name); if (b && aliasOf.has(b)) result.waivedReadback.set(e.name.text, aliasOf.get(b)); }
+        if (ts.isExportAssignment(s) && !s.isExportEquals && ts.isIdentifier(s.expression)) { const b = resolveBinding(s.expression); if (b && aliasOf.has(b)) result.waivedReadback.set('default', aliasOf.get(b)); }
       }
     }
     const primitive = (node, name, rules = config.primitives) => {
@@ -168,6 +196,10 @@ export function createModuleScanner(context) {
       if (resolution.kind === 'local') scan(resolution.file);
       return resolution;
     };
+    // createRequire under any imported name, or as a member (m.createRequire), makes a require.
+    const requireFactories = new Set(['createRequire']);
+    for (const s of ast.statements) if (ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && ['module', 'node:module'].includes(s.moduleSpecifier.text) && ts.isNamedImports(s.importClause?.namedBindings ?? {})) for (const e of s.importClause.namedBindings.elements) if ((e.propertyName ?? e.name).text === 'createRequire') requireFactories.add(e.name.text);
+    const requireFactory = x => { x = unparen(x); return (ts.isIdentifier(x) && requireFactories.has(x.text)) || (ts.isPropertyAccessExpression(x) && x.name.text === 'createRequire'); };
     const walk = n => {
       if (refNames.size && refOf(n)) refNodes.push(n);
       if (ts.isImportDeclaration(n)) addImport(n, n.moduleSpecifier, 'import', !!n.importClause && (n.importClause.isTypeOnly || (!n.importClause.name && ts.isNamedImports(n.importClause.namedBindings ?? {}) && n.importClause.namedBindings.elements.length > 0 && n.importClause.namedBindings.elements.every(e => e.isTypeOnly))));
@@ -185,15 +217,16 @@ export function createModuleScanner(context) {
         // A call through a non-literal key (x[k](), x['a' + 'b']()) can reach a readback member unseen.
         const callee = unparen(n.expression);
         if (refNames.size && ts.isElementAccessExpression(callee) && !ts.isStringLiteralLike(callee.argumentExpression) && !ts.isNumericLiteral(callee.argumentExpression)) flag('unverifiable', 'computed-member-call', file, lineOf(n));
+        if ((ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : '') === 'getBuiltinModule') flag('unverifiable', 'reflective-loader', file, lineOf(n));
+        if (ts.isCallExpression(callee) && requireFactory(callee.expression)) flag('unverifiable', 'aliased-require', file, lineOf(n));
       }
       if (reflectiveRead(n)) flag('unverifiable', 'reflective-loader', file, lineOf(n));
-      if (ts.isIdentifier(n) && n.text === 'require' && !(ts.isCallExpression(n.parent) && n.parent.expression === n) && !(ts.isPropertyAccessExpression(n.parent) && (n.parent.name === n || n.parent.expression === n)) && !(ts.isVariableDeclaration(n.parent) && n.parent.name === n) && !ts.isImportEqualsDeclaration(n.parent)) flag('unverifiable', 'aliased-require', file, lineOf(n));
-      if (ts.isCallExpression(n) && ts.isCallExpression(n.expression) && n.expression.expression.getText(ast) === 'createRequire') flag('unverifiable', 'aliased-require', file, lineOf(n));
+      if (ts.isIdentifier(n) && n.text === 'require' && !(ts.isCallExpression(n.parent) && n.parent.expression === n) && !(ts.isPropertyAccessExpression(n.parent) && (n.parent.name === n || (n.parent.expression === n && !['call', 'apply', 'bind'].includes(n.parent.name.text)))) && !(ts.isVariableDeclaration(n.parent) && n.parent.name === n) && !ts.isImportEqualsDeclaration(n.parent)) flag('unverifiable', 'aliased-require', file, lineOf(n));
       if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left)) { if (ts.isStringLiteralLike(n.left.argumentExpression)) primitive(n, n.left.argumentExpression.text); else if (computedDefinitionRisk(n) || functionValued(n.right)) flag('unverifiable', 'computed-export', file, lineOf(n)); }
       if (ts.isComputedPropertyName(n) && !ts.isStringLiteralLike(n.expression)) flag('unverifiable', 'computed-member', file, lineOf(n));
       if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left)) primitive(n, n.left.name.text);
       if (ts.isBindingElement(n) && n.initializer && ts.isIdentifier(n.name)) primitive(n, n.name.text);
-      if (ts.isVariableDeclaration(n) && (n.initializer?.getText(ast) === 'require' || (ts.isCallExpression(n.initializer ?? {}) && n.initializer.expression.getText(ast) === 'createRequire' && n.name.getText(ast) !== 'require'))) flag('unverifiable', 'aliased-require', file, lineOf(n));
+      if (ts.isVariableDeclaration(n) && (n.initializer?.getText(ast) === 'require' || (ts.isCallExpression(unparen(n.initializer) ?? {}) && requireFactory(unparen(n.initializer).expression) && n.name.getText(ast) !== 'require'))) flag('unverifiable', 'aliased-require', file, lineOf(n));
       if (ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isClassDeclaration(n) || ts.isVariableDeclaration(n) || (ts.isPropertyAssignment(n) && ts.isFunctionLike(n.initializer))) primitive(n, n.name && (ts.isIdentifier(n.name) || ts.isStringLiteralLike(n.name)) ? n.name.text : ts.isComputedPropertyName(n.name ?? {}) && ts.isStringLiteralLike(n.name.expression) ? n.name.expression.text : null);
       ts.forEachChild(n, walk);
     }; walk(ast);
@@ -206,10 +239,12 @@ export function createModuleScanner(context) {
       for (let a = n.parent; a; a = a.parent) if (ts.isFunctionLike(a)) { fn ??= a; if (checkedTargets.has(a)) { covered = true; break; } }
       if (covered) continue;
       if (fn) { primitive(fn, '<anonymous>', refRules); continue; }
-      const aliasDef = (ts.isVariableDeclaration(n.parent) && n.parent.initializer && unparen(n.parent.initializer) === n && aliasOf.has(n.parent.name)) || (ts.isBindingElement(n) && aliasOf.has(n.name));
+      // An alias definition, or a default re-export that its importers inherit as readback, is not a use.
+      const aliasDef = (ts.isVariableDeclaration(n.parent) && n.parent.initializer && unparen(n.parent.initializer) === n && aliasOf.has(n.parent.name)) || (ts.isBindingElement(n) && aliasOf.has(n.name)) || (ts.isIdentifier(n) && ts.isExportAssignment(n.parent) && n.parent.expression === n);
       if (!aliasDef) flag('unverifiable', 'readback-reference-escape', file, lineOf(n), refOf(n));
     }
     for (const w of commentWaivers) if (!w.used || w.reason.length < 8) flag('violation', 'invalid-or-unused-waiver', file, w.line, w.primitive);
+    result.settled = true;
     return result;
   };
 }
