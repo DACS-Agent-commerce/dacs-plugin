@@ -1,8 +1,8 @@
 # Public-content gate
 
 Reads one commit from Git objects (never the working tree or index, never following a symlink) and reports, under a
-declared scope, what the rules it runs found in it. The gate currently runs four rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
-(the address rules) and `R-PRIVATE` (the private list). Exit 0 in complete scope means no rule found anything and every file
+declared scope, what the rules it runs found in it. The gate currently runs seven rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
+(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules) and `R-PRIVATE` (the private list). Exit 0 in complete scope means no rule found anything and every file
 could be read; it does not show that the content may become public. Generic scope runs the address rules and reports
 `R-PRIVATE` as `not-run`, so its exit 0 is never a complete pass.
 
@@ -64,6 +64,28 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   (`url`, `host-port`, `quoted`, `bare` or `email`). `public-gate.config.json` may also hold the values its own entries name. A
   malformed section, `ipDispositions` included, makes the run exit 2 with cause `invalid-config`. Findings carry the rule, kind (`path` or `content`),
   location and line, never the host or email.
+- **File names (`R-ENV`, `R-HOSTING`).** A name is lower-cased and split on `.`; one trailing `example`, `sample` or `template`
+  segment marks a template and is taken off, and the rest gets the same tests whether it was a template or not.
+- **Env templates (`R-ENV`, both scopes).** Runs over every template with an `env` segment (`.env.example`,
+  `.env.production.sample`, `prod.env.template`), line by line, each line trimmed. A template that is not readable
+  text is refused whole. A commented assignment is read like any other, in every form (`#KEY=v`, `## KEY = v`, `# export KEY=v`,
+  `#KEY: v`); other comments are prose and pass. Any other line that is not blank or `[export ]KEY=value` is refused. One pair of
+  quotes around a value is taken off. Each public setting of `http-mcp/.env.example` may hold only its typed value, as
+  `http-mcp/src/config.mjs` accepts it: a flag (`0`, `1`), one of its fixed choices, a whole number in its range
+  (`DACS_ACCESS_TOKEN_TTL_SECONDS` 60 to 3600), an `http(s)` origin with no credentials, path or query (a `<label>` port
+  counts), a comma-separated list of origins or host names, an absolute path or a label. Every other key, whatever its name
+  (`DACS_OAUTH_COOKIE_KEYS` included), may only be empty or a placeholder: `REPLACE_ME`, `CHANGE_ME`, a run of `x`, `${NAME}`,
+  `<label>` or `your-<label>-here`, where a label is lower-case letters and dashes.
+- **Hosting files (`R-HOSTING`, both scopes).** Refuses by path, in any letter case: everything under a `deploy` directory, a
+  Caddyfile (`caddyfile` as any name segment: `Caddyfile`, `Caddyfile.prod`, `Caddyfile.example`), a systemd unit (a `service`
+  segment after the first, unless the name ends in a source extension such as `.mjs`: `dacs.service`, `dacs.service.bak`) and a
+  real env file (an `env` segment after the first in a name that is not a template: `.env`, `.env.production`, `prod.env`, and on
+  purpose `config.env.json`). Templates of hosting files are refused too; only env templates are left to `R-ENV`.
+- **Archives (`R-ARCHIVE`, both scopes).** The gate must be able to read every blob. Refuses, whatever its name, a blob that is not
+  readable text (a NUL byte or invalid UTF-8), even when a `binaryDispositions` entry lets the other rules read it; text holding a
+  zip signature (`PK` with `01 02`, `03 04`, `05 06` or `07 08`) anywhere; and text with a tar header in any 512-byte block (its
+  checksum field holds the block's sum), with or without `ustar`. Refuses any path under a `vendor` directory, in any letter case.
+  It does not find an archive written in an encoding, such as base64, or one a script builds.
 - **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
   run exits 2 (cause `unexpected-root`) without a report.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`; complete

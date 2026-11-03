@@ -49,7 +49,8 @@ test('a non-ASCII entry is found case-insensitively in a blob that is not valid 
     { path: 'third.bin', content: Buffer.concat([invalidByte, Buffer.from('nothing here\n')]) },
   ]);
   const report = JSON.parse(runGate(completeArgs(repo, writeList(['éclair']))).stdout);
-  assert.deepEqual(report.findings.map(({ location, line }) => [location, line]), [[`${repo.commit}:1`, 1], [`${repo.commit}:2`, 3]]);
+  const privateFindings = report.findings.filter((finding) => finding.rule === 'R-PRIVATE');
+  assert.deepEqual(privateFindings.map(({ location, line }) => [location, line]), [[`${repo.commit}:1`, 1], [`${repo.commit}:2`, 3]]);
 });
 
 test('at the largest list, an 8 MiB blob with no hit scans within the deadline and passes', () => {
