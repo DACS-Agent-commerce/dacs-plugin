@@ -11,6 +11,9 @@ const PLANTED = ['quartz', 'lantern'].join('-');
 const OTHER = ['onyx', 'meridian'].join('-');
 const THIRD = ['harbornode', 'seven'].join('');
 const ALLOWED = 'Project <project@example.invalid>';
+const INTERNAL_HOST = ['node7', 'harbor', 'dev'].join('.');
+const INTERNAL_EMAIL = ['ops', ['harbor', 'dev'].join('.')].join('@');
+const PUBLIC_V4 = [8, 8, 4, 4].join('.');
 const outputOf = (run) => `${run.stdout}${run.stderr}`;
 const brief = (report) => report.findings.map((finding) => `${finding.rule} ${finding.kind} ${finding.location.replace(/^[0-9a-f]{40}:/, '')} ${finding.line ?? '-'}`);
 
@@ -21,7 +24,9 @@ test('a clean history passes with every commit read; an entry that an early comm
   const report = JSON.parse(run.stdout);
   assert.equal(report.scope, 'history');
   assert.deepEqual(report.target, { heads: [clean.commits[2]], commits: 3 });
-  assert.deepEqual(report.rules, [{ id: 'R-IDENTITY', status: 'not-run' }, { id: 'R-PRIVATE', status: 'passed' }]);
+  assert.deepEqual(report.rules.map(({ id, status }) => `${id} ${status}`), [
+    'R-ACCOUNT passed', 'R-ARCHIVE passed', 'R-ENV passed', 'R-HOST passed', 'R-HOSTING passed', 'R-IDENTITY not-run', 'R-IP passed', 'R-PRIVATE passed',
+  ]);
   assert.equal(report.scanner.gateRevision, gateRevision());
   assert.equal(report.scanner.expectedRoot, clean.commits[0]);
 
@@ -56,6 +61,49 @@ test('messages, author and committer lines and other headers are scanned and loc
   for (const value of [PLANTED, OTHER, THIRD]) assert.ok(!outputOf(run).includes(value));
 });
 
+test('the address, env, hosting and archive rules read every commit tree: what an early commit added and a later one removed is found though the tip is clean', () => {
+  const planted = {
+    'a.txt': 'ok\n',
+    'deploy/Caddyfile': 'x\n',
+    '.env.example': `ZORBLAT_QUIM=${['wombat', 'quartz', 'ember', '7731'].join('-')}\n`,
+    'bundle.txt': 'PK\u0003\u0004 not a text file\n',
+    'notes.md': `host https://${INTERNAL_HOST}/rpc\nip ${PUBLIC_V4}\nmail ${INTERNAL_EMAIL}\n`,
+  };
+  const history = createHistory([{}, { files: planted }, { files: { 'a.txt': 'ok\n' } }]);
+  const listFile = writeList([PLANTED]);
+  const tip = runGate(gateArgs({ dir: history.dir, commit: history.commits[2] }, 'complete', ['--private-list', listFile, '--expected-root', history.commits[0]]));
+  assert.equal(tip.status, 0, 'the tip tree alone holds nothing');
+
+  const run = runHistory(historyArgs(history, listFile));
+  assert.equal(run.status, 1, run.stderr);
+  const report = JSON.parse(run.stdout);
+  assert.deepEqual(report.rules.map(({ id }) => id), ['R-ACCOUNT', 'R-ARCHIVE', 'R-ENV', 'R-HOST', 'R-HOSTING', 'R-IDENTITY', 'R-IP', 'R-PRIVATE']);
+  assert.deepEqual(report.rules.map(({ status }) => status), ['findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings', 'passed']);
+  assert.deepEqual(brief(report), [
+    'R-ACCOUNT content 5 3', 'R-ARCHIVE content 3 -', 'R-ENV content 1 1', 'R-HOST content 5 1', 'R-HOSTING path 4 -', 'R-IP content 5 2',
+  ]);
+  assert.ok(report.findings.every((finding) => finding.commit === history.commits[1]));
+  for (const value of [INTERNAL_HOST, PUBLIC_V4, INTERNAL_EMAIL, 'ZORBLAT_QUIM']) assert.ok(!outputOf(run).includes(value), value);
+});
+
+test('an email in an earlier commit message, author or committer line is refused by the account rule and located by commit and field; the publication identity passes', () => {
+  const history = createHistory([
+    {},
+    { message: `subject\n\nwrite to ${INTERNAL_EMAIL}` },
+    { author: { name: 'Project', email: INTERNAL_EMAIL } },
+    { committer: { name: 'Project', email: INTERNAL_EMAIL } },
+    { author: { name: 'DACS Agent Commerce', email: 'dacs-plugin@users.noreply.invalid' } },
+  ]);
+  const run = runHistory(historyArgs(history, writeList([PLANTED])));
+  assert.equal(run.status, 1, run.stderr);
+  const report = JSON.parse(run.stdout);
+  assert.deepEqual(report.findings.map(({ kind, commit, location }) => [kind, history.commits.indexOf(commit), location.replace(commit, '')]), [
+    ['author', 2, ':author'], ['committer', 3, ':committer'], ['message', 1, ':message'],
+  ]);
+  assert.deepEqual(brief(report), ['R-ACCOUNT author author -', 'R-ACCOUNT committer committer -', 'R-ACCOUNT message message 3']);
+  assert.ok(!outputOf(run).includes(INTERNAL_EMAIL));
+});
+
 test('the identity rule finds any other identity and any time zone but +0000, and is not-run without the flag', () => {
   const history = createHistory([
     {},
@@ -66,12 +114,12 @@ test('the identity rule finds any other identity and any time zone but +0000, an
   const listFile = writeList([PLANTED]);
   const off = runHistory(historyArgs(history, listFile));
   assert.equal(off.status, 0);
-  assert.deepEqual(JSON.parse(off.stdout).rules[0], { id: 'R-IDENTITY', status: 'not-run' });
+  assert.ok(JSON.parse(off.stdout).rules.some((rule) => rule.id === 'R-IDENTITY' && rule.status === 'not-run'));
 
   const run = runHistory(historyArgs(history, listFile, ['--allowed-identity', ALLOWED]));
   assert.equal(run.status, 1, run.stderr);
   const report = JSON.parse(run.stdout);
-  assert.deepEqual(report.rules, [{ id: 'R-IDENTITY', status: 'findings' }, { id: 'R-PRIVATE', status: 'passed' }]);
+  assert.deepEqual(report.rules.filter((rule) => ['R-IDENTITY', 'R-PRIVATE'].includes(rule.id)), [{ id: 'R-IDENTITY', status: 'findings' }, { id: 'R-PRIVATE', status: 'passed' }]);
   assert.deepEqual(report.findings.map((finding) => [finding.kind, history.commits.indexOf(finding.commit)]), [
     ['author', 1], ['committer', 2], ['timezone', 3], ['timezone', 3],
   ]);
@@ -151,7 +199,7 @@ test('the history report holds no pull-request key path and nothing derived from
   assert.deepEqual(report.findings.map(({ kind, location, line }) => [kind, location, line]), [
     ['content', `${commit}:2`, 2], ['message', `${commit}:message`, 3], ['path', `${commit}:2`, undefined], ['pr-text', 'pr-1:5', 1], ['pr-text', 'pr-1:6', 1], ['pr-text', 'pr-1:7', 1],
   ]);
-  const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|pr-[1-9][0-9]*:[1-9][0-9]*|history|R-IDENTITY|R-PRIVATE|path|content|message|pr-text|passed|findings)$/;
+  const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|pr-[1-9][0-9]*:[1-9][0-9]*|history|R-[A-Z]+|path|content|message|pr-text|passed|findings)$/;
   const keys = new Set(['scope', 'target', 'heads', 'commits', 'scanner', 'gateRevision', 'configSha256', 'expectedRoot', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
   const walk = (value) => {
     if (typeof value === 'string') assert.match(value, fixed);
@@ -222,7 +270,8 @@ test('an unscannable blob in any commit exits 2 and the report says so instead o
   const report = JSON.parse(readFileSync(out, 'utf8'));
   assert.equal(report.unscannable.length, 1);
   assert.equal(report.unscannable[0].commit, commit);
-  assert.deepEqual(report.rules.map((rule) => rule.status), ['not-run', 'unscannable']);
+  assert.deepEqual(report.rules.find((rule) => rule.id === 'R-PRIVATE'), { id: 'R-PRIVATE', status: 'unscannable' });
+  assert.deepEqual(report.rules.find((rule) => rule.id === 'R-IDENTITY'), { id: 'R-IDENTITY', status: 'not-run' });
 });
 
 test('complete scope checks --expected-root against the history behind the commit: another root, or two roots, exit 2 with no report', () => {
