@@ -1,0 +1,12 @@
+{
+  "name": "dacs-plugin-root",
+  "private": true,
+  "type": "module",
+  "description": "Repository-level checks for the DACS plugins: the Git object reader and file classifier behind the public-content gate, and their tests.",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\""
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
