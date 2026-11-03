@@ -1130,7 +1130,7 @@ test('accepting control: a correct fixed-price payment on the pinned chain is re
     assert.match(commitment, HEX64);
     assert.equal(before.evidence.commitment, commitment);
     assert.equal(approved.status, 'payment_handoff');
-    assert.deepEqual(approved.payload.content.data, ['native', { nativeOperation: 'send', args: [s.address, '2000000000'] }], 'the transfer itself carries no commitment');
+    assert.deepEqual(approved.payload.content.data, ['native', { nativeOperation: 'send', args: [s.address, '2000000000'] }], 'the handoff payload is the plain native send');
 
     const hash = app.chain.walletBroadcast(approved.payload);
     const reported = await reportPurchase(app, p.operationId, token, { txHash: hash });
@@ -1197,12 +1197,12 @@ test('P1 negative: once bound, an RPC reporting another chain gets no approval, 
     app.chain.setGenesis(GENESIS_B);
     const reissue = await portal(app, `/portal/api/purchase/${p2.operationId}/handoff`, { token });
     assert.equal(reissue.payload, null);
-    assert.equal(reissue.status, 'payment_handoff', 'kept open: the old payload may still land');
+    assert.equal(reissue.status, 'payment_handoff', 'the handoff stays open');
     const check = await tool(app, buyer, 'verify_deal', { operationId: p2.operationId });
     assert.equal(check.verification.outcome, 'network_identity_mismatch');
     assert.equal(check.status, 'payment_handoff');
     assert.equal((await tool(app, buyer, 'cancel_wallet_handoff', { operationId: p2.operationId })).error, 'network_identity_mismatch', 'no cancel on another chain\'s nonce');
-    const hash = app.chain.walletBroadcast(approved.payload); // the old payload lands anyway
+    const hash = app.chain.walletBroadcast(approved.payload); // a late broadcast is still refused as a mismatch
     const reported = await reportPurchase(app, p2.operationId, token, { txHash: hash });
     assert.equal(reported.verification.outcome, 'network_identity_mismatch');
     assert.notEqual(reported.status, 'settled_verified');
