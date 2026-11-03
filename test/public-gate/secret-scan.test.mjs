@@ -208,6 +208,32 @@ test('an exception names one occurrence and a stale one fails before the scanner
   });
 });
 
+test('every entry named *.p12 or *.pfx is a finding without a line, whatever its content, mode or name encoding; no exception covers it and other names are not affected', async (t) => {
+  const repo = createRepo([
+    { path: 'text.p12', content: 'plain text\n' }, { path: 'deep/dir/Bundle.PFX', content: Buffer.from([0x30, 0x82, 0x00, 0x01, 0x00]) }, { path: 'link.pfx', content: 'text.p12', mode: '120000' },
+    { path: 'empty.p12', content: '' }, { path: 'p12', content: 'x\n' }, { path: 'a.p12.txt', content: 'x\n' }, { path: 'dir.p12/file.txt', content: 'x\n' }, { path: 'x.p120', content: 'x\n' }, { path: 'xp12', content: 'x\n' },
+  ]);
+  const flagged = ['deep/dir/Bundle.PFX', 'empty.p12', 'link.pfx', 'text.p12'];
+  await t.test('a text, a binary, an empty and a symlink entry are each reported, with no line', async () => {
+    const findings = await scan(repo, writeStubGitleaks());
+    assert.deepEqual(foundPaths(findings), flagged);
+    assert.ok(findings.every(({ rule, kind, line }) => rule === SECRET_RULE_ID && kind === 'content' && line === undefined));
+  });
+  await t.test('an exception cannot cover it, and the path is still reported when the scanner also finds a value in the blob', async () => {
+    const entries = await readEntries(repo);
+    const config = { ...CONFIG, secretExceptions: [exemption(entries, 'text.p12')] };
+    assert.deepEqual(foundPaths(await scan(repo, writeStubGitleaks(), config)), flagged);
+    const both = await scan(repo, writeStubGitleaks({ finds: [{ marker: 'plain text', rule: SAMPLE_RULE }] }));
+    assert.deepEqual(foundPaths(both), [...flagged, 'text.p12'].sort());
+  });
+  await t.test('a name that is not UTF-8 is judged by its bytes', async () => {
+    const entry = { position: 1, pathBytes: Buffer.from([0x66, 0xff, 0x2e, 0x70, 0x31, 0x32]), path: null, mode: '100644', kind: 'blob', oid: 'a'.repeat(40), size: 0, problem: 'invalid-utf8-path', bytes: null };
+    const stub = writeStubGitleaks();
+    const findings = await scanSecrets({ entries: [entry], config: CONFIG, scanner: { binary: stub.binary, sha256: stub.sha256 } });
+    assert.deepEqual(findings.map(({ rule, line }) => [rule, line]), [[SECRET_RULE_ID, undefined]]);
+  });
+});
+
 const realScanner = findPinnedGitleaks();
 const needsRealScanner = (t) => {
   if (realScanner) return false;
@@ -279,7 +305,13 @@ test('real scanner: a secret in a PHP, Terraform, Kubernetes YAML or NuGet confi
   assert.deepEqual(await scanReal(plain, { ...CONFIG, secretExceptions: await exemptGeneric(plain, renamed) }), [], 'at a plain path only the generic rule sees them');
 });
 
-test('real scanner: the pinned default rules gate on exactly the five path patterns the wrapper accounts for (four by suffix, pkcs12-file by the binary check)', (t) => {
+test('real scanner: a text .p12 or .pfx file, which the scanner flags by its path alone, is a finding in the gate under its neutral name; a file at a plain path is not', async (t) => {
+  if (needsRealScanner(t)) return;
+  const repo = createRepo([{ path: 'certs/client.p12', content: 'not a key\n' }, { path: 'certs/client.PFX', content: 'not a key\n' }, { path: 'certs/client.txt', content: 'not a key\n' }]);
+  assert.deepEqual(foundPaths(await scanReal(repo)), ['certs/client.PFX', 'certs/client.p12']);
+});
+
+test('real scanner: the pinned default rules gate on exactly the five path patterns the wrapper accounts for (four by suffix, pkcs12-file by the path check)', (t) => {
   if (needsRealScanner(t)) return;
   const embedded = [...readFileSync(realScanner.binary, 'latin1').matchAll(/^path = '''(.*)'''$/gm)].map(([, pattern]) => pattern).sort();
   const accounted = ['(?i)\\.php$', '(?i)\\.(?:tf|hcl)$', '(?i)\\.ya?ml$', '(?i)nuget\\.config$', '(?i)(?:^|\\/)[^\\/]+\\.p(?:12|fx)$'].sort();

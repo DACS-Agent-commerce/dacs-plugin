@@ -125,8 +125,9 @@ All output leaves through `scripts/public-gate/redact.mjs` on a route listed in 
   `hashicorp-tf-password` (`.tf`, `.hcl`), `kubernetes-secret-yaml` (`.yaml`, `.yml`) and `nuget-config-password`
   (`nuget.config`). A blob with an occurrence at such a path is written once more as `b<n>.php`, `b<n>.tf`, `b<n>.yaml` or
   `b<n>.nuget.config`, mapped to those occurrences only; the suffix is the only part of a path the scanner sees, and no
-  default path skip matches it. `pkcs12-file` matches on the path alone: a binary `.p12` or `.pfx` is refused as
-  `binary-without-disposition` before the scan, so it is not scanned for.
+  default path skip matches it. `pkcs12-file` matches on the path alone, which the neutral names hide, so the gate
+  reports an `R-SECRET` finding (no line) for every entry named `*.p12` or `*.pfx`, whatever its content, mode or reviewed binary
+  disposition; no exception covers it.
   The scanner also skips a file whose first read looks like an application type (PDF, bzip2, PostScript, ELF, tar at offset 257,
   ISO at offset 32769 and others), so every blob is written behind a one-line text header: 262 bytes, or 32774 for a blob
   that can reach offset 32769. No byte the target controls sits at a fixed offset the check reads. Lines are counted from the

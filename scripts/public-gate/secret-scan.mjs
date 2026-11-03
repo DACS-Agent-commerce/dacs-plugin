@@ -82,7 +82,7 @@ const scanHeader = (blobBytes) => {
 /**
  * The pinned default rules that read a file's path as well as its content, so they cannot fire on a bare `b<n>`: the path
  * pattern each one needs (as in gitleaks 8.30.1) and a neutral suffix that matches it. `pkcs12-file` also has a path
- * pattern but no content test; a binary `.p12` is already refused as `binary-without-disposition`.
+ * pattern but no content test, so no neutral copy can trigger it: PKCS12_PATH is judged on the path itself.
  */
 const PATH_GATED_RULES = [
   { pattern: /\.php$/i, suffix: '.php' },
@@ -90,6 +90,14 @@ const PATH_GATED_RULES = [
   { pattern: /\.ya?ml$/i, suffix: '.yaml' },
   { pattern: /nuget\.config$/i, suffix: '.nuget.config' },
 ];
+
+/** The path `pkcs12-file` reads (as in gitleaks 8.30.1): a file named `*.p12` or `*.pfx`, at any depth. */
+const PKCS12_PATH = /(?:^|\/)[^/]+\.p(?:12|fx)$/i;
+
+/** One finding, with no line, for every entry at a PKCS#12 path, whatever its content, mode or reviewed disposition; the name is matched as bytes, so a name that is not UTF-8 is judged too. */
+const pkcs12PathFindings = (entries) => entries
+  .filter((entry) => PKCS12_PATH.test(entry.pathBytes.toString('latin1')))
+  .map((entry) => ({ rule: SECRET_RULE_ID, kind: 'content', entry }));
 
 /** The suffixes a blob at `filePath` is written under: none, and each one a path-gated rule needs for that path. */
 const copySuffixes = (filePath) => ['', ...PATH_GATED_RULES.filter(({ pattern }) => pattern.test(filePath)).map(({ suffix }) => suffix)];
@@ -162,7 +170,9 @@ function occurrenceFindings(items, occurrences, rulings) {
  * names. A private copy of the binary must match the SHA-256 and report `config.scanner.version` before anything is
  * written. Each distinct blob is written once under a neutral name (and once more with a neutral suffix for each path-gated
  * rule its paths need) in a fresh private folder (removed on every exit) and scanned with the gate's own policy and a run-owned ignore. Findings are judged per occurrence: one that a baseline or
- * `secretExceptions` ruling covers exactly (path, blob, rule, line) is dropped. Returns findings `{ rule, kind, entry, line }`.
+ * `secretExceptions` ruling covers exactly (path, blob, rule, line) is dropped. Every entry at a `.p12` or `.pfx` path is also a
+ * finding without a line, whatever its content (the scanner's `pkcs12-file` rule reads the path alone, which the neutral names
+ * hide); no ruling covers it. Returns findings `{ rule, kind, entry, line? }`.
  * Throws GateInputError: stale-secret-exception, scanner-missing, -checksum-mismatch, -version-mismatch, -failed,
  * scanner-report-malformed, limit:maxScanReportBytes or limit:maxReportEntries; RunBoundedError for a deadline, an output
  * over the cap, an interrupt or a spawn failure.
@@ -189,7 +199,7 @@ export async function scanSecrets({ entries, config, scanner, signal }) {
     if (status !== 0 && status !== LEAKS_EXIT_CODE) throw new GateInputError('scanner-failed', `the scanner exited with status ${status}`);
     const items = await readReport(reportFile, config.limits);
     if ((status === LEAKS_EXIT_CODE) !== (items.length > 0)) throw malformedReport('disagrees with the scanner status');
-    return occurrenceFindings(items, occurrences, [...config.secretBaseline, ...config.secretExceptions]);
+    return [...pkcs12PathFindings(entries), ...occurrenceFindings(items, occurrences, [...config.secretBaseline, ...config.secretExceptions])];
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
