@@ -2,8 +2,8 @@
 
 Every file in this repository's first commit, except this manifest, came from an
 earlier private plugin repository at the same path (two fixture files carry a
-new name, noted in their rows), or was added for this repository. Files marked `added` that are not in the first commit (the root package, `scripts/`, `test/`
-and `public-gate.config.json`) were added by later changes. Each row gives the file's current blob and whether the file is
+new name, noted in their rows), or was added for this repository. Files marked `added` that are not in the first commit (the root package, `scripts/`, `test/`,
+`docs/PUBLIC-GATE.md` and `public-gate.config.json`) were added by later changes. Each row gives the file's current blob and whether the file is
 byte-for-byte unchanged from that repository (`verbatim`), was edited before
 import (with the reason), or was added. A file changed in this repository after
 the first commit keeps its row, with the blob of its current content and
@@ -34,13 +34,14 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 742 (verbatim 505, edited 215, changed here 6, added 16).
+Files: 748 (verbatim 505, edited 215, changed here 6, added 22).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
 | `.gitleaksignore` | `5f6b32b9b0f7f675ea49a6dae958c1f8b0016d90` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
 | `README.md` | `857e78943e5bf734cb2542f4ae8691c0e55259a9` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch |
+| `docs/PUBLIC-GATE.md` | `d049071f2408cffe38e5355fe8126db2220d0945` | added: documentation of the public-content gate |
 | `http-mcp/.dockerignore` | `aae035eb68f5747b0bda683606503b97ca99afdf` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/.env.example` | `61149650b005fca4655a1ba4d338e3b2a5f52f7d` | verbatim |
 | `http-mcp/.gitignore` | `1a8d076aff4a0fae67103239e52b41dd82b25daf` | verbatim |
@@ -700,11 +701,13 @@ Files: 742 (verbatim 505, edited 215, changed here 6, added 16).
 | `http-mcp/wallet-build/package.json` | `6370d54fbf15b44f14e0005bb3471ed93999b52e` | verbatim |
 | `http-mcp/wallet-build/shims.mjs` | `b90f32a3c063bf436cd25a96ab7b27d61491c43c` | verbatim |
 | `package-lock.json` | `02b053fab55700b6fe75742c85076e26dc230628` | added: lockfile of the root package |
-| `package.json` | `6f4d7ca0f0796a019620e088672d8e4b9a32da9f` | added: root package with the test command |
-| `public-gate.config.json` | `bdc4436dc7824caa9ac2978a170ffc0f37d982d3` | added: gate limits, text extensions and binary dispositions |
+| `package.json` | `4ebe6b182ec5b5535329ae2158fde9f24d0f7e93` | added: root package with the gate scripts and the test command |
+| `public-gate.config.json` | `72ed504e0bd86883f8da0f011b86ee6122f664d1` | added: gate limits, text extensions and binary dispositions |
 | `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
 | `scripts/public-gate/classify.mjs` | `afe007bda11127b8e9d1baa181a5bba277545bc2` | added: public-content gate source |
+| `scripts/public-gate/gate.mjs` | `ab049e464369043ab3d6b99b958d4df00d835128` | added: public-content gate source |
 | `scripts/public-gate/objects.mjs` | `f73c23fbdc38386ee7fcbcefe87c07cbf3354302` | added: public-content gate source |
+| `scripts/public-gate/redact.mjs` | `c09987c32c321c2c9b0a53d8818ca80de06fed2d` | added: public-content gate source |
 | `scripts/public-gate/rules-private.mjs` | `d6914f52e4eeed8c1472eadb08c08f2ac0b5f1e3` | added: public-content gate source |
 | `stdio-mcp/.claude-plugin/marketplace.json` | `d84732871f473d7f9e0bc6a1144bae8b0646af0f` | verbatim |
 | `stdio-mcp/.claude-plugin/plugin.json` | `c977a78af1a20e73a71e8fb05ac88dfc15f6b66a` | edited: RPC and opt-in descriptions name no host and do not direct testnet writes to the mainnet opt-in |
@@ -775,8 +778,11 @@ Files: 742 (verbatim 505, edited 215, changed here 6, added 16).
 | `stdio-mcp/tsconfig.json` | `3cf94395ce469d74d6c8ba7abcb763df04e51863` | verbatim |
 | `test/ci/carry-state.test.mjs` | `ad09f5acfeaac7b1623e4400bc8e984326a0817d` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/ci/root-script.test.mjs` | `1113534311581054298466b4a169d518b8afc40b` | added: tests of the public-content gate and of the carried-file inventory |
-| `test/lib/choice.test.mjs` | `26f4d0970e0315c810c5d39d4bf81a054a3c0976` | added: tests of the public-content gate and of the carried-file inventory |
-| `test/lib/gate-fixtures.mjs` | `e3949a8476e4ce470a0d8f5c37a6232744531fd5` | added: tests of the public-content gate and of the carried-file inventory |
-| `test/public-gate/engine.test.mjs` | `ca2f9f68e01c766454f6d26d72a515f46d9681b7` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/lib/choice.test.mjs` | `cae89a43896dba6342e100bfe837fee59b610012` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/lib/gate-fixtures.mjs` | `1f9698b60c96a1335fc4c0ba18fbb9350526cc78` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/engine.test.mjs` | `bd5f7814039a0f8462952dc732a7ab46d5567b60` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private-list.test.mjs` | `005f16e31528208ba6f9afbec8c0cfe0b8f20b77` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private-matcher.test.mjs` | `7cea6ab6e576663cc6566a3c033cfacc55e14620` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/private.test.mjs` | `e441ae2205b2c560bdfac3568e82bb69b460a9f8` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/redact.test.mjs` | `44857b4700c4a067f24cfa4384fd4150796d56a0` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/report.test.mjs` | `6d95dc01a1ca62928cc1010b5e57a28f30d8a3d6` | added: tests of the public-content gate and of the carried-file inventory |
