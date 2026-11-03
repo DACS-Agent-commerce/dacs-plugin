@@ -152,7 +152,7 @@ export function loadConfig(e: NodeJS.ProcessEnv = process.env): Config {
     recipientAllowlist,
     confirmChannels,
     confirmWebhookUrl,
-    confirmTtlMs: ttlSec * 1000,
+    confirmTtlMs: Math.round(ttlSec * 1000), // whole milliseconds: approval deadlines must be integers
     stateDir,
     faucetApiUrl: env(e, 'DEMOS_FAUCET_API_URL') ?? 'https://faucet-api.invalid/api/request',
     faucetPageUrl: env(e, 'DEMOS_FAUCET_PAGE_URL') ?? 'https://faucet.invalid',
