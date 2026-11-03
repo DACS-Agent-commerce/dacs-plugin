@@ -1,0 +1,15 @@
+{
+  "name": "dacs-plugin-root",
+  "private": true,
+  "type": "module",
+  "description": "Repository-level checks for the DACS plugins: the public-content gate and its tests.",
+  "scripts": {
+    "gate:generic": "node scripts/public-gate/gate.mjs --scope generic",
+    "gate:complete": "node scripts/public-gate/gate.mjs --scope complete",
+    "gate:history": "node scripts/public-gate/history.mjs",
+    "test": "node --test \"test/**/*.test.mjs\""
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
