@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { DIAGNOSTIC_ROUTES } from '../../scripts/public-gate/redact.mjs';
 import {
-  REPO_ROOT, ROOT_COMMIT, completeArgs, createRepo, makeTempDir, runCheckReport, runGate, writeList,
+  REPO_ROOT, ROOT_COMMIT, cleanScannerArgs, completeArgs, createRepo, expectedScanIdentity, makeTempDir, runCheckReport, runGate, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const PRIVATE_VALUE = ['onyx', 'meridian'].join('-');
@@ -14,7 +14,7 @@ const DIAGNOSTIC_DIRS = ['scripts/public-gate', 'scripts/ci'];
 const EMITTER_FILE = path.join('scripts', 'public-gate', 'redact.mjs');
 const OUTPUT_SINK = /\bconsole\.|process\.std(?:out|err)\b|\b(?:writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|writeSync)\b/;
 // Exact-byte export and materialization writers are data writes, not diagnostics; later cards list theirs here.
-const EXACT_BYTE_WRITERS = [];
+const EXACT_BYTE_WRITERS = [path.join('scripts', 'public-gate', 'secret-scan.mjs')];
 
 function sourceFiles(dir) {
   const full = path.join(REPO_ROOT, dir);
@@ -83,7 +83,7 @@ const scenarios = {
   'check-report.stderr': () => {
     const repo = leakRepo();
     const report = JSON.parse(runGate(completeArgs(repo, writeList([PRIVATE_VALUE]))).stdout);
-    const context = { gateRevision: report.scanner.gateRevision, configSha256: report.scanner.configSha256, expectedRoot: repo.commit };
+    const context = { gateRevision: report.scanner.gateRevision, configSha256: report.scanner.configSha256, ...expectedScanIdentity(), expectedRoot: repo.commit };
     const inputs = [
       [{ ...report, rules: [{ id: PRIVATE_VALUE, status: 'passed' }] }, 'report-rules-differ', 1],
       [{ ...report, rules: [{ id: PRIVATE_VALUE, status: PRIVATE_VALUE }] }, 'report-malformed', 2],
@@ -127,9 +127,9 @@ test('at this PR: gate `--scope` and the gate\'s own routes; later owners add th
 
   await t.test('a huge or malformed argument gives one bounded cause line and no echo', () => {
     const cases = [
-      [['--repo', 'm'.repeat(70_000), '--commit', ROOT_COMMIT, '--scope', 'generic'], 'git-refused: git refused the request'],
+      [['--repo', 'm'.repeat(70_000), '--commit', ROOT_COMMIT, '--scope', 'generic', ...cleanScannerArgs()], 'git-refused: git refused the request'],
       [['--repo', 'r', '--commit', ROOT_COMMIT, '--scope', 'm'.repeat(70_000)], 'oversized-choice: a choice value is too long'],
-      [['--repo', 'r', '--commit', 'HEAD', '--scope', 'generic'], 'bad-arguments: the arguments are malformed (see docs/PUBLIC-GATE.md)'],
+      [['--repo', 'r', '--commit', 'HEAD', '--scope', 'generic', ...cleanScannerArgs()], 'bad-arguments: the arguments are malformed (see docs/PUBLIC-GATE.md)'],
       [['stray'], 'bad-arguments: the arguments are malformed (see docs/PUBLIC-GATE.md)'],
     ];
     for (const [args, line] of cases) {
@@ -138,7 +138,7 @@ test('at this PR: gate `--scope` and the gate\'s own routes; later owners add th
       assert.ok(result.stderr.split('\n').includes(line), result.stderr.slice(0, 200));
       assert.ok(!result.stderr.includes('mmmm') && !result.stderr.includes('HEAD'));
     }
-    const missingRepo = runGate(['--repo', path.join(makeTempDir('missing'), AWKWARD_PATH), '--commit', ROOT_COMMIT, '--scope', 'generic']);
+    const missingRepo = runGate(['--repo', path.join(makeTempDir('missing'), AWKWARD_PATH), '--commit', ROOT_COMMIT, '--scope', 'generic', ...cleanScannerArgs()]);
     assert.match(missingRepo.stderr, /^git-refused: git refused the request$/m);
     leaksNothing(missingRepo.stderr);
   });
@@ -162,7 +162,7 @@ test('the private evidence is the only output holding the exact path, is owner-o
   assert.equal(again.status, 2);
   assert.match(again.stderr, /^evidence-exists: /m);
   assert.equal(JSON.parse(readFileSync(evidence, 'utf8'))[`${repo.commit}:1`], AWKWARD_PATH);
-  assert.equal(runGate(['--repo', repo.dir, '--commit', repo.commit, '--scope', 'generic', '--private-evidence', evidence]).status, 2);
+  assert.equal(runGate(['--repo', repo.dir, '--commit', repo.commit, '--scope', 'generic', ...cleanScannerArgs(), '--private-evidence', evidence]).status, 2);
 });
 
 test('the evidence is written only after the report: a refused report destination leaves no evidence, and a failed evidence write exits 2', () => {

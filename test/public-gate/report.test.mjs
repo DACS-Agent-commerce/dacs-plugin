@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { createScanDeadline, gateRevision } from '../../scripts/public-gate/gate.mjs';
 import {
-  CONFIG_FILE, ROOT_COMMIT, completeArgs, createRepo, gateArgs, makeTempDir, runGate, sha256, writeList,
+  CONFIG_FILE, ROOT_COMMIT, completeArgs, createRepo, expectedScanIdentity, gateArgs, makeTempDir, runGate, sha256, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const PLANTED = ['quartz', 'lantern'].join('-');
@@ -19,7 +19,7 @@ function keyPaths(value, prefix = '') {
 }
 
 const REPORT_KEYS = ['.findings', '.findings[].kind', '.findings[].line', '.findings[].location', '.findings[].rule', '.rules', '.rules[].id', '.rules[].status',
-  '.scanner', '.scanner.configSha256', '.scanner.expectedRoot', '.scanner.gateRevision', '.scope', '.target', '.target.commit', '.target.tree',
+  '.scanner', '.scanner.configSha256', '.scanner.expectedRoot', '.scanner.gateRevision', '.scanner.scannerPolicySha256', '.scanner.scannerVersion', '.scanner.secretExceptionsSha256', '.scope', '.target', '.target.commit', '.target.tree',
   '.unscannable', '.unscannable[].cause', '.unscannable[].location'];
 
 test('generic scope exits 0 with the private rule not-run; complete scope without the list exits 2; both reports carry scope, target, scanner identity and each rule\'s status', () => {
@@ -29,8 +29,8 @@ test('generic scope exits 0 with the private rule not-run; complete scope withou
   const report = JSON.parse(generic.stdout);
   assert.equal(report.scope, 'generic');
   assert.deepEqual(report.target, { commit: repo.commit, tree: repo.tree });
-  assert.deepEqual(report.scanner, { gateRevision: gateRevision(), configSha256: configSha256() });
-  assert.deepEqual(report.rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }]);
+  assert.deepEqual(report.scanner, { gateRevision: gateRevision(), configSha256: configSha256(), ...expectedScanIdentity() });
+  assert.deepEqual(report.rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }, { id: 'R-SECRET', status: 'passed' }]);
 
   const missingList = runGate(gateArgs(repo, 'complete', ['--expected-root', ROOT_COMMIT]));
   assert.equal(missingList.status, 2);
@@ -38,8 +38,8 @@ test('generic scope exits 0 with the private rule not-run; complete scope withou
 
   const complete = JSON.parse(runGate(completeArgs(repo, writeList([PLANTED]))).stdout);
   assert.equal(complete.scope, 'complete');
-  assert.deepEqual(complete.scanner, { gateRevision: gateRevision(), configSha256: configSha256(), expectedRoot: repo.commit });
-  assert.deepEqual(complete.rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-PRIVATE', status: 'passed' }]);
+  assert.deepEqual(complete.scanner, { gateRevision: gateRevision(), configSha256: configSha256(), ...expectedScanIdentity(), expectedRoot: repo.commit });
+  assert.deepEqual(complete.rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-PRIVATE', status: 'passed' }, { id: 'R-SECRET', status: 'passed' }]);
 });
 
 test('the report holds nothing derived from the list: different, reordered, repeated or overlapping lists give byte-identical reports with only the fixed keys and no list digest', () => {

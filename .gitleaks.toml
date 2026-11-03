@@ -1,0 +1,6 @@
+# Policy of the public-repo gate's secret scan: gitleaks' default rules. The gate always passes it with --config; no file
+# in a scanned tree can select or change the policy.
+title = "public-gate secret scan"
+
+[extend]
+useDefault = true

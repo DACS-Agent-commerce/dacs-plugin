@@ -26,7 +26,7 @@ test('a clean history passes with every commit read; an entry that an early comm
   assert.equal(report.scope, 'history');
   assert.deepEqual(report.target, { heads: [clean.commits[2]], commits: 3 });
   assert.deepEqual(report.rules.map(({ id, status }) => `${id} ${status}`), [
-    'R-ACCOUNT passed', 'R-ARCHIVE passed', 'R-ENV passed', 'R-HOST passed', 'R-HOSTING passed', 'R-IDENTITY not-run', 'R-IP passed', 'R-PRIVATE passed',
+    'R-ACCOUNT passed', 'R-ARCHIVE passed', 'R-ENV passed', 'R-HOST passed', 'R-HOSTING passed', 'R-IDENTITY not-run', 'R-IP passed', 'R-PRIVATE passed', 'R-SECRET not-run',
   ]);
   assert.equal(report.scanner.gateRevision, gateRevision());
   assert.equal(report.scanner.expectedRoot, clean.commits[0]);
@@ -78,8 +78,8 @@ test('the address, env, hosting and archive rules read every commit tree: what a
   const run = runHistory(historyArgs(history, listFile));
   assert.equal(run.status, 1, run.stderr);
   const report = JSON.parse(run.stdout);
-  assert.deepEqual(report.rules.map(({ id }) => id), ['R-ACCOUNT', 'R-ARCHIVE', 'R-ENV', 'R-HOST', 'R-HOSTING', 'R-IDENTITY', 'R-IP', 'R-PRIVATE']);
-  assert.deepEqual(report.rules.map(({ status }) => status), ['findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings', 'passed']);
+  assert.deepEqual(report.rules.map(({ id }) => id), ['R-ACCOUNT', 'R-ARCHIVE', 'R-ENV', 'R-HOST', 'R-HOSTING', 'R-IDENTITY', 'R-IP', 'R-PRIVATE', 'R-SECRET']);
+  assert.deepEqual(report.rules.map(({ status }) => status), ['findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings', 'passed', 'not-run']);
   assert.deepEqual(brief(report), [
     'R-ACCOUNT content 5 3', 'R-ARCHIVE content 3 -', 'R-ENV content 1 1', 'R-HOST content 5 1', 'R-HOSTING path 4 -', 'R-IP content 5 2',
   ]);
@@ -295,7 +295,7 @@ test('the history report holds no pull-request key path and nothing derived from
   assert.deepEqual(report.findings.map(({ kind, location, line }) => [kind, location, line]), [
     ['content', `${commit}:2`, 2], ['message', `${commit}:message`, 3], ['path', `${commit}:2`, undefined], ['pr-text', 'pr-1:5', 1], ['pr-text', 'pr-1:6', 1], ['pr-text', 'pr-1:7', 1],
   ]);
-  const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|pr-[1-9][0-9]*:[1-9][0-9]*|history|R-[A-Z]+|path|content|message|pr-text|passed|findings)$/;
+  const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|pr-[1-9][0-9]*:[1-9][0-9]*|history|R-[A-Z]+|path|content|message|pr-text|passed|not-run|findings)$/;
   const keys = new Set(['scope', 'target', 'heads', 'commits', 'scanner', 'gateRevision', 'configSha256', 'expectedRoot', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
   const walk = (value) => {
     if (typeof value === 'string') assert.match(value, fixed);
