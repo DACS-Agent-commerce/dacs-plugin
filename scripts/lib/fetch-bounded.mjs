@@ -27,17 +27,17 @@ async function fetchTransport(url, { signal }) {
   };
 }
 
-/** One shared stop: it fires on the deadline or the caller's abort, and `race` lets it win every tie. */
+/** One shared stop: it fires on the deadline or the caller's abort, `race` lets it win every tie and `error()` is what it fired with. */
 function createStop({ deadlineMs, signal }) {
   const controller = new AbortController();
   let timer;
-  let stopped = false;
+  let stopError = null;
   let onAbort;
   const fired = new Promise((_, reject) => {
     const fire = (cause, message) => {
-      stopped = true;
+      stopError = refusal(cause, message);
+      reject(stopError);
       controller.abort();
-      reject(refusal(cause, message));
     };
     timer = setTimeout(() => fire('download-timeout', `the download took longer than ${deadlineMs} ms`), deadlineMs);
     onAbort = () => fire('interrupted', 'the download was interrupted');
@@ -47,7 +47,7 @@ function createStop({ deadlineMs, signal }) {
   fired.catch(ignore);
   return {
     signal: controller.signal,
-    isStopped: () => stopped,
+    error: () => stopError,
     race: (work) => Promise.race([fired, work]),
     release() {
       clearTimeout(timer);
@@ -72,7 +72,7 @@ async function followRedirects({ address, maxRedirects, transport, stop }) {
   let current = requireHttps(address);
   for (let hop = 0; ; hop += 1) {
     const pending = transport(current, { signal: stop.signal });
-    pending.then((late) => { if (stop.isStopped()) late.release(); }, ignore);
+    pending.then((late) => { if (stop.error()) late.release(); }, ignore);
     const response = await stop.race(pending);
     if (!REDIRECT_STATUSES.has(response.status)) return response;
     response.release();
@@ -139,8 +139,9 @@ export async function fetchBounded({ url, destination, sha256, maxBytes, deadlin
     await file.close();
     return { bytes: received, sha256: digest };
   } catch (error) {
+    const failure = stop.error() ?? (error instanceof GateInputError ? error : refusal('download-failed', `the download failed (${error.code ?? error.name})`));
     await removePartial(file, destination);
-    throw error instanceof GateInputError ? error : refusal('download-failed', `the download failed (${error.code ?? error.name})`);
+    throw failure;
   } finally {
     stop.release();
     response?.release();

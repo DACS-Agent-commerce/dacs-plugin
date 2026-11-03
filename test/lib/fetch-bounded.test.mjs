@@ -209,6 +209,28 @@ test('truncation, an HTTP failure, a checksum mismatch and an interruption remov
     assert.equal(existsSync(destination), false);
   });
 
+  for (const stalledPart of ['headers', 'body']) {
+    await t.test(`a transport that rejects with an AbortError as soon as its signal aborts still reports the deadline and the caller's abort while waiting for the ${stalledPart}`, async () => {
+      const abortReacting = (signal) => new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')), { once: true });
+      });
+      const transport = async (url, { signal }) => {
+        if (stalledPart === 'headers') return abortReacting(signal);
+        const body = { [Symbol.asyncIterator]: () => ({ next: () => abortReacting(signal), return: async () => ({ done: true, value: undefined }) }) };
+        return { status: 200, location: null, contentLength: null, body, release() {} };
+      };
+      const destination = freshPath();
+      assert.equal((await rejection(download({ destination, transport, deadlineMs: DEADLINE_MS }))).cause, 'download-timeout');
+      assert.equal(existsSync(destination), false);
+      const controller = new AbortController();
+      const running = download({ destination, transport, signal: controller.signal });
+      await nextTurn();
+      controller.abort();
+      assert.equal((await rejection(running)).cause, 'interrupted');
+      assert.equal(existsSync(destination), false);
+    });
+  }
+
   await t.test('a stop that coincides with a ready chunk wins over the chunk', async () => {
     const controller = new AbortController();
     const readyChunks = { [Symbol.asyncIterator]: () => ({ next: () => { controller.abort(); return Promise.resolve({ done: false, value: Buffer.alloc(1) }); } }) };
