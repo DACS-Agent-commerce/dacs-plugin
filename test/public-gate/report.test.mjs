@@ -38,7 +38,7 @@ test('generic scope exits 0 with the private rule not-run; complete scope withou
 
   const complete = JSON.parse(runGate(completeArgs(repo, writeList([PLANTED]))).stdout);
   assert.equal(complete.scope, 'complete');
-  assert.deepEqual(complete.scanner, { gateRevision: gateRevision(), configSha256: configSha256(), expectedRoot: ROOT_COMMIT });
+  assert.deepEqual(complete.scanner, { gateRevision: gateRevision(), configSha256: configSha256(), expectedRoot: repo.commit });
   assert.deepEqual(complete.rules, [{ id: 'R-PRIVATE', status: 'passed' }]);
 });
 
