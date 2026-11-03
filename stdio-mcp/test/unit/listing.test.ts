@@ -259,3 +259,45 @@ test('the listing pin is accepted by the existing offer tool as listing_ref (LR-
   });
   assert.equal(offer.isError, false, offer.text);
 });
+
+// ---- small-order public keys are refused ----
+// Little-endian encodings: the 8 small-order points and the 6 non-canonical spellings of them.
+const SMALL_ORDER_KEYS = ['01' + '00'.repeat(31), '01' + '00'.repeat(30) + '80', 'ec' + 'ff'.repeat(30) + '7f', 'ec' + 'ff'.repeat(31),
+  '00'.repeat(32), '00'.repeat(31) + '80', '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05', '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85',
+  'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a', 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa',
+  'ed' + 'ff'.repeat(30) + '7f', 'ee' + 'ff'.repeat(30) + '7f', 'ed' + 'ff'.repeat(31), 'ee' + 'ff'.repeat(31)];
+const CONSTANT_SIG = Buffer.from('01' + '00'.repeat(63), 'hex').toString('base64url'); // R = identity, S = 0
+
+function listingPresentedBy(presenterClaim: string, presenterSig: (payload: string) => string) {
+  const priv = new Uint8Array(32).fill(77), pub = ed.getPublicKey(priv);
+  const signer = 'key:' + Buffer.from(pub).toString('hex');
+  const identity: any = { bundleVersion: '1', presentedBy: presenterClaim, presentedAt: 1, claims: [{ ref: signer }, { ref: presenterClaim }] };
+  identity.presentation = { kind: 'per-claim', signatures: [{ ref: presenterClaim, signature: presenterSig('dacs-bundle-presentation:v1:' + bundleHash(identity)) }] };
+  const d: any = {
+    dacsVersion: '1', listingVersion: 1, listingId: 'x', seller: { identity, displayName: 'S' },
+    offering: { title: 't', description: 'd', category: 'a.b', tags: [], deliverable: { kind: 'external', description: 'x' } },
+    buyerRequirement: { requirementVersion: '1', required: [] }, pipeline: [{ kind: 'negotiate-fixed-price' }, { kind: 'pay-x402', parameters: { rail: 'r' } }],
+    acceptedRails: [{ railId: 'x402:USDC' }], pricing: { kind: 'fixed', price: { amount: '1', currency: 'USDC' } }, terms: {}, validity: { notBefore: 1 },
+  };
+  d.signature = { algorithm: 'ed25519', signer, value: Buffer.from(ed.sign(new TextEncoder().encode('dacs-listing:v1:' + listingHash(d)), priv)).toString('base64url') };
+  return d;
+}
+
+test('a presentation signed by an ordinary key verifies and a different message does not', () => {
+  const priv = new Uint8Array(32).fill(78), claim = 'key:' + Buffer.from(ed.getPublicKey(priv)).toString('hex');
+  const sign = (payload: string) => Buffer.from(ed.sign(new TextEncoder().encode(payload), priv)).toString('base64url');
+  const ok = verifyListing(listingPresentedBy(claim, sign), { now: NOW, revocation: 'absent' });
+  assert.equal(ok.checks.find((c) => c.check === 'bundle-presentation')?.decision, 'pass');
+  assert.equal(failedAt(ok), undefined);
+  assert.equal(failedAt(verifyListing(listingPresentedBy(claim, (payload) => sign(payload + 'x')), { now: NOW, revocation: 'absent' })), 'bundle-presentation');
+});
+
+for (const key of SMALL_ORDER_KEYS) {
+  test(`small-order key ${key.slice(0, 8)}…${key.slice(-2)} is refused for a presentation and a listing signature`, () => {
+    const claim = 'key:' + key;
+    assert.equal(failedAt(verifyListing(listingPresentedBy(claim, () => CONSTANT_SIG), { now: NOW, revocation: 'absent' })), 'bundle-presentation');
+    const listing = listingPresentedBy(claim, () => CONSTANT_SIG);
+    const refused = verifyListing({ ...listing, signature: { algorithm: 'ed25519', signer: claim, value: CONSTANT_SIG } }, { now: NOW, revocation: 'absent' });
+    assert.equal(failedAt(refused), '4-signature');
+  });
+}

@@ -1,0 +1,385 @@
+{
+  "http-mcp/bin/offline-fixtures/tester-dashboard.mjs": {
+    "no-unused-vars": {
+      "count": 4
+    }
+  },
+  "http-mcp/bin/offline-fixtures/tester-ui/dashboard.js": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "http-mcp/public/portal/portal.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "http-mcp/src/auth/authorization-server.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    },
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "http-mcp/src/identity-signals/github.mjs": {
+    "no-dupe-keys": {
+      "count": 2
+    },
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "http-mcp/src/mcp/seller-content.mjs": {
+    "no-misleading-character-class": {
+      "count": 1
+    }
+  },
+  "http-mcp/src/mcp/server.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/agreement-context-replay-resend.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/agreement-plan-single-flight.test.mjs": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "http-mcp/test/buyer-chain-readback-commit-on-signature.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/buyer-chain-readback-in-flight.test.mjs": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "http-mcp/test/buyer-chain-readback.test.mjs": {
+    "no-unused-vars": {
+      "count": 4
+    }
+  },
+  "http-mcp/test/closed-access-paid-recovery.test.mjs": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "http-mcp/test/closed-access-readback.test.mjs": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "http-mcp/test/completion-readiness.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/config-equivalence.test.mjs": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "http-mcp/test/delivery-deadline-watch.test.mjs": {
+    "no-unused-vars": {
+      "count": 4
+    }
+  },
+  "http-mcp/test/devnet-agreement-transport.browser.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/devnet-live-composition-builder.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/durable-wallet-journal.test.mjs": {
+    "no-sparse-arrays": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/fixtures/authorization-server.pre-dcr-logout.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    },
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/fixtures/seller-durable-state.v1-baseline.mjs": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "http-mcp/test/helpers/check-public-text-report-mutants.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/helpers/claude-node2-current-coverage-fixture.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/helpers/devnet-live-composition-app.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/helpers/model-report.mjs": {
+    "no-misleading-character-class": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/helpers/native-settlement-consumer-seller.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/helpers/party-vet-fixture.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/helpers/public-sr2-projection-flow.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/helpers/seller-write-batch-mutants.mjs": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "http-mcp/test/helpers/showcase-safety-fixture.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/helpers/wallet-write-batch-mutants.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/mcp-seller-content.test.mjs": {
+    "no-irregular-whitespace": {
+      "count": 1
+    },
+    "no-sparse-arrays": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/mcp-seller-diagnostics-errors.test.mjs": {
+    "no-irregular-whitespace": {
+      "count": 2
+    },
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/mcp-seller-diagnostics.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/mutate-dcr.test.mjs": {
+    "no-unsafe-finally": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/native-agreement-payment.browser.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/native-agreement-readback-cache.test.mjs": {
+    "no-unused-vars": {
+      "count": 4
+    }
+  },
+  "http-mcp/test/native-payment-cancel-failed-lane.test.mjs": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "http-mcp/test/native-payment-cancel-refused.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/native-payment-cancel-send.test.mjs": {
+    "no-unused-vars": {
+      "count": 9
+    }
+  },
+  "http-mcp/test/node2-native-transfer-readback-prefixed.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/oauth-cimd-timeout.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/oauth-logout.test.mjs": {
+    "no-unsafe-finally": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/ops-health-native-transfer-records.test.mjs": {
+    "no-unused-vars": {
+      "count": 6
+    }
+  },
+  "http-mcp/test/ops-health.test.mjs": {
+    "no-unused-vars": {
+      "count": 5
+    },
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/overnight-acceptance-core.test.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/overnight-acceptance-ui.test.mjs": {
+    "no-unused-vars": {
+      "count": 12
+    }
+  },
+  "http-mcp/test/overnight-ui.test.mjs": {
+    "no-unused-vars": {
+      "count": 8
+    }
+  },
+  "http-mcp/test/portal-auto-assets.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/protocol-revision-races.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/public-sr2-projection.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/purchase-poll.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/run-test-files.test.mjs": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "http-mcp/test/seller-policy-delivery-evidence.test.mjs": {
+    "no-unused-vars": {
+      "count": 8
+    }
+  },
+  "http-mcp/test/seller-session-late-recheck.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/seller-uncertain-payment-recovery-prefixed.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/settlement-pointer-race.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/showcase-walkthrough.test.mjs": {
+    "no-regex-spaces": {
+      "count": 2
+    }
+  },
+  "http-mcp/test/start-intent-production.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/start-intent-review-wallet.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/switch-registry.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/ui-status.test.mjs": {
+    "no-irregular-whitespace": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/wallet-extension-probe.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "http-mcp/test/wallet-write-batch.test.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "stdio-mcp/src/chain.ts": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "stdio-mcp/src/confirm.ts": {
+    "array-callback-return": {
+      "count": 1
+    }
+  },
+  "stdio-mcp/src/http_transport.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 1
+    }
+  },
+  "stdio-mcp/src/index.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "stdio-mcp/src/onboard.ts": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "stdio-mcp/src/server.ts": {
+    "no-useless-assignment": {
+      "count": 3
+    }
+  },
+  "stdio-mcp/test/helpers.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "stdio-mcp/test/unit/no-key-leak.test.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  }
+}
