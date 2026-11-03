@@ -10,7 +10,8 @@
  *
  *  - GET never changes state (link previewers cannot approve); POST does.
  *  - Host header must match the bound host (DNS-rebinding defence); a present
- *    Origin must match too.
+ *    Origin must be this page's own origin (a `null` Origin is refused).
+ *  - A link stops working at its deadline: `now >= expiresAt` refuses.
  *  - Strict CSP, no scripts, no external resources.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -105,8 +106,9 @@ export class ApprovalServer {
 
   /** Mint a single-use approval URL for this prepared action. */
   async register(preparedId: string, card: ApprovalCard, expiresAt: number, spec?: InteractiveSpec): Promise<string> {
+    if (!Number.isSafeInteger(expiresAt) || expiresAt < 0) throw new Error('approval_expiry_invalid');
     await this.start();
-    for (const [k, e] of this.entries) if (e.preparedId === preparedId || this.now() > e.expiresAt) this.entries.delete(k);
+    for (const [k, e] of this.entries) if (e.preparedId === preparedId || this.now() >= e.expiresAt) this.entries.delete(k);
     const token = randomBytes(32).toString('base64url');
     const th = hashToken(token);
     this.entries.set(th.toString('hex'), { preparedId, tokenHash: th, card, expiresAt, state: 'pending', spec });
@@ -122,7 +124,7 @@ export class ApprovalServer {
     const th = hashToken(token);
     const e = this.entries.get(th.toString('hex'));
     if (!e || !timingSafeEqual(e.tokenHash, th)) return null;
-    if (this.now() > e.expiresAt) {
+    if (this.now() >= e.expiresAt) {
       this.entries.delete(th.toString('hex'));
       return null;
     }
@@ -133,15 +135,20 @@ export class ApprovalServer {
     const expectedHost = this.publicBase ? new URL(this.publicBase).host : `${this.host.includes(':') ? `[${this.host}]` : this.host}:${this.port}`;
     if (req.headers.host !== expectedHost) return false;
     const origin = req.headers.origin;
-    if (origin !== undefined && origin !== 'null' && new URL(origin).host !== expectedHost) return false;
-    return true;
+    if (origin === undefined) return true;
+    try {
+      return new URL(origin).origin === new URL(this.base()).origin; // canonical: scheme, host and port
+    } catch {
+      return false; // includes `null`
+    }
   }
 
   private send(res: ServerResponse, status: number, body: string): void {
     res.writeHead(status, {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',
-      'referrer-policy': 'no-referrer',
+      // same-origin, not no-referrer: under no-referrer browsers send `Origin: null` on the page's own POSTs
+      'referrer-policy': 'same-origin',
       'x-frame-options': 'DENY',
       'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
     });
@@ -198,7 +205,7 @@ export class ApprovalServer {
     try {
       const form = await this.readBody(req);
       // re-check after the (bounded) body read: a POST that started before expiry must not commit after it
-      if (this.now() > e.expiresAt) return this.send(res, 410, page('Expired', '<p>This link expired; nothing was changed. Ask the assistant to start this step again.</p>'));
+      if (this.now() >= e.expiresAt) return this.send(res, 410, page('Expired', '<p>This link expired; nothing was changed. Ask the assistant to start this step again.</p>'));
       const r = await spec.onApprove(form);
       if (r.error) return this.send(res, 200, cardPage(e.card, token, spec, r.error)); // stays pending: fix and retry
       if (r.html !== undefined && r.ackLabel) {
