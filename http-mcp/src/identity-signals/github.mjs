@@ -1,5 +1,6 @@
-import { createHash, createPublicKey, verify } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { GITHUB_HANDLE } from '../identities.mjs';
+import { verifyDemosSignature } from '../wallet/demos-signature.mjs';
 import { createGithubHttp, GITHUB_ORIGIN } from './github-http.mjs';
 
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -54,10 +55,10 @@ export async function checkGistBinding({ entry, login, seller, request, deadline
   // stored bytes exactly before decoding.
   const content = file.content.endsWith('\n') ? file.content.slice(0, -1) : file.content;
   if (!/^demos:dw2p:ed25519:(0x)?[0-9a-f]{128}$/.test(content) || /\s/u.test(content)) return { ...unresolved(), reason: 'Proof content must be exact, with at most one trailing LF.' };
-  const signature = Buffer.from(content.split(':')[3].replace(/^0x/, ''), 'hex');
-  const publicKey = createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(seller.slice(2), 'hex')]), format: 'der', type: 'spki' });
-  if (verify(null, Buffer.from(`demos-web2:v1:github:${login.toLowerCase()}:${seller}`), publicKey, signature)) return { bindingStatus: 'bound', accountId: gist.owner.id, gistId };
-  return verify(null, Buffer.from('dw2p'), publicKey, signature) ? { bindingStatus: 'legacy-proof' } : unresolved();
+  // The shared helper refuses small-order and non-canonical keys before verifying.
+  const signature = content.split(':')[3].replace(/^0x/, '');
+  if (verifyDemosSignature({ address: seller, message: `demos-web2:v1:github:${login.toLowerCase()}:${seller}`, signature })) return { bindingStatus: 'bound', accountId: gist.owner.id, gistId };
+  return verifyDemosSignature({ address: seller, message: 'dw2p', signature }) ? { bindingStatus: 'legacy-proof' } : unresolved();
 }
 
 function nextPage(link, path) {

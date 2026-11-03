@@ -1,5 +1,5 @@
 /**
- * PRISM blocking + usefulness items:
+ * Safety and usefulness checks:
  *  1. sign at submit (malicious-RPC case)
  *  2. forged receipts
  *  3. approval off the chat (local approval page)
