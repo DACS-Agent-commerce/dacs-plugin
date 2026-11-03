@@ -240,8 +240,9 @@ order, a failed step failing the job and skipping the rest:
 1. `npm ci` at the root;
 2. `install-gitleaks.mjs` into the run's temporary folder;
 3. `npm run gate:generic` on the head commit, with the installed binary and its SHA-256 computed on the runner, writing the report to `gate-report/report.json`;
-4. `npm test`;
-5. the upload of that report as the artifact `public-gate-report`, which runs even when an earlier step failed.
+4. `npm test`, with `GITLEAKS_BIN` naming the installed binary so the real-scanner tests run;
+5. the upload of that report as the artifact `public-gate-report`, which runs even when an earlier step failed and replaces
+   the report of an earlier attempt when the job is re-run.
 
 The job runs the generic scope, so `R-PRIVATE` is `not-run` and its pass is never a complete pass. Actions runs it only once the
 repository is public; until then the same commands are run by hand.

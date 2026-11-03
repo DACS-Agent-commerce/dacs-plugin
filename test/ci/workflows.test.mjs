@@ -70,12 +70,15 @@ test('the gate job is named public-gate, runs on every pull request and push wit
   assert.ok(gate.includes(`--out "${REPORT_FILE_EXPRESSION}"`));
   assert.match(gate, /mkdir -p "\$\{\{ runner\.temp \}\}\/gate-report"/);
   assert.match(rootTests, /^ {8}run: npm test$/m);
+  assert.match(rootTests, /^ {8}env:\n {10}GITLEAKS_BIN: \$\{\{ runner\.temp \}\}\/gitleaks\/gitleaks$/m, 'the root tests find the gitleaks the installer placed');
 
   assert.match(upload, /^ {8}if: always\(\)$/m);
+  assert.match(upload, /^ {10}overwrite: true$/m, 'a re-run of the job replaces the report it uploaded before');
   assert.match(upload, new RegExp(`^ {10}name: ${REPORT_ARTIFACT}$`, 'm'));
   assert.match(upload, new RegExp(`^ {10}path: ${literal(REPORT_FILE_EXPRESSION)}$`, 'm'));
   for (const step of steps.filter((candidate) => candidate !== upload)) {
-    assert.doesNotMatch(step, /^\s+(?:if|continue-on-error):/m, 'a failed step must skip the rest');
+    assert.doesNotMatch(step, /^\s+(?:if|continue-on-error|shell):/m, 'a failed step must skip the rest');
+    assert.doesNotMatch(step.replaceAll(/\$\{\{.*?\}\}/g, ''), /\|\||set \+e|;\s*true\b|\bexit 0\b/, 'a run line must not swallow a failure');
   }
   assert.doesNotMatch(upload, /continue-on-error/);
 });
