@@ -52,6 +52,14 @@ export function keyForClaim(claim: unknown): Uint8Array | null {
   return m ? Uint8Array.from(Buffer.from(m[1]!, 'hex')) : null;
 }
 
+/**
+ * True for a canonical, on-curve ed25519 key that is not of small order. A key
+ * that fails this is refused before any signature is checked against it.
+ */
+export function isUsableKey(key: Uint8Array): boolean {
+  try { return !ed.Point.fromBytes(key, false).isSmallOrder(); } catch { return false; }
+}
+
 export function claimForAddress(address: string): string {
   return `key:${address.toLowerCase().replace(/^0x/, '')}`;
 }
@@ -80,6 +88,7 @@ export function verifyDomainSig(
   if (sig.length !== 64) return { decision: 'fail', reason: `ed25519 signature must be 64 bytes, got ${sig.length}` };
   const key = keyForClaim(claim);
   if (!key) return { decision: 'indeterminate', reason: `cannot resolve a key for claim ${String(claim)} offline (only key:<hex> resolves)` };
+  if (!isUsableKey(key)) return { decision: 'fail', reason: 'public key is small-order or not canonical' };
   try {
     const ok = ed.verify(sig, new TextEncoder().encode(signedBytes(separator, artifactHashHex)), key);
     return ok ? { decision: 'pass' } : { decision: 'fail', reason: 'signature does not verify' };
