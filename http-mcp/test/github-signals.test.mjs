@@ -40,6 +40,12 @@ test('claim-bound signature pins owner ID, ignores userId, accepts casing / opti
   assert.equal((await bind(f)).bindingStatus,'bound');assert.equal((await bind(f,f.gist,createEphemeralWallet().address)).bindingStatus,'unresolved');
 });
 
+test('a small-order seller key gets neither a claim-bound nor a legacy binding',async()=>{
+  const f=fixture();f.gist.files.proof.content=`demos:dw2p:ed25519:0x01${'00'.repeat(63)}`;
+  for(const key of ['01'+'00'.repeat(31),'00'.repeat(32),'ec'+'ff'.repeat(31),'26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05'])
+    assert.equal((await bind(f,f.gist,`0x${key}`)).bindingStatus,'unresolved',key);
+});
+
 test('owner mismatch / renamed owner, missing / multiple / truncated files and malformed payloads fail closed',async()=>{
   const f=fixture();
   const gists=[null,{}, {...f.gist,owner:{login:'renamed',id:42}}, {...f.gist,owner:{login,id:0}}, {...f.gist,owner:{login,id:Number.MAX_SAFE_INTEGER+1}}, {...f.gist,files:{}}, {...f.gist,files:{...f.gist.files,other:{}}}, {...f.gist,files:{a:{truncated:true,content:f.gist.files.proof.content}}}, {...f.gist,files:{a:{content:f.gist.files.proof.content}}}, {...f.gist,files:{a:{truncated:false,content:'bad'}}}, {...f.gist,files:{a:{truncated:false,content:`${f.gist.files.proof.content}\nextra`}}}];

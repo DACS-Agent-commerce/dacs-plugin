@@ -12,8 +12,8 @@ import { LISTINGS_RENDER, ESC_HELPER } from '../src/mcp/ui.mjs';
 import { modelReport, textReport, sellerValue, decodeSellerData, outsideEnvelopes } from './helpers/model-report.mjs';
 import { cases, config, ctx, fulfilmentId, hostile, hostileText, injection, logger, refusedProtocol, report, setup } from './fixtures/mcp-seller-content.mjs';
 
-// Outputs of the v1 baseline for the same fixture, recorded by
-// .verification/make-baseline.mjs against a copy of that server.
+// Outputs of the v1 baseline for the same fixture, recorded against a copy of
+// that server and kept in the fixture file below.
 const baseline = JSON.parse(readFileSync(new URL('./fixtures/mcp-seller-content-baseline.json', import.meta.url)));
 const purchases = ['prepare_purchase', 'get_purchase_status', 'verify_deal'];
 const serverFor = (services) => createMcpServerFactory({ config, services, logger })();
