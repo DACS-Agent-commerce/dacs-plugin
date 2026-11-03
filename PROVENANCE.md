@@ -706,9 +706,9 @@ Files: 748 (verbatim 505, edited 215, changed here 6, added 22).
 | `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
 | `scripts/public-gate/classify.mjs` | `afe007bda11127b8e9d1baa181a5bba277545bc2` | added: public-content gate source |
 | `scripts/public-gate/gate.mjs` | `ab049e464369043ab3d6b99b958d4df00d835128` | added: public-content gate source |
-| `scripts/public-gate/objects.mjs` | `8ed33ee35b5077a3b580f535b1d61a8ebb355db3` | added: public-content gate source |
+| `scripts/public-gate/objects.mjs` | `f73c23fbdc38386ee7fcbcefe87c07cbf3354302` | added: public-content gate source |
 | `scripts/public-gate/redact.mjs` | `c09987c32c321c2c9b0a53d8818ca80de06fed2d` | added: public-content gate source |
-| `scripts/public-gate/rules-private.mjs` | `500e30d16d7ee7b6984008c7958c9844192fead6` | added: public-content gate source |
+| `scripts/public-gate/rules-private.mjs` | `d6914f52e4eeed8c1472eadb08c08f2ac0b5f1e3` | added: public-content gate source |
 | `stdio-mcp/.claude-plugin/marketplace.json` | `d84732871f473d7f9e0bc6a1144bae8b0646af0f` | verbatim |
 | `stdio-mcp/.claude-plugin/plugin.json` | `c977a78af1a20e73a71e8fb05ac88dfc15f6b66a` | edited: RPC and opt-in descriptions name no host and do not direct testnet writes to the mainnet opt-in |
 | `stdio-mcp/.gitignore` | `db95153686d0c7bbbc1ffe2b84468bf9a5f979af` | verbatim |
@@ -781,7 +781,7 @@ Files: 748 (verbatim 505, edited 215, changed here 6, added 22).
 | `test/lib/choice.test.mjs` | `cae89a43896dba6342e100bfe837fee59b610012` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/lib/gate-fixtures.mjs` | `1f9698b60c96a1335fc4c0ba18fbb9350526cc78` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/engine.test.mjs` | `bd5f7814039a0f8462952dc732a7ab46d5567b60` | added: tests of the public-content gate and of the carried-file inventory |
-| `test/public-gate/private-list.test.mjs` | `b372088cb4aef80c627531654314f80be171e0d7` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/private-list.test.mjs` | `005f16e31528208ba6f9afbec8c0cfe0b8f20b77` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private-matcher.test.mjs` | `7cea6ab6e576663cc6566a3c033cfacc55e14620` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private.test.mjs` | `e441ae2205b2c560bdfac3568e82bb69b460a9f8` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/redact.test.mjs` | `44857b4700c4a067f24cfa4384fd4150796d56a0` | added: tests of the public-content gate and of the carried-file inventory |
