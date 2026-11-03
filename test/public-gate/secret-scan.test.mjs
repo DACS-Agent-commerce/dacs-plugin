@@ -146,6 +146,41 @@ test('a baseline blob with an occurrence the ruling does not cover keeps its sca
   });
 });
 
+test('a blob with an occurrence at a path a path-gated default rule needs is also written once under a neutral suffix, mapped to those occurrences only; baseline rulings and exceptions apply per occurrence', async (t) => {
+  const repo = createRepo([
+    { path: 'k8s/db.yaml', content: `${MARKER}\n` }, { path: 'copy/other.YML', content: `${MARKER}\n` }, { path: 'a.txt', content: `${MARKER}\n` },
+    { path: 'infra/main.tf', content: 'terraform\n' }, { path: 'infra/vars.hcl', content: 'terraform\n' }, { path: 'cfg/NuGet.Config', content: 'nuget\n' },
+    { path: 'web/index.php', content: 'php\n' }, { path: 'plain.yaml.txt', content: 'plain\n' },
+  ]);
+  const yamlStub = () => writeStubGitleaks({ finds: [{ marker: MARKER, rule: 'kubernetes-secret-yaml', file: '\\.yaml$' }] });
+  await t.test('each suffix names no directory or path of the target, and a blob is written once per suffix', async () => {
+    const stub = writeStubGitleaks();
+    await scan(repo, stub);
+    const [call] = scanCalls(stub);
+    const suffixesOf = (content) => Object.entries(call.blobs).filter(([, digest]) => digest === sha256(content)).map(([name]) => name.replace(/^b\d+/, '')).sort();
+    assert.deepEqual(suffixesOf(`${MARKER}\n`), ['', '.yaml']);
+    assert.deepEqual(suffixesOf('terraform\n'), ['', '.tf']);
+    assert.deepEqual(suffixesOf('nuget\n'), ['', '.nuget.config']);
+    assert.deepEqual(suffixesOf('php\n'), ['', '.php']);
+    assert.deepEqual(suffixesOf('plain\n'), ['']);
+    assert.ok(Object.keys(call.blobs).every((name) => /^b\d+(?:\.php|\.tf|\.yaml|\.nuget\.config)?$/.test(name)));
+  });
+  await t.test('a finding on the suffixed copy is reported for the occurrences at paths that need the suffix, not for the same blob elsewhere', async () => {
+    assert.deepEqual(foundPaths(await scan(repo, yamlStub())), ['copy/other.YML', 'k8s/db.yaml']);
+  });
+  await t.test('an exception for one of those occurrences leaves the other', async () => {
+    const config = { ...CONFIG, secretExceptions: [{ ...exemption(await readEntries(repo), 'k8s/db.yaml'), rule: 'kubernetes-secret-yaml' }] };
+    assert.deepEqual(foundPaths(await scan(repo, yamlStub(), config)), ['copy/other.YML']);
+  });
+  await t.test('a baseline ruling for the only occurrence is remapped to the plain and the suffixed name', async () => {
+    const single = createRepo([{ path: 'gen.yaml', content: `${MARKER}\n` }]);
+    const stub = yamlStub();
+    const config = { ...CONFIG, secretBaseline: [{ ...exemption(await readEntries(single), 'gen.yaml'), rule: 'kubernetes-secret-yaml', reason: 'reviewed baseline' }] };
+    assert.deepEqual(await scan(single, stub, config), []);
+    assert.equal(scanCalls(stub)[0].ignore, 'b1:kubernetes-secret-yaml:2\nb1.yaml:kubernetes-secret-yaml:2\n');
+  });
+});
+
 test('an exception names one occurrence and a stale one fails before the scanner starts', async (t) => {
   const lateMarker = 'second-text';
   const repo = createRepo([
@@ -220,6 +255,35 @@ test('real scanner: an exact secretExceptions entry exempts only its own occurre
   assert.ok((await scanReal(changed)).length > 0, 'a changed blob and shifted lines are not covered');
   const ignoring = createRepo([...baselineFiles, { path: 'extra.js', content: line }, { path: '.gitleaksignore', content: 'extra.js:github-pat:1\nb1:github-pat:1\n' }]);
   assert.deepEqual(foundPaths(await scanReal(ignoring)), ['extra.js']);
+});
+
+test('real scanner: a secret in a PHP, Terraform, Kubernetes YAML or NuGet config file is found by the default rule that needs the file\'s path; the same bytes at a plain path are not', async (t) => {
+  if (needsRealScanner(t)) return;
+  const word = ['Zq8', 'xK2mP9vL'].join('');
+  const files = {
+    'k8s/db-secret.yaml': ['apiVersion: v1', 'kind: Secret', 'metadata:', '  name: db', 'data:', `  password: ${Buffer.from(['hunter2', 'hunter2'].join('-')).toString('base64')}`, ''].join('\n'),
+    'infra/main.tf': `resource "db" "main" {\n  administrator_login_password = "${word}"\n}\n`,
+    'cfg/NuGet.Config': ['<configuration>', ['<add key="ClearText', 'Password" value="', word, '" />'].join(''), '</configuration>', ''].join('\n'),
+    'site/plugin.php': `<?php\n$keys = ['secret_key' => '${['sk', '_'].join('')}${word}${'x'.repeat(18)}'];\n`,
+  };
+  const genericLines = { 'k8s/db-secret.yaml': 6, 'site/plugin.php': 2 };
+  const exemptGeneric = async (repo, renamed = (file) => file) => {
+    const entries = await readEntries(repo);
+    return Object.entries(genericLines).map(([file, line]) => ({ ...exemption(entries, renamed(file), line), rule: 'generic-api-key' }));
+  };
+  const gated = createRepo(Object.entries(files).map(([file, content]) => ({ path: file, content })));
+  const gatedConfig = { ...CONFIG, secretExceptions: await exemptGeneric(gated) };
+  assert.deepEqual(foundPaths(await scanReal(gated, gatedConfig)), Object.keys(files).sort(), 'with the generic rule exempted, the path-gated rule still finds each file');
+  const renamed = (file) => `plain/${path.posix.basename(file)}.txt`;
+  const plain = createRepo(Object.entries(files).map(([file, content]) => ({ path: renamed(file), content })));
+  assert.deepEqual(await scanReal(plain, { ...CONFIG, secretExceptions: await exemptGeneric(plain, renamed) }), [], 'at a plain path only the generic rule sees them');
+});
+
+test('real scanner: the pinned default rules gate on exactly the five path patterns the wrapper accounts for (four by suffix, pkcs12-file by the binary check)', (t) => {
+  if (needsRealScanner(t)) return;
+  const embedded = [...readFileSync(realScanner.binary, 'latin1').matchAll(/^path = '''(.*)'''$/gm)].map(([, pattern]) => pattern).sort();
+  const accounted = ['(?i)\\.php$', '(?i)\\.(?:tf|hcl)$', '(?i)\\.ya?ml$', '(?i)nuget\\.config$', '(?i)(?:^|\\/)[^\\/]+\\.p(?:12|fx)$'].sort();
+  assert.deepEqual(embedded, accounted);
 });
 
 /** [offset, bytes] pairs the scanner's file-type check takes for an application type: at offset 0, and at the fixed offsets of tar (257), DICOM (128) and ISO (32769), also one either side. */

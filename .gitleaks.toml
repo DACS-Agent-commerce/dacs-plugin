@@ -1,5 +1,6 @@
 # Policy of the public-repo gate's secret scan: gitleaks' default rules. The gate always passes it with --config; no file
-# in a scanned tree can select or change the policy.
+# in a scanned tree can select or change the policy. The scan names blobs neutrally, so the default rules that also test the
+# file path (PHP, Terraform, Kubernetes YAML and NuGet config files) run on copies given a neutral suffix.
 title = "public-gate secret scan"
 
 [extend]

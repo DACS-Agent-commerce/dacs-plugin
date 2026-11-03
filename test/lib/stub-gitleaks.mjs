@@ -40,7 +40,7 @@ if (settings.flood) { process.stdout.write(Buffer.alloc(1 << 20, 97)); }
 if (settings.hang) setInterval(() => {}, 1000);
 else {
   const found = Object.entries(files).flatMap(([name, bytes]) => settings.finds
-    .filter(({ marker }) => bytes.toString('latin1').includes(marker))
+    .filter(({ marker, file }) => bytes.toString('latin1').includes(marker) && (file === undefined || new RegExp(file).test(name)))
     .map(({ marker, rule }) => ({ File: name, RuleID: rule, StartLine: 1 + bytes.subarray(0, bytes.indexOf(marker)).filter((byte) => byte === 10).length })));
   fs.writeFileSync(after('--report-path'), settings.rawReport ?? JSON.stringify(found));
   process.exit(settings.exitCode ?? (found.length > 0 ? 3 : 0));
@@ -50,7 +50,7 @@ else {
 /**
  * Writes a stub gitleaks program. Returns { binary, sha256, calls() } where `calls()` lists every invocation it logged; a
  * `version` call is { args, self } and a `dir` call also holds the folder, blob digests, ignore and config it was given.
- * `settings`: version, finds [{ marker, rule }], exitCode, rawReport, hang, flood.
+ * `settings`: version, finds [{ marker, rule, file? }] (`file`: a pattern the scanned file's name must match), exitCode, rawReport, hang, flood.
  */
 export function writeStubGitleaks(settings = {}) {
   const directory = mkdtempSync(path.join(tmpdir(), 'gate-stub-gitleaks-'));

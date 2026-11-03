@@ -79,18 +79,39 @@ const scanHeader = (blobBytes) => {
   return `#${' '.repeat(size - 2)}\n`;
 };
 
-/** Writes each distinct blob once under the neutral name `b<n>`, behind its one-line header; returns Map(name -> the entries that hold that blob). */
+/**
+ * The pinned default rules that read a file's path as well as its content, so they cannot fire on a bare `b<n>`: the path
+ * pattern each one needs (as in gitleaks 8.30.1) and a neutral suffix that matches it. `pkcs12-file` also has a path
+ * pattern but no content test; a binary `.p12` is already refused as `binary-without-disposition`.
+ */
+const PATH_GATED_RULES = [
+  { pattern: /\.php$/i, suffix: '.php' },
+  { pattern: /\.(?:tf|hcl)$/i, suffix: '.tf' },
+  { pattern: /\.ya?ml$/i, suffix: '.yaml' },
+  { pattern: /nuget\.config$/i, suffix: '.nuget.config' },
+];
+
+/** The suffixes a blob at `filePath` is written under: none, and each one a path-gated rule needs for that path. */
+const copySuffixes = (filePath) => ['', ...PATH_GATED_RULES.filter(({ pattern }) => pattern.test(filePath)).map(({ suffix }) => suffix)];
+
+/**
+ * Writes each distinct blob once under the neutral name `b<n>`, behind its one-line header, and once more as `b<n><suffix>`
+ * for each suffix a path-gated rule needs for one of its paths; the name never carries a directory or the path's own name.
+ * Returns Map(name -> the entries that hold that blob, for a suffixed copy only those whose path needs the suffix).
+ */
 async function exportBlobs(entries, directory) {
   const occurrences = new Map();
-  const namesByBlob = new Map();
+  const blobNumbers = new Map();
   for (const entry of entries.filter(({ bytes }) => bytes)) {
-    if (!namesByBlob.has(entry.oid)) {
-      const name = `b${namesByBlob.size + 1}`;
-      namesByBlob.set(entry.oid, name);
-      occurrences.set(name, []);
-      await writeFile(path.join(directory, name), Buffer.concat([Buffer.from(scanHeader(entry.bytes.length)), entry.bytes]), { flag: 'wx', mode: 0o600 });
+    if (!blobNumbers.has(entry.oid)) blobNumbers.set(entry.oid, blobNumbers.size + 1);
+    for (const suffix of copySuffixes(entry.path)) {
+      const name = `b${blobNumbers.get(entry.oid)}${suffix}`;
+      if (!occurrences.has(name)) {
+        occurrences.set(name, []);
+        await writeFile(path.join(directory, name), Buffer.concat([Buffer.from(scanHeader(entry.bytes.length)), entry.bytes]), { flag: 'wx', mode: 0o600 });
+      }
+      occurrences.get(name).push(entry);
     }
-    occurrences.get(namesByBlob.get(entry.oid)).push(entry);
   }
   return occurrences;
 }
@@ -139,8 +160,8 @@ function occurrenceFindings(items, occurrences, rulings) {
 /**
  * Scans the exact blobs of `entries` (from readCommitObjects) with the pinned gitleaks, which `scanner` ({ binary, sha256 })
  * names. A private copy of the binary must match the SHA-256 and report `config.scanner.version` before anything is
- * written. Each distinct blob is written once under a neutral name in a fresh private folder (removed on every exit) and
- * scanned with the gate's own policy and a run-owned ignore. Findings are judged per occurrence: one that a baseline or
+ * written. Each distinct blob is written once under a neutral name (and once more with a neutral suffix for each path-gated
+ * rule its paths need) in a fresh private folder (removed on every exit) and scanned with the gate's own policy and a run-owned ignore. Findings are judged per occurrence: one that a baseline or
  * `secretExceptions` ruling covers exactly (path, blob, rule, line) is dropped. Returns findings `{ rule, kind, entry, line }`.
  * Throws GateInputError: stale-secret-exception, scanner-missing, -checksum-mismatch, -version-mismatch, -failed,
  * scanner-report-malformed, limit:maxScanReportBytes or limit:maxReportEntries; RunBoundedError for a deadline, an output
