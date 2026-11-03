@@ -134,8 +134,9 @@ export function runCheckReport(args) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
+/** History-mode arguments; unless `extra` names a scanner, they name the stub that finds nothing. */
 export function historyArgs(history, listFile, extra = [], refs = 'main') {
-  return ['--repo', history.dir, '--refs', refs, '--private-list', listFile, '--expected-root', history.commits[0], ...extra];
+  return ['--repo', history.dir, '--refs', refs, '--private-list', listFile, '--expected-root', history.commits[0], ...(extra.includes('--gitleaks') ? [] : cleanScannerArgs()), ...extra];
 }
 
 let cleanScanner;
