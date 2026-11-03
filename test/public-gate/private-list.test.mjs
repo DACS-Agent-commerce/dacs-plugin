@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { readPrivateList } from '../../scripts/public-gate/rules-private.mjs';
@@ -20,6 +20,11 @@ const read = (file, repo = makeTempDir('repo')) => readPrivateList(file, { repo,
 
 test('entries are exact lines: CRLF, LF and a lone CR end a line; blank and # lines and a leading byte-order mark are ignored', () => {
   assert.deepEqual(read(listFile('﻿host.(one)+[x]\r\n# comment\n\nsecond\rthird\r')), ['host.(one)+[x]', 'second', 'third']);
+});
+
+test('the rules source spells every irregular whitespace character as an escape, as the repo lint requires', () => {
+  const irregularWhitespace = /[\f\v\u0085\uFEFF\u00A0\u1680\u180E\u2000-\u200B\u2028\u2029\u202F\u205F\u3000]/u;
+  assert.doesNotMatch(readFileSync(new URL(RULES_FILE), 'utf8'), irregularWhitespace);
 });
 
 test('fixed report words are ordinary entries', () => {
