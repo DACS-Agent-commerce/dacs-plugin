@@ -75,7 +75,8 @@ the switch on, `prepare_purchase`, `get_purchase_status` and `verify_deal`:
   record's fields (`ref`, `anchorReceipt`, `txHash`, `note` and any other) by decoding
   that envelope's text as JSON, as it does for any seller data. The envelope has the
   same label, delimiters, escaping and 4096 code point bound as every other seller
-  text. Main's copy does this, so it is the same with the switch on and off, and
+  text; a payment evidence record longer than the bound is cut and its envelope says so
+  (`truncated: true`), and no payment or authorization decision reads this copy. Main's copy does this, so it is the same with the switch on and off, and
   what is stored and what the wallet portal shows are unchanged.
 - keep the report in `structuredContent.protocol.delivery.report` as the
   `{label, contentHash, coordinates, text}` wrapper of `src/mcp/seller-content.mjs`:
