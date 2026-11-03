@@ -29,6 +29,9 @@ const RULES = [
   { id: PRIVATE_RULE_ID, completeOnly: true, run: scanPrivate },
 ];
 
+/** The rules that read a tree alone, without the private list; history mode runs them on every commit's tree. Each `run({ entries, config, limits })` returns findings. */
+export const TREE_RULES = Object.freeze(RULES.filter((rule) => !rule.completeOnly));
+
 /** The ids of the registered rules; a report only counts as complete when it lists exactly these. */
 export const REGISTERED_RULE_IDS = Object.freeze(RULES.map(({ id }) => id));
 
