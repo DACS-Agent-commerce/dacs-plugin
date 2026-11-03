@@ -173,6 +173,8 @@ async function readTagChain(base, object) {
  */
 export async function readHistory({ repo, refs, limits, signal = new AbortController().signal }) {
   const base = { repo, limits, signal, maxBytes: SMALL_REPLY_BYTES };
+  const shallow = (await git({ ...base, args: ['rev-parse', '--is-shallow-repository'] })).toString().trim();
+  if (shallow !== 'false') throw new GateInputError('shallow-history', 'the repository is a shallow clone, so its history is cut off');
   const heads = [];
   const tags = new Map();
   for (const ref of refs) {

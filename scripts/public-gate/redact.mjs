@@ -30,6 +30,7 @@ const DIAGNOSTICS = {
   'missing-object': 'the repository is missing a blob its tree names', 'output-limit': 'git produced more output than allowed',
   'bad-ref': 'a ref is empty or starts with a dash', 'unknown-ref': 'the repository has no commit for one of the refs',
   'unexpected-root': 'the history does not have the expected single root commit',
+  'shallow-history': 'the repository is a shallow clone, so its history is cut off',
   'pr-text-unreadable': 'the --pr-text file cannot be read', 'pr-text-malformed': 'the --pr-text file is not a JSON array of objects',
   'output-exists': 'the --out file already exists', 'output-unwritable': 'the --out file cannot be written',
   'evidence-exists': 'the --private-evidence file already exists', 'evidence-unwritable': 'the --private-evidence file cannot be written',

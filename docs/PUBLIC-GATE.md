@@ -90,7 +90,8 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   checksum field holds the block's sum), with or without `ustar`. Refuses any path under a `vendor` directory, in any letter case.
   It does not find an archive written in an encoding, such as base64, or one a script builds.
 - **Root.** Both scopes read the history behind `--commit`, which must have exactly one root commit; a second root exits 2 (cause
-  `unexpected-root`) without a report. Complete scope also requires that root to be `--expected-root`.
+  `unexpected-root`) without a report. Complete scope also requires that root to be `--expected-root`. A shallow clone is refused
+  (cause `shallow-history`), because its cut-off history would hide a second root and part of the history.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`,
   `scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`; complete scope adds `expectedRoot`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
   `unscannable`), `unscannable` (`location`, `cause`) and sorted `findings` (`rule`, `kind`, `location`, `line`). It holds

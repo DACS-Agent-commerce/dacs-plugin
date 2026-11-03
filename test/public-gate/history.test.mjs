@@ -470,6 +470,29 @@ test('root check: complete scope needs --expect-root and fails when the target r
   assert.equal(runHistory(historyArgs(twoRoots, listFile)).status, 2);
 });
 
+test('a shallow clone is refused in generic, complete and history scope, so a cut-off history never passes the root check', async () => {
+  const twoRoots = createHistory([{}, {}, { files: { 'b.txt': 'second root\n' }, parents: [] }, { parents: [1, 2] }], { main: 3 });
+  const parent = makeTempDir('shallow');
+  const shallow = path.join(parent, 'clone');
+  git(parent, ['clone', '-q', '--depth', '1', '--branch', 'main', `file://${twoRoots.dir}`, shallow]);
+  assert.equal(git(shallow, ['rev-parse', '--is-shallow-repository']), 'true');
+  const listFile = writeList([PLANTED]);
+  const target = git(shallow, ['rev-parse', 'HEAD']);
+  const view = { dir: shallow, commit: target, commits: [target] };
+  await assert.rejects(readHistory({ repo: shallow, refs: ['main'], limits: CONFIG.limits }), (error) => error.name === 'GateInputError' && error.cause === 'shallow-history');
+  const refusals = [
+    runGate(gateArgs({ dir: shallow, commit: target }, 'generic')),
+    runGate(gateArgs({ dir: shallow, commit: target }, 'complete', ['--private-list', listFile, '--expected-root', target])),
+    runHistory(historyArgs(view, listFile)),
+  ];
+  for (const refused of refusals) {
+    assert.equal(refused.status, 2, refused.stderr);
+    assert.match(refused.stderr, /shallow-history/);
+    assert.equal(refused.stdout, '');
+  }
+  assert.equal((await readHistory({ repo: twoRoots.dir, refs: ['main'], limits: CONFIG.limits })).commits.length, 4);
+});
+
 test('a history over the commit or occurrence limit fails as unscannable, naming the limit', async () => {
   const history = createHistory([{}, { files: { 'a.txt': 'ok\n', 'b.txt': 'b\n' } }, { files: { 'a.txt': 'ok\n', 'c.txt': 'c\n' } }]);
   const limited = (limits) => ({ ...CONFIG.limits, ...limits });
