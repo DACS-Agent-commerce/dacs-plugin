@@ -1,6 +1,7 @@
+import { spawnSync } from 'node:child_process';
 import { closeSync, constants, existsSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { decodeUtf8Strict, GateInputError } from './objects.mjs';
+import { decodeUtf8Strict, GateInputError, gitEnvironment } from './objects.mjs';
 
 /** Id of the private-list rule in reports. */
 export const PRIVATE_RULE_ID = 'R-PRIVATE';
@@ -12,16 +13,40 @@ const CASED_CODE_POINTS_END = 0x20000;
 const CR = 0x0d;
 const LF = 0x0a;
 
+const ROOT_QUERIES = [
+  { args: ['rev-parse', '--git-common-dir'], paths: (out) => [out.replace(/\n$/, '')] },
+  { args: ['rev-parse', '--show-toplevel'], paths: (out) => [out.replace(/\n$/, '')] },
+  { args: ['worktree', 'list', '--porcelain', '-z'], paths: (out) => out.split('\0').filter((field) => field.startsWith('worktree ')).map((field) => field.slice('worktree '.length)) },
+];
+const ROOT_QUERY_MAX_BYTES = 1 << 20;
+
 /**
- * Reads at most `maxBytes` of a regular file outside `repo`; a FIFO or device is refused without waiting on it. A `repo`
- * that does not exist is not compared: git then refuses the run with its own cause.
+ * Every folder that belongs to the repository git finds from `repo`: `repo` itself, the git dir, the common git dir, the
+ * worktree and every linked worktree. Git is run as the object read runs it (no GIT_ variable), so both name one repository.
+ * A query git refuses (not a repository, no work tree) adds nothing: git then refuses the run with its own cause.
  */
-function readListBytes(file, repo, maxBytes) {
+function repositoryRoots(repo, limits) {
+  const roots = new Set([repo]);
+  for (const { args, paths } of ROOT_QUERIES) {
+    const run = spawnSync('git', ['-C', repo, ...args], { env: gitEnvironment(), encoding: 'utf8', timeout: limits.gitDeadlineMs, maxBuffer: ROOT_QUERY_MAX_BYTES });
+    if (run.error?.code === 'ETIMEDOUT') throw new GateInputError('timeout', 'git did not finish before its deadline');
+    if (run.error?.code === 'ENOBUFS') throw new GateInputError('output-limit', `git ${args[0]} produced more than ${ROOT_QUERY_MAX_BYTES} bytes`);
+    if (!run.error && run.status === 0) for (const found of paths(run.stdout)) roots.add(path.resolve(repo, found));
+  }
+  return [...roots].filter((root) => existsSync(root)).map((root) => realpathSync.native(root));
+}
+
+/**
+ * Reads at most `maxBytes` of a regular file outside the repository `repo` names; a FIFO or device is refused without
+ * waiting on it. A `repo` that does not exist is not compared: git then refuses the run with its own cause.
+ */
+function readListBytes(file, repo, limits) {
+  const maxBytes = limits.maxPrivateListBytes;
   let descriptor;
   try {
-    const repoRoot = existsSync(repo) ? realpathSync(repo) : null;
-    const relative = repoRoot && path.relative(repoRoot, realpathSync(file));
-    if (repoRoot && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) throw new GateInputError('private-list-in-repo', 'the private list is inside --repo');
+    const listPath = realpathSync.native(file);
+    const inside = (root) => { const relative = path.relative(root, listPath); return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative); };
+    if (repositoryRoots(repo, limits).some(inside)) throw new GateInputError('private-list-in-repo', 'the private list is inside the repository');
     descriptor = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
     if (!fstatSync(descriptor).isFile()) throw new GateInputError('private-list-unreadable', '--private-list is not a regular file');
     const bytes = Buffer.alloc(maxBytes + 1);
@@ -38,11 +63,12 @@ function readListBytes(file, repo, maxBytes) {
 
 /**
  * Reads the private list: one exact entry per line (CRLF, LF or CR ends a line), a leading byte-order mark, blank lines and
- * `#` comments ignored. Returns the entries. Throws GateInputError when the file is inside `repo`, not a regular file,
+ * `#` comments ignored. Returns the entries. Throws GateInputError when the file is inside the repository `repo` names (its
+ * worktrees and git dirs included, not only the `repo` folder), not a regular file,
  * unreadable, over a limit, not UTF-8, empty, or has an entry with leading or trailing whitespace.
  */
 export function readPrivateList(file, { repo, limits }) {
-  const text = decodeUtf8Strict(readListBytes(file, repo, limits.maxPrivateListBytes));
+  const text = decodeUtf8Strict(readListBytes(file, repo, limits));
   if (text === null) throw new GateInputError('private-list-malformed', 'the private list is not valid UTF-8');
   const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
   const padded = lines.findIndex((line) => line !== line.trim() && !line.startsWith('#'));
