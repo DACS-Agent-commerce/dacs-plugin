@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const GATE_SCRIPT = path.join(REPO_ROOT, 'scripts', 'public-gate', 'gate.mjs');
 const HISTORY_SCRIPT = path.join(REPO_ROOT, 'scripts', 'public-gate', 'history.mjs');
+const CHECK_REPORT_SCRIPT = path.join(REPO_ROOT, 'scripts', 'public-gate', 'check-report.mjs');
 export const CONFIG_FILE = path.join(REPO_ROOT, 'public-gate.config.json');
 export const ROOT_COMMIT = 'a'.repeat(40);
 
@@ -113,6 +114,12 @@ export function runHistory(args, { env } = {}) {
     encoding: 'utf8',
     maxBuffer: 1 << 26,
   });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+/** Runs check-report with `args` and returns { status, stdout, stderr }. */
+export function runCheckReport(args) {
+  const result = spawnSync(process.execPath, [CHECK_REPORT_SCRIPT, ...args], { encoding: 'utf8', maxBuffer: 1 << 26 });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
