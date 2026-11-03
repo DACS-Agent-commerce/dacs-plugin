@@ -12,7 +12,7 @@ import * as ed from '@noble/ed25519';
 import { isCanonicalDecimal } from '../amount.js';
 import { canonicalBytes, contentHash, sha256Hex } from './jcs.js';
 import { DEM_RAIL_ID } from './agreement.js';
-import { addressForClaim, claimForAddress, decodeSig6, encodeSig6, keyForClaim, SEP, signedBytes, verifyDomainSig } from './sig.js';
+import { addressForClaim, claimForAddress, decodeSig6, encodeSig6, isUsableKey, keyForClaim, SEP, signedBytes, verifyDomainSig } from './sig.js';
 import type { Check } from './verify.js';
 
 export const LISTING_MAX_BYTES = 16384;
@@ -201,7 +201,7 @@ function presentationCheck(identity: Record<string, any>): Check {
   return { check: 'bundle-presentation', decision: verifyEd(raw, msg, key) ? 'pass' : 'fail', detail: 'dacs-bundle-presentation:v1: over the bundle hash' };
 }
 function verifyEd(sig: Uint8Array, msg: string, key: Uint8Array): boolean {
-  try { return ed.verify(sig, new TextEncoder().encode(msg), key); } catch { return false; }
+  try { return isUsableKey(key) && ed.verify(sig, new TextEncoder().encode(msg), key); } catch { return false; }
 }
 
 export interface ListingReport {

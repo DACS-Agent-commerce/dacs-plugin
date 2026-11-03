@@ -3,10 +3,11 @@
 Every file in this repository's first commit, except this manifest, came from an
 earlier private plugin repository at the same path (two fixture files carry a
 new name, noted in their rows), or was added for this repository. Files marked `added` that are not in the first commit (the root package, `scripts/`, `test/`,
-`docs/PUBLIC-GATE.md` and `public-gate.config.json`) were added by later changes. Each row gives the blob (the first
-commit's, or for a later addition the current one) and whether the file is
+`docs/PUBLIC-GATE.md` and `public-gate.config.json`) were added by later changes. Each row gives the file's current blob and whether the file is
 byte-for-byte unchanged from that repository (`verbatim`), was edited before
-import (with the reason), or was added.
+import (with the reason), or was added. A file changed in this repository after
+the first commit keeps its row, with the blob of its current content and
+the change (`changed here`) added to the reason.
 
 ## Not carried
 
@@ -33,7 +34,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 748 (verbatim 511, edited 215, added 22).
+Files: 748 (verbatim 505, edited 215, changed here 6, added 22).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -100,7 +101,7 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `http-mcp/docs/PUBLIC-SR2-PROJECTION.md` | `9b44e06734ab928d41c7ac517e5ac161f4701cca` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/PURCHASE-READBACK-CACHE.md` | `77db1bf32cf47ae94d3cf7a12998bf0acf205270` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/PURCHASE-RECEIPT.md` | `4c40f35844d1e1601a2be2b1844a839990811103` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
-| `http-mcp/docs/PURCHASED-REPORT-VIEW.md` | `88b5511cdb2ed50bd84007288aa21ae9a1951619` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
+| `http-mcp/docs/PURCHASED-REPORT-VIEW.md` | `b630c492303611c1da04fdc95966b17719927fed` | edited: public wording: internal review, process, PR and private-path references removed or reworded; then changed here: the four seller fields that reach the model raw are named as a known gap; no behaviour change |
 | `http-mcp/docs/SELLER-POLICY-AND-DELIVERY-EVIDENCE.md` | `c2d72575e79f76d500cc356919c2d69cca894b2c` | verbatim |
 | `http-mcp/docs/SELLER-SESSION-DELEGATION.md` | `8fd3ab45639a1072833b4759b5111ecfeb5ca912` | edited: reference to a document that is not carried removed; decision dates removed |
 | `http-mcp/docs/SELLER-SR2-AGREEMENT-INTEGRATION.md` | `c2bcd14e05a0cb6886639bd18f2260faf68b85fc` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -201,7 +202,7 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `http-mcp/src/config.mjs` | `db28a547e04082b630901958d65d43c857b3f0f1` | verbatim |
 | `http-mcp/src/identities.mjs` | `85e56d4d3d254e6e31914e1816bbdeee2c792c71` | verbatim |
 | `http-mcp/src/identity-signals/github-http.mjs` | `97584ef0bd8f167eb0de7a21370062f4c06d4eaa` | verbatim |
-| `http-mcp/src/identity-signals/github.mjs` | `1dbd4ba2bb5708192bfa7ee1983623b89cbd631b` | verbatim |
+| `http-mcp/src/identity-signals/github.mjs` | `76f72bc59f19dfc17f5f293154484ff23d006ce7` | changed here after a verbatim import: the gist binding check uses the shared signature helper, so small-order and non-canonical public keys are refused |
 | `http-mcp/src/legacy-publications.mjs` | `0b51b6dc3c695abb05b84053db9356a3f0657ed8` | verbatim |
 | `http-mcp/src/mcp/purchase-model-view.mjs` | `cb159b23adbdd5431df529419f9dcdc5eb6b4324` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/src/mcp/seller-content.mjs` | `8ca040a8aed392502ea4d4fa57bcc74bdb11f1a7` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -244,7 +245,7 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `http-mcp/src/util/rate-limit.mjs` | `d113add7109a56e78bc191994649826ab5820b5f` | verbatim |
 | `http-mcp/src/util/text.mjs` | `1d922fed1da018ce9a4296d97bb50323e5eb67f6` | verbatim |
 | `http-mcp/src/wallet/challenges.mjs` | `f13872ca91c08dc5cc75023dfa720b84ad21ac75` | verbatim |
-| `http-mcp/src/wallet/demos-signature.mjs` | `3e6686910d5be32ddea53e11dbffab1e2e03391f` | verbatim |
+| `http-mcp/src/wallet/demos-signature.mjs` | `d0e7be2dfe0aa845e1086ba1ee1f03e4d94c3fd6` | changed here after a verbatim import: refuses small-order and non-canonical public keys before verifying; a missing or null argument returns false |
 | `http-mcp/src/wallet/write-batch.mjs` | `e810076db644040fda924b3e140506891b5e5bd6` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/README.md` | `1c563f44954939b8052877aad255ebfcbd9e00f9` | verbatim |
 | `http-mcp/test/agreement-context-durable-vet.test.mjs` | `41b048e43808782c712a751f02e5fc664bf209f2` | edited: comments and test names: internal review and process references removed; no behaviour change; a commit id in a comment replaced by neutral wording |
@@ -319,7 +320,7 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `http-mcp/test/commit-on-signature-shutdown-doc.test.mjs` | `de0ef0c6fe954278853b28280d5f2ff51a946e4e` | edited: asserts the reworded doc sentence (issue-number reference removed) |
 | `http-mcp/test/commit-on-signature.test.mjs` | `fe583adc88a4d0a262a75d13894d45a56c1cd0d0` | verbatim |
 | `http-mcp/test/commitment-finality-payment.test.mjs` | `eaf5911ee2655432e30499e788542c745cb5950c` | verbatim |
-| `http-mcp/test/completion-readiness.test.mjs` | `5f779d4e8dd8e6a80106f35556e63bf5605d37cf` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/completion-readiness.test.mjs` | `07c417f88737633e0990982c353dab574e20cdd4` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: the 14 small-order keys are expected to be refused by the shared helper; tests added that an ordinary signature passes and a wrong message fails; each per-key evaluator test first finds a message on which a plain Ed25519 verify accepts the constant signature |
 | `http-mcp/test/config-equivalence.test.mjs` | `8e073519b3958a4857c9e02fff7ce58bc8d5e02b` | edited: comments and test names: internal review and process references removed; no behaviour change; fixture path renamed; a commit id replaced by neutral wording |
 | `http-mcp/test/current-delivery-readback.test.mjs` | `eddce99f0f8c73346942a6abc49549827c749e57` | verbatim |
 | `http-mcp/test/current-package-smoke.test.mjs` | `f06fa870f66ceb7a2063fda59fe5fd74b510a378` | edited: a default path to an unpublished file removed (an environment variable or a skip instead); comments reworded
@@ -333,7 +334,7 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `http-mcp/test/dacs-plugin-purchase.test.mjs` | `152af444bebee938ddf5cdc70113e5727e4e82a3` | verbatim |
 | `http-mcp/test/dacs-storage-anchor-wallet.test.mjs` | `e1337bbde6b2eb9113638a83aaa14e1a9f984e44` | verbatim |
 | `http-mcp/test/delivery-deadline-watch.test.mjs` | `1218c3923cad3db36b2a93cc73421828d1d48caa` | verbatim |
-| `http-mcp/test/demos-signature-encoding.test.mjs` | `02388fec8fe0cf87cc001cf16987b05fbc321b3f` | verbatim |
+| `http-mcp/test/demos-signature-encoding.test.mjs` | `3bc532f591f543d245c7df4def6dd0a01e584e94` | changed here after a verbatim import: a test that a missing or null argument to the signature check returns false |
 | `http-mcp/test/denied-agreement-recovery.browser.test.mjs` | `4e802d0430ff0cd1ef9738c38024460537c76dcd` | verbatim |
 | `http-mcp/test/denied-agreement-recovery.test.mjs` | `2af3357dc0509b9872f977385a2c754993d112a4` | edited: comments: references to internal records not carried removed |
 | `http-mcp/test/devnet-agreement-transport.browser.test.mjs` | `4004fe7e0cafb02ce9fc44ba219ce67aa74417fd` | verbatim |
@@ -435,7 +436,7 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `http-mcp/test/github-signals-display-only.test.mjs` | `a4c55130d319aa5b242b26aa6b8e330110d2e895` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/github-signals-integration.test.mjs` | `b7933eedbbd6eae454557171ff9dcd63204bb671` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/github-signals-showcase-combined.test.mjs` | `26cbc7790b6d94ced421d58fce7f39914afbba14` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `http-mcp/test/github-signals.test.mjs` | `dc6100e9870e3ba584f36884a0efb8497d2830e1` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/github-signals.test.mjs` | `04e036d8de34318cbe86cbb65efe1c1362f11477` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a test added that a small-order seller key gets no binding |
 | `http-mcp/test/harness-lifecycle.test.mjs` | `8575c2781259b0f9a677f5ea653f17a3127d4db3` | verbatim |
 | `http-mcp/test/helpers/agreement-context-integration.mjs` | `7d735e1afa8412981619011f1caf9c0b5d146ef1` | edited: default seller reference path replaced by a neutral absolute path |
 | `http-mcp/test/helpers/agreement-context-interactions.mjs` | `394daf0a79c06daca32a652af4518a580b3eead1` | verbatim |
@@ -561,7 +562,7 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `http-mcp/test/mcp-repository-envelope.test.mjs` | `827ddc965c7d9fcf38c6e9f633acdd1fba415890` | verbatim |
 | `http-mcp/test/mcp-resource-contract.test.mjs` | `6e158defa7603712be2179420f33cf4187e74d28` | verbatim |
 | `http-mcp/test/mcp-seller-content-integration.test.mjs` | `a7ba94dd88479dd3faaed0b65f930e71c3bab17b` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `http-mcp/test/mcp-seller-content.test.mjs` | `d32974c444a0f6fc5cd4fa7aa2a1c0f95aba1b43` | edited: comments and test names: internal review and process references removed; no behaviour change; a commit id in a comment replaced by neutral wording |
+| `http-mcp/test/mcp-seller-content.test.mjs` | `326dcc0e7defbe3bd2374b22f8a45a296386453c` | edited: comments and test names: internal review and process references removed; no behaviour change; a commit id in a comment replaced by neutral wording; then changed here: a comment about how the baseline was recorded reworded; no behaviour change |
 | `http-mcp/test/mcp-seller-data-decoder.test.mjs` | `ad7b00d033a4db455b329a4efe947338d7184d22` | verbatim |
 | `http-mcp/test/mcp-seller-diagnostics-errors.test.mjs` | `aea3f247abfaa56f8c80ca53ae78efb097d5e22d` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/mcp-seller-diagnostics-settlement.test.mjs` | `c392cf635a6c0f41698e0b5b3d6293e8ea66045c` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -622,7 +623,7 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `http-mcp/test/purchase-receipt.test.mjs` | `e1cfe4977b26a51002382ec092b0afe17005dee1` | edited: address replaced by a documentation address |
 | `http-mcp/test/purchase-reviewed-body.test.mjs` | `1c33ec5827b1e30c06872d861e7942e4ed439427` | verbatim |
 | `http-mcp/test/purchase-step-log.test.mjs` | `f14929daa5c829820d159db44b8db75cafcc94c5` | verbatim |
-| `http-mcp/test/purchase.test.mjs` | `0b3561b77e19782d4ea5a3c2f7a8b687fe8c0f76` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/purchase.test.mjs` | `10bdf672d8758b2f52b6a122746e56bb93ec1c4c` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: two assertion messages and a comment reworded to describe only the network guard; the checks are unchanged |
 | `http-mcp/test/purchased-report.test.mjs` | `1e84b71942bbce5b3a0791ba73bfe1c0129ef43e` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/run-test-files.test.mjs` | `88cbcf0071f6b98aeca2b1b555d22ed8f83d5a00` | verbatim |
 | `http-mcp/test/seller-http-failure-cause.test.mjs` | `0fc5307e17bed8255862ac379fa1e7355982480e` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -741,8 +742,8 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `stdio-mcp/src/confirm.ts` | `7c44f6252cb80892e651b12530f21114436a4e5f` | verbatim |
 | `stdio-mcp/src/dacs/agreement.ts` | `8f5c8a477da24ba09e2baac20f02d67b76aaee0e` | verbatim |
 | `stdio-mcp/src/dacs/jcs.ts` | `7bf1b3801113ed690d7c3797e8b6ff2054d95db0` | verbatim |
-| `stdio-mcp/src/dacs/listing.ts` | `03aa8597c863db6d87735c1b9eb2f9060a23b80e` | verbatim |
-| `stdio-mcp/src/dacs/sig.ts` | `8989e9b19dbbec818a1be712efc4a0c235121ac6` | verbatim |
+| `stdio-mcp/src/dacs/listing.ts` | `52f6be56eddeeca84a0040845b93684218f7036a` | changed here after a verbatim import: a presentation signature is checked only for a canonical key that is not of small order |
+| `stdio-mcp/src/dacs/sig.ts` | `1d07c61362c43c25caeeda5f9db53347ad40576a` | changed here after a verbatim import: adds isUsableKey; domain signatures are checked only for a canonical key that is not of small order |
 | `stdio-mcp/src/dacs/verify.ts` | `d8ea0735bba5ebb2de6c11eaa25cb3dc488b4205` | verbatim |
 | `stdio-mcp/src/http_transport.ts` | `316faaa22aeb893f8f83bb167f4752ffe895dcfc` | verbatim |
 | `stdio-mcp/src/index.ts` | `43f30e8a2061ca84ef3726ef6d99acd71d27530f` | verbatim |
@@ -763,14 +764,14 @@ Files: 748 (verbatim 511, edited 215, added 22).
 | `stdio-mcp/test/live/testnet-write-cycle.ts` | `4a99ee144a5127dc8d1affdcba71c68f0d73a3eb` | edited: RPC comes from DEMOS_RPC_URL; the driver skips without it |
 | `stdio-mcp/test/unit/alignment.test.ts` | `f62adb8006b99354890e944d356b2a5cbd98b742` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `stdio-mcp/test/unit/confirmation.test.ts` | `3596e7646f5cc20a7cd08d3c98b43ce3a5d71d0b` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `stdio-mcp/test/unit/dacs.test.ts` | `c929fe298f92bb1e2746e70ca06974fabc074cb8` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `stdio-mcp/test/unit/dacs.test.ts` | `f715e0f401dae8394945cfcc0aeef516aa46d25f` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a test added for ordinary, wrong-message and small-order keys on a domain signature |
 | `stdio-mcp/test/unit/guard.test.ts` | `21da5541cc58f8fce07313f3c4b821d411134a33` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `stdio-mcp/test/unit/keyless-http.test.ts` | `9574b7eaceef3f45a1f00da924317a4532234dbf` | verbatim |
 | `stdio-mcp/test/unit/keystore-and-reads.test.ts` | `d8e40a28f796868c2cd55a0b34f4eb8cb60f67d2` | verbatim |
-| `stdio-mcp/test/unit/listing.test.ts` | `0a1fc8ce1dc8522127c08cfde591af2107e3eaa3` | verbatim |
+| `stdio-mcp/test/unit/listing.test.ts` | `1776f63ba9bf3b96de13b8303a879d53511c27e9` | changed here after a verbatim import: tests added for ordinary and small-order keys on listing and presentation signatures |
 | `stdio-mcp/test/unit/no-key-leak.test.ts` | `7d28d7c24e969954ae11bb97ab45facb77cdeb3c` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `stdio-mcp/test/unit/onboard.test.ts` | `fc20a5f78039bbbc1b4c1f56ebcdcbc0c10d6cbf` | edited: expects the reserved faucet placeholder; the faucet refusal case uses an explicit mainnet setup, since unlisted testnet RPCs no longer take writes |
-| `stdio-mcp/test/unit/prism.test.ts` | `c658fbb715bba3cf573306466a990687ad38015f` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `stdio-mcp/test/unit/prism.test.ts` | `ac59a60af9c7a9cbda4c63a29f9488b8b231c667` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a header comment reworded to neutral text; no behaviour change |
 | `stdio-mcp/test/unit/spend-and-policy.test.ts` | `9534816425ca70e4e6735189201237ac082c1c20` | edited: testnet RPC example replaced by a reserved .invalid host; adds the sanitized-defaults guard test; adds a regression check that the mainnet opt-in does not open testnet writes |
 | `stdio-mcp/test/unit/workflow-pins.test.ts` | `d0b825c89dc87d986e1abf74ad0757837d5bfaf0` | edited: header comment: internal identifiers removed; skip message and comment reworded |
 | `stdio-mcp/test/unit/workflow-settings.test.ts` | `d30cca6e6e28275e7044eed3e5fe413e1114a654` | edited: header comment: internal identifiers removed; skip message and comment reworded |
