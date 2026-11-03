@@ -1,8 +1,8 @@
 # Public-content gate
 
 Reads one commit from Git objects (never the working tree or index, never following a symlink) and reports, under a
-declared scope, what the rules it runs found in it. The gate currently runs three rules: `R-ACCOUNT` and `R-HOST` (the
-address rules) and `R-PRIVATE` (the private list). Exit 0 in complete scope means no rule found anything and every file
+declared scope, what the rules it runs found in it. The gate currently runs four rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
+(the address rules) and `R-PRIVATE` (the private list). Exit 0 in complete scope means no rule found anything and every file
 could be read; it does not show that the content may become public. Generic scope runs the address rules and reports
 `R-PRIVATE` as `not-run`, so its exit 0 is never a complete pass.
 
@@ -44,10 +44,25 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   after `@` (a package tag or a plugin marketplace) therefore needs a `scopedAllowances` entry. In commit metadata (`refusedMetadataEmails`) an email also passes when it is
   part of an exact `publicIdentities` entry (`Name <email>`); that does not approve the identity itself, which the
   identity rule of history mode still checks. The configuration starts with `publicIdentities` holding the publication identity.
+- **IP literals (`R-IP`, both scopes).** Every dotted IPv4 literal (four numbers up to 255) and every IPv6 literal (eight groups,
+  or `::` for a run of zero groups, the last two groups perhaps as a dotted IPv4 tail) in a path name or text blob is refused:
+  public, private, shared, link-local and unique-local alike. The passing classes are read as written: IPv4 `127.*`, `0.0.0.0` and
+  the RFC 5737 documentation ranges (`192.0.2.*`, `198.51.100.*`, `203.0.113.*`), IPv6 `::1`, `::` and `2001:db8::/32`. An expanded
+  form (the loopback address with all eight groups written out) and every IPv4-mapped form (the `ffff` group after the zero run, then an
+  IPv4 address or two hex groups), loopback ones included, are not those classes. A dotted name of five or more numbers (an object identifier) or one with a number above 255 is not an address.
+  Text next to a literal does not hide it: a `label:` before an IPv6 literal (`ip:<literal>`), an underscore, a dot after a name, a
+  `\n`, `\r` or `\t` escape and a letter or underscore after an IPv4 literal all leave it refused. Only a letter or digit before an IPv4
+  literal (a version tag such as `v1.2.3.4`) and a longer dotted number around it keep it from being read as one.
+- **IP dispositions.** Any other literal passes only through an `ipDispositions` entry (`path`, `blob`, `line`, `context`,
+  `sha256`, `reason`) that matches the occurrence on all of: the file's path, its blob id, its 1-based line, the three characters on
+  each side of the literal with `<ip>` in its place (fewer at a line edge), and the SHA-256 of the literal as written (lower case).
+  A path name never matches one. Editing a file changes its blob id, so its entries stop applying until they are reviewed again.
+  The shipped entries are the 55 object-identifier tokens on line 5 of `http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs`
+  and the three loopback notations on line 161 of `http-mcp/test/oauth-loopback.test.mjs`.
 - **Allow-list entries.** A lockfile or generated bundle gets no exemption: a host or email there passes only through a
   `scopedAllowances` entry (`path`, `rule`, `value`, `context`, `reason`) for that exact path, rule, lower-case value and context
   (`url`, `host-port`, `quoted`, `bare` or `email`). `public-gate.config.json` may also hold the values its own entries name. A
-  malformed section makes the run exit 2 with cause `invalid-config`. Findings carry the rule, kind (`path` or `content`),
+  malformed section, `ipDispositions` included, makes the run exit 2 with cause `invalid-config`. Findings carry the rule, kind (`path` or `content`),
   location and line, never the host or email.
 - **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
   run exits 2 (cause `unexpected-root`) without a report.
