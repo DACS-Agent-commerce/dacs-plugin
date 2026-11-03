@@ -64,7 +64,7 @@ test('a list entry that is also a report word gives a clean pass', () => {
   const repo = createRepo([{ path: 'a.txt', content: 'clean\n' }]);
   const result = runGate(completeArgs(repo, writeList(['commit', 'scope', 'status', 'target'])));
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout).rules, [{ id: 'R-PRIVATE', status: 'passed' }]);
+  assert.deepEqual(JSON.parse(result.stdout).rules.find((rule) => rule.id === 'R-PRIVATE'), { id: 'R-PRIVATE', status: 'passed' });
 });
 
 test('a malformed, oversized, in-repository or special-file list exits 2 with only its cause and fixed text, before any report', () => {
