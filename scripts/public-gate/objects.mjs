@@ -36,13 +36,17 @@ function abortCause(error, { reason }) {
   return new GateInputError('git-unavailable', `git could not run (${error.code ?? error.name})`);
 }
 
+/** The environment of every git run: the caller's, without any GIT_ variable, so git finds the repository from `--repo` alone. */
+export function gitEnvironment() {
+  const inherited = Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'));
+  return { ...Object.fromEntries(inherited), GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' };
+}
+
 /** Runs git with a byte cap and a deadline; resolves { status, stdout, stderr } whatever the exit status. */
 function runGit({ repo, args, input, maxBytes, limits, signal }) {
   return new Promise((resolve, reject) => {
     const bounded = AbortSignal.any([signal, AbortSignal.timeout(limits.gitDeadlineMs)]);
-    const inherited = Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'));
-    const env = { ...Object.fromEntries(inherited), GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' };
-    const child = spawn('git', ['-C', repo, ...args], { env, signal: bounded });
+    const child = spawn('git', ['-C', repo, ...args], { env: gitEnvironment(), signal: bounded });
     const chunks = [];
     let received = 0;
     let stderr = '';
