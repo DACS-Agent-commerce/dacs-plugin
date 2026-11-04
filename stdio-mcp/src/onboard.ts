@@ -355,7 +355,6 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           //    target exists, so an existing wallet is never replaced and readers never see a partial file)
           const tmp = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
           let fencedLate = false;
-          let publishedIno: number | null = null;
           try {
             const fd = openSync(tmp, 'wx', 0o600);
             try {
@@ -373,7 +372,6 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
               fencedLate = true;
               throw new Error('fenced');
             }
-            publishedIno = lstatSync(tmp).ino; // link() shares it: a late take-back only removes this exact file
             linkSync(tmp, path);
           } catch (e) {
             if (remember) safeUnlink(config.keystorePassphraseFile!); // we created it a moment ago
@@ -383,14 +381,22 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
             safeUnlink(tmp);
           }
           const stateBefore = readState();
-          /** A marker appeared after publication: take back what was just published (it was never shown), but only the exact file. */
+          /**
+           * A marker appeared after publication: take back what was just published (it was never shown), but only the
+           * exact files. The keystore carries a fresh salt and IV, so equal bytes are the file this call wrote.
+           */
           const takeBack = () => {
             try {
-              if (publishedIno !== null && lstatSync(path).ino === publishedIno) safeUnlink(path);
+              if (readFileSync(path).equals(bytes)) safeUnlink(path);
             } catch {
               /* already gone */
             }
-            if (remember) safeUnlink(config.keystorePassphraseFile!);
+            try {
+              if (remember && readFileSync(config.keystorePassphraseFile!, 'utf8') === pass + '\n') safeUnlink(config.keystorePassphraseFile!);
+            } catch {
+              /* already gone */
+            }
+            if (!remember) setSessionPassphrase(null);
           };
           if (blockedNow()) {
             takeBack();
@@ -399,6 +405,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           if (!remember) setSessionPassphrase(pass); // this session only
           created = true;
           writeState({ ...readState(), address, walletCreatedAt: new Date(d.now()).toISOString(), backupAcknowledged: false });
+          // the last check: a marker written after this line, before the return, reads as "created, then fenced" (SECURITY.md)
           if (blockedNow()) {
             takeBack();
             created = false;

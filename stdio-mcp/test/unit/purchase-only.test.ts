@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
@@ -361,14 +361,18 @@ test('a late take-back leaves a different file at the keystore path alone', asyn
   const pass = 'correct horse battery staple';
   await h.call('demos_onboard_create_wallet');
   const url = h.channel.last().approveUrl!;
+  let fired = false;
   t.after(onFirstDateAfterPublish(keystore, () => {
+    fired = true;
     // replace the published file by someone else's, then fence
     rmSync(keystore);
     writeFileSync(keystore, 'someone else wallet');
     writeFileSync(`${keystore}.purchase-only`, '');
   }));
-  await post(url + '/approve', { passphrase: pass, confirm: pass });
-  assert.equal(existsSync(keystore), true, 'the other file survived');
+  const shown = await post(url + '/approve', { passphrase: pass, confirm: pass });
+  assert.equal(fired, true, 'control: the hook ran after publication');
+  assert.match(shown, /fenced for purchase-only use/);
+  assert.equal(readFileSync(keystore, 'utf8'), 'someone else wallet', 'the other file survived untouched');
 });
 
 test('a marker that appears during the status lookups is reported by the same status call', async (t) => {
