@@ -52,6 +52,8 @@ export interface OnboardDeps {
   prepareSelfPayment: (address: string) => Promise<unknown>;
   guarded: <A>(fn: (a: A) => Promise<unknown>) => (a: A) => Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }>;
   writesBlocked: string | null;
+  /** The write blocker evaluated now: a purchase-only marker can appear after start-up. */
+  writesBlockedNow?: () => string | null;
   now: () => number;
 }
 
@@ -97,6 +99,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
   const { config, chain, gate, ledger, guard } = d;
   const statePath = join(config.stateDir, 'onboard.json');
   const pendingSteps = new Map<string, { kind: string; done: boolean; denied: boolean }>();
+  const blockedNow = () => (d.writesBlockedNow ? d.writesBlockedNow() : d.writesBlocked);
 
   const readState = (): OnboardState => {
     try {
@@ -167,7 +170,8 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
       }
       const st = readState();
       const address = walletAddress();
-      const writes = d.writesBlocked ? `disabled: ${d.writesBlocked}` : 'enabled';
+      const blocked = blockedNow();
+      const writes = blocked ? `disabled: ${blocked}` : 'enabled';
       let balanceOs: bigint | null = null;
       let identities: string[] = [];
       let chainNote: string | null = null;
@@ -187,7 +191,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
       }
       const limitOs = ledger.userLimitOs();
       const steps = {
-        writes_enabled: !d.writesBlocked,
+        writes_enabled: !blocked,
         wallet: address ? address : null,
         recovery_phrase_backed_up: !!address && !backupPending(),
         funded: balanceOs !== null ? balanceOs > 0n : null,
@@ -195,7 +199,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
         spending_limit_dem: limitOs !== null ? osToDem(limitOs) : null,
       };
       let next: { step: string; tool?: string; say: string };
-      if (d.writesBlocked) next = { step: 'enable writes', say: `Writes are off (${d.writesBlocked}). In Claude Code: /config → demos plugin → "Enable wallet writes", then reconnect (/mcp).` };
+      if (blocked) next = { step: 'enable writes', say: `Writes are off (${blocked}). In Claude Code: /config → demos plugin → "Enable wallet writes", then reconnect (/mcp).` };
       else if (!address) next = { step: 'create wallet', tool: 'demos_onboard_create_wallet', say: 'Create a wallet. The recovery phrase is shown once, on your local page, never in this chat.' };
       else if (!steps.recovery_phrase_backed_up) next = { step: 'confirm backup', tool: 'demos_onboard_create_wallet', say: 'The recovery phrase was not confirmed yet. Calling demos_onboard_create_wallet again opens a page where the human enters their passphrase to see it once more and confirm.' };
       else if (steps.funded === false) next = testnet ? { step: 'fund (testnet)', tool: 'demos_onboard_fund', say: 'Get free testnet DEM from the faucet.' } : { step: 'fund', say: 'Send DEM to this address from another wallet.' };
@@ -250,6 +254,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
       approveLabel: 'Show my recovery phrase',
       fields: [{ name: 'passphrase', label: 'Wallet passphrase', type: 'password' }],
       onApprove: async (form) => {
+        if (blockedNow()) return { error: 'This wallet is fenced for purchase-only use; the recovery phrase is not shown.' };
         let mnemonic: string;
         try {
           const ks = JSON.parse(readFileSync(path, 'utf8')) as KeystoreFile;
@@ -290,6 +295,8 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
     d.guarded(async () => {
       const path = config.keystorePath;
       if (!path) throw new Error('a mnemonic file is configured (DEMOS_MNEMONIC_FILE); onboarding wallet creation is not used');
+      const fenced = blockedNow();
+      if (fenced) throw new Error(`wallet onboarding is unavailable: ${fenced}`);
       if (existsSync(path)) {
         if (backupPending()) return await revealForBackup(path);
         return { status: 'wallet_exists', wallet: walletAddress(), note: 'A wallet already exists; nothing was created. Use demos_onboard_status for the next step.' };

@@ -254,6 +254,7 @@ export function createServer(deps: Deps): McpServer {
     },
     guarded(async () => {
       const info = await chain.networkInfo();
+      const writeBlockerNow = writeBlocker(config); // a purchase-only marker can appear after start-up
       let remaining: string | null = null;
       try {
         remaining = osToDem(ledger.remainingToday());
@@ -273,8 +274,8 @@ export function createServer(deps: Deps): McpServer {
         safety: {
           writes: keyless
             ? 'keyless: read, verify, and unsigned prepare only'
-            : blocker
-              ? `disabled: ${blocker}`
+            : writeBlockerNow
+              ? `disabled: ${writeBlockerNow}`
               : 'enabled (every write needs an out-of-band human confirmation code)',
           daily_cap_dem: osToDem(config.dailyCapOs),
           daily_cap_remaining_dem: remaining,
@@ -465,6 +466,7 @@ export function createServer(deps: Deps): McpServer {
     prepareSelfPayment: (address: string) => preparePayment({ to: address, amount_dem: '1', memo: 'onboarding self-test' }, true),
     guarded,
     writesBlocked: blocker,
+    writesBlockedNow: () => writeBlocker(config),
     now,
   });
 

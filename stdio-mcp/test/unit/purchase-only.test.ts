@@ -7,6 +7,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { request as httpRequest } from 'node:http';
+import { createHash } from 'node:crypto';
 import { harness, ADDR_B } from '../helpers.js';
 import { loadConfig, writeBlocker } from '../../src/config.js';
 import { createLegacyWalletOpener } from '../../src/wallet-policy.js';
@@ -169,3 +171,64 @@ test('DEMOS_WALLET_MODE accepts only unset or purchase-only, and never echoes th
     );
   }
 });
+
+test('a marker that appears after start-up is reported by the network info and stops the backup reveal', async () => {
+  const wf = {
+    made: [] as string[],
+    newMnemonic() { const m = 'abandon ability able about above absent absorb abstract absurd abuse access accident'; this.made.push(m); return m; },
+    async addressOf(m: string) { return '0x' + createHash('sha256').update(m).digest('hex'); },
+  };
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  const pass = 'correct horse battery staple';
+  await h.call('demos_onboard_create_wallet');
+  const url = h.channel.last().approveUrl!;
+  await post(url + '/approve', { passphrase: pass, confirm: pass, remember: 'on' });
+  // the page is closed without acknowledging, then the wallet is fenced
+  const keystore = join(h.config.stateDir, 'wallet.keystore.json');
+  const control = await h.call('demos_network_info');
+  assert.match(control.json.safety.writes, /^enabled/, 'control: before the marker writes are enabled');
+  writeFileSync(`${keystore}.purchase-only`, '');
+  const info = await h.call('demos_network_info');
+  assert.match(info.json.safety.writes, FENCED);
+  const status = await h.call('demos_onboard_status');
+  assert.equal(status.json.steps.writes_enabled, false);
+  const r = await h.call('demos_onboard_create_wallet');
+  assert.equal(r.isError, true);
+  assert.match(r.text, FENCED);
+  assert.equal(wf.made.length, 1, 'no second wallet');
+  await h.approval!.stop();
+});
+
+test('a marker that appears while the reveal page is open refuses the phrase after the passphrase', async () => {
+  const wf = {
+    made: [] as string[],
+    newMnemonic() { const m = 'zoo wrong yellow wolf wise wing winner window wide wet wedding weapon'; this.made.push(m); return m; },
+    async addressOf(m: string) { return '0x' + createHash('sha256').update(m).digest('hex'); },
+  };
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  const pass = 'correct horse battery staple';
+  await h.call('demos_onboard_create_wallet');
+  const url = h.channel.last().approveUrl!;
+  await post(url + '/approve', { passphrase: pass, confirm: pass, remember: 'on' });
+  const r = await h.call('demos_onboard_create_wallet');
+  assert.match(r.json.step, /finish backup/, 'control: the reveal path is offered before the marker');
+  const reveal = h.channel.last().approveUrl!;
+  writeFileSync(`${join(h.config.stateDir, 'wallet.keystore.json')}.purchase-only`, '');
+  const shown = await post(reveal + '/approve', { passphrase: pass });
+  assert.match(shown, /fenced for purchase-only use/);
+  for (const w of wf.made[0]!.split(' ')) assert.ok(!shown.includes(`<li>${w}</li>`));
+  await h.approval!.stop();
+});
+
+function post(url: string, form: Record<string, string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const body = new URLSearchParams(form).toString();
+    const req = httpRequest(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'content-length': Buffer.byteLength(body) } }, (res) => {
+      let out = '';
+      res.on('data', (c) => (out += c));
+      res.on('end', () => resolve(out));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
