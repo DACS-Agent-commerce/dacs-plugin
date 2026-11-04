@@ -1,9 +1,9 @@
 # Public-content gate
 
 Reads one commit from Git objects (never the working tree or index, never following a symlink) and reports, under a
-declared scope, what the rules it runs found in it. The gate currently runs ten rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
-(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules), `R-REPORT` and `R-ISSUE` (the text rules), `R-PRIVATE`
-(the private list) and `R-SECRET` (the secret scan). Exit 0 in complete scope means no rule found anything and every file
+declared scope, what the rules it runs found in it. The gate currently runs eleven rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
+(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules), `R-REPORT` and `R-ISSUE` (the text rules), `R-EVAL`
+(dynamic code evaluation), `R-PRIVATE` (the private list) and `R-SECRET` (the secret scan). Exit 0 in complete scope means no rule found anything and every file
 could be read; it does not show that the content may become public. Generic scope runs the rules that need no list and reports
 `R-PRIVATE` as `not-run`, so its exit 0 is never a complete pass.
 
@@ -43,6 +43,19 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `lockfileDispositions` (`path`, `blob`, `field`, `line`, `valueSha256`, `reason`): all five facts of the occurrence must match, and the
   field is found by parsing the lockfile. An entry whose path the target holds only at another blob stops the run with
   `stale-lockfile-disposition` (exit 2), so a later lockfile change needs a new review; a seventh link or a wildcard needs a new owner decision.
+- **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
+  file (`.d.ts`, `.d.mts` and `.d.cts` included) and the inline scripts and event-handler attributes of `.html` and `.htm` files, in a child
+  process (`rules-eval-child.mjs`) under `run-bounded`. It flags the global `eval` and `Function` however reached: called, with `new`, as a
+  value or alias, through `globalThis`, `window`, `self` or `global` by member, bracket (literal key), optional or comma-expression access, and
+  through destructuring of those objects; and a string (literal, template or `+` with a string) passed to the global `setTimeout` or
+  `setInterval`. A function callback passes; strings, comments, regular expressions, template text and types never count. A computed member of
+  a global object with a key that is not a literal makes the file unscannable (`eval-computed-member`). Other causes: `eval-parse-error`
+  (the file has a syntax error), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`;
+  units go to the child in batches of at most `maxEvalBatchBytes`, its output is capped at `maxEvalOutputBytes`, and a reply that breaks the
+  protocol stops the run with `eval-parser-failed` (exit 2). The only exceptions are the exact files of `evalGeneratedFiles` (`path`, `sha256`, `reason`):
+  the same bytes at another path are another occurrence and fail, and an entry whose path the target holds only at other bytes stops the
+  run with `stale-eval-exception`. Limits of the detection: only a plain `setTimeout` or `setInterval` call (or a member of a global object) is read for
+  string arguments, a name shadowed by a local variable is still read as the global, and `constructor` chains and `Reflect` are not followed.
 - **Hosts (`R-HOST`, both scopes).** Every path and every text blob is read line by line, as written and with its
   escaped delimiters `\/`, `\@` and `\:` unescaped (`https:\/\/host\/x` is read as the URL it decodes to); a backslash ends a URL host.
   An escaped dot (`\.`) is not unescaped, because it is regex syntax in the code's own host patterns. A dotted name is a host when it is the
@@ -198,9 +211,9 @@ node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --priv
 ```
 
 Walks every commit reachable from the refs (names or full object ids, comma-separated), parents first, and reports under
-scope `history`. Each commit's tree gets the same reading and the same nine rules as in complete scope (`R-ACCOUNT`,
-`R-ARCHIVE`, `R-ENV`, `R-HOST`, `R-HOSTING`, `R-IP`, `R-ISSUE`, `R-PRIVATE` and `R-REPORT`), and once over the union of its
-trees the stale check for `lockfileDispositions`, so a file, address or archive that an earlier commit
+scope `history`. Each commit's tree gets the same reading and the same ten rules as in complete scope (`R-ACCOUNT`,
+`R-ARCHIVE`, `R-ENV`, `R-EVAL`, `R-HOST`, `R-HOSTING`, `R-IP`, `R-ISSUE`, `R-PRIVATE` and `R-REPORT`), each occurrence judged by its own path,
+and once over the union of its trees the stale checks for `lockfileDispositions` and `evalGeneratedFiles`, so a file, address or archive that an earlier commit
 held and a later one removed is found. Reading, limits, exit codes and output rules are those above; `--out` never
 overwrites a file, and there is no `--private-evidence`.
 

@@ -7,14 +7,15 @@ import { classifyBlob } from './classify.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { buildOutputs, publish, SHA256_HEX, writeDiagnostic } from './redact.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, hasValidAddressConfig, hasValidIpDispositions, IP_RULE_ID, scanAccounts, scanHosts, scanIps } from './rules-address.mjs';
+import { createEvalScanner, EVAL_RULE_ID, hasValidEvalConfig } from './rules-eval.mjs';
 import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, scanArchives, scanEnvTemplates, scanHostingFiles } from './rules-files.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 import { hasValidTextConfig, ISSUE_RULE_ID, REPORT_RULE_ID, requireNoStaleLockfileDisposition, scanIssues, scanReports } from './rules-text.mjs';
 import { hasValidSecretConfig, SECRET_RULE_ID, scanSecrets, secretScanIdentity } from './secret-scan.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const GATE_SOURCES = ['scripts/lib/choice.mjs', 'scripts/lib/run-bounded.mjs', ...['check-report', 'classify', 'gate', 'history', 'history-secrets', 'objects', 'redact', 'rules-address', 'rules-files', 'rules-private', 'rules-text', 'secret-scan'].map((name) => `scripts/public-gate/${name}.mjs`)];
-const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'maxHistoryOccurrences', 'gitDeadlineMs', 'scanDeadlineMs', 'secretScanDeadlineMs', 'secretScanOutputBytes', 'maxScanReportBytes'];
+const GATE_SOURCES = ['scripts/lib/choice.mjs', 'scripts/lib/run-bounded.mjs', ...['check-report', 'classify', 'gate', 'history', 'history-secrets', 'objects', 'redact', 'rules-address', 'rules-eval', 'rules-eval-child', 'rules-files', 'rules-private', 'rules-text', 'secret-scan'].map((name) => `scripts/public-gate/${name}.mjs`)];
+const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'maxHistoryOccurrences', 'gitDeadlineMs', 'scanDeadlineMs', 'secretScanDeadlineMs', 'secretScanOutputBytes', 'maxScanReportBytes', 'maxEvalUnitBytes', 'maxEvalBatchBytes', 'evalDeadlineMs', 'maxEvalOutputBytes'];
 const SCOPES = ['generic', 'complete'];
 const FLAGS = ['--repo', '--commit', '--scope', '--private-list', '--private-evidence', '--expected-root', '--out', '--gitleaks', '--gitleaks-sha256'];
 const COMPLETE_ONLY_FLAGS = ['--private-list', '--private-evidence', '--expected-root'];
@@ -36,11 +37,13 @@ const RULES = [
 /** The rules that read a tree alone, without the private list; history mode runs them on every commit's tree. Each `run({ entries, config, limits })` returns findings. */
 export const TREE_RULES = Object.freeze(RULES.filter((rule) => !rule.completeOnly));
 
-/** The secret scan runs the scanner as a subprocess, so it is awaited apart from the synchronous tree rules. */
+/** The eval rule parses in a child process and the secret scan runs the scanner as a subprocess, so both are awaited apart from the synchronous tree rules. */
+const EVAL_RULE = { id: EVAL_RULE_ID };
 const SECRET_RULE = { id: SECRET_RULE_ID };
+const ALL_RULES = [...RULES, EVAL_RULE, SECRET_RULE];
 
 /** The ids of the registered rules; a report only counts as complete when it lists exactly these. */
-export const REGISTERED_RULE_IDS = Object.freeze([...RULES, SECRET_RULE].map(({ id }) => id));
+export const REGISTERED_RULE_IDS = Object.freeze(ALL_RULES.map(({ id }) => id));
 
 /** SHA-256 over the gate's own source files, named by path: the identity of this gate's code. */
 export function gateRevision() {
@@ -55,7 +58,7 @@ export function loadConfig() {
   const valid = LIMIT_NAMES.every((name) => Number.isSafeInteger(config.limits?.[name]) && config.limits[name] > 0)
     && Array.isArray(config.textExtensions) && Array.isArray(config.binaryDispositions)
     && config.binaryDispositions.every((entry) => entry.path && /^[0-9a-f]{64}$/.test(entry.sha256) && entry.reason)
-    && hasValidAddressConfig(config) && hasValidIpDispositions(config) && hasValidSecretConfig(config) && hasValidTextConfig(config);
+    && hasValidAddressConfig(config) && hasValidIpDispositions(config) && hasValidSecretConfig(config) && hasValidTextConfig(config) && hasValidEvalConfig(config);
   if (!valid) throw new GateInputError('invalid-config', 'public-gate.config.json is malformed');
   return { ...config, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
@@ -134,13 +137,16 @@ async function runGate(argv, signal) {
   const { commits } = await readHistory({ repo: options.repo, refs: [options.commit], limits: config.limits, signal });
   requireExpectedRoot(commits, options.expectedRoot);
   const matcher = listEntries && createPrivateMatcher(listEntries, createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs }));
-  const unscannable = unscannableEntries(entries, config);
+  const evalScanner = createEvalScanner({ config, limits: config.limits, signal });
+  const evalScan = await evalScanner.scan(entries);
+  evalScanner.requireNoStaleException();
+  const unscannable = [...unscannableEntries(entries, config), ...evalScan.unscannable];
   if (unscannable.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} unscannable entries`);
   const treeFindings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, config, limits: config.limits }));
   requireNoStaleLockfileDisposition(entries, config.lockfileDispositions);
-  const findings = [...treeFindings, ...await scanSecrets({ entries, config, scanner: options.scanner, signal })].sort(compareFindings);
+  const findings = [...treeFindings, ...evalScan.findings, ...await scanSecrets({ entries, config, scanner: options.scanner, signal })].sort(compareFindings);
   const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config), ...(options.expectedRoot ? { expectedRoot: options.expectedRoot } : {}) };
-  const rules = [...RULES, SECRET_RULE].map((rule) => ({ id: rule.id, status: ruleStatus(rule, { scope: options.scope, findings, unscannable }) }))
+  const rules = ALL_RULES.map((rule) => ({ id: rule.id, status: ruleStatus(rule, { scope: options.scope, findings, unscannable }) }))
     .sort((first, second) => compareText(first.id, second.id));
   const outputs = buildOutputs({ scope: options.scope, target, scanner, rules, unscannable, findings });
   await publish(outputs, { out: options.out, evidenceFile: options.privateEvidence });

@@ -7,6 +7,7 @@ import { createSecretInput } from './history-secrets.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps } from './rules-address.mjs';
+import { createEvalScanner } from './rules-eval.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 import { requireNoStaleLockfileDisposition } from './rules-text.mjs';
 import { SEMVER, scanSecrets, secretScanIdentity } from './secret-scan.mjs';
@@ -217,6 +218,7 @@ async function runHistory(argv, signal) {
   const lockfilePaths = new Set(config.lockfileDispositions.map((row) => row.path));
   const heldLockfiles = new Map();
   const secrets = createSecretInput(limits);
+  const evalScanner = createEvalScanner({ config, limits, signal });
   const findings = [];
   const unscannable = [];
   const requireWithinLimit = () => {
@@ -226,7 +228,9 @@ async function runHistory(argv, signal) {
   };
   for (const commit of commits) {
     const { entries } = await readCommitObjects({ repo: options.repo, commit: commit.sha, limits, signal });
-    unscannable.push(...unscannableEntries(entries, config).map((problem) => ({ commit: commit.sha, ...problem })));
+    const evalScan = await evalScanner.scan(entries);
+    unscannable.push(...[...unscannableEntries(entries, config), ...evalScan.unscannable].map((problem) => ({ commit: commit.sha, ...problem })));
+    findings.push(...evalScan.findings.map((finding) => ({ ...finding, commit: commit.sha })));
     secrets.addTree(commit.sha, entries);
     for (const { path, oid } of entries) if (lockfilePaths.has(path)) heldLockfiles.set(`${oid}\0${path}`, { path, oid });
     secrets.addObject(commit, COMMIT_PEOPLE);
@@ -246,6 +250,7 @@ async function runHistory(argv, signal) {
     requireWithinLimit();
   }
   requireNoStaleLockfileDisposition([...heldLockfiles.values()], config.lockfileDispositions);
+  evalScanner.requireNoStaleException();
   findings.push(...(await scanSecrets({ entries: secrets.scanEntries(), config, scanner: options.scanner, signal })).map(secrets.locate));
   requireWithinLimit();
   findings.sort(compareFindings);

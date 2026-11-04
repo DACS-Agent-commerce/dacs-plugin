@@ -1,20 +1,21 @@
 import { writeFileSync } from 'node:fs';
 import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID } from './rules-address.mjs';
+import { EVAL_RULE_ID } from './rules-eval.mjs';
 import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID } from './rules-files.mjs';
 import { PRIVATE_RULE_ID } from './rules-private.mjs';
 import { ISSUE_RULE_ID, REPORT_RULE_ID } from './rules-text.mjs';
 import { SECRET_RULE_ID, SEMVER } from './secret-scan.mjs';
 
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
-export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr' });
+export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr', 'rules-eval-child.stderr': 'stderr' });
 
 /** Schema values shared by every report: a SHA-256 digest, a rule status and an unscannable entry's cause. */
 export const SHA256_HEX = /^[0-9a-f]{64}$/;
 export const STATUSES = ['passed', 'findings', 'not-run', 'unscannable'];
-export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition'];
+export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition', 'eval-parse-error', 'eval-computed-member', 'eval-parse-timeout', 'limit:maxEvalUnitBytes'];
 const SCOPES = ['generic', 'complete'];
-const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, REPORT_RULE_ID, ISSUE_RULE_ID, PRIVATE_RULE_ID, SECRET_RULE_ID];
+const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, EVAL_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, REPORT_RULE_ID, ISSUE_RULE_ID, PRIVATE_RULE_ID, SECRET_RULE_ID];
 const KINDS = ['path', 'content'];
 
 /** The fixed text printed after each cause; nothing else ever reaches stderr. A `limit:<name>` cause has one shared text. */
@@ -53,6 +54,8 @@ const DIAGNOSTICS = {
   'scanner-version-mismatch': 'the gitleaks binary does not report the pinned version', 'scanner-failed': 'the scanner stopped with an error status',
   'scanner-report-malformed': 'the scanner report is missing, malformed or disagrees with its status', 'stale-secret-exception': 'a secretExceptions entry names a path and blob the target does not hold',
   'stale-lockfile-disposition': 'a lockfileDispositions entry names a path the target holds only at another blob',
+  'stale-eval-exception': 'an evalGeneratedFiles entry names a path the target holds only at other bytes',
+  'eval-parser-failed': 'the eval parser stopped with an error status or wrote an unexpected result',
   'internal-error': 'the gate failed unexpectedly', limit: 'a configured limit was reached',
 };
 
