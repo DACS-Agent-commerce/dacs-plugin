@@ -13,8 +13,8 @@
  * The kill file (<stateDir>/KILL) is wired now: while it exists, every write
  * and every mandate is refused.
  */
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { markerPresent } from './config.js';
 import { canonicalBytes, sha256Hex } from './dacs/jcs.js';
 
 export interface Mandate {
@@ -49,7 +49,7 @@ export function mandateHash(m: Mandate): string {
 }
 
 export function killSwitchEngaged(stateDir: string): boolean {
-  return existsSync(join(stateDir, 'KILL'));
+  return markerPresent(join(stateDir, 'KILL'));
 }
 
 const DIGITS = /^(0|[1-9][0-9]*)$/;
