@@ -188,6 +188,8 @@ async function resolveSelectedRef(base, given) {
   const commit = object && await objectIdOf(base, `${object}^{commit}`);
   if (!commit) throw new GateInputError('unknown-ref', 'the repository has no commit for one of the refs');
   const name = (await git({ ...base, args: ['rev-parse', '--symbolic-full-name', given] })).toString().trim() || null;
+  // Only a ref's full name or a full object id is reported, so any other expression would give a report an object id's.
+  if (name === null && !FULL_OBJECT_ID.test(given)) throw new GateInputError('bad-ref', 'a ref must be a ref name or a full object id');
   const tags = await readTagChain(base, object);
   if (name?.startsWith(TAG_REF_PREFIX) && tags.length > 0 && embeddedTagName(tags[0].raw) !== name.slice(TAG_REF_PREFIX.length)) {
     throw new GateInputError('tag-name-mismatch', 'a selected tag ref is not named as its tag object names itself');
@@ -197,10 +199,10 @@ async function resolveSelectedRef(base, given) {
 
 /**
  * Resolves every `refs` item (ref names or full object ids) as history mode selects it. Returns [{ given, name, object, commit,
- * tags }]: `given` is the item as written, `name` its full ref name (null for an object id or another expression), `object` the
+ * tags }]: `given` is the item as written, `name` its full ref name (null for an object id), `object` the
  * object id it points to (the outermost tag object for an annotated tag), `commit` the commit that object peels to and `tags`
  * the tag objects in between as { sha, raw }, outermost first. Throws GateInputError for an unusable ref, a tag ref whose name
- * differs from the name inside its tag object, a limit, a timeout, an interrupt or a malformed git reply.
+ * differs from the name inside its tag object, an item that is neither a ref name nor a full object id, a limit, a timeout, an interrupt or a malformed git reply.
  */
 export async function resolveSelectedRefs({ repo, refs, limits, signal = new AbortController().signal }) {
   const base = { repo, limits, signal, maxBytes: SMALL_REPLY_BYTES };

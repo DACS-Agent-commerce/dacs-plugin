@@ -85,8 +85,8 @@ test('two different annotated tags on one commit give different history reports,
 });
 
 /** A saved passing history report for `refs`, the review context that matches it, and a checker for it against other refs. */
-function savedReport() {
-  const history = createHistory([{}, {}]);
+function savedReport({ steps = [{}, {}], branches } = {}) {
+  const history = createHistory(steps, branches);
   createAnnotatedTag(history.dir, 'first', history.commits[1], { message: 'one' });
   createAnnotatedTag(history.dir, 'second', history.commits[1], { message: 'two' });
   const report = JSON.parse(runRefs(history, 'first', { status: 0, extra: ALLOWED }).stdout);
@@ -133,4 +133,52 @@ test('check-report refuses a saved history report that has a finding or whose he
   const finding = { rule: 'R-PRIVATE', kind: 'ref', location: 'ref-1' };
   refused(check({ saved: { ...report, findings: [finding] } }), 1, 'report-not-passing');
   refused(check({ selection: [] }), 2, 'bad-arguments');
+});
+
+test('check-report refuses a saved history report whose heads were edited to name a commit the refs do not reach, or repeat or reorder the real ones', () => {
+  const { history, report, check } = savedReport({ steps: [{}, {}, { parents: [0] }], branches: { main: 1, side: 2 } });
+  const [main, side] = [history.commits[1], history.commits[2]];
+  const edit = (heads) => ({ ...report, target: { ...report.target, heads } });
+  assert.deepEqual(report.target.heads, [main]);
+  refused(check({ saved: edit([main, side].sort()), head: side }), 1, 'report-refs-differ');
+  refused(check({ saved: edit([main, side].sort()), head: main }), 1, 'report-refs-differ');
+  refused(check({ saved: edit([main, main]), head: main }), 1, 'report-refs-differ');
+  refused(check({ saved: edit([side]), head: side }), 1, 'report-refs-differ');
+  refused(check({ saved: edit([side]), head: main }), 1, 'report-other-head');
+});
+
+test('check-report refuses a saved history report of two refs whose heads list is not exactly the distinct, sorted commits of both', () => {
+  const { history, check } = savedReport({ steps: [{}, {}, { parents: [0] }], branches: { main: 1, side: 2 } });
+  const both = JSON.parse(runRefs(history, 'main,side', { status: 0, extra: ALLOWED }).stdout);
+  const heads = [history.commits[1], history.commits[2]].sort();
+  assert.deepEqual(both.target.heads, heads);
+  const edit = (edited) => ({ ...both, target: { ...both.target, heads: edited } });
+  const selection = ['--repo', history.dir, '--refs', 'main,side'];
+  assert.equal(check({ saved: both, selection, head: heads[0] }).status, 0);
+  refused(check({ saved: edit([heads[0]]), selection, head: heads[0] }), 1, 'report-refs-differ');
+  refused(check({ saved: edit([...heads].reverse()), selection, head: heads[0] }), 1, 'report-refs-differ');
+});
+
+test('a --refs item that is neither a ref name nor a full object id, such as a revision expression or an abbreviated id, exits 2 as bad-ref in history mode and in check-report', () => {
+  const history = createHistory([{}, {}]);
+  const tag = createAnnotatedTag(history.dir, 'release', history.commits[1]);
+  const expressions = ['main^{commit}', 'main~1', 'main^', 'release^{commit}', 'main@{0}', history.commits[1].slice(0, 12), `${history.commits[1]}^{commit}`];
+  for (const ref of expressions) {
+    const run = runRefs(history, ref, { status: 2 });
+    assert.equal(run.stdout, '', ref);
+    assert.match(run.stderr, /^bad-ref: [^\n]+\n$/, ref);
+  }
+  const { check } = savedReport();
+  refused(check({ refs: 'first^{commit}' }), 2, 'bad-ref');
+  const byId = JSON.parse(runRefs(history, `${history.commits[1]},${tag}`, { status: 0 }).stdout);
+  assert.deepEqual(byId.target.refs.map(({ ref }) => ref), [null, null]);
+});
+
+test('a saved history report made from an object id is not accepted for a revision expression that peels to the same commit, even when the private list holds the expression', () => {
+  const history = createHistory([{}, {}]);
+  const report = JSON.parse(runRefs(history, history.commits[1], { status: 0, extra: ALLOWED }).stdout);
+  const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), ...expectedScanIdentity(), expectedRoot: history.commits[0] };
+  const check = (refs) => runCheckReport(['--report', writeJson(report), '--head', history.commits[1], '--context', writeJson(context), '--repo', history.dir, '--refs', refs]);
+  assert.equal(check(history.commits[1]).status, 0);
+  refused(check('main^{commit}'), 2, 'bad-ref');
 });

@@ -200,16 +200,17 @@ missing, over 1 MiB, or malformed (a report is malformed unless it has the repor
 - **History reports.** A report of scope `history` also needs `--repo` and `--refs`, the run being checked: the refs are
   resolved now, as history mode resolves them, and the report must name exactly those refs (full ref names, object ids, tag
   objects and peeled commits, see History mode), so a ref moved or an annotated tag made again since the scan refuses the
-  report. `--head` must be one of the report's `heads`, every rule including `R-IDENTITY` must be `passed` (so the scan ran with
+  report. The report's `heads` must be exactly the distinct, sorted commits of those refs, and `--head` one of them; every rule including `R-IDENTITY` must be `passed` (so the scan ran with
   `--allowed-identity`), and the report's `scanner` must equal the context's six fields, so a report made with `--pr-text` is
   refused. A tag ref whose name differs from its tag object's is refused with exit 2 as in history mode.
 - **Causes.** `report-not-complete` (scope is neither `complete` nor `history`), `report-other-head` (target commit is not `--head`; for a
-  history report, `--head` is not among its heads), `report-refs-differ` (a history report's refs are not those of the run being
+  history report, `--head` is not among its heads), `report-refs-differ` (a history report's refs or heads are not those of the run being
   checked), `report-rules-differ` (the rule ids are not exactly the registered ones, `R-IDENTITY` added for a history report),
   `report-policy-differs` (the scanner identity
   differs from the context), `report-not-passing` (a finding, an unscannable entry or a rule not `passed`). The exit 2
   causes are `report-unreadable`, `report-malformed`, `context-unreadable`, `context-malformed`, `limit:maxCheckFileBytes`
-  and `bad-arguments`.
+  `bad-arguments`, and, for a history report, `bad-ref` (a `--refs` item that is neither a ref name nor a full object id)
+  and the other causes of History mode.
 - **Not bound yet.** The report carries no digest of the private list (nothing in it derives from the list), so a
   corrected list is not detected by this command.
 
@@ -220,7 +221,8 @@ node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --priv
   --gitleaks <file> --gitleaks-sha256 <hex> [--allowed-identity 'Name <email>'] [--pr-text <file.json>] [--out <file>]
 ```
 
-Walks every commit reachable from the refs (names or full object ids, comma-separated), parents first, and reports under
+Walks every commit reachable from the refs (names or full object ids, comma-separated; any other revision expression, such
+as `main^{commit}` or an abbreviated id, exits 2 as `bad-ref`), parents first, and reports under
 scope `history`. Each commit's tree gets the same reading and the same ten rules as in complete scope (`R-ACCOUNT`,
 `R-ARCHIVE`, `R-ENV`, `R-EVAL`, `R-HOST`, `R-HOSTING`, `R-IP`, `R-ISSUE`, `R-PRIVATE` and `R-REPORT`), each occurrence judged by its own path,
 and once over the union of its trees the stale checks for `lockfileDispositions` and `evalGeneratedFiles`, so a file, address or archive that an earlier commit

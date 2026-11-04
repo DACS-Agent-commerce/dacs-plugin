@@ -87,14 +87,16 @@ function resolveRunRefs(flags) {
  * Judges `report` (a parsed gate report) against the head and the review context. It trusts nothing in the report: the
  * expected values are the head, this gate's registered rule ids and the context's scanner identity, and for a history
  * report the refs of the run being checked (`selectedRefs`, as resolveSelectedRefs returns them), which it must name with
- * the same full names and object ids, tag objects included. Returns undefined when the report is a passing complete report
+ * the same full names and object ids, tag objects included, and whose heads must be exactly the distinct commits of those
+ * refs, sorted. Returns undefined when the report is a passing complete report
  * with the head as its commit, or a passing history report with the head among its heads, else the cause of the first refusal.
  */
 function refusalCause(report, { head, context, selectedRefs }) {
   const isHistory = report.scope === HISTORY_SCOPE;
   if (report.scope !== 'complete' && !isHistory) return 'report-not-complete';
   if (!(isHistory ? report.target.heads : [report.target.commit]).includes(head)) return 'report-other-head';
-  if (isHistory && !isDeepStrictEqual(report.target.refs, describeSelectedRefs(selectedRefs))) return 'report-refs-differ';
+  const heads = isHistory ? [...new Set(selectedRefs.map(({ commit }) => commit))].sort() : [];
+  if (isHistory && !(isDeepStrictEqual(report.target.refs, describeSelectedRefs(selectedRefs)) && isDeepStrictEqual(report.target.heads, heads))) return 'report-refs-differ';
   const registeredIds = isHistory ? [...REGISTERED_RULE_IDS, IDENTITY_RULE_ID] : REGISTERED_RULE_IDS;
   const reportedIds = Array.isArray(report.rules) ? report.rules.map((rule) => rule?.id).sort() : [];
   if (!isDeepStrictEqual(reportedIds, [...registeredIds].sort())) return 'report-rules-differ';
