@@ -115,7 +115,8 @@ test('control: an import whose top-level async init compiles WebAssembly is caug
 test('host: Node\'s own lazily loaded fetch internals compile only undici WebAssembly, before the measured import', async (t) => {
   const start = wasmCalls.length;
   // Reading these globals loads Node's internal undici (fetch is trapped above).
-  for (const name of ['Headers', 'Request', 'Response', 'FormData']) assert.equal(typeof globalThis[name], 'function', name);
+  const fetchApi = { Headers: globalThis.Headers, Request: globalThis.Request, Response: globalThis.Response, FormData: globalThis.FormData };
+  for (const [name, value] of Object.entries(fetchApi)) assert.equal(typeof value, 'function', name);
   for (let waited = 0; waited < 3000 && !wasmCalls.slice(start).includes('instantiate'); waited += 20) await delay(20);
   await delay(100);
   const sites = wasmCallSites.slice(start);

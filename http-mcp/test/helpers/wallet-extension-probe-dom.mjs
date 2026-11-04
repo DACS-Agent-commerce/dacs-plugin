@@ -24,7 +24,10 @@ export function installProbeDom() {
   globalThis.document = { getElementById: () => null, createElement: (tag) => new ProbeNode(tag), createTextNode: (value) => Object.assign(new ProbeNode('#text'), { textContent: value }) };
   const nodes = (node = root) => [node, ...node.children.flatMap((child) => nodes(child))];
   return { root, nodes, button: (label) => nodes().find((v) => v.tag === 'button' && v.textContent === label),
-    restore() { for (const [k, v] of Object.entries(old)) { if (v === undefined) delete globalThis[k]; else globalThis[k] = v; } } };
+    restore() {
+      if (old.Node === undefined) delete globalThis.Node; else globalThis.Node = old.Node;
+      if (old.document === undefined) delete globalThis.document; else globalThis.document = old.document;
+    } };
 }
 export function fakeExtension({ wallet = createEphemeralWallet(), signMessage, signTransaction, connectResponse, accountsResponse, onRequest } = {}) {
   const calls = [];
