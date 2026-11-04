@@ -76,9 +76,10 @@ the switch on, `prepare_purchase`, `get_purchase_status` and `verify_deal`:
   that envelope's text as JSON, as it does for any seller data. The envelope has the
   same label, delimiters, escaping and 4096 code point bound as every other seller
   text. A payment evidence record longer than the bound is cut and its envelope says
-  so (`truncated: true`); the cut text is no longer valid JSON, so the model loses the
-  record's later fields (`ref`, `txHash`, `anchorReceipt`) for that purchase. No payment
-  or authorization decision reads this copy. The same labelling is applied with the
+  so (`truncated: true`); the envelope's text then decodes to a JSON string holding the
+  cut record, not to an object, so the model cannot read any of the record's fields
+  (`ref`, `txHash`, `anchorReceipt`, including the ones before the cut) for that purchase.
+  No payment or authorization decision reads this copy. The same labelling is applied with the
   switch on and off, and what is stored and what the wallet portal shows are unchanged.
 - keep the report in `structuredContent.protocol.delivery.report` as the
   `{label, contentHash, coordinates, text}` wrapper of `src/mcp/seller-content.mjs`:
