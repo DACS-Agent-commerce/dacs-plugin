@@ -121,6 +121,14 @@ export function createServer(deps: Deps): McpServer {
   /** One approved write executes at a time (wallet state, nonces and reservations stay unambiguous). */
   let inFlight = false;
   const blocker = writeBlocker(config);
+  /** The blocker now (a purchase-only marker can appear or go after start-up). An unreadable marker path counts as blocked, with its error code. */
+  const blockerNow = (): string | null => {
+    try {
+      return blocker ?? writeBlocker(config);
+    } catch (e) {
+      return `cannot check the purchase-only marker (${(e as NodeJS.ErrnoException).code ?? 'error'})`;
+    }
+  };
   let wallet: Wallet | null = null;
   let walletPromise: Promise<Wallet> | null = null;
   const keyless = deps.surface === 'keyless';
@@ -254,6 +262,7 @@ export function createServer(deps: Deps): McpServer {
     },
     guarded(async () => {
       const info = await chain.networkInfo();
+      const writeBlockerNow = blockerNow();
       let remaining: string | null = null;
       try {
         remaining = osToDem(ledger.remainingToday());
@@ -273,8 +282,8 @@ export function createServer(deps: Deps): McpServer {
         safety: {
           writes: keyless
             ? 'keyless: read, verify, and unsigned prepare only'
-            : blocker
-              ? `disabled: ${blocker}`
+            : writeBlockerNow
+              ? `disabled: ${writeBlockerNow}`
               : 'enabled (every write needs an out-of-band human confirmation code)',
           daily_cap_dem: osToDem(config.dailyCapOs),
           daily_cap_remaining_dem: remaining,
@@ -288,7 +297,7 @@ export function createServer(deps: Deps): McpServer {
               : 'out-of-band code',
           signing: keyless ? 'this transport does not hold keys and does not submit' : 'only at demos_tx_submit, after human approval',
           kill_switch: killSwitchEngaged(config.stateDir) ? 'ENGAGED (writes refused)' : 'off',
-          receipt_issuer: keyless || blocker ? null : receiptSigner.issuerClaim(),
+          receipt_issuer: keyless || writeBlockerNow ? null : receiptSigner.issuerClaim(),
         },
       };
     }),
@@ -465,6 +474,7 @@ export function createServer(deps: Deps): McpServer {
     prepareSelfPayment: (address: string) => preparePayment({ to: address, amount_dem: '1', memo: 'onboarding self-test' }, true),
     guarded,
     writesBlocked: blocker,
+    writesBlockedNow: blockerNow,
     now,
   });
 
