@@ -201,7 +201,8 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
         spending_limit_dem: limitOs !== null ? osToDem(limitOs) : null,
       };
       let next: { step: string; tool?: string; say: string };
-      if (blocked) next = { step: 'enable writes', say: `Writes are off (${blocked}).${blocked.startsWith('purchase-only wallet') ? ' This wallet is fenced for purchase-only use; enabling writes does not lift that.' : ''} In Claude Code: /config → demos plugin → "Enable wallet writes", then reconnect (/mcp).` };
+      if (blocked && blocked.startsWith('purchase-only wallet')) next = { step: 'wallet fenced', say: `Writes are off (${blocked}). This wallet is fenced for purchase-only use; enabling wallet writes does not lift that, so nothing more can be done here.` };
+      else if (blocked) next = { step: 'enable writes', say: `Writes are off (${blocked}). In Claude Code: /config → demos plugin → "Enable wallet writes", then reconnect (/mcp).` };
       else if (!address) next = { step: 'create wallet', tool: 'demos_onboard_create_wallet', say: 'Create a wallet. The recovery phrase is shown once, on your local page, never in this chat.' };
       else if (!steps.recovery_phrase_backed_up) next = { step: 'confirm backup', tool: 'demos_onboard_create_wallet', say: 'The recovery phrase was not confirmed yet. Calling demos_onboard_create_wallet again opens a page where the human enters their passphrase to see it once more and confirm.' };
       else if (steps.funded === false) next = testnet ? { step: 'fund (testnet)', tool: 'demos_onboard_fund', say: 'Get free testnet DEM from the faucet.' } : { step: 'fund', say: 'Send DEM to this address from another wallet.' };
@@ -353,6 +354,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           // 2. keystore: write + fsync a private temp file, then publish with link() (fails if the
           //    target exists, so an existing wallet is never replaced and readers never see a partial file)
           const tmp = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+          let fencedLate = false;
           try {
             const fd = openSync(tmp, 'wx', 0o600);
             try {
@@ -366,12 +368,23 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
             if (!onDisk.equals(bytes) || decryptKeystore(JSON.parse(onDisk.toString('utf8')) as KeystoreFile, pass) !== mnemonic) {
               throw new Error('keystore did not verify after writing');
             }
+            if (blockedNow()) {
+              fencedLate = true;
+              throw new Error('fenced');
+            }
             linkSync(tmp, path);
           } catch (e) {
             if (remember) safeUnlink(config.keystorePassphraseFile!); // we created it a moment ago
+            if (fencedLate) return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
             throw e;
           } finally {
             safeUnlink(tmp);
+          }
+          if (blockedNow()) {
+            // a marker appeared during the file work: take back what was just published (it was never shown)
+            safeUnlink(path);
+            if (remember) safeUnlink(config.keystorePassphraseFile!);
+            return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
           }
           if (!remember) setSessionPassphrase(pass); // this session only
           created = true;

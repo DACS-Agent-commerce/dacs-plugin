@@ -196,7 +196,8 @@ test('a marker that appears after start-up is reported by the network info and s
   assert.match(info.json.safety.writes, FENCED);
   const status = await h.call('demos_onboard_status');
   assert.equal(status.json.steps.writes_enabled, false);
-  assert.match(status.json.next.say, /fenced for purchase-only use; enabling writes does not lift that/);
+  assert.equal(status.json.next.step, 'wallet fenced');
+  assert.match(status.json.next.say, /enabling wallet writes does not lift that/);
   const r = await h.call('demos_onboard_create_wallet');
   assert.equal(r.isError, true);
   assert.match(r.text, FENCED);
@@ -271,6 +272,44 @@ test('a marker that appears during the address lookup stops the create form befo
   assert.match(shown, /fenced for purchase-only use/);
   for (const w of wf.made[0]!.split(' ')) assert.ok(!shown.includes(`<li>${w}</li>`));
   assert.equal(existsSync(keystore), false, 'no keystore was written');
+});
+
+test('a marker that appears during the file work leaves no keystore and shows no phrase', async (t) => {
+  let marker = '';
+  let lookedUp = false;
+  const wf = {
+    made: [] as string[],
+    newMnemonic() { const m = 'rapid olive tail sword ahead clay frost skill cruise bonus quick merry'; this.made.push(m); return m; },
+    async addressOf(m: string) { lookedUp = true; return '0x' + createHash('sha256').update(m).digest('hex'); },
+  };
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  t.after(async () => {
+    await h.approval!.stop();
+    rmSync(h.config.stateDir, { recursive: true, force: true });
+  });
+  const keystore = join(h.config.stateDir, 'wallet.keystore.json');
+  marker = `${keystore}.purchase-only`;
+  const pass = 'correct horse battery staple';
+  await h.call('demos_onboard_create_wallet');
+  const url = h.channel.last().approveUrl!;
+  // the marker appears while the file work runs: the passphrase file path is read after the address check
+  let armed = true;
+  const passFile = h.config.keystorePassphraseFile;
+  Object.defineProperty(h.config, 'keystorePassphraseFile', {
+    get() {
+      if (armed && lookedUp) {
+        armed = false;
+        writeFileSync(marker, '');
+      }
+      return passFile;
+    },
+  });
+  const shown = await post(url + '/approve', { passphrase: pass, confirm: pass, remember: 'on' });
+  assert.equal(armed, false, 'control: the hook ran during the file work');
+  assert.match(shown, /fenced for purchase-only use/);
+  for (const w of wf.made[0]!.split(' ')) assert.ok(!shown.includes(`<li>${w}</li>`));
+  assert.equal(existsSync(keystore), false, 'no keystore remains');
+  assert.equal(existsSync(passFile!), false, 'no passphrase file remains');
 });
 
 test('a marker that appears during the status lookups is reported by the same status call', async (t) => {
