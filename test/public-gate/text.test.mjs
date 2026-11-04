@@ -95,6 +95,18 @@ test('issue references: a link to a repository of the organisation that is not o
   for (const link of passing) assert.deepEqual(issueFindings('a.md', `${link}\n`), [], link);
 });
 
+test('issue references: a number sign after a dotted repository of the organisation is a reference, not a file fragment', () => {
+  const dotted = ['private', 'repo'].join('.');
+  const config = { ...CONFIG, publicRepositories: { owner: ORG, repositories: [...PUBLIC_REPOS, 'listed.repo', 'listed.js'] } };
+  for (const bad of [`${ORG}/${dotted}@12`, `${ORG.toUpperCase()}/${dotted}@12`, `${ORG}/${dotted}.md@12`, `${ORG}/${dotted}.js@12`, `${ORG}/listed.repo-x@12`, `see ${ORG}/${dotted}@12.`]) {
+    assert.equal(issueFindings('a.md', h(`${bad}\n`), config).length, 1, bad);
+  }
+  for (const good of [`${ORG}/listed.repo@12`, `${ORG.toUpperCase()}/LISTED.JS@12`, `${OTHER_OWNER}/${dotted}@12`, `${OTHER_OWNER}/page.html@12`, `docs/${ORG}/${dotted}.md@12`]) {
+    assert.deepEqual(issueFindings('a.md', h(`${good}\n`), config), [], good);
+  }
+  assert.equal(issueFindings('a.md', `https://github.com/${ORG}/${dotted}\n`, config).length, 1);
+});
+
 const LOCKFILE_PATHS = ['stdio-mcp/package-lock.json', 'http-mcp/wallet-build/package-lock.json'];
 const DEPRECATED_VALUE_SHA256 = {
   ics23: '73db8b1fb39b70e63f1b64d8d5a7d41f7873b8d4fa8a5455f8955bfae5d3829e', crypto: '1ae46a6eb64871e470bbe6cda47a9676f54ec6d7b8ada88c01f69da140130fb6',

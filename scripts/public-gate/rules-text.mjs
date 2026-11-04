@@ -91,11 +91,11 @@ function isHarmlessNumberSign(line, index, end) {
   return /&$|PKCS ?$/.test(before) || isPlaceholder || isFragment || isColour(before, line.slice(end));
 }
 
-/** The owner and repository when the run before a number sign is `owner/repo` and not a file path, else null. */
-function repositoryBeforeNumberSign(line, index) {
+/** The owner and repository when the run before a number sign is `owner/repo`, else null. Another owner's `name.ext` is a file path, not a repository; the organisation's repository names may hold dots. */
+function repositoryBeforeNumberSign(line, index, isListed) {
   const run = /[^\s([<>"'`]*$/.exec(line.slice(Math.max(0, index - CONTEXT_CHARS), index))[0];
   const match = OWNER_AND_REPOSITORY.exec(run);
-  return match && !FILE_EXTENSION.test(match[2]) ? { owner: match[1], repo: match[2] } : null;
+  return match && (isListed.isOrganisation(match[1]) || !FILE_EXTENSION.test(match[2])) ? { owner: match[1], repo: match[2] } : null;
 }
 
 /** True when `view` of a line holds a reference that does not pass: a number sign reference, or a repository address, other than a listed repository's. */
@@ -103,7 +103,7 @@ function hasUnlistedReference(view, isListed) {
   const links = [...view.matchAll(GITHUB_LINK)].map(({ groups }) => groups);
   const unlistedLink = links.some(({ owner, repo, kind }) => (kind !== undefined || isListed.isOrganisation(owner)) && !isListed(owner, repo));
   const unlistedNumber = [...view.matchAll(NUMBER_SIGN_REFERENCE)].some((match) => {
-    const named = repositoryBeforeNumberSign(view, match.index);
+    const named = repositoryBeforeNumberSign(view, match.index, isListed);
     return named ? !isListed(named.owner, named.repo) : !isHarmlessNumberSign(view, match.index, match.index + match[0].length);
   });
   return unlistedLink || unlistedNumber;
