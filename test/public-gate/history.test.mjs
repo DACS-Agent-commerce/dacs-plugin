@@ -28,7 +28,7 @@ test('a clean history passes with every commit read; an entry that an early comm
   assert.equal(report.scope, 'history');
   assert.deepEqual(report.target, { heads: [clean.commits[2]], commits: 3 });
   assert.deepEqual(report.rules.map(({ id, status }) => `${id} ${status}`), [
-    'R-ACCOUNT passed', 'R-ARCHIVE passed', 'R-ENV passed', 'R-HOST passed', 'R-HOSTING passed', 'R-IDENTITY not-run', 'R-IP passed', 'R-PRIVATE passed', 'R-SECRET passed',
+    'R-ACCOUNT passed', 'R-ARCHIVE passed', 'R-ENV passed', 'R-HOST passed', 'R-HOSTING passed', 'R-IDENTITY not-run', 'R-IP passed', 'R-ISSUE passed', 'R-PRIVATE passed', 'R-REPORT passed', 'R-SECRET passed',
   ]);
   assert.equal(report.scanner.gateRevision, gateRevision());
   assert.equal(report.scanner.expectedRoot, clean.commits[0]);
@@ -80,8 +80,8 @@ test('the address, env, hosting and archive rules read every commit tree: what a
   const run = runHistory(historyArgs(history, listFile));
   assert.equal(run.status, 1, run.stderr);
   const report = JSON.parse(run.stdout);
-  assert.deepEqual(report.rules.map(({ id }) => id), ['R-ACCOUNT', 'R-ARCHIVE', 'R-ENV', 'R-HOST', 'R-HOSTING', 'R-IDENTITY', 'R-IP', 'R-PRIVATE', 'R-SECRET']);
-  assert.deepEqual(report.rules.map(({ status }) => status), ['findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings', 'passed', 'passed']);
+  assert.deepEqual(report.rules.map(({ id }) => id), ['R-ACCOUNT', 'R-ARCHIVE', 'R-ENV', 'R-HOST', 'R-HOSTING', 'R-IDENTITY', 'R-IP', 'R-ISSUE', 'R-PRIVATE', 'R-REPORT', 'R-SECRET']);
+  assert.deepEqual(report.rules.map(({ status }) => status), ['findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings', 'passed', 'passed', 'passed', 'passed']);
   assert.deepEqual(brief(report), [
     'R-ACCOUNT content 5 3', 'R-ARCHIVE content 3 -', 'R-ENV content 1 1', 'R-HOST content 5 1', 'R-HOSTING path 4 -', 'R-IP content 5 2',
   ]);
