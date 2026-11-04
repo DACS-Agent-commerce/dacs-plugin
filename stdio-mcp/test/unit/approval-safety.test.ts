@@ -52,6 +52,13 @@ test('registration replaces only its own live token and prunes expired ones', as
   assert.deepEqual(h.decisions, [['B', true], ['A', true]]);
 });
 
+test('a public URL ending in a slash still yields a working /a/<token> link', async (t) => {
+  const h = fixture(t, 'https://approve.example/');
+  const url = await h.page.register('A', card, 2000);
+  assert.match(url, /^https:\/\/approve\.example\/a\/[A-Za-z0-9_-]{43}$/);
+  assert.equal((await h.request(url, { method: 'GET' }).done).status, 200);
+});
+
 test('an approval posted exactly at its deadline is refused', async (t) => {
   const h = fixture(t);
   const url = await h.page.register('A', card, 2000);

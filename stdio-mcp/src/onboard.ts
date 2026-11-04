@@ -66,6 +66,26 @@ interface OnboardState {
 }
 
 const FAUCET_MIN_INTERVAL_MS = 5 * 60_000;
+const FAUCET_MAX_REPLY_BYTES = 16 * 1024;
+
+/** Reads at most `max` bytes of a reply body; a longer body throws. */
+async function readCapped(res: Response, max: number): Promise<string> {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`reply larger than ${max} bytes`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 /** True if anything exists at p, including a dangling symlink. */
 function lexists(p: string): boolean {
@@ -467,7 +487,12 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           signal: AbortSignal.timeout(30_000),
         });
         status = res.status;
-        body = await res.json().catch(() => null);
+        const text = await readCapped(res, FAUCET_MAX_REPLY_BYTES);
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = null;
+        }
       } catch (e) {
         writeState({ ...st, faucet: [...(st.faucet ?? []), { at: new Date(d.now()).toISOString(), ok: false, status: 0 }].slice(-20) });
         return { ok: false, reason: 'faucet_unreachable', message: `The Demos testnet faucet could not be reached (${printable((e as Error).message).slice(0, 80)}).`, ...manual };
