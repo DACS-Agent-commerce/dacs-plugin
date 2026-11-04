@@ -589,7 +589,7 @@ Files: 750 (verbatim 505, edited 215, changed here 6, added 24).
 | `http-mcp/test/oauth-loopback.test.mjs` | `db62907d2903efca139fa213f42f0d75cbe0505c` | edited: address replaced by a documentation address; credential-shaped URL built at test time |
 | `http-mcp/test/oauth-refresh.test.mjs` | `a815b40e5b0f6fe546fa5fd2b283888955f8da45` | verbatim |
 | `http-mcp/test/oauth.test.mjs` | `315bc3cc1cfa9cad0bcdcf2d97280dae2e9e7b8e` | edited: public wording: internal process and layout references reworded
-| `http-mcp/test/offline-tester-package.test.mjs` | `072f82eac4b92739fd7a9cf513f36c9e27ee97d6` | edited: comment: internal log references removed; example checkout path made neutral |
+| `http-mcp/test/offline-tester-package.test.mjs` | `ea1915412f85159bfa08fb249b4a65b5b96f430a` | edited: comment: internal log references removed; example checkout path made neutral; then changed here: the expected secret-scan labels are built so the file holds no issue-style reference |
 | `http-mcp/test/offline-tester.test.mjs` | `4a6b2a9db2fba243f8bcd135d47b8574163fd051` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/operator-session-lifecycle.test.mjs` | `5127a0005d6bdd79cd664f62a66b95123e8a0c68` | verbatim |
 | `http-mcp/test/ops-health-lost-attempt.test.mjs` | `095bdd17b880f52f7ed9bf5d8511a164ac97d964` | edited: comments and test names: internal review and process references removed; no behaviour change |

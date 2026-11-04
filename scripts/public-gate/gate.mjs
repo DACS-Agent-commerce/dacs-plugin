@@ -9,10 +9,11 @@ import { buildOutputs, publish, SHA256_HEX, writeDiagnostic } from './redact.mjs
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, hasValidAddressConfig, hasValidIpDispositions, IP_RULE_ID, scanAccounts, scanHosts, scanIps } from './rules-address.mjs';
 import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, scanArchives, scanEnvTemplates, scanHostingFiles } from './rules-files.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
+import { hasValidTextConfig, ISSUE_RULE_ID, REPORT_RULE_ID, requireNoStaleLockfileDisposition, scanIssues, scanReports } from './rules-text.mjs';
 import { hasValidSecretConfig, SECRET_RULE_ID, scanSecrets, secretScanIdentity } from './secret-scan.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const GATE_SOURCES = ['scripts/lib/choice.mjs', 'scripts/lib/run-bounded.mjs', ...['check-report', 'classify', 'gate', 'history', 'history-secrets', 'objects', 'redact', 'rules-address', 'rules-files', 'rules-private', 'secret-scan'].map((name) => `scripts/public-gate/${name}.mjs`)];
+const GATE_SOURCES = ['scripts/lib/choice.mjs', 'scripts/lib/run-bounded.mjs', ...['check-report', 'classify', 'gate', 'history', 'history-secrets', 'objects', 'redact', 'rules-address', 'rules-files', 'rules-private', 'rules-text', 'secret-scan'].map((name) => `scripts/public-gate/${name}.mjs`)];
 const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'maxHistoryOccurrences', 'gitDeadlineMs', 'scanDeadlineMs', 'secretScanDeadlineMs', 'secretScanOutputBytes', 'maxScanReportBytes'];
 const SCOPES = ['generic', 'complete'];
 const FLAGS = ['--repo', '--commit', '--scope', '--private-list', '--private-evidence', '--expected-root', '--out', '--gitleaks', '--gitleaks-sha256'];
@@ -27,6 +28,8 @@ const RULES = [
   { id: ENV_RULE_ID, run: scanEnvTemplates },
   { id: HOSTING_RULE_ID, run: scanHostingFiles },
   { id: ARCHIVE_RULE_ID, run: scanArchives },
+  { id: REPORT_RULE_ID, run: scanReports },
+  { id: ISSUE_RULE_ID, run: scanIssues },
   { id: PRIVATE_RULE_ID, completeOnly: true, run: scanPrivate },
 ];
 
@@ -52,7 +55,7 @@ export function loadConfig() {
   const valid = LIMIT_NAMES.every((name) => Number.isSafeInteger(config.limits?.[name]) && config.limits[name] > 0)
     && Array.isArray(config.textExtensions) && Array.isArray(config.binaryDispositions)
     && config.binaryDispositions.every((entry) => entry.path && /^[0-9a-f]{64}$/.test(entry.sha256) && entry.reason)
-    && hasValidAddressConfig(config) && hasValidIpDispositions(config) && hasValidSecretConfig(config);
+    && hasValidAddressConfig(config) && hasValidIpDispositions(config) && hasValidSecretConfig(config) && hasValidTextConfig(config);
   if (!valid) throw new GateInputError('invalid-config', 'public-gate.config.json is malformed');
   return { ...config, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
@@ -134,6 +137,7 @@ async function runGate(argv, signal) {
   const unscannable = unscannableEntries(entries, config);
   if (unscannable.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} unscannable entries`);
   const treeFindings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, config, limits: config.limits }));
+  requireNoStaleLockfileDisposition(entries, config.lockfileDispositions);
   const findings = [...treeFindings, ...await scanSecrets({ entries, config, scanner: options.scanner, signal })].sort(compareFindings);
   const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config), ...(options.expectedRoot ? { expectedRoot: options.expectedRoot } : {}) };
   const rules = [...RULES, SECRET_RULE].map((rule) => ({ id: rule.id, status: ruleStatus(rule, { scope: options.scope, findings, unscannable }) }))

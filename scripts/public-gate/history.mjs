@@ -8,6 +8,7 @@ import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, require
 import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps } from './rules-address.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
+import { requireNoStaleLockfileDisposition } from './rules-text.mjs';
 import { SEMVER, scanSecrets, secretScanIdentity } from './secret-scan.mjs';
 
 /** Id of the identity rule in reports: every author, committer, tagger and trailer identity is an exact `publicIdentities` entry or the allowed identity, in UTC. */
@@ -213,6 +214,8 @@ async function runHistory(argv, signal) {
   const matcher = bounded(() => createPrivateMatcher(listEntries, () => checkpoint()));
   const identities = options.identity && new Set([...config.publicIdentities, options.identity]);
   const metadataContext = { matcher, identities, config, limits };
+  const lockfilePaths = new Set(config.lockfileDispositions.map((row) => row.path));
+  const heldLockfiles = new Map();
   const secrets = createSecretInput(limits);
   const findings = [];
   const unscannable = [];
@@ -225,6 +228,7 @@ async function runHistory(argv, signal) {
     const { entries } = await readCommitObjects({ repo: options.repo, commit: commit.sha, limits, signal });
     unscannable.push(...unscannableEntries(entries, config).map((problem) => ({ commit: commit.sha, ...problem })));
     secrets.addTree(commit.sha, entries);
+    for (const { path, oid } of entries) if (lockfilePaths.has(path)) heldLockfiles.set(`${oid}\0${path}`, { path, oid });
     secrets.addObject(commit, COMMIT_PEOPLE);
     findings.push(...bounded(() => [
       ...TREE_SCANS.flatMap((scan) => scan({ entries, matcher, config, limits }).map((finding) => ({ ...finding, commit: commit.sha }))),
@@ -241,6 +245,7 @@ async function runHistory(argv, signal) {
     for (const line of bounded(() => matcher.entryLines(value, limits.maxReportEntries + 1))) findings.push({ rule: PRIVATE_RULE_ID, kind: 'pr-text', item, string, line });
     requireWithinLimit();
   }
+  requireNoStaleLockfileDisposition([...heldLockfiles.values()], config.lockfileDispositions);
   findings.push(...(await scanSecrets({ entries: secrets.scanEntries(), config, scanner: options.scanner, signal })).map(secrets.locate));
   requireWithinLimit();
   findings.sort(compareFindings);

@@ -1,10 +1,10 @@
 # Public-content gate
 
 Reads one commit from Git objects (never the working tree or index, never following a symlink) and reports, under a
-declared scope, what the rules it runs found in it. The gate currently runs eight rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
-(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules), `R-PRIVATE` (the private list) and `R-SECRET`
-(the secret scan). Exit 0 in complete scope means no rule found anything and every file
-could be read; it does not show that the content may become public. Generic scope runs the address rules and reports
+declared scope, what the rules it runs found in it. The gate currently runs ten rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
+(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules), `R-REPORT` and `R-ISSUE` (the text rules), `R-PRIVATE`
+(the private list) and `R-SECRET` (the secret scan). Exit 0 in complete scope means no rule found anything and every file
+could be read; it does not show that the content may become public. Generic scope runs the rules that need no list and reports
 `R-PRIVATE` as `not-run`, so its exit 0 is never a complete pass.
 
 ```
@@ -31,6 +31,18 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   from a precomposed letter) and no one-to-many folding (`ß` is not `ss`). CRLF, a lone CR and a lone LF each end a line.
   A text blob is also read with its backslashes removed (line breaks kept, so the line is the blob's own), so an entry
   written with regex or string escapes is found.
+- **Reports (`R-REPORT`, both scopes).** Refuses a working-report file name (`build-rules.md` names three, any letter case, any depth), a
+  working-notes directory as any path segment (`.fix-tmp`, `.stack`) and a Markdown blob whose first 20 non-blank lines hold a heading, a
+  front-matter key or a bold label that is a frozen-input, canonical-snapshot or review-round marker (space, hyphen and underscore
+  equal; the marker alone, or followed by a colon, a parenthesis, a number or a commit id).
+- **Issue references (`R-ISSUE`, both scopes).** In every text blob, a bare number-sign reference (`PR`, `issue` and bare forms, also in fences,
+  comments and string literals), an `owner/repo` reference and every GitHub issue, pull-request or discussion address passes only for a
+  repository in `publicRepositories` (`owner`, `repositories`; whole segments, no case). Any address of the organisation's repositories,
+  in page, clone, raw, API or escaped form, must name a listed one. Colour values, link fragments, entities, `PKCS` names and
+  `<name#n>` placeholders are not references. The six upstream deprecation notices that npm copied into two lockfiles pass only through
+  `lockfileDispositions` (`path`, `blob`, `field`, `line`, `valueSha256`, `reason`): all five facts of the occurrence must match, and the
+  field is found by parsing the lockfile. An entry whose path the target holds only at another blob stops the run with
+  `stale-lockfile-disposition` (exit 2), so a later lockfile change needs a new review; a seventh link or a wildcard needs a new owner decision.
 - **Hosts (`R-HOST`, both scopes).** Every path and every text blob is read line by line, as written and with its
   escaped delimiters `\/`, `\@` and `\:` unescaped (`https:\/\/host\/x` is read as the URL it decodes to); a backslash ends a URL host.
   An escaped dot (`\.`) is not unescaped, because it is regex syntax in the code's own host patterns. A dotted name is a host when it is the
@@ -186,8 +198,9 @@ node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --priv
 ```
 
 Walks every commit reachable from the refs (names or full object ids, comma-separated), parents first, and reports under
-scope `history`. Each commit's tree gets the same reading and the same seven rules as in complete scope (`R-ACCOUNT`,
-`R-ARCHIVE`, `R-ENV`, `R-HOST`, `R-HOSTING`, `R-IP` and `R-PRIVATE`), so a file, address or archive that an earlier commit
+scope `history`. Each commit's tree gets the same reading and the same nine rules as in complete scope (`R-ACCOUNT`,
+`R-ARCHIVE`, `R-ENV`, `R-HOST`, `R-HOSTING`, `R-IP`, `R-ISSUE`, `R-PRIVATE` and `R-REPORT`), and once over the union of its
+trees the stale check for `lockfileDispositions`, so a file, address or archive that an earlier commit
 held and a later one removed is found. Reading, limits, exit codes and output rules are those above; `--out` never
 overwrites a file, and there is no `--private-evidence`.
 

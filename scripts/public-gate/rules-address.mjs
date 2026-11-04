@@ -117,7 +117,7 @@ export const textOf = (entry) => (entry.bytes && !entry.bytes.includes(0) ? deco
 const ESCAPED_DELIMITER = /\\([/@:])/g;
 
 /** A line as written, and with its escaped delimiters unescaped when it has any, so `https:\/\/host\/x` reads as the URL it decodes to. */
-function viewsOf(line) {
+export function viewsOf(line) {
   const unescaped = line.replace(ESCAPED_DELIMITER, '$1');
   return unescaped === line ? [line] : [line, unescaped];
 }
