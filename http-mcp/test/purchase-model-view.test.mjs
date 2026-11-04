@@ -123,7 +123,7 @@ test('every field but the report wrapper is main\'s copy, identifier-shaped inje
   const out = purchase(fullProjection(), [{ seq: 3, at: AT, type: 'protocol_claim', data: { outcome: 'refused', reason: 'TEST refusal', txHash: H('3') } }]);
   const valid = modelPurchaseView(out);
   assert.deepEqual(valid, mainCopy(out), 'with valid coordinates even the report wrapper is main\'s');
-  assert.deepEqual(valid.protocol.paymentEvidence.anchorReceipt, receipt());
+  assert.deepEqual(sellerValue(valid.protocol.paymentEvidence).anchorReceipt, receipt());
   assert.deepEqual({ ...valid.protocol.lastAttempt, reason: sellerValue(valid.protocol.lastAttempt.reason) }, { at: AT, step: 'claim', outcome: 'refused', reason: 'TEST seller refusal' });
 });
 

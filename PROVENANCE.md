@@ -34,7 +34,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 750 (verbatim 505, edited 215, changed here 6, added 24).
+Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -101,7 +101,7 @@ Files: 750 (verbatim 505, edited 215, changed here 6, added 24).
 | `http-mcp/docs/PUBLIC-SR2-PROJECTION.md` | `9b44e06734ab928d41c7ac517e5ac161f4701cca` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/PURCHASE-READBACK-CACHE.md` | `77db1bf32cf47ae94d3cf7a12998bf0acf205270` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/PURCHASE-RECEIPT.md` | `4c40f35844d1e1601a2be2b1844a839990811103` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
-| `http-mcp/docs/PURCHASED-REPORT-VIEW.md` | `b630c492303611c1da04fdc95966b17719927fed` | edited: public wording: internal review, process, PR and private-path references removed or reworded; then changed here: the four seller fields that reach the model raw are named as a known gap; no behaviour change |
+| `http-mcp/docs/PURCHASED-REPORT-VIEW.md` | `b630c492303611c1da04fdc95966b17719927fed` | edited: public wording: internal review, process, PR and private-path references removed or reworded; then changed here: the four seller fields that reach the model raw are named as a known gap; then changed again: those four fields are described as labelled seller text and the known-gap note is removed; no behaviour change |
 | `http-mcp/docs/SELLER-POLICY-AND-DELIVERY-EVIDENCE.md` | `c2d72575e79f76d500cc356919c2d69cca894b2c` | verbatim |
 | `http-mcp/docs/SELLER-SESSION-DELEGATION.md` | `8fd3ab45639a1072833b4759b5111ecfeb5ca912` | edited: reference to a document that is not carried removed; decision dates removed |
 | `http-mcp/docs/SELLER-SR2-AGREEMENT-INTEGRATION.md` | `c2bcd14e05a0cb6886639bd18f2260faf68b85fc` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -205,7 +205,7 @@ Files: 750 (verbatim 505, edited 215, changed here 6, added 24).
 | `http-mcp/src/identity-signals/github.mjs` | `76f72bc59f19dfc17f5f293154484ff23d006ce7` | changed here after a verbatim import: the gist binding check uses the shared signature helper, so small-order and non-canonical public keys are refused |
 | `http-mcp/src/legacy-publications.mjs` | `0b51b6dc3c695abb05b84053db9356a3f0657ed8` | verbatim |
 | `http-mcp/src/mcp/purchase-model-view.mjs` | `cb159b23adbdd5431df529419f9dcdc5eb6b4324` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `http-mcp/src/mcp/seller-content.mjs` | `8ca040a8aed392502ea4d4fa57bcc74bdb11f1a7` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/src/mcp/seller-content.mjs` | `8ca040a8aed392502ea4d4fa57bcc74bdb11f1a7` | edited: comments and test names: internal review and process references removed; then changed here: the four seller fields that reached the model raw (`protocol.commitment.note`, `protocol.claim.message`, the keys and note of `protocol.paymentEvidence`) are put inside the seller-data envelope; behaviour change |
 | `http-mcp/src/mcp/server.mjs` | `27905e5d195380e9a78508a3efb446759ee20e40` | edited: public wording: internal process and layout references reworded
 | `http-mcp/src/mcp/showcase-model.mjs` | `b83fba85bff48699e7535f552d7553f5662dbce6` | verbatim |
 | `http-mcp/src/mcp/showcase-progress.mjs` | `bd3afa827dc0b3d6cde40d910d54d37d9a26011a` | verbatim |
@@ -331,7 +331,7 @@ Files: 750 (verbatim 505, edited 215, changed here 6, added 24).
 | `http-mcp/test/dacs-offline-agreement-runtime.test.mjs` | `0a305eec72b615209d0d57ae0fda7b1b25643376` | verbatim |
 | `http-mcp/test/dacs-offline-browser-broker-coverage.test.mjs` | `f5af04210c5711b44df5142b8da5dabf8a784af7` | verbatim |
 | `http-mcp/test/dacs-offline-browser-broker.test.mjs` | `d155af03d8b3ccc59d4ec5597879d48ea9c62d38` | verbatim |
-| `http-mcp/test/dacs-plugin-purchase.test.mjs` | `152af444bebee938ddf5cdc70113e5727e4e82a3` | verbatim |
+| `http-mcp/test/dacs-plugin-purchase.test.mjs` | `152af444bebee938ddf5cdc70113e5727e4e82a3` | edited here: the test that read `paymentEvidence` fields raw from the model copy now decodes the seller-data envelope and asserts the same values |
 | `http-mcp/test/dacs-storage-anchor-wallet.test.mjs` | `e1337bbde6b2eb9113638a83aaa14e1a9f984e44` | verbatim |
 | `http-mcp/test/delivery-deadline-watch.test.mjs` | `1218c3923cad3db36b2a93cc73421828d1d48caa` | verbatim |
 | `http-mcp/test/demos-signature-encoding.test.mjs` | `3bc532f591f543d245c7df4def6dd0a01e584e94` | changed here after a verbatim import: a test that a missing or null argument to the signature check returns false |
@@ -562,7 +562,7 @@ Files: 750 (verbatim 505, edited 215, changed here 6, added 24).
 | `http-mcp/test/mcp-repository-envelope.test.mjs` | `827ddc965c7d9fcf38c6e9f633acdd1fba415890` | verbatim |
 | `http-mcp/test/mcp-resource-contract.test.mjs` | `6e158defa7603712be2179420f33cf4187e74d28` | verbatim |
 | `http-mcp/test/mcp-seller-content-integration.test.mjs` | `a7ba94dd88479dd3faaed0b65f930e71c3bab17b` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `http-mcp/test/mcp-seller-content.test.mjs` | `326dcc0e7defbe3bd2374b22f8a45a296386453c` | edited: comments and test names: internal review and process references removed; no behaviour change; a commit id in a comment replaced by neutral wording; then changed here: a comment about how the baseline was recorded reworded; no behaviour change |
+| `http-mcp/test/mcp-seller-content.test.mjs` | `326dcc0e7defbe3bd2374b22f8a45a296386453c` | edited: comments and test names: internal review and process references removed; no behaviour change; a commit id in a comment replaced by neutral wording; then changed here: a comment about how the baseline was recorded reworded; then changed again: a test covering each of the four seller-text fields through the three purchase tools |
 | `http-mcp/test/mcp-seller-data-decoder.test.mjs` | `ad7b00d033a4db455b329a4efe947338d7184d22` | verbatim |
 | `http-mcp/test/mcp-seller-diagnostics-errors.test.mjs` | `aea3f247abfaa56f8c80ca53ae78efb097d5e22d` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/mcp-seller-diagnostics-settlement.test.mjs` | `c392cf635a6c0f41698e0b5b3d6293e8ea66045c` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -617,7 +617,7 @@ Files: 750 (verbatim 505, edited 215, changed here 6, added 24).
 | `http-mcp/test/public-sr2-projection.test.mjs` | `7a9d2bc74e19595d45f5ec8a9f108a8fdb7fbe8a` | verbatim |
 | `http-mcp/test/public-text-report.test.mjs` | `a03f02046f9b41a10e535be53cdce2ab637c0b70` | verbatim |
 | `http-mcp/test/purchase-abuse-limits.test.mjs` | `f9d0b429fe4322b896a5641dcab066bcbaa32a7e` | verbatim |
-| `http-mcp/test/purchase-model-view.test.mjs` | `ced0b7e90cfc1ff98e869e18a01a7a616dfc4d6d` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/purchase-model-view.test.mjs` | `ced0b7e90cfc1ff98e869e18a01a7a616dfc4d6d` | edited: comments and test names: internal review and process references removed; then changed here: the test that read `paymentEvidence` fields raw from the model copy now decodes the seller-data envelope and asserts the same values |
 | `http-mcp/test/purchase-poll.test.mjs` | `821f5e69e883f39f05419d3cc26cf35ab3f81eb8` | verbatim |
 | `http-mcp/test/purchase-readback-cache.test.mjs` | `e5630402e08a42858f3a8aea3d8c7c54b2d8295e` | verbatim |
 | `http-mcp/test/purchase-receipt.test.mjs` | `e1cfe4977b26a51002382ec092b0afe17005dee1` | edited: address replaced by a documentation address |
@@ -681,7 +681,7 @@ Files: 750 (verbatim 505, edited 215, changed here 6, added 24).
 | `http-mcp/test/switch-registry.test.mjs` | `8d90091a2fd18f6927a6759a81f65f0f32a62a6e` | verbatim |
 | `http-mcp/test/tester-dashboard.test.mjs` | `e925abe14db23674ccf48680f79a4d89b9312814` | verbatim |
 | `http-mcp/test/tester-quickstart.test.mjs` | `903ca6d4c7435419bde79acae859e9c5a0ea8ac7` | verbatim |
-| `http-mcp/test/ui-status.test.mjs` | `82084a766e7d3f668ece00ccf54ffcac005907d5` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/ui-status.test.mjs` | `82084a766e7d3f668ece00ccf54ffcac005907d5` | edited: comments and test names: internal review and process references removed; then changed here: the list of fields known to reach the model raw is removed and the test expects none |
 | `http-mcp/test/unit.test.mjs` | `b00c9262980fcdb5721e1a01a3c7b4524ac83de9` | edited: client address replaced by a documentation address |
 | `http-mcp/test/unsupported-node-fee.test.mjs` | `f5559258e76df9cc5852e9d13825dcd552c1a19e` | verbatim |
 | `http-mcp/test/v2-health.test.mjs` | `ffe4ce270556664372c03148aafc09bc3b13e767` | verbatim |
