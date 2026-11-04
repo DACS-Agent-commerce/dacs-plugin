@@ -30,7 +30,7 @@ test('generic scope exits 0 with the private rule not-run; complete scope withou
   assert.equal(report.scope, 'generic');
   assert.deepEqual(report.target, { commit: repo.commit, tree: repo.tree });
   assert.deepEqual(report.scanner, { gateRevision: gateRevision(), configSha256: configSha256(), ...expectedScanIdentity() });
-  assert.deepEqual(report.rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-ISSUE', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }, { id: 'R-REPORT', status: 'passed' }, { id: 'R-SECRET', status: 'passed' }]);
+  assert.deepEqual(report.rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-EVAL', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-ISSUE', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }, { id: 'R-REPORT', status: 'passed' }, { id: 'R-SECRET', status: 'passed' }]);
 
   const missingList = runGate(gateArgs(repo, 'complete', ['--expected-root', ROOT_COMMIT]));
   assert.equal(missingList.status, 2);
@@ -39,7 +39,7 @@ test('generic scope exits 0 with the private rule not-run; complete scope withou
   const complete = JSON.parse(runGate(completeArgs(repo, writeList([PLANTED]))).stdout);
   assert.equal(complete.scope, 'complete');
   assert.deepEqual(complete.scanner, { gateRevision: gateRevision(), configSha256: configSha256(), ...expectedScanIdentity(), expectedRoot: repo.commit });
-  assert.deepEqual(complete.rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-ISSUE', status: 'passed' }, { id: 'R-PRIVATE', status: 'passed' }, { id: 'R-REPORT', status: 'passed' }, { id: 'R-SECRET', status: 'passed' }]);
+  assert.deepEqual(complete.rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-EVAL', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-ISSUE', status: 'passed' }, { id: 'R-PRIVATE', status: 'passed' }, { id: 'R-REPORT', status: 'passed' }, { id: 'R-SECRET', status: 'passed' }]);
 });
 
 test('the report holds nothing derived from the list: different, reordered, repeated or overlapping lists give byte-identical reports with only the fixed keys and no list digest', () => {

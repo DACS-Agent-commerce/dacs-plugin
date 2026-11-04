@@ -15,6 +15,8 @@ const EMITTER_FILE = path.join('scripts', 'public-gate', 'redact.mjs');
 const OUTPUT_SINK = /\bconsole\.|process\.std(?:out|err)\b|\b(?:writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|writeSync)\b/;
 // Exact-byte export and materialization writers are data writes, not diagnostics; later cards list theirs here.
 const EXACT_BYTE_WRITERS = [path.join('scripts', 'public-gate', 'secret-scan.mjs')];
+// The eval parser child answers its parent on stdout with line numbers and fixed cause names only; its error text goes through the emitter.
+const PARENT_PIPE_WRITERS = [path.join('scripts', 'public-gate', 'rules-eval-child.mjs')];
 
 function sourceFiles(dir) {
   const full = path.join(REPO_ROOT, dir);
@@ -45,6 +47,7 @@ function gitFailingWith(stderr) {
 }
 
 const INSTALLER = path.join(REPO_ROOT, 'scripts', 'ci', 'install-gitleaks.mjs');
+const EVAL_CHILD = path.join(REPO_ROOT, 'scripts', 'public-gate', 'rules-eval-child.mjs');
 const REGISTERED_CAUSE_SOURCES = ['scripts/lib/fetch-bounded.mjs', 'scripts/lib/run-bounded.mjs', 'scripts/ci/install-gitleaks.mjs'];
 const HELPER_CAUSE = /'((?:download|subprocess|install)-[a-z-]+|unsupported-platform)'/g;
 
@@ -78,6 +81,12 @@ const scenarios = {
     const result = spawnSync(process.execPath, [INSTALLER, '--dir', path.join(blocker, 'bin')], { encoding: 'utf8' });
     assert.equal(result.status, 2);
     assert.equal(result.stderr, 'install-dir-unwritable: the install folder cannot be prepared\n');
+    leaksNothing(result.stdout, result.stderr);
+  },
+  'rules-eval-child.stderr': () => {
+    const result = spawnSync(process.execPath, [EVAL_CHILD], { input: `{"units": "${PRIVATE_VALUE}`, encoding: 'utf8' });
+    assert.equal(result.status, 2);
+    assert.equal(result.stderr, 'eval-parser-failed: the eval parser stopped with an error status or wrote an unexpected result\n');
     leaksNothing(result.stdout, result.stderr);
   },
   'check-report.stderr': () => {
@@ -120,7 +129,7 @@ test('at this PR: gate `--scope` and the gate\'s own routes; later owners add th
 
   await t.test('no diagnostic sink exists outside the emitter', () => {
     const sinks = DIAGNOSTIC_DIRS.flatMap(sourceFiles)
-      .filter((file) => file !== EMITTER_FILE && !EXACT_BYTE_WRITERS.includes(file))
+      .filter((file) => file !== EMITTER_FILE && !EXACT_BYTE_WRITERS.includes(file) && !PARENT_PIPE_WRITERS.includes(file))
       .filter((file) => OUTPUT_SINK.test(readFileSync(path.join(REPO_ROOT, file), 'utf8')));
     assert.deepEqual(sinks, []);
   });

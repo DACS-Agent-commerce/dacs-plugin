@@ -334,7 +334,7 @@ test('generic scope runs the three address rules; a finding names rule, kind, lo
   const clean = createRepo([{ path: 'a.md', content: 'See https://example.com/ and mail dev@example.com on 127.0.0.1\n' }]);
   const passing = runGate(gateArgs(clean, 'generic'));
   assert.equal(passing.status, 0, passing.stderr);
-  assert.deepEqual(JSON.parse(passing.stdout).rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-ISSUE', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }, { id: 'R-REPORT', status: 'passed' }, { id: 'R-SECRET', status: 'passed' }]);
+  assert.deepEqual(JSON.parse(passing.stdout).rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-EVAL', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-ISSUE', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }, { id: 'R-REPORT', status: 'passed' }, { id: 'R-SECRET', status: 'passed' }]);
   const planted = createRepo([{ path: 'a.md', content: `ok\nSee https://${OTHER}/ and mail dev@${LISTED} via ${PUBLIC_V4}\n` }]);
   const failing = runGate(gateArgs(planted, 'generic'));
   assert.equal(failing.status, 1);
@@ -344,7 +344,7 @@ test('generic scope runs the three address rules; a finding names rule, kind, lo
     { rule: 'R-HOST', kind: 'content', location: `${planted.commit}:1`, line: 2 },
     { rule: 'R-IP', kind: 'content', location: `${planted.commit}:1`, line: 2 },
   ]);
-  assert.deepEqual(report.rules.map((rule) => rule.status), ['findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings', 'findings']);
+  assert.deepEqual(report.rules.map((rule) => rule.status), ['findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings', 'findings']);
   for (const text of [OTHER, LISTED, PUBLIC_V4, 'a.md']) assert.ok(!`${failing.stdout}${failing.stderr}`.includes(text));
 });
 
