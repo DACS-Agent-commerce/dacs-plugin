@@ -34,7 +34,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 750 (verbatim 505, edited 215, changed here 6, added 24).
+Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
