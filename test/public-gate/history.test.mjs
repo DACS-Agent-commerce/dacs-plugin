@@ -118,6 +118,13 @@ test('an unlisted host or a public IP in a commit message is refused by the host
   for (const value of [UNLISTED_HOST, PUBLIC_V4]) assert.ok(!outputOf(run).includes(value), value);
 });
 
+test('a percent-encoded dot in a commit message URL host does not hide an unlisted host or a public IP from the host and IP rules', () => {
+  const history = createHistory([{}, { message: `subject\n\nReach https://${UNLISTED_HOST.replace('.', '%2e')} and http://${PUBLIC_V4.replaceAll('.', '%2e')}/` }]);
+  const run = runHistory(historyArgs(history, writeList([PLANTED])));
+  assert.equal(run.status, 1, run.stderr);
+  assert.deepEqual(brief(JSON.parse(run.stdout)), ['R-HOST message message 3', 'R-IP message message 3']);
+});
+
 test('an unlisted host or a public IP in an author, committer or other header line is refused by the host and IP rules and located by field', () => {
   const history = createHistory([
     {},

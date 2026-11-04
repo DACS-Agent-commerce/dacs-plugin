@@ -41,6 +41,10 @@ const EMAIL = new RegExp(String.raw`(?<![\w.%+-])(?<user>[a-z0-9_.%+-]+)@(?<doma
 const DOTLESS_EMAIL = /(?<![\w.%+-])(?<!(?<!\/)\/)(?<user>[a-z0-9_.%+-]+)@(?<domain>[a-z][a-z0-9_-]{0,62})(?![\w-]|\.[a-z0-9_-]|@)/gi;
 /** A host this rule leaves to others: a template placeholder, a relative path (`..`) or an IP literal in digits and dots (the IP rule). */
 const NOT_A_NAME = /[${}%<>*]|^\[|^\.|^[\d.]+$/;
+/** A run of percent escapes (`%2e`): a lone `%` (`%s`, `%(host)s`) is a template placeholder, not an escape. */
+const PERCENT_ESCAPES = /(?:%[0-9a-f]{2})+/gi;
+/** What a host holds once its escapes are decoded: a name in letters, digits, `_`, `-` and dots, or a bracketed IPv6 literal. Anything else (a decoded `/`, `%`, control or non-ASCII character) is no host a URL parser accepts. */
+const DECODED_HOST = /^(?:[a-z0-9_.-]+|\[[0-9a-f:.]*\])$/;
 const IDENTITY = /^[^<>]+ <[^<>\s]+>$/;
 
 const isText = (value) => typeof value === 'string' && value !== '';
@@ -61,6 +65,30 @@ export function hasValidAddressConfig(config) {
 
 const topLevelName = (name) => name.slice(name.lastIndexOf('.') + 1);
 
+/** A host with its percent escapes decoded once, or null when an escape is not valid UTF-8. */
+function withEscapesDecoded(host) {
+  try {
+    return host.replace(PERCENT_ESCAPES, decodeURIComponent);
+  } catch (error) {
+    if (error instanceof URIError) return null;
+    throw error;
+  }
+}
+
+/**
+ * A URL host as a URL parser resolves it: percent escapes decoded once, lower case, no trailing dot. Returns null when an escape
+ * is not valid UTF-8 or the decoded host is not a name or an IPv6 literal (`evil%252ecom` decodes to `evil%2ecom`, `a.com%2fx` to `a.com/x`).
+ * A host with no escape is only lower-cased and stripped of its trailing dot, so a template placeholder stays one.
+ */
+function normalisedHost(host) {
+  const decoded = withEscapesDecoded(host)?.toLowerCase();
+  if (decoded === undefined || (decoded !== host.toLowerCase() && !DECODED_HOST.test(decoded))) return null;
+  return decoded.replace(/\.+$/, '');
+}
+
+/** Whether `host`, as `normalisedHost` returned it (a normalised host normalises to itself) or as written when that was null, is one that could not be normalised. */
+const isUnnormalisable = (host) => normalisedHost(host) === null;
+
 function isReservedName(name) {
   return RESERVED_TOP_LEVEL_NAMES.includes(topLevelName(name)) || RESERVED_DOMAINS.some((reserved) => name === reserved || name.endsWith(`.${reserved}`));
 }
@@ -74,13 +102,15 @@ function matchesOf(pattern, context, text, valueOf) {
 
 /**
  * Every dotted name in one line that reads as a host and is neither reserved nor listed, as { value, context }: the forms
- * read depend on whether the file is code. A name with no dot is no public host; the private list covers machine labels.
+ * read depend on whether the file is code. A URL host is normalised first (`normalisedHost`), and one that cannot be is
+ * refused as written. A name with no dot is no public host; the private list covers machine labels.
  */
 function unlistedHostsIn(line, { code, listedHosts }) {
-  const forms = [['url', URL_HOST], ['host-port', HOST_PORT], code ? ['quoted', QUOTED_NAME] : ['bare', BARE_NAME]];
-  return forms.flatMap(([context, pattern]) => matchesOf(pattern, context, line, ({ host }) => host.replace(/\.$/, '')))
-    .filter(({ value, context }) => value.includes('.') && !NOT_A_NAME.test(value) && (context === 'url' || HOST_TOP_LEVEL_NAMES.has(topLevelName(value)))
-      && !isReservedName(value) && !listedHosts.has(value));
+  const asWritten = ({ host }) => host;
+  const forms = [['url', URL_HOST, ({ host }) => normalisedHost(host) ?? host], ['host-port', HOST_PORT, asWritten], code ? ['quoted', QUOTED_NAME, asWritten] : ['bare', BARE_NAME, asWritten]];
+  return forms.flatMap(([context, pattern, valueOf]) => matchesOf(pattern, context, line, valueOf))
+    .filter(({ value, context }) => (context === 'url' && isUnnormalisable(value)) || (value.includes('.') && !NOT_A_NAME.test(value)
+      && (context === 'url' || HOST_TOP_LEVEL_NAMES.has(topLevelName(value))) && !isReservedName(value) && !listedHosts.has(value)));
 }
 
 const emailsIn = (text) => [EMAIL, DOTLESS_EMAIL].flatMap((pattern) => matchesOf(pattern, 'email', text, ({ user, domain }) => `${user}@${domain}`));
@@ -107,7 +137,7 @@ export function refusedMetadataEmails(text, config) {
  */
 export function refusedMetadataHosts(text, config) {
   const listedHosts = new Set(config.allowedHosts.map(({ value }) => value));
-  return [...new Set(viewsOf(text).flatMap((view) => unlistedHostsIn(view, { code: false, listedHosts })).map(({ value }) => value))];
+  return [...new Set(addressViewsOf(text).flatMap((view) => unlistedHostsIn(view, { code: false, listedHosts })).map(({ value }) => value))];
 }
 
 /** A file's text, or null for a blob that is not valid UTF-8 text (a reviewed binary is not read as text). */
@@ -122,6 +152,15 @@ export function viewsOf(line) {
   return unescaped === line ? [line] : [line, unescaped];
 }
 
+/** A line with the percent escapes of every URL host decoded, so `http://127%2e0%2e0%2e1/` reads as the literal it resolves to; a host that cannot be decoded stays as written. */
+const withUrlHostsDecoded = (line) => line.replace(URL_HOST, (match, ...args) => {
+  const { host } = args.at(-1);
+  return match.slice(0, -host.length) + (withEscapesDecoded(host) ?? host);
+});
+
+/** `viewsOf(line)` and the same views with URL host escapes decoded: what the address rules read for a line. */
+const addressViewsOf = (line) => [...new Set(viewsOf(line).flatMap((view) => [view, withUrlHostsDecoded(view)]))];
+
 /**
  * The test of `scopedAllowances` for a rule: an occurrence passes when an entry holds this exact path, rule, value and
  * context; in the configuration file itself, also when the value is one that an entry names.
@@ -133,8 +172,8 @@ function scopedAllowanceCheck(config, ruleId) {
 }
 
 /**
- * Builds a rule that reads the address occurrences `occurrencesIn(view, { code, listedHosts })` of every path and text blob, each line as written
- * and with its escaped delimiters unescaped, and returns findings { rule, kind: 'path' | 'content', entry, line? }, one per line. An occurrence passes when
+ * Builds a rule that reads the address occurrences `occurrencesIn(view, { code, listedHosts })` of every path and text blob, each line as written,
+ * with its escaped delimiters unescaped and with its URL host escapes decoded, and returns findings { rule, kind: 'path' | 'content', entry, line? }, one per line. An occurrence passes when
  * `allowanceCheck(config, ruleId)(entry, occurrence, line)` says so (`line` is null in a path name); by default that is `scopedAllowanceCheck`.
  * Throws GateInputError(limit:maxReportEntries) past that many findings.
  */
@@ -143,7 +182,7 @@ function createAddressRule(ruleId, occurrencesIn, allowanceCheck = scopedAllowan
     const listedHosts = new Set(config.allowedHosts.map(({ value }) => value));
     const isAllowed = allowanceCheck(config, ruleId);
     const findings = [];
-    const refusedLines = (lines, entry, code, lineOf = (index) => index + 1) => lines.flatMap((text, index) => (viewsOf(text)
+    const refusedLines = (lines, entry, code, lineOf = (index) => index + 1) => lines.flatMap((text, index) => (addressViewsOf(text)
       .some((view) => occurrencesIn(view, { code, listedHosts }).some((occurrence) => !isAllowed(entry, occurrence, lineOf(index)))) ? [index + 1] : []));
     const add = (finding) => {
       findings.push({ rule: ruleId, ...finding });
@@ -282,5 +321,5 @@ export const scanIps = createAddressRule(IP_RULE_ID, unpermittedAddressesIn, dis
 
 /** The IP literals in commit-metadata `text` outside the permitted classes. Commit metadata has no path or blob, so no `ipDispositions` entry can pass one. */
 export function refusedMetadataIps(text) {
-  return [...new Set(viewsOf(text).flatMap(unpermittedAddressesIn).map(({ value }) => value))];
+  return [...new Set(addressViewsOf(text).flatMap(unpermittedAddressesIn).map(({ value }) => value))];
 }

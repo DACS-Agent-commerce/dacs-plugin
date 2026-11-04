@@ -67,6 +67,10 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   host and needs its own entry. Reserved names pass with any subdomain: the top-level names `invalid`, `test`, `example` and
   `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label), a template placeholder
   and an IP literal are not read here; the private list covers labels, and IP literals belong to the IP rule.
+  A URL host is normalised the way a URL parser resolves it before it is matched: percent escapes decoded once (`host%2eexample%2ecom` is
+  `host.example.com`), lower-cased, and a trailing dot dropped. A URL host whose escapes are not valid UTF-8, or that decodes to anything
+  but a name or a bracketed IPv6 literal (`host%252eexample`, `host%2fx`), is a finding, not a pass. The IP rule and the commit-metadata
+  checks read the decoded host too, so `http://127%2e0%2e0%2e1/` is judged as `http://127.0.0.1/`.
 - **Accounts (`R-ACCOUNT`, both scopes).** An email address passes when its domain is a reserved name or it is the SSH form
   (`git@<host>:` or `git@<host>/`) of a host in `allowedHosts`. A domain of one label (`user@<label>`) is an email too, unless a `/`
   precedes the user (`actions/checkout@v4`) or the label starts with a digit (`name@1.2.3`); a reference that ends in a word
