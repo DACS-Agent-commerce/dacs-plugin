@@ -197,6 +197,16 @@ test('onboard faucet: down (HTTP 500), unreachable, refused, success, rate limit
   for (const h of [down, unreachable, refused, ok, unlisted]) await h.approval!.stop();
 });
 
+test('onboard faucet: a reply over 16 KiB is treated as unreachable', async () => {
+  const big = JSON.stringify({ status: 200, body: { txHash: 'ab'.repeat(32), pad: 'x'.repeat(17 * 1024) } });
+  const h = await harness({ ...NO_KEY }, { approval: true, walletFactory: factory(), fetchImpl: (async () => new Response(big, { status: 200 })) as unknown as typeof fetch });
+  await createWallet(h);
+  const r = await approvedFund(h);
+  assert.equal(r.json.ok, false);
+  assert.equal(r.json.reason, 'faucet_unreachable');
+  await h.approval!.stop();
+});
+
 test('onboard identity proof: verified against gist / post fixtures; mismatches refused', async () => {
   const wallet = new MockWallet(keypair(81));
   const expected = await wallet.proofPayload('github', 'alice');
