@@ -312,6 +312,65 @@ test('a marker that appears during the file work leaves no keystore and shows no
   assert.equal(existsSync(passFile!), false, 'no passphrase file remains');
 });
 
+test('a marker that appears after publication takes back the wallet, the passphrase file and the state', async (t) => {
+  const wf = {
+    made: [] as string[],
+    newMnemonic() { const m = 'timber wall damp cream orange idle pelican noodle swift truth olive hurry'; this.made.push(m); return m; },
+    async addressOf(m: string) { return '0x' + createHash('sha256').update(m).digest('hex'); },
+  };
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  t.after(async () => {
+    await h.approval!.stop();
+    rmSync(h.config.stateDir, { recursive: true, force: true });
+  });
+  const keystore = join(h.config.stateDir, 'wallet.keystore.json');
+  const marker = `${keystore}.purchase-only`;
+  const passFile = h.config.keystorePassphraseFile!;
+  const pass = 'correct horse battery staple';
+  await h.call('demos_onboard_create_wallet');
+  const url = h.channel.last().approveUrl!;
+  // the marker appears at the first Date construction after the keystore is published (the state write), after the first post-publication check
+  let fired = false;
+  const restore = onFirstDateAfterPublish(keystore, () => {
+    fired = true;
+    writeFileSync(marker, '');
+  });
+  t.after(restore);
+  const shown = await post(url + '/approve', { passphrase: pass, confirm: pass, remember: 'on' });
+  assert.equal(fired, true, 'control: the hook ran after publication');
+  assert.match(shown, /fenced for purchase-only use/);
+  for (const w of wf.made[0]!.split(' ')) assert.ok(!shown.includes(`<li>${w}</li>`));
+  assert.equal(existsSync(keystore), false, 'the wallet was taken back');
+  assert.equal(existsSync(passFile), false, 'the passphrase file was taken back');
+  assert.equal((await h.call('demos_onboard_status')).json.steps.wallet, null, 'the onboarding state was restored');
+});
+
+test('a late take-back leaves a different file at the keystore path alone', async (t) => {
+  const wf = {
+    made: [] as string[],
+    newMnemonic() { const m = 'cargo easy gas pencil robot slim tent tomato urban vague wheel yard'; this.made.push(m); return m; },
+    async addressOf(m: string) { return '0x' + createHash('sha256').update(m).digest('hex'); },
+  };
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  t.after(async () => {
+    await h.approval!.stop();
+    rmSync(h.config.stateDir, { recursive: true, force: true });
+  });
+  const dir = h.config.stateDir;
+  const keystore = join(dir, 'wallet.keystore.json');
+  const pass = 'correct horse battery staple';
+  await h.call('demos_onboard_create_wallet');
+  const url = h.channel.last().approveUrl!;
+  t.after(onFirstDateAfterPublish(keystore, () => {
+    // replace the published file by someone else's, then fence
+    rmSync(keystore);
+    writeFileSync(keystore, 'someone else wallet');
+    writeFileSync(`${keystore}.purchase-only`, '');
+  }));
+  await post(url + '/approve', { passphrase: pass, confirm: pass });
+  assert.equal(existsSync(keystore), true, 'the other file survived');
+});
+
 test('a marker that appears during the status lookups is reported by the same status call', async (t) => {
   const wf = {
     made: [] as string[],
@@ -350,6 +409,24 @@ test('a marker present at start-up keeps both reports disabled after it is remov
   const status = await h.call('demos_onboard_status');
   assert.equal(status.json.steps.writes_enabled, false);
 });
+
+/** Runs `fn` once, at the first `new Date()` after `file` exists; returns the function that puts the real Date back. */
+function onFirstDateAfterPublish(file: string, fn: () => void): () => void {
+  const RealDate = Date;
+  let done = false;
+  (globalThis as any).Date = class extends RealDate {
+    constructor(...a: any[]) {
+      if (!done && existsSync(file)) {
+        done = true;
+        fn();
+      }
+      super(...(a as []));
+    }
+  };
+  return () => {
+    (globalThis as any).Date = RealDate;
+  };
+}
 
 function post(url: string, form: Record<string, string>): Promise<string> {
   return new Promise((resolve, reject) => {

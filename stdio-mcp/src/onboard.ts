@@ -355,6 +355,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           //    target exists, so an existing wallet is never replaced and readers never see a partial file)
           const tmp = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
           let fencedLate = false;
+          let publishedIno: number | null = null;
           try {
             const fd = openSync(tmp, 'wx', 0o600);
             try {
@@ -372,6 +373,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
               fencedLate = true;
               throw new Error('fenced');
             }
+            publishedIno = lstatSync(tmp).ino; // link() shares it: a late take-back only removes this exact file
             linkSync(tmp, path);
           } catch (e) {
             if (remember) safeUnlink(config.keystorePassphraseFile!); // we created it a moment ago
@@ -380,16 +382,29 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           } finally {
             safeUnlink(tmp);
           }
-          if (blockedNow()) {
-            // a marker appeared during the file work: take back what was just published (it was never shown)
-            safeUnlink(path);
+          const stateBefore = readState();
+          /** A marker appeared after publication: take back what was just published (it was never shown), but only the exact file. */
+          const takeBack = () => {
+            try {
+              if (publishedIno !== null && lstatSync(path).ino === publishedIno) safeUnlink(path);
+            } catch {
+              /* already gone */
+            }
             if (remember) safeUnlink(config.keystorePassphraseFile!);
+          };
+          if (blockedNow()) {
+            takeBack();
             return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
           }
           if (!remember) setSessionPassphrase(pass); // this session only
           created = true;
           writeState({ ...readState(), address, walletCreatedAt: new Date(d.now()).toISOString(), backupAcknowledged: false });
-          if (blockedNow()) return { error: 'This wallet is fenced for purchase-only use; the recovery phrase is not shown.' };
+          if (blockedNow()) {
+            takeBack();
+            created = false;
+            writeState(stateBefore);
+            return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
+          }
           return { html: phrasePage(address, mnemonic, 'was created'), ackLabel: 'I have written the words down' };
         },
         onAck: () => {
