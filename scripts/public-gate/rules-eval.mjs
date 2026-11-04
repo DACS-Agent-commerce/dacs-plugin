@@ -18,7 +18,7 @@ const UNIT_CAUSES = ['eval-parse-error', 'eval-computed-member'];
 const GENERATED_KEYS = ['path', 'reason', 'sha256'];
 const SCRIPT_ELEMENT = /<script\b([^>]*)>([\s\S]*?)(?:<\/script\s*>|$)/dgi;
 const EVENT_HANDLER = /\s(on[a-z]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/dgi;
-const TYPE_ATTRIBUTE = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i;
+const ATTRIBUTE = /[\s/]*([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
 const NAMED_ENTITIES = { quot: '"', amp: '&', lt: '<', gt: '>', apos: "'" };
 const ENTITY = /&(?:#x([0-9a-f]+)|#(\d+)|(quot|amp|lt|gt|apos));/gi;
 
@@ -54,13 +54,28 @@ const decodeEntities = (value) => value.replace(ENTITY, (whole, hex, decimal, na
   return codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff) ? String.fromCodePoint(codePoint) : whole;
 });
 
+/**
+ * Whether a script element with these opening-tag `attributes` is code. Only attributes named exactly `type` count, never a
+ * name that ends in it or a `type=` inside another attribute's value; the script is data only if every `type` it carries is a
+ * data type. A tag that cannot be read as attributes, or a `type` value with an entity this rule does not decode, is code.
+ */
+function isScriptCode(attributes) {
+  const types = [];
+  let end = 0;
+  for (const match of attributes.matchAll(ATTRIBUTE)) {
+    if (match.index !== end) return true;
+    end = match.index + match[0].length;
+    if (match[1].toLowerCase() === 'type') types.push(match[2] ?? match[3] ?? match[4] ?? '');
+  }
+  if (attributes.slice(end).replace(/[\s/]/g, '') !== '') return true;
+  return types.length === 0 || types.some((type) => type.includes('&') || SCRIPT_TYPES.has(type.trim().toLowerCase()));
+}
+
 /** The code an HTML blob runs inline, as units { kind, text, firstLine }: each executable script body, and each event-handler attribute as a function body. */
 function htmlUnits(html) {
   const scriptLine = lineCounter(html);
   const scripts = [...html.matchAll(SCRIPT_ELEMENT)].flatMap((match) => {
-    const type = TYPE_ATTRIBUTE.exec(match[1]);
-    const isCode = SCRIPT_TYPES.has((type?.[1] ?? type?.[2] ?? type?.[3] ?? '').trim().toLowerCase());
-    return isCode && match[2].trim() !== '' ? [{ kind: 'js', text: match[2], firstLine: scriptLine(match.indices[2][0]) }] : [];
+    return isScriptCode(match[1]) && match[2].trim() !== '' ? [{ kind: 'js', text: match[2], firstLine: scriptLine(match.indices[2][0]) }] : [];
   });
   const handlerLine = lineCounter(html);
   const handlers = [...html.matchAll(EVENT_HANDLER)].map((match) => ({

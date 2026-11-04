@@ -49,6 +49,8 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   value or alias, through `globalThis`, `window`, `self` or `global` by member, bracket (literal key), optional or comma-expression access, and
   through destructuring of those objects (declared, assigned, as a parameter default, in `for…of` or nested); and a string (literal, template or `+` with a string)
   passed to the global `setTimeout` or `setInterval`. A function callback passes; strings, comments, regular expressions, template text and types never count.
+  An inline `<script>` is skipped as a data block only when every attribute named exactly `type` that it carries is a data type; no `type`, a JavaScript type, a repeated `type` with one JavaScript type,
+  an entity in the value or an opening tag that cannot be read as attributes make it code.
   A computed member, a computed destructuring key or a rest element of a global object makes the file unscannable (`eval-computed-member`). Other causes: `eval-parse-error`
   (the file has a syntax error), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`;
   units go to the child in batches of at most `maxEvalBatchBytes`, its output is capped at `maxEvalOutputBytes`, and a reply that breaks the

@@ -72,6 +72,30 @@ test('eval :: "executable template substitutions and inline HTML scripts and han
   assert.deepEqual(await failingSnippets(harmless), []);
 });
 
+test('eval :: "an HTML script is data only when its own type attribute says so: data-type, a type= inside another value, a repeated or unreadable type and an undecoded entity are all scanned as code" (T08)', async (t) => {
+  const code = 'eval("1");';
+  const scanHtml = async (tag, body) => scan([['page.html', `<p>x</p>\n${tag}${body}</script>\n`]]);
+  await t.test('code behind an attribute whose name only ends in or whose value only contains type', async () => {
+    for (const tag of ['<script data-type="application/json" type="text/javascript">', '<script type="text/javascript" data-type="application/json">', '<script data-note="type=application/json">',
+      "<script x-type='application/json'>", '<script data-type=application/json>', '<script data-x="1"type="module">']) {
+      const result = await scanHtml(tag, code);
+      assert.deepEqual(result.unscannable, [], tag);
+      assert.deepEqual(result.findings.map(({ line }) => line), [2], tag);
+    }
+  });
+  await t.test('a repeated type, an unreadable tag and an entity in the type value fail closed', async () => {
+    for (const tag of ['<script type="application/json" type="text/javascript">', '<script type="application/json" "stray">', '<script type="application&sol;json">', '<script type="text&#47;javascript">']) {
+      assert.deepEqual((await scanHtml(tag, code)).findings.map(({ line }) => line), [2], tag);
+    }
+  });
+  await t.test('a data block stays data, whatever other attribute names or values mention a type', async () => {
+    const data = '{"a": "eval(1)"}';
+    for (const tag of ['<script type="application/json">', '<script data-type="text/javascript" type="application/json">', '<script data-note="type=text/javascript" type="application/json">', '<script type = \'application/ld+json\'>', '<script/type="application/json">']) {
+      assert.deepEqual(await scanHtml(tag, data), { findings: [], unscannable: [] }, tag);
+    }
+  });
+});
+
 test('eval :: "every JS and TS extension, including .jsx, .tsx, .mts, .cts and .d.mts, is parsed" (T09)', async () => {
   const bySyntax = { js: EVAL_CALL, mjs: EVAL_CALL, cjs: EVAL_CALL, jsx: 'const a = <p>{eval("1")}</p>;\n', ts: 'const n: number = eval("1") as number;\n', mts: 'const n: number = eval("1");\n', cts: 'const n: number = eval("1");\n',
     tsx: 'const a: JSX.Element = <p>{eval("1")}</p>;\n', 'd.ts': 'declare const n: number;\neval("1");\n', 'd.mts': 'declare const n: number;\neval("1");\n', 'd.cts': 'declare const n: number;\neval("1");\n' };
