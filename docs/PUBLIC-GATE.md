@@ -183,10 +183,11 @@ All output leaves through `scripts/public-gate/redact.mjs` on a route listed in 
 ## Checking a saved report
 
 ```
-node scripts/public-gate/check-report.mjs --report <file> --head <full-sha> --context <file>
+node scripts/public-gate/check-report.mjs --report <file> --head <full-sha> --context <file> [--repo <dir> --refs <ref>[,<ref>...]]
 ```
 
-Exit 0 only when the report is a complete passing report for exactly this head under the current review context; a saved
+Exit 0 only when the report is a complete passing report for exactly this head under the current review context (or a
+passing history report, below); a saved
 report is never trusted for what it says about itself. Exit 1 refuses a report; exit 2 means a file or an argument is
 missing, over 1 MiB, or malformed (a report is malformed unless it has the report shape above, nested fields included). Nothing is written on exit 0; otherwise stderr holds one cause and its fixed text.
 
@@ -196,8 +197,16 @@ missing, over 1 MiB, or malformed (a report is malformed unless it has the repor
   commit). Every expected value comes from it, from `--head` or from this gate's registered rule ids, never from the
   report. The report's `scanner` must equal the context's six fields exactly, so a field the context does not name
   refuses the report until the context names it.
-- **Causes.** `report-not-complete` (scope is not `complete`), `report-other-head` (target commit is not `--head`),
-  `report-rules-differ` (the rule ids are not exactly the registered ones), `report-policy-differs` (the scanner identity
+- **History reports.** A report of scope `history` also needs `--repo` and `--refs`, the run being checked: the refs are
+  resolved now, as history mode resolves them, and the report must name exactly those refs (full ref names, object ids, tag
+  objects and peeled commits, see History mode), so a ref moved or an annotated tag made again since the scan refuses the
+  report. `--head` must be one of the report's `heads`, every rule including `R-IDENTITY` must be `passed` (so the scan ran with
+  `--allowed-identity`), and the report's `scanner` must equal the context's six fields, so a report made with `--pr-text` is
+  refused. A tag ref whose name differs from its tag object's is refused with exit 2 as in history mode.
+- **Causes.** `report-not-complete` (scope is neither `complete` nor `history`), `report-other-head` (target commit is not `--head`; for a
+  history report, `--head` is not among its heads), `report-refs-differ` (a history report's refs are not those of the run being
+  checked), `report-rules-differ` (the rule ids are not exactly the registered ones, `R-IDENTITY` added for a history report),
+  `report-policy-differs` (the scanner identity
   differs from the context), `report-not-passing` (a finding, an unscannable entry or a rule not `passed`). The exit 2
   causes are `report-unreadable`, `report-malformed`, `context-unreadable`, `context-malformed`, `limit:maxCheckFileBytes`
   and `bad-arguments`.
@@ -231,6 +240,10 @@ overwrites a file, and there is no `--private-evidence`.
   object: its tag name and other headers (kind `header`), tagger line (kind `tagger`) and message (kind `message`, with the line)
   are scanned by `R-PRIVATE`, `R-ACCOUNT`, `R-HOST` and `R-IP`, and the finding's location is `<tag object>:<field>`, the
   tag object's id in the place of a commit's. `target.commits` counts commits only.
+- **Ref names.** Every selected ref's name is public content: as written in `--refs` and in full (`refs/heads/...`, `refs/tags/...`),
+  it is read by `R-PRIVATE` with the matcher used for content, and a match is a finding of kind `ref` located at `ref-<n>`, the
+  ref's 1-based place in `target.refs`. A selected `refs/tags/<name>` that names an annotated tag whose own `tag` header is not
+  `<name>` exits 2 with `tag-name-mismatch`: the name under which the tag would be published must be the one that was read.
 - **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
   identity or an exact `publicIdentities` entry (kind `author` or `committer`), every tagger line of a tag object that is not
   one of them or is missing (kind `tagger`), every `Co-authored-by:` or `Signed-off-by:` trailer whose `Name <email>` is not one
@@ -250,7 +263,10 @@ overwrites a file, and there is no `--private-evidence`.
   depth, and every repeat of a key (kind `pr-text`, location `pr-<n>:<m>`: the n-th object, and the m-th string in it in
   the file's order, both from 1, with the line). Keys are never printed. Anything else in the file exits 2.
 - **Report.** The same closed schema as above: fixed words, object ids, digests and positive numbers, nothing derived from
-  the list. `target` is `heads` (the object ids the refs name, sorted) and `commits` (how many were read). Each finding and
+  the list. `target` is `heads` (the object ids of the commits the refs name, sorted), `refs` and `commits` (how many were read). `refs` has one
+  `{ ref, object, commit }` for each distinct selection, sorted: the full ref name (`null` when the item was an object id,
+  and `withheld` for a name that holds a list entry), the object id the ref points to (the tag object for an annotated tag, not
+  the commit) and the commit it peels to, so two tags on one commit give two different reports. Each finding and
   each `unscannable` item also holds its `commit`, except findings of `--pr-text`. `scanner` holds `gateRevision`,
   `configSha256`, the scanner identity of Secret scan (`scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`) and
   `expectedRoot`, and adds `prTextSha256` when the file is given.

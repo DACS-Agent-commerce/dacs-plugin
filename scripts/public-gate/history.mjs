@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { ChoiceError, parseFlags } from '../lib/choice.mjs';
 import { compareText, createScanDeadline, EXIT, gateRevision, loadConfig, REGISTERED_RULE_IDS, requireValue, TREE_RULES, unscannableEntries } from './gate.mjs';
 import { createSecretInput } from './history-secrets.mjs';
-import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
+import { describeSelectedRefs, FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps } from './rules-address.mjs';
 import { createEvalScanner } from './rules-eval.mjs';
@@ -30,7 +30,10 @@ const TAG_PEOPLE = ['tagger'];
 const RULE_IDS = [IDENTITY_RULE_ID, ...REGISTERED_RULE_IDS];
 /** What reads each commit's tree: every rule of complete scope, the private-list scan included. */
 const TREE_SCANS = [...TREE_RULES.map((rule) => rule.run), scanPrivate];
-const KINDS = ['path', 'content', 'author', 'committer', 'tagger', 'header', 'message', 'timezone', 'pr-text'];
+const KINDS = ['path', 'content', 'author', 'committer', 'tagger', 'header', 'message', 'timezone', 'pr-text', 'ref'];
+/** What a report's ref name may be: `HEAD`, `refs/...` (git refuses control characters in a name) or WITHHELD_REF, the stand-in for a name that holds a list entry. */
+const REF_NAME = /^(?:HEAD|withheld|refs\/\S{1,4000})$/;
+const WITHHELD_REF = 'withheld';
 /** The part of a commit or tag object a finding is in; its location is `<object>:<field>`. */
 const COMMIT_FIELDS = ['author', 'committer', 'tagger', 'header', 'message'];
 
@@ -147,8 +150,19 @@ const compareFindings = (first, second) => compareText(first.rule, second.rule) 
   || compareText(first.commit ?? '', second.commit ?? '') || (first.entry?.position ?? first.item ?? 0) - (second.entry?.position ?? second.item ?? 0)
   || (first.string ?? 0) - (second.string ?? 0) || (first.line ?? 0) - (second.line ?? 0);
 
-/** A finding's location: `<commit>:<position>` in a tree, `<commit>:<field>` in a commit object, `pr-<item>:<string>` in pull-request text. */
-function locate({ commit, entry, field, item, string }) {
+/**
+ * The 1-based positions, in the report's list of selected refs, of the refs whose name as given or in full holds a list entry.
+ * `refs` is describeSelectedRefs(selected).
+ */
+function listedRefNumbers(selected, refs, matcher) {
+  const isListed = (record) => selected.some((chosen) => chosen.name === record.ref && chosen.object === record.object
+    && [chosen.given, chosen.name ?? ''].some((text) => matcher.hasEntry(text)));
+  return new Set(refs.flatMap((record, index) => (isListed(record) ? [index + 1] : [])));
+}
+
+/** A finding's location: `<commit>:<position>` in a tree, `<commit>:<field>` in a commit object, `ref-<n>` for a selected ref, `pr-<item>:<string>` in pull-request text. */
+function locate({ commit, entry, field, item, kind, string }) {
+  if (kind === 'ref') return `ref-${counted(item)}`;
   if (entry) return `${commit}:${counted(entry.position)}`;
   if (field) return `${commit}:${checked(field, COMMIT_FIELDS)}`;
   return `pr-${counted(item)}:${counted(string)}`;
@@ -159,10 +173,14 @@ function locate({ commit, entry, field, item, string }) {
  * checked against its schema, so its bytes never depend on the private list or on a path, key or text that was read.
  * Returns the report as text; throws Error when a value is outside the schema.
  */
-function buildHistoryReport({ heads, commits, scanner, rules, unscannable, findings }) {
+function buildHistoryReport({ heads, refs, commits, scanner, rules, unscannable, findings }) {
   const report = {
     scope: 'history',
-    target: { heads: heads.map((head) => checked(head, FULL_OBJECT_ID)), commits: counted(commits) },
+    target: {
+      heads: heads.map((head) => checked(head, FULL_OBJECT_ID)),
+      refs: refs.map(({ ref, object, commit }) => ({ ref: ref === null ? null : checked(ref, REF_NAME), object: checked(object, FULL_OBJECT_ID), commit: checked(commit, FULL_OBJECT_ID) })),
+      commits: counted(commits),
+    },
     scanner: {
       gateRevision: checked(scanner.gateRevision, SHA256_HEX), configSha256: checked(scanner.configSha256, SHA256_HEX), scannerVersion: checked(scanner.scannerVersion, SEMVER),
       scannerPolicySha256: checked(scanner.scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(scanner.secretExceptionsSha256, SHA256_HEX),
@@ -201,7 +219,7 @@ async function runHistory(argv, signal) {
   const { limits } = config;
   const listEntries = readPrivateList(options.privateList, { repo: options.repo, limits });
   const prText = options.prText && readPrText(options.prText, limits);
-  const { heads, commits, tags } = await readHistory({ repo: options.repo, refs: options.refs, limits, signal });
+  const { selected, heads, commits, tags } = await readHistory({ repo: options.repo, refs: options.refs, limits, signal });
   requireExpectedRoot(commits, options.expectedRoot);
   let checkpoint = () => {};
   const bounded = (scan) => {
@@ -240,6 +258,10 @@ async function runHistory(argv, signal) {
     ]));
     requireWithinLimit();
   }
+  const selectedRefs = describeSelectedRefs(selected);
+  const listedRefs = bounded(() => listedRefNumbers(selected, selectedRefs, matcher));
+  findings.push(...[...listedRefs].map((item) => ({ rule: PRIVATE_RULE_ID, kind: 'ref', item })));
+  requireWithinLimit();
   for (const tag of tags) {
     secrets.addObject(tag, TAG_PEOPLE);
     findings.push(...bounded(() => metadataFindings(tag, metadataContext, TAG_PEOPLE)));
@@ -261,7 +283,8 @@ async function runHistory(argv, signal) {
     ...REGISTERED_RULE_IDS.map((id) => ({ id, status: scannedStatus(id) })),
   ].sort((first, second) => compareText(first.id, second.id));
   const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config), expectedRoot: options.expectedRoot, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
-  const report = buildHistoryReport({ heads, commits: commits.length, scanner, rules, unscannable, findings });
+  const reportedRefs = selectedRefs.map((record, index) => (listedRefs.has(index + 1) ? { ...record, ref: WITHHELD_REF } : record));
+  const report = buildHistoryReport({ heads, refs: reportedRefs, commits: commits.length, scanner, rules, unscannable, findings });
   await publish({ report }, { out: options.out });
   if (unscannable.length > 0) return EXIT.unusable;
   return findings.length > 0 ? EXIT.findings : EXIT.pass;

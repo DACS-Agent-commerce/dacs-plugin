@@ -26,7 +26,7 @@ test('a clean history passes with every commit read; an entry that an early comm
   assert.equal(run.status, 0, run.stderr);
   const report = JSON.parse(run.stdout);
   assert.equal(report.scope, 'history');
-  assert.deepEqual(report.target, { heads: [clean.commits[2]], commits: 3 });
+  assert.deepEqual(report.target, { heads: [clean.commits[2]], refs: [{ ref: 'refs/heads/main', object: clean.commits[2], commit: clean.commits[2] }], commits: 3 });
   assert.deepEqual(report.rules.map(({ id, status }) => `${id} ${status}`), [
     'R-ACCOUNT passed', 'R-ARCHIVE passed', 'R-ENV passed', 'R-EVAL passed', 'R-HOST passed', 'R-HOSTING passed', 'R-IDENTITY not-run', 'R-IP passed', 'R-ISSUE passed', 'R-PRIVATE passed', 'R-REPORT passed', 'R-SECRET passed',
   ]);
@@ -174,10 +174,10 @@ test('an annotated tag among the refs has its name, tagger line and message scan
   assert.equal(run.status, 1, run.stderr);
   const report = JSON.parse(run.stdout);
   assert.deepEqual(brief(report), [
-    'R-ACCOUNT message message 6', 'R-HOST message message 4', 'R-IP message message 5', 'R-PRIVATE header header -', 'R-PRIVATE message message 3', 'R-PRIVATE tagger tagger -',
+    'R-ACCOUNT message message 6', 'R-HOST message message 4', 'R-IP message message 5', 'R-PRIVATE header header -', 'R-PRIVATE message message 3', 'R-PRIVATE ref ref-1 -', 'R-PRIVATE tagger tagger -',
   ]);
-  assert.ok(report.findings.every((finding) => finding.commit === tag));
-  assert.deepEqual(report.target, { heads: [history.commits[1]], commits: 2 });
+  assert.ok(report.findings.filter((finding) => finding.kind !== 'ref').every((finding) => finding.commit === tag));
+  assert.deepEqual(report.target, { heads: [history.commits[1]], refs: [{ ref: 'withheld', object: tag, commit: history.commits[1] }], commits: 2 });
   for (const value of [PLANTED, OTHER, THIRD, UNLISTED_HOST, PUBLIC_V4, INTERNAL_EMAIL]) assert.ok(!outputOf(run).includes(value), value);
 });
 
@@ -297,8 +297,8 @@ test('the history report holds no pull-request key path and nothing derived from
   assert.deepEqual(report.findings.map(({ kind, location, line }) => [kind, location, line]), [
     ['content', `${commit}:2`, 2], ['message', `${commit}:message`, 3], ['path', `${commit}:2`, undefined], ['pr-text', 'pr-1:5', 1], ['pr-text', 'pr-1:6', 1], ['pr-text', 'pr-1:7', 1],
   ]);
-  const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|\d+\.\d+\.\d+|pr-[1-9][0-9]*:[1-9][0-9]*|history|R-[A-Z]+|path|content|message|pr-text|passed|not-run|findings)$/;
-  const keys = new Set(['scope', 'target', 'heads', 'commits', 'scanner', 'gateRevision', 'configSha256', 'scannerVersion', 'scannerPolicySha256', 'secretExceptionsSha256', 'expectedRoot', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
+  const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|\d+\.\d+\.\d+|pr-[1-9][0-9]*:[1-9][0-9]*|ref-[1-9][0-9]*|refs\/heads\/main|history|R-[A-Z]+|path|content|message|pr-text|ref|passed|not-run|findings)$/;
+  const keys = new Set(['scope', 'target', 'heads', 'refs', 'ref', 'object', 'commits', 'scanner', 'gateRevision', 'configSha256', 'scannerVersion', 'scannerPolicySha256', 'secretExceptionsSha256', 'expectedRoot', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
   const walk = (value) => {
     if (typeof value === 'string') assert.match(value, fixed);
     else if (typeof value === 'number') assert.ok(Number.isSafeInteger(value) && value > 0);

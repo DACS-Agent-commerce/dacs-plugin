@@ -8,6 +8,7 @@ const KIND_BY_MODE = { 120000: 'symlink', 160000: 'submodule' };
 const BATCH_RECORD_SLACK_BYTES = 130;
 const SMALL_REPLY_BYTES = 256;
 const MAX_TAG_CHAIN = 16;
+const TAG_REF_PREFIX = 'refs/tags/';
 const TAG_OBJECT_LINE = /^object ([0-9a-f]{40,64})\n/;
 const STDERR_CAPTURE_CHARS = 1024;
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -164,34 +165,83 @@ async function readTagChain(base, object) {
   }
 }
 
+/** The tag name written in the `tag` header of a raw tag object; null when it has none. */
+function embeddedTagName(raw) {
+  const split = raw.indexOf('\n\n');
+  const headers = (split < 0 ? raw : raw.subarray(0, split)).toString('utf8').split('\n');
+  return headers.find((header) => header.startsWith('tag '))?.slice('tag '.length) ?? null;
+}
+
+/** Runs `rev-parse` on `expression` for one object id, and returns it; null when git finds no such object. */
+async function objectIdOf(base, expression) {
+  const options = { ...base, args: ['rev-parse', '--verify', '--quiet', expression] };
+  const found = await runGit(options);
+  if (found.status === 1) return null;
+  if (found.status !== 0) throw refused(options, found);
+  return found.stdout.toString().trim();
+}
+
+/** Resolves one `--refs` item (a ref name or a full object id) to { given, name, object, commit, tags }; see resolveSelectedRefs. */
+async function resolveSelectedRef(base, given) {
+  if (given === '' || given.startsWith('-')) throw new GateInputError('bad-ref', 'a ref must not be empty or start with a dash');
+  const object = await objectIdOf(base, given);
+  const commit = object && await objectIdOf(base, `${object}^{commit}`);
+  if (!commit) throw new GateInputError('unknown-ref', 'the repository has no commit for one of the refs');
+  const name = (await git({ ...base, args: ['rev-parse', '--symbolic-full-name', given] })).toString().trim() || null;
+  const tags = await readTagChain(base, object);
+  if (name?.startsWith(TAG_REF_PREFIX) && tags.length > 0 && embeddedTagName(tags[0].raw) !== name.slice(TAG_REF_PREFIX.length)) {
+    throw new GateInputError('tag-name-mismatch', 'a selected tag ref is not named as its tag object names itself');
+  }
+  return { given, name, object, commit, tags };
+}
+
+/**
+ * Resolves every `refs` item (ref names or full object ids) as history mode selects it. Returns [{ given, name, object, commit,
+ * tags }]: `given` is the item as written, `name` its full ref name (null for an object id or another expression), `object` the
+ * object id it points to (the outermost tag object for an annotated tag), `commit` the commit that object peels to and `tags`
+ * the tag objects in between as { sha, raw }, outermost first. Throws GateInputError for an unusable ref, a tag ref whose name
+ * differs from the name inside its tag object, a limit, a timeout, an interrupt or a malformed git reply.
+ */
+export async function resolveSelectedRefs({ repo, refs, limits, signal = new AbortController().signal }) {
+  const base = { repo, limits, signal, maxBytes: SMALL_REPLY_BYTES };
+  const selected = [];
+  for (const given of refs) selected.push(await resolveSelectedRef(base, given));
+  return selected;
+}
+
+/**
+ * The report's list of selected refs: one { ref, object, commit } for each distinct selection, sorted, `ref` being the full
+ * ref name or null when the item was an object id. Equal for two runs exactly when they selected the same names and objects.
+ */
+export function describeSelectedRefs(selected) {
+  const described = new Map(selected.map(({ name, object, commit }) => {
+    const entry = { ref: name, object, commit };
+    return [JSON.stringify(entry), entry];
+  }));
+  return [...described.entries()].sort(([first], [second]) => (first < second ? -1 : first > second ? 1 : 0)).map(([, entry]) => entry);
+}
+
 /**
  * Reads every commit reachable from `refs` (ref names or full object ids), parents before children, and every annotated tag
- * among the refs, through tags of tags. Returns { heads, commits, tags }: `heads` are the object ids of the commits the refs
- * name, `commits` are { sha, parents, raw } with `raw` the commit object (headers, blank line, message), `tags` are { sha, raw }
- * with `raw` the tag object in the same form. Throws GateInputError for an unusable ref, a limit, a timeout, an interrupt or a
+ * among the refs, through tags of tags. Returns { selected, heads, commits, tags }: `selected` is what resolveSelectedRefs
+ * returns, `heads` are the object ids of the commits the refs name, `commits` are { sha, parents, raw } with `raw` the commit
+ * object (headers, blank line, message), `tags` are { sha, raw } with `raw` the tag object in the same form. Throws
+ * GateInputError for an unusable ref, a tag ref named differently from its tag object, a limit, a timeout, an interrupt or a
  * malformed git reply.
  */
 export async function readHistory({ repo, refs, limits, signal = new AbortController().signal }) {
   const base = { repo, limits, signal, maxBytes: SMALL_REPLY_BYTES };
   const shallow = (await git({ ...base, args: ['rev-parse', '--is-shallow-repository'] })).toString().trim();
   if (shallow !== 'false') throw new GateInputError('shallow-history', 'the repository is a shallow clone, so its history is cut off');
-  const heads = [];
-  const tags = new Map();
-  for (const ref of refs) {
-    if (ref === '' || ref.startsWith('-')) throw new GateInputError('bad-ref', 'a ref must not be empty or start with a dash');
-    const options = { ...base, args: ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`] };
-    const found = await runGit(options);
-    if (found.status === 1) throw new GateInputError('unknown-ref', 'the repository has no commit for one of the refs');
-    if (found.status !== 0) throw refused(options, found);
-    heads.push(found.stdout.toString().trim());
-    for (const tag of await readTagChain(base, ref)) tags.set(tag.sha, tag);
-  }
+  const selected = await resolveSelectedRefs({ repo, refs, limits, signal });
+  const heads = selected.map(({ commit }) => commit);
+  const tags = new Map(selected.flatMap((ref) => ref.tags).map((tag) => [tag.sha, tag]));
   const listing = await git({ ...base, maxBytes: limits.maxListingBytes, args: ['rev-list', '--topo-order', '--reverse', '--parents', ...new Set(heads), '--'] });
   const rows = listing.toString('latin1').split('\n').filter(Boolean).map((line) => line.split(' '));
   if (rows.length > limits.maxHistoryCommits) throw new GateInputError('limit:maxHistoryCommits', `the history holds more than ${limits.maxHistoryCommits} commits`);
   const input = `${rows.map(([sha]) => sha).join('\n')}\n`;
   const output = await git({ ...base, maxBytes: limits.maxTotalBlobBytes, args: ['cat-file', '--batch'], input });
-  return { heads: [...new Set(heads)].sort(), commits: parseCommits(output, rows, limits), tags: [...tags.values()] };
+  return { selected, heads: [...new Set(heads)].sort(), commits: parseCommits(output, rows, limits), tags: [...tags.values()] };
 }
 
 /** Throws GateInputError('unexpected-root') unless `commits` have exactly one root commit and, when `expectedRoot` is given, it is that one. */
