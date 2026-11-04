@@ -101,7 +101,7 @@ export class ApprovalServer {
   }
 
   private base(): string {
-    return this.publicBase ?? `http://${this.host.includes(':') ? `[${this.host}]` : this.host}:${this.port}`;
+    return this.publicBase?.replace(/\/+$/, '') ?? `http://${this.host.includes(':') ? `[${this.host}]` : this.host}:${this.port}`;
   }
 
   /** Mint a single-use approval URL for this prepared action. */
