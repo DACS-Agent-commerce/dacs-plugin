@@ -15,7 +15,6 @@ const DYNAMIC_NAMES = new Set(['eval', 'Function']);
 /** The global functions that evaluate their first argument when it is a string. */
 const TIMER_NAMES = new Set(['setTimeout', 'setInterval']);
 const GLOBAL_OBJECTS = new Set(['globalThis', 'window', 'self', 'global']);
-
 /** `expression` without parentheses, non-null marks and type assertions, and, for a comma expression, only its last operand. */
 function unwrap(expression) {
   let current = expression;
@@ -38,6 +37,23 @@ const isGlobalObject = (expression) => {
   if (ts.isPropertyAccessExpression(node)) return isGlobalObject(node.expression) && GLOBAL_OBJECTS.has(node.name.text);
   return ts.isElementAccessExpression(node) && isGlobalObject(node.expression) && GLOBAL_OBJECTS.has(literalKey(node.argumentExpression));
 };
+
+const holdsGlobal = (expression) => {
+  const node = unwrap(expression);
+  if (ts.isArrayLiteralExpression(node)) return node.elements.some((element) => holdsGlobal(ts.isSpreadElement(element) ? element.expression : element));
+  if (ts.isConditionalExpression(node)) return holdsGlobal(node.whenTrue) || holdsGlobal(node.whenFalse);
+  return isGlobalObject(node) || (ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind) && (holdsGlobal(node.left) || holdsGlobal(node.right)));
+};
+
+/** Whether a binding pattern or assignment target takes its values from a global object (or an array or conditional holding one, see `holdsGlobal`) written beside it: an initializer or default, the right of `=`, the `of` operand, or an enclosing pattern's. */
+function takesFromGlobal(target) {
+  const { parent } = target;
+  if (ts.isVariableDeclaration(parent) || ts.isParameter(parent)) return parent.name === target && (parent.initializer ? holdsGlobal(parent.initializer) : takesFromGlobal(parent.parent));
+  if (ts.isBinaryExpression(parent)) return parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && parent.left === target && holdsGlobal(parent.right);
+  if (ts.isForOfStatement(parent)) return parent.initializer === target && holdsGlobal(parent.expression);
+  if (ts.isBindingElement(parent)) return (parent.initializer !== undefined && holdsGlobal(parent.initializer)) || takesFromGlobal(parent.parent);
+  return ts.isPropertyAssignment(parent) ? takesFromGlobal(parent.parent) : ts.isArrayLiteralExpression(parent) && takesFromGlobal(parent);
+}
 
 /** A name this identifier declares or labels, or a property it names, is no use of the global of that name. */
 function isUse(identifier) {
@@ -77,10 +93,13 @@ function judge({ kind, text }, maxLines) {
     if (key === undefined) computedMember = true;
     else if (DYNAMIC_NAMES.has(key)) flag(node);
   };
-  const checkBinding = (element) => {
-    const declaration = element.parent.parent;
-    const key = element.propertyName ?? element.name;
-    if (ts.isVariableDeclaration(declaration) && declaration.initializer && isGlobalObject(declaration.initializer) && (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) && DYNAMIC_NAMES.has(key.text)) flag(element);
+  const checkPattern = (pattern) => {
+    for (const member of ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties) {
+      const key = member.propertyName ?? member.name;
+      const name = key && ts.isComputedPropertyName(key) ? literalKey(key.expression) : key?.text;
+      if (member.dotDotDotToken || ts.isSpreadAssignment(member) || name === undefined) computedMember = true;
+      else if (DYNAMIC_NAMES.has(name)) flag(member);
+    }
   };
   const visit = (node) => {
     if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
@@ -88,8 +107,8 @@ function judge({ kind, text }, maxLines) {
       if (DYNAMIC_NAMES.has(node.text) && isUse(node)) flag(node);
     } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
       checkMember(node);
-    } else if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
-      checkBinding(node);
+    } else if ((ts.isObjectBindingPattern(node) || ts.isObjectLiteralExpression(node)) && takesFromGlobal(node)) {
+      checkPattern(node);
     } else if (ts.isCallExpression(node) && TIMER_NAMES.has(globalNameOf(node.expression)) && isStringArgument(node.arguments[0])) {
       flag(node);
     }

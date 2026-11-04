@@ -132,6 +132,36 @@ test('eval :: "a computed member access on a global object with a non-literal ke
   assert.deepEqual(pathsOf(await scan([['literal.mjs', 'globalThis["eval"]("1");\n']])), ['literal.mjs']);
 });
 
+test('eval :: "eval or Function taken out of a global object by any destructuring fails, and a computed key or a rest element on one is unscannable"', async (t) => {
+  await t.test('a literal key fails whether it is declared, assigned, a parameter default, a loop variable, nested, in an array, or the source is a conditional', async () => {
+    const failing = [
+      'const { eval: run } = globalThis;', 'const { ["eval"]: run } = globalThis;', 'const { [`Function`]: Make } = window;', 'let run; ({ eval: run } = globalThis);', 'let run; (({ eval: run } = self));',
+      'function f({ eval: run } = globalThis) { return run; }', 'const f = ({ Function: Make } = window) => Make;', 'for (const { eval: run } of [globalThis]) run("1");',
+      'let run; for ({ eval: run } of [window]) run("1");', 'const { self: { eval: run } } = globalThis;', 'const [{ eval: run }] = [globalThis];', 'let run; [{ eval: run }] = [window];',
+      'const { a: { eval: run } = globalThis } = {};', 'let run; ({ a: { eval: run } = globalThis } = {});', 'const { eval: run } = ready ? globalThis : other;', 'const { eval: run } = other || window;',
+      'const { eval: run } = (0, globalThis);', 'const { "Function": Make } = global;',
+    ];
+    assert.deepEqual(await failingSnippets(failing), names(failing.length));
+  });
+  await t.test('a computed key or a rest element on a global object is unscannable, as a member access is', async () => {
+    const unscannable = [
+      'const { [name]: run } = globalThis;', 'const { ...all } = globalThis;', 'let all; ({ ...all } = window);', 'let run; ({ [name]: run } = self);', 'function f({ [name]: run } = globalThis) {}',
+      'for (const { [name]: run } of [globalThis]) {}', 'const { self: { [name]: run } } = globalThis;', 'const { [`a${suffix}`]: run } = global;',
+    ];
+    const result = await scan(unscannable.map((text, index) => [`s${index}.mjs`, text]));
+    assert.deepEqual(result.findings, []);
+    assert.deepEqual(result.unscannable, unscannable.map((_, index) => ({ path: `s${index}.mjs`, cause: 'eval-computed-member' })));
+  });
+  await t.test('the same patterns on other values, and other keys of a global object, pass', async () => {
+    const passing = [
+      'const { eval: run } = other;', 'const { [name]: run } = other;', 'const { ...rest } = other;', 'const { a, b } = globalThis;', 'const { setTimeout: later } = globalThis;', 'function f({ eval: run }) { return run; }',
+      'function f({ eval: run } = {}) { return run; }', 'let run; ({ eval: run } = other);', 'let run; ({ a: run } = globalThis);', 'const list = [globalThis, { eval: 1 }];', 'list = [globalThis, { Function: 1 }];',
+      'for (const { eval: run } of items) {}', 'for (const { eval: run } of [first, second]) {}', 'const { a: { eval: run } } = other;', 'register({ eval: 1 }, globalThis);',
+    ];
+    assert.deepEqual(await scan(passing.map((text, index) => [`s${index}.mjs`, text])), { findings: [], unscannable: [] });
+  });
+});
+
 const STUB_DIR = makeTempDir('eval-stub');
 /** A parser stand-in: a script that runs `body`; the stub's folder holds its pid file `pid.txt`. */
 function stubParser(body) {
