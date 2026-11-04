@@ -3,6 +3,7 @@
  * options onto these variables). Defaults are the safe ones: testnet, writes
  * off, a small daily cap.
  */
+import { lstatSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { demToOs } from './amount.js';
@@ -10,6 +11,8 @@ import { demToOs } from './amount.js';
 export type ConfirmChannelName = 'tty' | 'desktop' | 'stderr' | 'webhook';
 
 export interface Config {
+  /** DEMOS_WALLET_MODE=purchase-only: the legacy tools may not open the wallet or sign. */
+  purchaseOnly?: boolean;
   network: 'testnet' | 'mainnet';
   rpcUrl: string;
   /** True when the RPC host is on the built-in testnet list. */
@@ -137,7 +140,14 @@ export function loadConfig(e: NodeJS.ProcessEnv = process.env): Config {
   const codeFallback = env(e, 'DEMOS_CODE_FALLBACK') === undefined ? true : truthy(env(e, 'DEMOS_CODE_FALLBACK'));
   if (!approvalPage && !codeFallback) throw new Error('at least one of DEMOS_APPROVAL_PAGE / DEMOS_CODE_FALLBACK must be on');
 
+  // not env(): an unsubstituted ${...} reference must refuse here, not read as unset
+  const rawWalletMode = e.DEMOS_WALLET_MODE?.trim();
+  const walletMode = rawWalletMode === '' ? undefined : rawWalletMode;
+  // never echo the value: it is operator input of any length
+  if (walletMode !== undefined && walletMode !== 'purchase-only') throw new Error('DEMOS_WALLET_MODE must be unset or purchase-only');
+
   return {
+    purchaseOnly: walletMode === 'purchase-only',
     network,
     rpcUrl,
     rpcIsKnownTestnet,
@@ -166,12 +176,40 @@ export function loadConfig(e: NodeJS.ProcessEnv = process.env): Config {
 }
 
 /**
+ * A `.purchase-only` marker beside the keystore fences it: beside the configured
+ * path and, when that path is a symlink, beside its target too.
+ */
+function purchaseOnlyMarkerPaths(keystorePath: string): string[] {
+  const paths = [`${keystorePath}.purchase-only`];
+  try {
+    const real = realpathSync(keystorePath);
+    if (real !== keystorePath) paths.push(`${real}.purchase-only`);
+  } catch {
+    // missing or dangling keystore: the marker beside the configured path still counts
+  }
+  return paths;
+}
+
+/** The marker's own directory entry counts, even a symlink to a missing target. */
+export function markerPresent(p: string): boolean {
+  try {
+    lstatSync(p);
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw e;
+  }
+}
+
+/**
  * Why writes may NOT run with this config, or null if they may.
  * Writes need: the explicit enable flag, a key source, and either a known
  * testnet RPC or, on mainnet only, the explicit mainnet opt-in (an unlisted
  * RPC could be mainnet).
  */
 export function writeBlocker(c: Config): string | null {
+  if (c.purchaseOnly) return 'purchase-only wallet: legacy signing is disabled';
+  if (c.keystorePath && purchaseOnlyMarkerPaths(c.keystorePath).some(markerPresent)) return 'purchase-only wallet: legacy signing is disabled';
   if (!c.writesEnabled) return 'writes are disabled (set DEMOS_MCP_ENABLE_WRITES=1)';
   // The mainnet opt-in never opens testnet writes on an unlisted RPC.
   if (!c.rpcIsKnownTestnet && (c.network === 'testnet' || !c.allowMainnet)) {
