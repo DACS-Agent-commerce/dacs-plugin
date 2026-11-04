@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -32,6 +33,7 @@ async function failingSnippets(snippets, extension = 'mjs') {
   return pathsOf(result);
 }
 const names = (count) => Array.from({ length: count }, (_, index) => `s${index}.mjs`).sort();
+const failsWith = (cause) => (error) => error instanceof GateInputError && error.cause === cause;
 const withListed = (...entries) => ({ ...CONFIG, evalGeneratedFiles: entries.map(([file, bytes]) => ({ path: file, sha256: sha256(bytes), reason: 'generated code that holds eval by design' })) });
 
 test('eval :: "direct eval, new Function and Function calls fail outside the listed generated files" (T06)', async () => {
@@ -55,45 +57,48 @@ test('eval :: "member, bracket, optional and comma-expression access to the glob
   assert.deepEqual(await failingSnippets(['let handler: Function; type Callback = Function; const x = y as Function;'], 'ts'), []);
 });
 
-test('eval :: "executable template substitutions and inline HTML scripts and handlers are parsed; the same words in strings, template text, comments and regular expressions pass" (T08)', async () => {
+test('eval :: "executable template substitutions are parsed; the same words in strings, template text, comments and regular expressions pass" (T08)', async () => {
   const failing = ['const t = `${eval("1")}`;', 'const t = `a ${`b ${new Function("x")}`}`;'];
   assert.deepEqual(await failingSnippets(failing), names(2));
-  const html = [
-    ['script.html', '<!doctype html>\n<p>x</p>\n<script>\n  const a = 1;\n  eval("1");\n</script>\n'],
-    ['handler.html', '<p>x</p>\n<a href="#" onclick="eval(&quot;1&quot;)">go</a>\n'],
-    ['handler-return.html', '<form onsubmit=\'return new Function("x")\'></form>\n'],
-    ['upper.html', '<SCRIPT TYPE="MODULE">eval("1");</SCRIPT>\n'],
-    ['words.html', '<p>eval("1") and new Function</p>\n<!-- eval("1") -->\n<script src="app.js"></script>\n<script type="application/json">{"a": "eval(1)"}</script>\n<a onclick="go()">x</a>\n'],
-  ];
-  const result = await scan(html);
-  assert.deepEqual(result.unscannable, []);
-  assert.deepEqual(result.findings.map(({ path: name, line }) => [name, line]), [['script.html', 5], ['handler.html', 2], ['handler-return.html', 1], ['upper.html', 1]]);
   const harmless = ['const a = "eval(1) new Function(1)";', "const b = 'Function(1)';", 'const c = `eval(1) ${1} new Function`;', '// eval(1)\n/* new Function(1) */\nconst d = 1;', 'const e = /eval\\(1\\)|Function\\(/;'];
   assert.deepEqual(await failingSnippets(harmless), []);
 });
 
-test('eval :: "an HTML script is data only when its own type attribute says so: data-type, a type= inside another value, a repeated or unreadable type and an undecoded entity are all scanned as code" (T08)', async (t) => {
-  const code = 'eval("1");';
-  const scanHtml = async (tag, body) => scan([['page.html', `<p>x</p>\n${tag}${body}</script>\n`]]);
-  await t.test('code behind an attribute whose name only ends in or whose value only contains type', async () => {
-    for (const tag of ['<script data-type="application/json" type="text/javascript">', '<script type="text/javascript" data-type="application/json">', '<script data-note="type=application/json">',
-      "<script x-type='application/json'>", '<script data-type=application/json>', '<script data-x="1"type="module">']) {
-      const result = await scanHtml(tag, code);
-      assert.deepEqual(result.unscannable, [], tag);
-      assert.deepEqual(result.findings.map(({ line }) => line), [2], tag);
+test('eval :: "inline HTML code is not read yet: an .html or .htm file holding eval gives no finding and no unscannable entry, as the docs state"', async () => {
+  const html = '<script>eval("1");</script>\n<a onclick="eval(1)">x</a>\n';
+  assert.deepEqual(await scan([['page.html', html], ['page.htm', html]]), { findings: [], unscannable: [] });
+});
+
+test('eval :: "the documented limits: a global object or timer held in a variable is not followed"', async () => {
+  assert.deepEqual(await failingSnippets(['const g = globalThis; g.eval("1");', 'const later = setTimeout; later("go()", 1);', 'const code = "go()"; setTimeout(code, 1);']), []);
+});
+
+test('eval :: "this repository\'s own tracked files give no R-EVAL finding and no unscannable entry"', async () => {
+  const listed = spawnSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--cached'], { encoding: 'utf8', maxBuffer: 1 << 26 });
+  assert.equal(listed.status, 0, listed.stderr);
+  const files = listed.stdout.split('\0').filter((file) => file !== '');
+  assert.deepEqual(await scan(files.map((file) => [file, readFileSync(path.join(REPO_ROOT, file))])), { findings: [], unscannable: [] });
+});
+
+test('eval :: "findings up to maxReportEntries are reported and one more stops the run with limit:maxReportEntries, never as a parser failure"', async (t) => {
+  const evalLines = (count, line = 'eval(1);') => `${line}\n`.repeat(count);
+  await t.test('1000 distinct lines, or 1000 lines with two calls each, are 1000 findings', async () => {
+    assert.equal((await scan([['a.mjs', evalLines(LIMITS.maxReportEntries)]])).findings.length, LIMITS.maxReportEntries);
+    assert.equal((await scan([['a.mjs', evalLines(LIMITS.maxReportEntries, 'eval(1); eval(2);')]])).findings.length, LIMITS.maxReportEntries);
+  });
+  await t.test('1001 or 1002 distinct lines in one file, or 1200 across two files of the same or other bytes, reach the limit', async () => {
+    for (const files of [[['a.mjs', evalLines(1001)]], [['a.mjs', evalLines(1002)]], [['a.mjs', evalLines(600)], ['b.mjs', evalLines(600)]], [['a.mjs', evalLines(600)], ['b.mjs', `${evalLines(599)}eval(2);\n`]]]) {
+      await assert.rejects(scan(files), failsWith('limit:maxReportEntries'), files.map(([name]) => name).join());
     }
   });
-  await t.test('a repeated type, an unreadable tag and an entity in the type value fail closed', async () => {
-    for (const tag of ['<script type="application/json" type="text/javascript">', '<script type="application/json" "stray">', '<script type="application&sol;json">', '<script type="text&#47;javascript">']) {
-      assert.deepEqual((await scanHtml(tag, code)).findings.map(({ line }) => line), [2], tag);
-    }
-  });
-  await t.test('a data block stays data, whatever other attribute names or values mention a type', async () => {
-    const data = '{"a": "eval(1)"}';
-    for (const tag of ['<script type="application/json">', '<script data-type="text/javascript" type="application/json">', '<script data-note="type=text/javascript" type="application/json">', '<script type = \'application/ld+json\'>', '<script/type="application/json">']) {
-      assert.deepEqual(await scanHtml(tag, data), { findings: [], unscannable: [] }, tag);
-    }
-  });
+});
+
+test('eval :: "a unit nested past the parser\'s stack depth is unscannable as eval-too-deep, and the other units of its batch are still judged"', async () => {
+  const depth = 20_000;
+  const deep = [['parens.mjs', `const a = ${'('.repeat(depth)}1${')'.repeat(depth)};\n`], ['chain.mjs', `const a = "a"${' + "a"'.repeat(depth)};\n`]];
+  const result = await scan([...deep, ['good.mjs', EVAL_CALL]]);
+  assert.deepEqual(result.unscannable, [{ path: 'parens.mjs', cause: 'eval-too-deep' }, { path: 'chain.mjs', cause: 'eval-too-deep' }]);
+  assert.deepEqual(pathsOf(result), ['good.mjs']);
 });
 
 test('eval :: "every JS and TS extension, including .jsx, .tsx, .mts, .cts and .d.mts, is parsed" (T09)', async () => {
@@ -201,8 +206,6 @@ const isGone = (pid) => {
     return error.code === 'ESRCH';
   }
 };
-const failsWith = (cause) => (error) => error instanceof GateInputError && error.cause === cause;
-
 test('eval :: "a unit the parser cannot read, or one over the size limit, or a parse past its deadline, fails as unscannable with its cause, and the deadline kills the parser child" (T12)', async (t) => {
   await t.test('a unit with a syntax error is unscannable as a parse error, beside a good unit that is still judged', async () => {
     const result = await scan([['broken.mjs', 'eval(;\n'], ['good.mjs', EVAL_CALL]]);

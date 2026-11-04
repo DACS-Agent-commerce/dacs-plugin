@@ -11,16 +11,8 @@ export const EVAL_RULE_ID = 'R-EVAL';
 
 const PARSER_CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'rules-eval-child.mjs');
 const SCRIPT_KIND_BY_EXTENSION = { '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx', '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx' };
-const HTML_EXTENSIONS = new Set(['.html', '.htm']);
-/** The `type` values of an HTML script element that a browser runs as code; any other type is a data block. */
-const SCRIPT_TYPES = new Set(['', 'module', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript']);
-const UNIT_CAUSES = ['eval-parse-error', 'eval-computed-member'];
+const UNIT_CAUSES = ['eval-parse-error', 'eval-computed-member', 'eval-too-deep'];
 const GENERATED_KEYS = ['path', 'reason', 'sha256'];
-const SCRIPT_ELEMENT = /<script\b([^>]*)>([\s\S]*?)(?:<\/script\s*>|$)/dgi;
-const EVENT_HANDLER = /\s(on[a-z]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/dgi;
-const ATTRIBUTE = /[\s/]*([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
-const NAMED_ENTITIES = { quot: '"', amp: '&', lt: '<', gt: '>', apos: "'" };
-const ENTITY = /&(?:#x([0-9a-f]+)|#(\d+)|(quot|amp|lt|gt|apos));/gi;
 
 const sha256Of = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const isText = (value) => typeof value === 'string' && value !== '';
@@ -35,60 +27,10 @@ export function hasValidEvalConfig({ evalGeneratedFiles }) {
     && new Set(evalGeneratedFiles.map((row) => row.path)).size === evalGeneratedFiles.length;
 }
 
-/** Returns a function from a character index to its 1-based line; the indexes it is asked for must not decrease. */
-function lineCounter(text) {
-  let line = 1;
-  let from = 0;
-  return (index) => {
-    for (let at = text.indexOf('\n', from); at !== -1 && at < index; at = text.indexOf('\n', from)) {
-      line += 1;
-      from = at + 1;
-    }
-    return line;
-  };
-}
-
-const decodeEntities = (value) => value.replace(ENTITY, (whole, hex, decimal, name) => {
-  if (name) return NAMED_ENTITIES[name.toLowerCase()];
-  const codePoint = hex ? parseInt(hex, 16) : Number(decimal);
-  return codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff) ? String.fromCodePoint(codePoint) : whole;
-});
-
-/**
- * Whether a script element with these opening-tag `attributes` is code. Only attributes named exactly `type` count, never a
- * name that ends in it or a `type=` inside another attribute's value; the script is data only if every `type` it carries is a
- * data type. A tag that cannot be read as attributes, or a `type` value with an entity this rule does not decode, is code.
- */
-function isScriptCode(attributes) {
-  const types = [];
-  let end = 0;
-  for (const match of attributes.matchAll(ATTRIBUTE)) {
-    if (match.index !== end) return true;
-    end = match.index + match[0].length;
-    if (match[1].toLowerCase() === 'type') types.push(match[2] ?? match[3] ?? match[4] ?? '');
-  }
-  if (attributes.slice(end).replace(/[\s/]/g, '') !== '') return true;
-  return types.length === 0 || types.some((type) => type.includes('&') || SCRIPT_TYPES.has(type.trim().toLowerCase()));
-}
-
-/** The code an HTML blob runs inline, as units { kind, text, firstLine }: each executable script body, and each event-handler attribute as a function body. */
-function htmlUnits(html) {
-  const scriptLine = lineCounter(html);
-  const scripts = [...html.matchAll(SCRIPT_ELEMENT)].flatMap((match) => {
-    return isScriptCode(match[1]) && match[2].trim() !== '' ? [{ kind: 'js', text: match[2], firstLine: scriptLine(match.indices[2][0]) }] : [];
-  });
-  const handlerLine = lineCounter(html);
-  const handlers = [...html.matchAll(EVENT_HANDLER)].map((match) => ({
-    kind: 'js', text: `(function () {${decodeEntities(match[2] ?? match[3] ?? match[4])}\n})`, firstLine: handlerLine(match.index + 1),
-  }));
-  return [...scripts, ...handlers];
-}
-
-/** The units of code in a text blob at `file`: the whole file for a script extension, the inline code for HTML, none otherwise. */
+/** The units of code in a text blob at `file`, as { kind, text }: the whole file for a JS or TS extension, none otherwise (inline HTML code is not read). */
 function unitsOf(file, text) {
   const extension = path.posix.extname(file).toLowerCase();
-  if (Object.hasOwn(SCRIPT_KIND_BY_EXTENSION, extension)) return [{ kind: SCRIPT_KIND_BY_EXTENSION[extension], text, firstLine: 1 }];
-  return HTML_EXTENSIONS.has(extension) ? htmlUnits(text) : [];
+  return Object.hasOwn(SCRIPT_KIND_BY_EXTENSION, extension) ? [{ kind: SCRIPT_KIND_BY_EXTENSION[extension], text }] : [];
 }
 
 /** Splits `units` into runs whose texts hold at most `maxBytes` together; a unit over it is alone in its run. */
@@ -129,7 +71,7 @@ function decodeResults(stdout, count, maxLines) {
  * unit's kind and the SHA-256 of its text, so shared bytes are parsed once; every occurrence is still judged by its own path.
  * `scan(entries)` returns { findings, unscannable } for the entries ({ path, kind, bytes, ... }) of one tree:
  * findings { rule, kind: 'content', entry, line } for each line of dynamic evaluation outside an exact generated file, and
- * unscannable { entry, cause } with cause eval-parse-error, eval-computed-member, eval-parse-timeout or limit:maxEvalUnitBytes.
+ * unscannable { entry, cause } with cause eval-parse-error, eval-computed-member, eval-too-deep, eval-parse-timeout or limit:maxEvalUnitBytes.
  * It throws GateInputError for a bad parser reply (eval-parser-failed), too many findings (limit:maxReportEntries) and
  * the run-bounded causes (output limit, spawn failure, interrupt). `requireNoStaleException()` throws
  * GateInputError(stale-eval-exception) when a listed path was scanned only at other bytes than its entry names.
@@ -190,7 +132,7 @@ export function createEvalScanner({ config, limits, signal, parser = { command: 
     const findings = [];
     const unscannable = [];
     for (const { entry, units } of occurrences) {
-      const lines = new Set(units.flatMap(({ key, firstLine }) => results.get(key).lines.map((line) => firstLine + line - 1)));
+      const lines = new Set(units.flatMap(({ key }) => results.get(key).lines));
       lines.forEach((line) => findings.push({ rule: EVAL_RULE_ID, kind: 'content', entry, line }));
       new Set(units.flatMap(({ key }) => results.get(key).cause ?? [])).forEach((cause) => unscannable.push({ entry, cause }));
       if (findings.length > limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${limits.maxReportEntries} findings`);

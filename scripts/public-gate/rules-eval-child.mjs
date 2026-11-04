@@ -85,7 +85,7 @@ function judge({ kind, text }, maxLines) {
   const lines = new Set();
   let computedMember = false;
   const flag = (node) => {
-    if (lines.size <= maxLines) lines.add(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
+    if (lines.size < maxLines) lines.add(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
   };
   const checkMember = (node) => {
     if (!isGlobalObject(node.expression)) return;
@@ -118,10 +118,20 @@ function judge({ kind, text }, maxLines) {
   return { lines: [...lines].sort((first, second) => first - second), ...(computedMember ? { cause: 'eval-computed-member' } : {}) };
 }
 
+/** Judges one unit as `judge` does; a unit nested so deep that parsing or walking it overflows the stack is unscannable on its own (`eval-too-deep`). */
+function judgeWithinStack(unit, maxLines) {
+  try {
+    return judge(unit, maxLines);
+  } catch (error) {
+    if (error instanceof RangeError) return { lines: [], cause: 'eval-too-deep' };
+    throw error;
+  }
+}
+
 try {
   const { units, maxLines } = JSON.parse(readFileSync(0, 'utf8'));
   if (!Array.isArray(units) || !Number.isSafeInteger(maxLines) || maxLines < 1 || units.some(({ kind, text }) => !Object.hasOwn(SCRIPT_KINDS, kind) || typeof text !== 'string')) throw new Error('unexpected input');
-  process.stdout.write(JSON.stringify({ results: units.map((unit) => judge(unit, maxLines)) }));
+  process.stdout.write(JSON.stringify({ results: units.map((unit) => judgeWithinStack(unit, maxLines)) }));
 } catch {
   process.exitCode = 2;
   await writeDiagnostic('eval-parser-failed', 'rules-eval-child.stderr');
