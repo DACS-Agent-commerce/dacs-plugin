@@ -136,7 +136,7 @@ export interface Harness {
   approval: ApprovalServer | null;
 }
 
-export async function harness(env: Record<string, string> = {}, opts: { beforeServer?: (stateDir: string, wallet: MockWallet) => void; wallet?: MockWallet; approval?: boolean; codeFallback?: boolean; walletFactory?: WalletFactory; proofFetcher?: ProofFetcher; fetchImpl?: typeof fetch } = {}): Promise<Harness> {
+export async function harness(env: Record<string, string> = {}, opts: { beforeServer?: (stateDir: string, wallet: MockWallet) => void; wallet?: MockWallet; openWallet?: () => Promise<Wallet>; approval?: boolean; codeFallback?: boolean; walletFactory?: WalletFactory; proofFetcher?: ProofFetcher; fetchImpl?: typeof fetch } = {}): Promise<Harness> {
   const stateDir = mkdtempSync(join(tmpdir(), 'demos-mcp-test-'));
   const config = loadConfig({
     DEMOS_MCP_ENABLE_WRITES: '1',
@@ -161,7 +161,7 @@ export async function harness(env: Record<string, string> = {}, opts: { beforeSe
   const gate = new ConfirmationGate([channel], config.confirmTtlMs, guard, opts.approval ? Date.now : now, approval, opts.codeFallback ?? true);
   const ledger = new SpendLedger(stateDir, config.dailyCapOs, () => new Date(nowMs));
   opts.beforeServer?.(stateDir, wallet);
-  const server = createServer({ config, guard, chain, gate, ledger, openWallet: async () => wallet, now, persistReceipts: true, walletFactory: opts.walletFactory, proofFetcher: opts.proofFetcher, fetchImpl: opts.fetchImpl });
+  const server = createServer({ config, guard, chain, gate, ledger, openWallet: opts.openWallet ?? (async () => wallet), now, persistReceipts: true, walletFactory: opts.walletFactory, proofFetcher: opts.proofFetcher, fetchImpl: opts.fetchImpl });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test', version: '0' });
   await Promise.all([server.connect(st), client.connect(ct)]);
