@@ -52,6 +52,8 @@ export interface OnboardDeps {
   prepareSelfPayment: (address: string) => Promise<unknown>;
   guarded: <A>(fn: (a: A) => Promise<unknown>) => (a: A) => Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }>;
   writesBlocked: string | null;
+  /** The write blocker evaluated now: a purchase-only marker can appear after start-up. */
+  writesBlockedNow: () => string | null;
   now: () => number;
 }
 
@@ -97,6 +99,8 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
   const { config, chain, gate, ledger, guard } = d;
   const statePath = join(config.stateDir, 'onboard.json');
   const pendingSteps = new Map<string, { kind: string; done: boolean; denied: boolean }>();
+  // the stricter of the start-up value (it decided which tools exist) and the value now
+  const blockedNow = () => d.writesBlocked ?? d.writesBlockedNow();
 
   const readState = (): OnboardState => {
     try {
@@ -167,7 +171,6 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
       }
       const st = readState();
       const address = walletAddress();
-      const writes = d.writesBlocked ? `disabled: ${d.writesBlocked}` : 'enabled';
       let balanceOs: bigint | null = null;
       let identities: string[] = [];
       let chainNote: string | null = null;
@@ -185,9 +188,12 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           chainNote = `chain lookup failed: ${printable((e as Error).message).slice(0, 120)}`;
         }
       }
+      // read after the awaited chain lookups above, so a marker that appeared meanwhile is seen
+      const blocked = blockedNow();
+      const writes = blocked ? `disabled: ${blocked}` : 'enabled';
       const limitOs = ledger.userLimitOs();
       const steps = {
-        writes_enabled: !d.writesBlocked,
+        writes_enabled: !blocked,
         wallet: address ? address : null,
         recovery_phrase_backed_up: !!address && !backupPending(),
         funded: balanceOs !== null ? balanceOs > 0n : null,
@@ -195,7 +201,8 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
         spending_limit_dem: limitOs !== null ? osToDem(limitOs) : null,
       };
       let next: { step: string; tool?: string; say: string };
-      if (d.writesBlocked) next = { step: 'enable writes', say: `Writes are off (${d.writesBlocked}). In Claude Code: /config → demos plugin → "Enable wallet writes", then reconnect (/mcp).` };
+      if (blocked && blocked.startsWith('purchase-only wallet')) next = { step: 'wallet fenced', say: `Writes are off (${blocked}). This wallet is fenced for purchase-only use; enabling wallet writes does not lift that, so nothing more can be done here.` };
+      else if (blocked) next = { step: 'enable writes', say: `Writes are off (${blocked}). In Claude Code: /config → demos plugin → "Enable wallet writes", then reconnect (/mcp).` };
       else if (!address) next = { step: 'create wallet', tool: 'demos_onboard_create_wallet', say: 'Create a wallet. The recovery phrase is shown once, on your local page, never in this chat.' };
       else if (!steps.recovery_phrase_backed_up) next = { step: 'confirm backup', tool: 'demos_onboard_create_wallet', say: 'The recovery phrase was not confirmed yet. Calling demos_onboard_create_wallet again opens a page where the human enters their passphrase to see it once more and confirm.' };
       else if (steps.funded === false) next = testnet ? { step: 'fund (testnet)', tool: 'demos_onboard_fund', say: 'Get free testnet DEM from the faucet.' } : { step: 'fund', say: 'Send DEM to this address from another wallet.' };
@@ -250,6 +257,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
       approveLabel: 'Show my recovery phrase',
       fields: [{ name: 'passphrase', label: 'Wallet passphrase', type: 'password' }],
       onApprove: async (form) => {
+        if (blockedNow()) return { error: 'This wallet is fenced for purchase-only use; the recovery phrase is not shown.' };
         let mnemonic: string;
         try {
           const ks = JSON.parse(readFileSync(path, 'utf8')) as KeystoreFile;
@@ -290,6 +298,8 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
     d.guarded(async () => {
       const path = config.keystorePath;
       if (!path) throw new Error('a mnemonic file is configured (DEMOS_MNEMONIC_FILE); onboarding wallet creation is not used');
+      const fenced = blockedNow();
+      if (fenced) throw new Error(`wallet onboarding is unavailable: ${fenced}`);
       if (existsSync(path)) {
         if (backupPending()) return await revealForBackup(path);
         return { status: 'wallet_exists', wallet: walletAddress(), note: 'A wallet already exists; nothing was created. Use demos_onboard_status for the next step.' };
@@ -315,6 +325,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           { name: 'remember', label: 'Remember the passphrase on this computer (chmod-600 file) so the assistant can use the wallet after a restart', type: 'checkbox', value: 'on' },
         ],
         onApprove: async (form) => {
+          if (blockedNow()) return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
           if (created || existsSync(path)) return { error: 'A wallet was already created. Check demos_onboard_status.' };
           const pass = form.passphrase ?? '';
           if (pass.length < 10) return { error: 'Passphrase must be at least 10 characters.' };
@@ -333,6 +344,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           const mnemonic = d.walletFactory.newMnemonic();
           guard.register(mnemonic); // the guard covers the phrase from the moment it exists
           const address = (await d.walletFactory.addressOf(mnemonic)).toLowerCase();
+          if (blockedNow()) return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' }; // the address lookup awaited
           const ks: KeystoreFile = { ...encryptMnemonic(mnemonic, pass, { address }), onboarding: { createdAt: new Date(d.now()).toISOString() } };
           if (decryptKeystore(ks, pass) !== mnemonic) return { error: 'Internal check failed; nothing was created.' };
           const bytes = Buffer.from(JSON.stringify(ks, null, 2) + '\n', 'utf8');
@@ -342,6 +354,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           // 2. keystore: write + fsync a private temp file, then publish with link() (fails if the
           //    target exists, so an existing wallet is never replaced and readers never see a partial file)
           const tmp = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+          let fencedLate = false;
           try {
             const fd = openSync(tmp, 'wx', 0o600);
             try {
@@ -355,16 +368,50 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
             if (!onDisk.equals(bytes) || decryptKeystore(JSON.parse(onDisk.toString('utf8')) as KeystoreFile, pass) !== mnemonic) {
               throw new Error('keystore did not verify after writing');
             }
+            if (blockedNow()) {
+              fencedLate = true;
+              throw new Error('fenced');
+            }
             linkSync(tmp, path);
           } catch (e) {
             if (remember) safeUnlink(config.keystorePassphraseFile!); // we created it a moment ago
+            if (fencedLate) return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
             throw e;
           } finally {
             safeUnlink(tmp);
           }
+          const stateBefore = readState();
+          /**
+           * A marker appeared after publication: take back what was just published (it was never shown), but only the
+           * exact files. The keystore carries a fresh salt and IV, so equal bytes are the file this call wrote.
+           */
+          const takeBack = () => {
+            try {
+              if (readFileSync(path).equals(bytes)) safeUnlink(path);
+            } catch {
+              /* already gone */
+            }
+            try {
+              if (remember && readFileSync(config.keystorePassphraseFile!, 'utf8') === pass + '\n') safeUnlink(config.keystorePassphraseFile!);
+            } catch {
+              /* already gone */
+            }
+            if (!remember) setSessionPassphrase(null);
+          };
+          if (blockedNow()) {
+            takeBack();
+            return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
+          }
           if (!remember) setSessionPassphrase(pass); // this session only
           created = true;
           writeState({ ...readState(), address, walletCreatedAt: new Date(d.now()).toISOString(), backupAcknowledged: false });
+          // the last check: a marker written after this line, before the return, reads as "created, then fenced" (SECURITY.md)
+          if (blockedNow()) {
+            takeBack();
+            created = false;
+            writeState(stateBefore);
+            return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
+          }
           return { html: phrasePage(address, mnemonic, 'was created'), ackLabel: 'I have written the words down' };
         },
         onAck: () => {
