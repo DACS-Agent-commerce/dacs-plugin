@@ -174,6 +174,15 @@ path reads key material into a tool result in the first place.
    A non-loopback bind is refused unless `DEMOS_APPROVAL_PUBLIC_URL` is https,
    because approval links carry a bearer token. Make that address reachable only
    from your own devices, for example over a private tailnet.
+7. **Purchase-only marker timing.** A `<keystore>.purchase-only` marker is
+   checked at each onboarding step and before every signature, so one created
+   while the server runs takes effect. The check is not atomic with another
+   process: a marker written while a wallet is being created may let that
+   creation finish (its phrase is shown once, then the fence refuses any later
+   reveal) or may undo it. A marker present at start-up keeps the write and
+   onboarding tools off until a restart even if the file is removed; one created
+   after start-up stops applying when it is removed. To fence a wallet reliably,
+   create the marker before onboarding starts, or with the server stopped.
 7. **Accept-and-pay ordering.** The payment is signed and node-confirmed before
    the agreement is countersigned. If the payment then fails on chain, the
    countersignature is withheld. If the payment outcome is `pending`, the
