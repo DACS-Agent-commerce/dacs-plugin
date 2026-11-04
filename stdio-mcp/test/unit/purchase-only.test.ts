@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
@@ -192,6 +192,7 @@ test('a marker that appears after start-up is reported by the network info and s
   assert.match(info.json.safety.writes, FENCED);
   const status = await h.call('demos_onboard_status');
   assert.equal(status.json.steps.writes_enabled, false);
+  assert.match(status.json.next.say, /fenced for purchase-only use; enabling writes does not lift that/);
   const r = await h.call('demos_onboard_create_wallet');
   assert.equal(r.isError, true);
   assert.match(r.text, FENCED);
@@ -217,6 +218,26 @@ test('a marker that appears while the reveal page is open refuses the phrase aft
   const shown = await post(reveal + '/approve', { passphrase: pass });
   assert.match(shown, /fenced for purchase-only use/);
   for (const w of wf.made[0]!.split(' ')) assert.ok(!shown.includes(`<li>${w}</li>`));
+  await h.approval!.stop();
+});
+
+test('a marker that appears while the create-wallet page is open stops the wallet from being created', async () => {
+  const wf = {
+    made: [] as string[],
+    newMnemonic() { const m = 'legal winner thank year wave sausage worth useful legal winner thank yellow'; this.made.push(m); return m; },
+    async addressOf(m: string) { return '0x' + createHash('sha256').update(m).digest('hex'); },
+  };
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  const pass = 'correct horse battery staple';
+  const r = await h.call('demos_onboard_create_wallet');
+  assert.equal(r.isError, false, 'control: the create page is offered before the marker');
+  const url = h.channel.last().approveUrl!;
+  const keystore = join(h.config.stateDir, 'wallet.keystore.json');
+  writeFileSync(`${keystore}.purchase-only`, '');
+  const shown = await post(url + '/approve', { passphrase: pass, confirm: pass });
+  assert.match(shown, /fenced for purchase-only use/);
+  assert.equal(wf.made.length, 0, 'no phrase was generated');
+  assert.equal(existsSync(keystore), false, 'no keystore was written');
   await h.approval!.stop();
 });
 

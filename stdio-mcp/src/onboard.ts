@@ -53,7 +53,7 @@ export interface OnboardDeps {
   guarded: <A>(fn: (a: A) => Promise<unknown>) => (a: A) => Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }>;
   writesBlocked: string | null;
   /** The write blocker evaluated now: a purchase-only marker can appear after start-up. */
-  writesBlockedNow?: () => string | null;
+  writesBlockedNow: () => string | null;
   now: () => number;
 }
 
@@ -99,7 +99,8 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
   const { config, chain, gate, ledger, guard } = d;
   const statePath = join(config.stateDir, 'onboard.json');
   const pendingSteps = new Map<string, { kind: string; done: boolean; denied: boolean }>();
-  const blockedNow = () => (d.writesBlockedNow ? d.writesBlockedNow() : d.writesBlocked);
+  // the stricter of the start-up value (it decided which tools exist) and the value now
+  const blockedNow = () => d.writesBlocked ?? d.writesBlockedNow();
 
   const readState = (): OnboardState => {
     try {
@@ -199,7 +200,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
         spending_limit_dem: limitOs !== null ? osToDem(limitOs) : null,
       };
       let next: { step: string; tool?: string; say: string };
-      if (blocked) next = { step: 'enable writes', say: `Writes are off (${blocked}). In Claude Code: /config → demos plugin → "Enable wallet writes", then reconnect (/mcp).` };
+      if (blocked) next = { step: 'enable writes', say: `Writes are off (${blocked}).${/purchase-only/.test(blocked) ? ' This wallet is fenced for purchase-only use; enabling writes does not lift that.' : ''} In Claude Code: /config → demos plugin → "Enable wallet writes", then reconnect (/mcp).` };
       else if (!address) next = { step: 'create wallet', tool: 'demos_onboard_create_wallet', say: 'Create a wallet. The recovery phrase is shown once, on your local page, never in this chat.' };
       else if (!steps.recovery_phrase_backed_up) next = { step: 'confirm backup', tool: 'demos_onboard_create_wallet', say: 'The recovery phrase was not confirmed yet. Calling demos_onboard_create_wallet again opens a page where the human enters their passphrase to see it once more and confirm.' };
       else if (steps.funded === false) next = testnet ? { step: 'fund (testnet)', tool: 'demos_onboard_fund', say: 'Get free testnet DEM from the faucet.' } : { step: 'fund', say: 'Send DEM to this address from another wallet.' };
@@ -322,6 +323,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           { name: 'remember', label: 'Remember the passphrase on this computer (chmod-600 file) so the assistant can use the wallet after a restart', type: 'checkbox', value: 'on' },
         ],
         onApprove: async (form) => {
+          if (blockedNow()) return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
           if (created || existsSync(path)) return { error: 'A wallet was already created. Check demos_onboard_status.' };
           const pass = form.passphrase ?? '';
           if (pass.length < 10) return { error: 'Passphrase must be at least 10 characters.' };
