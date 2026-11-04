@@ -172,18 +172,22 @@ test('DEMOS_WALLET_MODE accepts only unset or purchase-only, and never echoes th
   }
 });
 
-test('a marker that appears after start-up is reported by the network info and stops the backup reveal', async () => {
+test('a marker that appears after start-up is reported by the network info and stops the backup reveal', async (t) => {
   const wf = {
     made: [] as string[],
     newMnemonic() { const m = 'abandon ability able about above absent absorb abstract absurd abuse access accident'; this.made.push(m); return m; },
     async addressOf(m: string) { return '0x' + createHash('sha256').update(m).digest('hex'); },
   };
   const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  t.after(async () => {
+    await h.approval!.stop();
+    rmSync(h.config.stateDir, { recursive: true, force: true });
+  });
   const pass = 'correct horse battery staple';
   await h.call('demos_onboard_create_wallet');
   const url = h.channel.last().approveUrl!;
   await post(url + '/approve', { passphrase: pass, confirm: pass, remember: 'on' });
-  // the page is closed without acknowledging, then the wallet is fenced
+  // the backup is left unacknowledged (the page is not acknowledged), then the wallet is fenced
   const keystore = join(h.config.stateDir, 'wallet.keystore.json');
   const control = await h.call('demos_network_info');
   assert.match(control.json.safety.writes, /^enabled/, 'control: before the marker writes are enabled');
@@ -197,16 +201,19 @@ test('a marker that appears after start-up is reported by the network info and s
   assert.equal(r.isError, true);
   assert.match(r.text, FENCED);
   assert.equal(wf.made.length, 1, 'no second wallet');
-  await h.approval!.stop();
 });
 
-test('a marker that appears while the reveal page is open refuses the phrase after the passphrase', async () => {
+test('a marker that appears while the reveal page is open refuses the phrase after the passphrase', async (t) => {
   const wf = {
     made: [] as string[],
     newMnemonic() { const m = 'zoo wrong yellow wolf wise wing winner window wide wet wedding weapon'; this.made.push(m); return m; },
     async addressOf(m: string) { return '0x' + createHash('sha256').update(m).digest('hex'); },
   };
   const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  t.after(async () => {
+    await h.approval!.stop();
+    rmSync(h.config.stateDir, { recursive: true, force: true });
+  });
   const pass = 'correct horse battery staple';
   await h.call('demos_onboard_create_wallet');
   const url = h.channel.last().approveUrl!;
@@ -218,16 +225,19 @@ test('a marker that appears while the reveal page is open refuses the phrase aft
   const shown = await post(reveal + '/approve', { passphrase: pass });
   assert.match(shown, /fenced for purchase-only use/);
   for (const w of wf.made[0]!.split(' ')) assert.ok(!shown.includes(`<li>${w}</li>`));
-  await h.approval!.stop();
 });
 
-test('a marker that appears while the create-wallet page is open stops the wallet from being created', async () => {
+test('a marker that appears while the create-wallet page is open stops the wallet from being created', async (t) => {
   const wf = {
     made: [] as string[],
     newMnemonic() { const m = 'legal winner thank year wave sausage worth useful legal winner thank yellow'; this.made.push(m); return m; },
     async addressOf(m: string) { return '0x' + createHash('sha256').update(m).digest('hex'); },
   };
   const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  t.after(async () => {
+    await h.approval!.stop();
+    rmSync(h.config.stateDir, { recursive: true, force: true });
+  });
   const pass = 'correct horse battery staple';
   const r = await h.call('demos_onboard_create_wallet');
   assert.equal(r.isError, false, 'control: the create page is offered before the marker');
@@ -238,7 +248,68 @@ test('a marker that appears while the create-wallet page is open stops the walle
   assert.match(shown, /fenced for purchase-only use/);
   assert.equal(wf.made.length, 0, 'no phrase was generated');
   assert.equal(existsSync(keystore), false, 'no keystore was written');
-  await h.approval!.stop();
+});
+
+test('a marker that appears during the address lookup stops the create form before it writes or shows anything', async (t) => {
+  let marker = '';
+  const wf = {
+    made: [] as string[],
+    newMnemonic() { const m = 'letter advice cage absurd amount doctor acoustic avoid letter advice cage above'; this.made.push(m); return m; },
+    async addressOf(m: string) { writeFileSync(marker, ''); return '0x' + createHash('sha256').update(m).digest('hex'); },
+  };
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  t.after(async () => {
+    await h.approval!.stop();
+    rmSync(h.config.stateDir, { recursive: true, force: true });
+  });
+  const keystore = join(h.config.stateDir, 'wallet.keystore.json');
+  marker = `${keystore}.purchase-only`;
+  const pass = 'correct horse battery staple';
+  await h.call('demos_onboard_create_wallet');
+  const url = h.channel.last().approveUrl!;
+  const shown = await post(url + '/approve', { passphrase: pass, confirm: pass });
+  assert.match(shown, /fenced for purchase-only use/);
+  for (const w of wf.made[0]!.split(' ')) assert.ok(!shown.includes(`<li>${w}</li>`));
+  assert.equal(existsSync(keystore), false, 'no keystore was written');
+});
+
+test('a marker that appears during the status lookups is reported by the same status call', async (t) => {
+  const wf = {
+    made: [] as string[],
+    newMnemonic() { const m = 'bitter ladder shop wagon actor cabin donor above lock cargo table brisk'; this.made.push(m); return m; },
+    async addressOf(m: string) { return '0x' + createHash('sha256').update(m).digest('hex'); },
+  };
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+  t.after(async () => {
+    await h.approval!.stop();
+    rmSync(h.config.stateDir, { recursive: true, force: true });
+  });
+  const pass = 'correct horse battery staple';
+  await h.call('demos_onboard_create_wallet');
+  await post(h.channel.last().approveUrl! + '/approve', { passphrase: pass, confirm: pass, remember: 'on' });
+  const marker = `${join(h.config.stateDir, 'wallet.keystore.json')}.purchase-only`;
+  const original = h.chain.addressInfo.bind(h.chain);
+  h.chain.addressInfo = async (a: string) => {
+    writeFileSync(marker, '');
+    return original(a);
+  };
+  const status = await h.call('demos_onboard_status');
+  assert.equal(status.json.steps.writes_enabled, false);
+  assert.match(status.json.writes, FENCED);
+});
+
+test('a marker present at start-up keeps both reports disabled after it is removed', async (t) => {
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, {
+    beforeServer: (dir) => writeFileSync(join(dir, 'wallet.keystore.json.purchase-only'), ''),
+  });
+  t.after(() => rmSync(h.config.stateDir, { recursive: true, force: true }));
+  const marker = join(h.config.stateDir, 'wallet.keystore.json.purchase-only');
+  assert.match((await h.call('demos_network_info')).json.safety.writes, FENCED);
+  rmSync(marker);
+  // the write and create tools were not registered at start-up, so the reports must not say enabled
+  assert.match((await h.call('demos_network_info')).json.safety.writes, FENCED);
+  const status = await h.call('demos_onboard_status');
+  assert.equal(status.json.steps.writes_enabled, false);
 });
 
 function post(url: string, form: Record<string, string>): Promise<string> {
