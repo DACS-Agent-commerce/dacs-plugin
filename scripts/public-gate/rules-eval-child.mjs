@@ -4,12 +4,14 @@ import { writeDiagnostic } from './redact.mjs';
 
 /**
  * The eval rule's parser, run as a child process by rules-eval.mjs. It reads `{ units: [{ kind, text }], maxLines }` from
- * stdin, reads exact inline HTML forms for `html` units, parses JS/TS with the TypeScript compiler (nothing is run), and writes `{ results: [{ lines,
- * cause? }] }` to stdout: for each unit the distinct 1-based lines of dynamic evaluation (at most `maxLines`) and, when
- * the unit cannot be judged, one cause. No text, name or path leaves this process; a failure leaves a fixed text on stderr.
+ * stdin (a kind is js, jsx, ts, tsx or html, a whole HTML file), parses each unit with the TypeScript compiler (parsing only;
+ * nothing is run), and writes `{ results: [{ lines, cause? }] }` to stdout: for each unit the distinct 1-based lines of dynamic
+ * evaluation (at most `maxLines`) and, when the unit cannot be judged, one cause. No text, name or path leaves this process; a failure leaves a fixed text on stderr.
  */
 
 const SCRIPT_KINDS = { js: ts.ScriptKind.JS, jsx: ts.ScriptKind.JSX, ts: ts.ScriptKind.TS, tsx: ts.ScriptKind.TSX };
+/** The kind of a unit that is a whole HTML file, from which the child itself takes the code. */
+const HTML_KIND = 'html';
 /** The global functions whose use evaluates code. */
 const DYNAMIC_NAMES = new Set(['eval', 'Function']);
 /** The global functions that evaluate their first argument when it is a string. */
@@ -109,14 +111,14 @@ const globalNamesOf = (callee) => valuesOf(callee).map((node) => {
   return ts.isElementAccessExpression(node) && isGlobalObject(node.expression) ? literalKey(node.argumentExpression) : undefined;
 });
 
-/** Judges one unit: { lines, cause? }. */
-function judge({ kind, text }, maxLines) {
+/** Judges one unit, whose first line is line `firstLine` of its file: { lines, cause? }. */
+function judge({ kind, text, firstLine = 1 }, maxLines) {
   const source = ts.createSourceFile(`unit.${kind}`, text, ts.ScriptTarget.Latest, true, SCRIPT_KINDS[kind]);
   if (source.parseDiagnostics.length > 0) return { lines: [], cause: 'eval-parse-error' };
   const lines = new Set();
   let computedMember = false;
   const flag = (node) => {
-    if (lines.size < maxLines) lines.add(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
+    if (lines.size < maxLines) lines.add(source.getLineAndCharacterOfPosition(node.getStart(source)).line + firstLine);
   };
   const checkMember = (node) => {
     if (!isGlobalObject(node.expression)) return;
@@ -152,44 +154,93 @@ function judge({ kind, text }, maxLines) {
   return { lines: [...lines].sort((first, second) => first - second), ...(computedMember ? { cause: 'eval-computed-member' } : {}) };
 }
 
-// Every candidate must match an exact form; no comment, data-script or entity exemptions.
-const HTML_START = /<script|[\t\n\f\r /"']on[a-z][a-z\d:_-]*[\t\n\f\r ]*=/gi;
-const SCRIPT_FORM = /^(<script(?:[\t\n\f\r ]+type="(?:module|text\/javascript)")?(?:[\t\n\f\r ]+src="[^"<>]*")?[\t\n\f\r ]*>)([^<]*)<\/script[\t\n\f\r ]*>/i;
-const HANDLER_FORM = /^([\t\n\f\r ]+on[a-z][a-z\d:_-]*=")([^"&<]*)"/i;
+/*
+ * The only HTML forms read, all matched with linear patterns: a trigger finds each `<script` or `on…=`, and a sticky pattern at that
+ * spot must then match its exact form, else the whole file is unreadable. Entities are never decoded.
+ */
+const SCRIPT_TRIGGER = /<script/gi;
+const SCRIPT_EXACT = /<script(?: type="(?:module|text\/javascript)"(?: src="[^"<>&]*")?| src="[^"<>&]*"(?: type="(?:module|text\/javascript)")?)?>([^<]*)<\/script>/yd;
+const HANDLER_TRIGGER = /(?<![A-Za-z0-9])on[A-Za-z0-9]*\s*=/gi;
+const HANDLER_EXACT = / on[a-z]+="([^"&]*)"/yd;
+/* The reader does not track tags, so code that holds an `on…=` not written as a property (`this.onerror=null` is one) may be a tag's attribute it cannot see. */
+const ATTRIBUTE_LIKE = /(?<![A-Za-z0-9.])on[A-Za-z0-9]*\s*=/i;
 
-/** Counts source line breaks in a range, counting a CRLF pair once even across range boundaries. */
-function lineBreaksBetween(text, start, end) {
-  let count = 0;
-  for (let index = start; index < end; index += 1) {
-    const character = text[index];
-    if (character === '\r' || character === '\u2028' || character === '\u2029' || (character === '\n' && text[index - 1] !== '\r')) count += 1;
-  }
-  return count;
+/** Matches the sticky `pattern` at `index` of `text`; null when there is no such position or no match there. */
+function matchAt(pattern, text, index) {
+  if (index < 0) return null;
+  pattern.lastIndex = index;
+  return pattern.exec(text);
 }
 
-/** Reads only exact inline HTML forms, under the same child deadline as JS parsing, and maps findings to their original lines. */
+/** The 1-based line of `position` in a text whose lines start at `lineStarts`. */
+function lineOf(lineStarts, position) {
+  let low = 0;
+  let high = lineStarts.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (lineStarts[middle] <= position) low = middle;
+    else high = middle - 1;
+  }
+  return low + 1;
+}
+
+/** `text` with each of the ascending, disjoint ranges [start, end) blanked, so positions and the text around them stay as they were. */
+function blanked(text, ranges) {
+  let result = '';
+  let copied = 0;
+  for (const [start, end] of ranges) {
+    result += `${text.slice(copied, start)}${' '.repeat(end - start)}`;
+    copied = end;
+  }
+  return result + text.slice(copied);
+}
+
+/**
+ * The code in an HTML file as JS units { kind, text, firstLine }: each non-blank script body, then each event-handler value as the
+ * body of a function. Returns undefined when a `<script` or an `on…=` is not in an exact form, or when the two readings meet: an
+ * accepted script body or handler value that holds an attribute-like `on…=`, or a handler value that overlaps a script body (either
+ * could be a quoted attribute value in the browser's reading, hiding real code). An accepted script body is blanked before the
+ * handler trigger runs, and the trigger resumes after each accepted handler value (code, so `this.onerror=null` in it is no attribute).
+ */
+function htmlUnitsOf(text) {
+  const lineStarts = ts.computeLineStarts(text);
+  const units = [];
+  const bodies = [];
+  for (const { index } of text.matchAll(SCRIPT_TRIGGER)) {
+    const script = matchAt(SCRIPT_EXACT, text, index);
+    if (script === null || ATTRIBUTE_LIKE.test(script[1])) return undefined;
+    const [bodyStart, bodyEnd] = script.indices[1];
+    if (script[1].trim() !== '') units.push({ kind: 'js', text: script[1], firstLine: lineOf(lineStarts, bodyStart) });
+    bodies.push([bodyStart, bodyEnd]);
+  }
+  const handlerText = blanked(text, bodies);
+  HANDLER_TRIGGER.lastIndex = 0;
+  let nextBody = 0;
+  for (let found = HANDLER_TRIGGER.exec(handlerText); found !== null; found = HANDLER_TRIGGER.exec(handlerText)) {
+    const handler = matchAt(HANDLER_EXACT, handlerText, found.index - 1);
+    if (handler === null || ATTRIBUTE_LIKE.test(handler[1])) return undefined;
+    const [valueStart, valueEnd] = handler.indices[1];
+    while (nextBody < bodies.length && bodies[nextBody][1] <= valueStart) nextBody += 1;
+    if (nextBody < bodies.length && bodies[nextBody][0] < valueEnd) return undefined;
+    units.push({ kind: 'js', text: `(function () {${handler[1]}\n})`, firstLine: lineOf(lineStarts, valueStart) });
+    HANDLER_TRIGGER.lastIndex = HANDLER_EXACT.lastIndex;
+  }
+  return units;
+}
+
+/** Judges an HTML file as `judge` does a unit: the lines of all its code units (at most `maxLines`) and the first cause among them. */
 function judgeHtml({ text }, maxLines) {
-  const lines = new Set();
-  let cause;
-  let cursor = 0;
-  let line = 1;
-  for (const candidate of text.matchAll(HTML_START)) {
-    const form = (candidate[0][0] === '<' ? SCRIPT_FORM : HANDLER_FORM).exec(text.slice(candidate.index));
-    if (form === null) return { lines: [], cause: 'eval-html-unreadable' };
-    line += lineBreaksBetween(text, cursor, candidate.index);
-    cursor = candidate.index;
-    const firstLine = line + lineBreaksBetween(text, candidate.index, candidate.index + form[1].length);
-    const result = judge({ kind: 'js', text: form[2] }, maxLines);
-    for (const found of result.lines) if (lines.size < maxLines) lines.add(firstLine + found - 1);
-    cause ??= result.cause;
-  }
-  return { lines: [...lines].sort((first, second) => first - second), ...(cause ? { cause } : {}) };
+  const units = htmlUnitsOf(text);
+  if (units === undefined) return { lines: [], cause: 'eval-html-unreadable' };
+  const results = units.map((unit) => judgeWithinStack(unit, maxLines));
+  const cause = results.find((result) => result.cause !== undefined)?.cause;
+  return { lines: [...new Set(results.flatMap(({ lines }) => lines))].sort((first, second) => first - second).slice(0, maxLines), ...(cause ? { cause } : {}) };
 }
 
-/** Judges one unit as `judge` does; a unit nested so deep that parsing or walking it overflows the stack is unscannable on its own (`eval-too-deep`). */
+/** Judges one unit as `judge` does (an HTML file as `judgeHtml` does); a unit nested so deep that parsing or walking it overflows the stack is unscannable on its own (`eval-too-deep`). */
 function judgeWithinStack(unit, maxLines) {
   try {
-    return unit.kind === 'html' ? judgeHtml(unit, maxLines) : judge(unit, maxLines);
+    return unit.kind === HTML_KIND ? judgeHtml(unit, maxLines) : judge(unit, maxLines);
   } catch (error) {
     if (error instanceof RangeError) return { lines: [], cause: 'eval-too-deep' };
     throw error;
@@ -198,7 +249,7 @@ function judgeWithinStack(unit, maxLines) {
 
 try {
   const { units, maxLines } = JSON.parse(readFileSync(0, 'utf8'));
-  if (!Array.isArray(units) || !Number.isSafeInteger(maxLines) || maxLines < 1 || units.some(({ kind, text }) => (!Object.hasOwn(SCRIPT_KINDS, kind) && kind !== 'html') || typeof text !== 'string')) throw new Error('unexpected input');
+  if (!Array.isArray(units) || !Number.isSafeInteger(maxLines) || maxLines < 1 || units.some(({ kind, text }) => !(Object.hasOwn(SCRIPT_KINDS, kind) || kind === HTML_KIND) || typeof text !== 'string')) throw new Error('unexpected input');
   process.stdout.write(JSON.stringify({ results: units.map((unit) => judgeWithinStack(unit, maxLines)) }));
 } catch {
   process.exitCode = 2;
