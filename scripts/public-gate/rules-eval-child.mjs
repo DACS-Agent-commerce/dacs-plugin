@@ -31,28 +31,61 @@ function literalKey(node) {
   return ts.isStringLiteralLike(key) || ts.isNumericLiteral(key) ? key.text : undefined;
 }
 
-const isGlobalObject = (expression) => {
+const keyOf = (name) => (ts.isComputedPropertyName(name) ? literalKey(name.expression) : name.text);
+const LOGICAL = new Set(['BarBar', 'AmpersandAmpersand', 'QuestionQuestion'].flatMap((name) => [ts.SyntaxKind[`${name}Token`], ts.SyntaxKind[`${name}EqualsToken`]]));
+
+/** The expressions a value can come from: both branches of a conditional, both operands of a logical operator, the right of `=`, else the expression itself. */
+function valuesOf(expression) {
   const node = unwrap(expression);
+  if (ts.isConditionalExpression(node)) return [...valuesOf(node.whenTrue), ...valuesOf(node.whenFalse)];
+  const kind = ts.isBinaryExpression(node) && node.operatorToken.kind;
+  if (LOGICAL.has(kind)) return [...valuesOf(node.left), ...valuesOf(node.right)];
+  return kind === ts.SyntaxKind.EqualsToken ? valuesOf(node.right) : [node];
+}
+const isGlobalObject = (expression) => valuesOf(expression).some((node) => {
   if (ts.isIdentifier(node)) return GLOBAL_OBJECTS.has(node.text);
   if (ts.isPropertyAccessExpression(node)) return isGlobalObject(node.expression) && GLOBAL_OBJECTS.has(node.name.text);
   return ts.isElementAccessExpression(node) && isGlobalObject(node.expression) && GLOBAL_OBJECTS.has(literalKey(node.argumentExpression));
-};
+});
+const INDEX = /^\d+$/;
+const INDEXES = new WeakMap();
+/** The position of `element` in its array literal or array pattern `container`; one pass indexes all of them. */
+const indexIn = (container, element) => INDEXES.get(element) ?? (container.elements.forEach((item, index) => INDEXES.set(item, index)), INDEXES.get(element));
 
-const holdsGlobal = (expression) => {
-  const node = unwrap(expression);
-  if (ts.isArrayLiteralExpression(node)) return node.elements.some((element) => holdsGlobal(ts.isSpreadElement(element) ? element.expression : element));
-  if (ts.isConditionalExpression(node)) return holdsGlobal(node.whenTrue) || holdsGlobal(node.whenFalse);
-  return isGlobalObject(node) || (ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind) && (holdsGlobal(node.left) || holdsGlobal(node.right)));
-};
+/** Whether the value `path` deep in `expression` is a global object. A step is a property key or array index as text, or null for any element; an array is no global object. */
+function globalAt(expression, path) {
+  const [step, ...rest] = path;
+  return valuesOf(expression).some((node) => {
+    if (isGlobalObject(node)) return path.every((key) => GLOBAL_OBJECTS.has(key));
+    if (step === undefined || (step !== null && ts.isArrayLiteralExpression(node) && !INDEX.test(step))) return false;
+    if (ts.isArrayLiteralExpression(node)) {
+      const spreadAt = node.elements.findIndex(ts.isSpreadElement);
+      return node.elements.some((element, index) => (ts.isSpreadElement(element) ? globalAt(element.expression, [null, ...rest])
+        : (step === null || String(index) === step || (spreadAt >= 0 && index > spreadAt)) && globalAt(element, rest)));
+    }
+    return ts.isObjectLiteralExpression(node) && node.properties.some((property) => {
+      if (ts.isSpreadAssignment(property)) return globalAt(property.expression, path);
+      const value = ts.isPropertyAssignment(property) ? property.initializer : ts.isShorthandPropertyAssignment(property) ? property.name : undefined;
+      return value !== undefined && (step === null || [step, undefined].includes(keyOf(property.name))) && globalAt(value, rest);
+    });
+  });
+}
 
-/** Whether a binding pattern or assignment target takes its values from a global object (or an array or conditional holding one, see `holdsGlobal`) written beside it: an initializer or default, the right of `=`, the `of` operand, or an enclosing pattern's. */
-function takesFromGlobal(target) {
+/** Whether a binding pattern or assignment target receives a global object from the value written beside it (see `globalAt`), `path` deep: an initializer or default, the right of `=`, the `of` operand, or an enclosing pattern's, reached through the key or index the target has in it (a rest element holds the array from its index on). */
+function receivesGlobal(target, path = []) {
   const { parent } = target;
-  if (ts.isVariableDeclaration(parent) || ts.isParameter(parent)) return parent.name === target && (parent.initializer ? holdsGlobal(parent.initializer) : takesFromGlobal(parent.parent));
-  if (ts.isBinaryExpression(parent)) return parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && parent.left === target && holdsGlobal(parent.right);
-  if (ts.isForOfStatement(parent)) return parent.initializer === target && holdsGlobal(parent.expression);
-  if (ts.isBindingElement(parent)) return (parent.initializer !== undefined && holdsGlobal(parent.initializer)) || takesFromGlobal(parent.parent);
-  return ts.isPropertyAssignment(parent) ? takesFromGlobal(parent.parent) : ts.isArrayLiteralExpression(parent) && takesFromGlobal(parent);
+  // A step that is undefined (a computed key) matches nothing in `globalAt`, so such a climb ends false.
+  const indexed = (container, index, isRest) => receivesGlobal(container, isRest ? [path[0] === null ? null : String(index + Number(path[0])), ...path.slice(1)] : [String(index), ...path]);
+  if (ts.isVariableDeclaration(parent) || ts.isParameter(parent)) return parent.name === target && (parent.initializer ? globalAt(parent.initializer, path) : ts.isVariableDeclaration(parent) && receivesGlobal(parent.parent, path));
+  if (ts.isBinaryExpression(parent)) return parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && parent.left === target && (globalAt(parent.right, path) || receivesGlobal(parent, path));
+  if (ts.isForOfStatement(parent)) return parent.initializer === target && globalAt(parent.expression, [null, ...path]);
+  if (ts.isPropertyAssignment(parent)) return parent.initializer === target && receivesGlobal(parent.parent, [keyOf(parent.name), ...path]);
+  if (ts.isArrayLiteralExpression(parent)) return indexed(parent, indexIn(parent, target), false);
+  if (ts.isSpreadElement(parent) && ts.isArrayLiteralExpression(parent.parent)) return indexed(parent.parent, indexIn(parent.parent, parent), true);
+  if (!ts.isBindingElement(parent) || parent.name !== target) return false;
+  const container = parent.parent;
+  return (parent.initializer !== undefined && globalAt(parent.initializer, path))
+    || (ts.isArrayBindingPattern(container) ? indexed(container, indexIn(container, parent), parent.dotDotDotToken !== undefined) : receivesGlobal(container, [parent.propertyName && keyOf(parent.propertyName), ...path]));
 }
 
 /** A name this identifier declares or labels, or a property it names, is no use of the global of that name. */
@@ -67,20 +100,15 @@ function isUse(identifier) {
 const DROPPED_DECLARATIONS = new Set([ts.SyntaxKind.VariableStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration]);
 const isDroppedDeclaration = (node) => DROPPED_DECLARATIONS.has(node.kind) && (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.DeclareKeyword);
 
-const isStringArgument = (argument) => {
-  const node = argument && unwrap(argument);
-  if (!node) return false;
-  if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) return true;
-  return ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken && (isStringArgument(node.left) || isStringArgument(node.right));
-};
+const isStringArgument = (argument) => argument !== undefined && valuesOf(argument).some((node) => ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)
+  || (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.PlusToken || node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) && (isStringArgument(node.left) || isStringArgument(node.right))));
 
-/** The name of the global a callee reaches, written plainly or as a member of a global object with a literal key; else undefined. */
-function globalNameOf(callee) {
-  const node = unwrap(callee);
+/** The names of the globals a callee can reach, each written plainly or as a member of a global object with a literal key (undefined for any other form). */
+const globalNamesOf = (callee) => valuesOf(callee).map((node) => {
   if (ts.isIdentifier(node)) return node.text;
   if (ts.isPropertyAccessExpression(node) && isGlobalObject(node.expression)) return node.name.text;
   return ts.isElementAccessExpression(node) && isGlobalObject(node.expression) ? literalKey(node.argumentExpression) : undefined;
-}
+});
 
 /** Judges one unit: { lines, cause? }. */
 function judge({ kind, text }, maxLines) {
@@ -100,7 +128,7 @@ function judge({ kind, text }, maxLines) {
   const checkPattern = (pattern) => {
     for (const member of ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties) {
       const key = member.propertyName ?? member.name;
-      const name = key && ts.isComputedPropertyName(key) ? literalKey(key.expression) : key?.text;
+      const name = key && keyOf(key);
       if (member.dotDotDotToken || ts.isSpreadAssignment(member) || name === undefined) computedMember = true;
       else if (DYNAMIC_NAMES.has(name)) flag(member);
     }
@@ -114,9 +142,9 @@ function judge({ kind, text }, maxLines) {
       if (DYNAMIC_NAMES.has(node.text) && isUse(node)) flag(node);
     } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
       checkMember(node);
-    } else if ((ts.isObjectBindingPattern(node) || ts.isObjectLiteralExpression(node)) && takesFromGlobal(node)) {
+    } else if ((ts.isObjectBindingPattern(node) || ts.isObjectLiteralExpression(node)) && receivesGlobal(node)) {
       checkPattern(node);
-    } else if (ts.isCallExpression(node) && TIMER_NAMES.has(globalNameOf(node.expression)) && isStringArgument(node.arguments[0])) {
+    } else if (ts.isCallExpression(node) && globalNamesOf(node.expression).some((name) => TIMER_NAMES.has(name)) && isStringArgument(node.arguments[0])) {
       flag(node);
     }
     ts.forEachChild(node, visit);
