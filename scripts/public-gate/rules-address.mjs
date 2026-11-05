@@ -17,7 +17,8 @@ const RESERVED_DOMAINS = ['example.com', 'example.org', 'example.net'];
 const SSH_USER = 'git';
 /** The file that holds the allow-list: it names every reviewed value, so a value of a scoped entry may appear in it. */
 const CONFIG_PATH = 'public-gate.config.json';
-const CODE_EXTENSIONS = ['.cjs', '.css', '.js', '.mjs', '.mts', '.sh', '.ts', '.tsx'];
+/** The extensions of source files: their quoted names are read as hosts, and the wording rule leaves their strings alone. */
+export const CODE_EXTENSIONS = ['.cjs', '.css', '.js', '.mjs', '.mts', '.sh', '.ts', '.tsx'];
 /**
  * A quoted, bare or host:port name is read as a host only under one of these top-level names, so a file name
  * (`state.sqlite`) or a property chain (`json.stringify`) is not; a URL host is read under any top-level name. `app`

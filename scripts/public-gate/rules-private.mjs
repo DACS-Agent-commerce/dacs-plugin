@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { closeSync, constants, existsSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { decodeUtf8Strict, GateInputError, gitEnvironment } from './objects.mjs';
@@ -36,29 +37,51 @@ function repositoryRoots(repo, limits) {
   return [...roots].filter((root) => existsSync(root)).map((root) => realpathSync.native(root));
 }
 
+/** The lists read the same way: the flag that names each, its limits and the words its messages use. */
+const LIST_SUBJECTS = {
+  'private-list': { bytesLimit: 'maxPrivateListBytes', entriesLimit: 'maxPrivateEntries', label: 'private list' },
+  'wording-list': { bytesLimit: 'maxWordingListBytes', entriesLimit: 'maxWordingEntries', label: 'wording list' },
+};
+
 /**
- * Reads at most `maxBytes` of a regular file outside the repository `repo` names; a FIFO or device is refused without
+ * Reads at most the byte limit of a regular file outside the repository `repo` names; a FIFO or device is refused without
  * waiting on it. A `repo` that does not exist is not compared: git then refuses the run with its own cause.
  */
-function readListBytes(file, repo, limits) {
-  const maxBytes = limits.maxPrivateListBytes;
+function readListBytes(file, repo, limits, subject) {
+  const { bytesLimit, label } = LIST_SUBJECTS[subject];
+  const maxBytes = limits[bytesLimit];
   let descriptor;
   try {
     const listPath = realpathSync.native(file);
     const inside = (root) => { const relative = path.relative(root, listPath); return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative); };
-    if (repositoryRoots(repo, limits).some(inside)) throw new GateInputError('private-list-in-repo', 'the private list is inside the repository');
+    if (repositoryRoots(repo, limits).some(inside)) throw new GateInputError(`${subject}-in-repo`, `the ${label} is inside the repository`);
     descriptor = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
-    if (!fstatSync(descriptor).isFile()) throw new GateInputError('private-list-unreadable', '--private-list is not a regular file');
+    if (!fstatSync(descriptor).isFile()) throw new GateInputError(`${subject}-unreadable`, `--${subject} is not a regular file`);
     const bytes = Buffer.alloc(maxBytes + 1);
     let length = 0;
     for (let read = 1; read > 0 && length < bytes.length; length += read) read = readSync(descriptor, bytes, length, bytes.length - length, null);
-    if (length > maxBytes) throw new GateInputError('limit:maxPrivateListBytes', `the private list is over ${maxBytes} bytes`);
+    if (length > maxBytes) throw new GateInputError(`limit:${bytesLimit}`, `the ${label} is over ${maxBytes} bytes`);
     return bytes.subarray(0, length);
   } catch (error) {
-    throw error instanceof GateInputError ? error : new GateInputError('private-list-unreadable', `--private-list cannot be read (${error.code ?? error.name})`);
+    throw error instanceof GateInputError ? error : new GateInputError(`${subject}-unreadable`, `--${subject} cannot be read (${error.code ?? error.name})`);
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
+}
+
+/** Reads and checks the list `file` as the `subject` list; returns its entries and the SHA-256 of the bytes it read. */
+function readList(file, { repo, limits, subject }) {
+  const { entriesLimit, label } = LIST_SUBJECTS[subject];
+  const bytes = readListBytes(file, repo, limits, subject);
+  const text = decodeUtf8Strict(bytes);
+  if (text === null) throw new GateInputError(`${subject}-malformed`, `the ${label} is not valid UTF-8`);
+  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
+  const padded = lines.findIndex((line) => line !== line.trim() && !line.startsWith('#'));
+  if (padded >= 0) throw new GateInputError(`${subject}-malformed`, `line ${padded + 1} of the ${label} has leading or trailing whitespace`);
+  const entries = lines.filter((line) => line !== '' && !line.startsWith('#'));
+  if (entries.length === 0) throw new GateInputError(`${subject}-empty`, `the ${label} holds no entry`);
+  if (entries.length > limits[entriesLimit]) throw new GateInputError(`limit:${entriesLimit}`, `the ${label} holds more than ${limits[entriesLimit]} entries`);
+  return { entries, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
 /**
@@ -67,17 +90,13 @@ function readListBytes(file, repo, limits) {
  * worktrees and git dirs included, not only the `repo` folder), not a regular file,
  * unreadable, over a limit, not UTF-8, empty, or has an entry with leading or trailing whitespace.
  */
-export function readPrivateList(file, { repo, limits }) {
-  const text = decodeUtf8Strict(readListBytes(file, repo, limits));
-  if (text === null) throw new GateInputError('private-list-malformed', 'the private list is not valid UTF-8');
-  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
-  const padded = lines.findIndex((line) => line !== line.trim() && !line.startsWith('#'));
-  if (padded >= 0) throw new GateInputError('private-list-malformed', `line ${padded + 1} of the private list has leading or trailing whitespace`);
-  const entries = lines.filter((line) => line !== '' && !line.startsWith('#'));
-  if (entries.length === 0) throw new GateInputError('private-list-empty', 'the private list holds no entry');
-  if (entries.length > limits.maxPrivateEntries) throw new GateInputError('limit:maxPrivateEntries', `the private list holds more than ${limits.maxPrivateEntries} entries`);
-  return entries;
-}
+export const readPrivateList = (file, { repo, limits }) => readList(file, { repo, limits, subject: 'private-list' }).entries;
+
+/**
+ * Reads the wording list the way the private list is read, with its own limits (`maxWordingListBytes`, `maxWordingEntries`) and
+ * causes (`wording-list-in-repo`, `-unreadable`, `-malformed`, `-empty`). Returns `{ entries, sha256 }`, the digest being of the bytes read.
+ */
+export const readWordingList = (file, { repo, limits }) => readList(file, { repo, limits, subject: 'wording-list' });
 
 const isOneCodePoint = (text) => text.length === (text.codePointAt(0) > 0xffff ? 2 : 1);
 const equalIgnoringCase = (first, second) => new RegExp(`^\\u{${first.toString(16)}}$`, 'iu').test(String.fromCodePoint(second));

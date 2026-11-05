@@ -8,4 +8,4 @@ An absent or non-unique original record, missing or non-unique approval evidence
 
 The `testOnlyAfterNativeWalletResult` callback exists only on the loopback operator's buyer-driver construction API so the owned acceptance test can end the local response after the real packaged-wallet send has returned but before the driver records its hash. The original payment-recovery test throws from that callback and recreates app/operator/seller services in the same Node process; it is not a process-crash or dropped-wallet-HTTP-response proof. A separate CLI-issued-recovery test owns the distinct-process `SIGKILL` boundary. The callback receives public identifiers only. It is not configured by operator JSON and supplies no payment, approval, readback or authority.
 
-This is source-owned normalized Node2 loopback evidence. It does not establish public Node2 execution, consensus finality, production trust, security review or full DACS v0.1 acceptance.
+This is source-owned normalized Node2 loopback evidence. It does not establish public Node2 execution, consensus finality, production trust or full DACS v0.1 acceptance, and it is not a security review.

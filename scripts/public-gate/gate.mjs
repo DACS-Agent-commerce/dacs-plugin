@@ -9,19 +9,19 @@ import { buildOutputs, publish, SHA256_HEX, writeDiagnostic } from './redact.mjs
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, hasValidAddressConfig, hasValidIpDispositions, IP_RULE_ID, scanAccounts, scanHosts, scanIps } from './rules-address.mjs';
 import { createEvalScanner, EVAL_RULE_ID, hasValidEvalConfig } from './rules-eval.mjs';
 import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, scanArchives, scanEnvTemplates, scanHostingFiles } from './rules-files.mjs';
-import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
-import { hasValidTextConfig, ISSUE_RULE_ID, REPORT_RULE_ID, requireNoStaleLockfileDisposition, scanIssues, scanReports } from './rules-text.mjs';
+import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, readWordingList, scanPrivate } from './rules-private.mjs';
+import { createWordingMatcher, hasValidTextConfig, ISSUE_RULE_ID, REPORT_RULE_ID, requireNoStaleLockfileDisposition, scanIssues, scanReports, scanWording, WORDING_RULE_ID } from './rules-text.mjs';
 import { hasValidSecretConfig, SECRET_RULE_ID, scanSecrets, secretScanIdentity } from './secret-scan.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const GATE_SOURCES = ['scripts/lib/choice.mjs', 'scripts/lib/run-bounded.mjs', ...['check-report', 'classify', 'gate', 'history', 'history-secrets', 'objects', 'redact', 'rules-address', 'rules-eval', 'rules-eval-child', 'rules-files', 'rules-private', 'rules-text', 'secret-scan'].map((name) => `scripts/public-gate/${name}.mjs`)];
-const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'maxHistoryOccurrences', 'gitDeadlineMs', 'scanDeadlineMs', 'secretScanDeadlineMs', 'secretScanOutputBytes', 'maxScanReportBytes', 'maxEvalUnitBytes', 'maxEvalBatchBytes', 'evalDeadlineMs', 'maxEvalOutputBytes'];
+const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxWordingListBytes', 'maxWordingEntries', 'maxReportEntries', 'maxHistoryCommits', 'maxHistoryOccurrences', 'gitDeadlineMs', 'scanDeadlineMs', 'secretScanDeadlineMs', 'secretScanOutputBytes', 'maxScanReportBytes', 'maxEvalUnitBytes', 'maxEvalBatchBytes', 'evalDeadlineMs', 'maxEvalOutputBytes'];
 const SCOPES = ['generic', 'complete'];
-const FLAGS = ['--repo', '--commit', '--scope', '--private-list', '--private-evidence', '--expected-root', '--out', '--gitleaks', '--gitleaks-sha256'];
-const COMPLETE_ONLY_FLAGS = ['--private-list', '--private-evidence', '--expected-root'];
+const FLAGS = ['--repo', '--commit', '--scope', '--private-list', '--wording-list', '--private-evidence', '--expected-root', '--out', '--gitleaks', '--gitleaks-sha256'];
+const COMPLETE_ONLY_FLAGS = ['--private-list', '--wording-list', '--private-evidence', '--expected-root'];
 export const EXIT = { pass: 0, findings: 1, unusable: 2 };
 
-/** The rules this gate runs; a `completeOnly` rule needs the private list and reports `not-run` in generic scope. */
+/** The rules this gate runs; a `completeOnly` rule needs the private list (R-WORDING also the wording list) and reports `not-run` in generic scope. */
 const RULES = [
   { id: ACCOUNT_RULE_ID, run: scanAccounts },
   { id: HOST_RULE_ID, run: scanHosts },
@@ -32,9 +32,10 @@ const RULES = [
   { id: REPORT_RULE_ID, run: scanReports },
   { id: ISSUE_RULE_ID, run: scanIssues },
   { id: PRIVATE_RULE_ID, completeOnly: true, run: scanPrivate },
+  { id: WORDING_RULE_ID, completeOnly: true, run: scanWording },
 ];
 
-/** The rules that read a tree alone, without the private list; history mode runs them on every commit's tree. Each `run({ entries, config, limits })` returns findings. */
+/** The rules that read a tree alone, without the private or wording list; history mode runs them on every commit's tree. Each `run({ entries, config, limits })` returns findings. */
 export const TREE_RULES = Object.freeze(RULES.filter((rule) => !rule.completeOnly));
 
 /** The eval rule parses in a child process and the secret scan runs the scanner as a subprocess, so both are awaited apart from the synchronous tree rules. */
@@ -83,11 +84,12 @@ function readOptions(argv) {
   const flags = parseFlags(argv, FLAGS);
   const scope = parseChoice('--scope', flags['--scope'], SCOPES);
   const complete = scope === 'complete';
-  if (!complete && COMPLETE_ONLY_FLAGS.some((name) => flags[name] !== undefined)) throw new ChoiceError('bad-arguments', 'private-list, private-evidence and expected-root need --scope complete');
+  if (!complete && COMPLETE_ONLY_FLAGS.some((name) => flags[name] !== undefined)) throw new ChoiceError('bad-arguments', 'private-list, wording-list, private-evidence and expected-root need --scope complete');
   const options = {
     scope, repo: requireValue(flags, '--repo'), commit: requireValue(flags, '--commit', FULL_OBJECT_ID),
     out: '--out' in flags ? requireValue(flags, '--out') : null,
     privateList: complete ? requireValue(flags, '--private-list') : null,
+    wordingList: complete ? requireValue(flags, '--wording-list') : null,
     privateEvidence: '--private-evidence' in flags ? requireValue(flags, '--private-evidence') : null,
     expectedRoot: complete ? requireValue(flags, '--expected-root', FULL_OBJECT_ID) : null,
     scanner: { binary: requireValue(flags, '--gitleaks'), sha256: requireValue(flags, '--gitleaks-sha256', SHA256_HEX) },
@@ -133,19 +135,21 @@ async function runGate(argv, signal) {
   const options = readOptions(argv);
   const config = loadConfig();
   const listEntries = options.privateList && readPrivateList(options.privateList, { repo: options.repo, limits: config.limits });
+  const wordingList = options.wordingList && readWordingList(options.wordingList, { repo: options.repo, limits: config.limits });
   const { entries, ...target } = await readCommitObjects({ repo: options.repo, commit: options.commit, limits: config.limits, signal });
   const { commits } = await readHistory({ repo: options.repo, refs: [options.commit], limits: config.limits, signal });
   requireExpectedRoot(commits, options.expectedRoot);
   const matcher = listEntries && createPrivateMatcher(listEntries, createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs }));
+  const wordingMatcher = wordingList && createWordingMatcher(wordingList.entries, createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs }));
   const evalScanner = createEvalScanner({ config, limits: config.limits, signal });
   const evalScan = await evalScanner.scan(entries);
   evalScanner.requireNoStaleException();
   const unscannable = [...unscannableEntries(entries, config), ...evalScan.unscannable];
   if (unscannable.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} unscannable entries`);
-  const treeFindings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, config, limits: config.limits }));
+  const treeFindings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, wordingMatcher, config, limits: config.limits }));
   requireNoStaleLockfileDisposition(entries, config.lockfileDispositions);
   const findings = [...treeFindings, ...evalScan.findings, ...await scanSecrets({ entries, config, scanner: options.scanner, signal })].sort(compareFindings);
-  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config), ...(options.expectedRoot ? { expectedRoot: options.expectedRoot } : {}) };
+  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config), ...(options.expectedRoot ? { expectedRoot: options.expectedRoot } : {}), ...(wordingList ? { wordingListSha256: wordingList.sha256 } : {}) };
   const rules = ALL_RULES.map((rule) => ({ id: rule.id, status: ruleStatus(rule, { scope: options.scope, findings, unscannable }) }))
     .sort((first, second) => compareText(first.id, second.id));
   const outputs = buildOutputs({ scope: options.scope, target, scanner, rules, unscannable, findings });

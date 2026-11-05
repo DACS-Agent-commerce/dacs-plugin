@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { DIAGNOSTIC_ROUTES } from '../../scripts/public-gate/redact.mjs';
 import {
-  REPO_ROOT, ROOT_COMMIT, cleanScannerArgs, completeArgs, createRepo, expectedScanIdentity, makeTempDir, runCheckReport, runGate, writeList,
+  REPO_ROOT, ROOT_COMMIT, cleanScannerArgs, completeArgs, createRepo, expectedScanIdentity, expectedWordingListSha256, makeTempDir, runCheckReport, runGate, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const PRIVATE_VALUE = ['onyx', 'meridian'].join('-');
@@ -92,7 +92,7 @@ const scenarios = {
   'check-report.stderr': () => {
     const repo = leakRepo();
     const report = JSON.parse(runGate(completeArgs(repo, writeList([PRIVATE_VALUE]))).stdout);
-    const context = { gateRevision: report.scanner.gateRevision, configSha256: report.scanner.configSha256, ...expectedScanIdentity(), expectedRoot: repo.commit };
+    const context = { gateRevision: report.scanner.gateRevision, configSha256: report.scanner.configSha256, ...expectedScanIdentity(), expectedRoot: repo.commit, wordingListSha256: expectedWordingListSha256() };
     const inputs = [
       [{ ...report, rules: [{ id: PRIVATE_VALUE, status: 'passed' }] }, 'report-rules-differ', 1],
       [{ ...report, rules: [{ id: PRIVATE_VALUE, status: PRIVATE_VALUE }] }, 'report-malformed', 2],

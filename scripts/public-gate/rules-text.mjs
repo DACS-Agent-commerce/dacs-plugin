@@ -2,12 +2,15 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
-import { textOf, viewsOf } from './rules-address.mjs';
+import { CODE_EXTENSIONS, textOf, viewsOf } from './rules-address.mjs';
+import { createPrivateMatcher } from './rules-private.mjs';
 
 /** Id of the rule that refuses internal reports in reports. */
 export const REPORT_RULE_ID = 'R-REPORT';
 /** Id of the rule that refuses issue and pull-request references in reports. */
 export const ISSUE_RULE_ID = 'R-ISSUE';
+/** Id of the rule that refuses wording-list entries and unapproved status sentences in prose. */
+export const WORDING_RULE_ID = 'R-WORDING';
 
 const LINE_BREAK = /\r\n|\r|\n/;
 const sha256Of = (text) => createHash('sha256').update(text).digest('hex');
@@ -190,3 +193,141 @@ export function requireNoStaleLockfileDisposition(entries, dispositions) {
   const stale = dispositions.find((row) => entries.some((entry) => entry.path === row.path) && !entries.some((entry) => entry.path === row.path && entry.oid === row.blob));
   if (stale) throw new GateInputError('stale-lockfile-disposition', 'a lockfileDispositions entry names a path the target holds only at another blob');
 }
+
+// ---- R-WORDING ------------------------------------------------------------------------------------------------------
+
+const APPROVED_CLAUSE = 'the external security review is on hold';
+/** A negative disclaimer; hyphen and space are equal. */
+const DISCLAIMER = /\bnot (?:(?:a|an[ -]independent|independent)[ -]security[ -]review|security[ -]reviewed)\b/gi;
+const APPROVED_SPAN = new RegExp(APPROVED_CLAUSE, 'gi');
+const STATUS_TRIGGER = /security[ -]review|external review/i;
+/** Sentence ends, semicolons and parentheses split a paragraph into clauses; the delimiter is kept. */
+const CLAUSE_DELIMITER = /([.!?](?=\s|$)|[;()])/;
+const SHELL_LANGUAGES = new Set(['sh', 'bash', 'shell', 'console', 'zsh', 'powershell', 'cmd']);
+/** Characters that never reach the matcher: invisible format characters and Markdown emphasis. */
+const IGNORED_CHARACTERS = /[\p{Cf}*_`]/gu;
+/** A script or style block; one never closed runs to the end of the page, as a browser reads it, so no start is searched twice. */
+const HTML_BLOCKS = /<(script|style)\b[\s\S]*?(?:<\/\1\s*>|$)/gi;
+/** A tag stops at the next `<`, so a page of unmatched `<` is read once, not once per `<`. */
+const HTML_TAG = /<[^<>]*>/g;
+const HTML_TEXT_ATTRIBUTE = /\b(?:title|alt|placeholder|content)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+
+/** Text as the wording rule reads it: invisible characters and emphasis removed, each run of Unicode white space one space. */
+const normalizeProse = (text) => text.replace(IGNORED_CHARACTERS, '').replace(/\p{White_Space}+/gu, ' ').trim();
+/** A paragraph with the approved clause and the disclaimers replaced by a line break, which no entry holds. */
+const maskStatusSpans = (paragraph) => paragraph.replace(DISCLAIMER, '\n').replace(APPROVED_SPAN, '\n');
+
+/**
+ * Builds the wording matcher over the list `entries`, each normalised as the text is. Returns the private matcher's `{ hasEntry, entryLines }`.
+ * Throws GateInputError(wording-list-malformed) for an entry that holds a tab or is empty once normalised.
+ */
+export function createWordingMatcher(entries, checkpoint) {
+  const normalized = entries.map(normalizeProse);
+  if (normalized.includes('') || entries.some((entry) => entry.includes('\t'))) throw new GateInputError('wording-list-malformed', 'a wording list entry is empty after normalisation or holds a tab');
+  return createPrivateMatcher(normalized, checkpoint);
+}
+
+/** Marks each line of `lines` as 'text', a fence 'delimiter' or a fenced shell command 'command'; an unclosed fence marks nothing as a command. */
+function markFences(lines) {
+  const states = lines.map(() => 'text');
+  for (let open = 0; open < lines.length; open += 1) {
+    const fence = /^ {0,3}(`{3,}|~{3,})\s*([^`\s]*)/.exec(lines[open]);
+    if (!fence) continue;
+    const [, marker, language] = fence;
+    const close = lines.findIndex((line, index) => index > open && new RegExp(`^ {0,3}${marker[0]}{${marker.length},}\\s*$`).test(line));
+    states[open] = 'delimiter';
+    if (close < 0) break;
+    const body = lines.slice(open + 1, close).filter((line) => line.trim() !== '');
+    const isCommand = SHELL_LANGUAGES.has(language.toLowerCase()) || (body.length > 0 && body.every((line) => /^(?:\$|>) /.test(line)));
+    states[close] = 'delimiter';
+    if (isCommand) for (let index = open + 1; index < close; index += 1) states[index] = 'command';
+    open = close;
+  }
+  return states;
+}
+
+/** The paragraphs of `text` (runs of non-blank lines in one fence state) as { line (of the first line), text (wrapped lines joined, normalised), isCommand }. */
+function paragraphsOf(text) {
+  const lines = text.split(LINE_BREAK);
+  const states = markFences(lines);
+  const paragraphs = [];
+  lines.forEach((line, index) => {
+    if (line.trim() === '' || states[index] === 'delimiter') return;
+    const last = paragraphs.at(-1);
+    if (last && last.end === index - 1 && last.state === states[index]) Object.assign(last, { end: index, joined: `${last.joined} ${line}` });
+    else paragraphs.push({ line: index + 1, end: index, state: states[index], joined: line });
+  });
+  return paragraphs.map(({ line, state, joined }) => ({ line, text: normalizeProse(joined), isCommand: state === 'command' }));
+}
+
+/** The text nodes and the `title`, `alt`, `placeholder` and `content` values of an HTML page, outside script and style, with every line break kept. */
+const htmlText = (html) => html.replace(HTML_BLOCKS, (block) => block.replace(/[^\n]/g, ' '))
+  .replace(HTML_TAG, (tag) => `${tag.replace(/[^\n]/g, ' ')} ${[...tag.matchAll(HTML_TEXT_ATTRIBUTE)].map((match) => match[1] ?? match[2]).join(' ').replace(/\s+/g, ' ')}`);
+
+/** Every string value of parsed JSON with the key it sits under (null at the top). */
+function jsonStrings(value, key = null) {
+  if (typeof value === 'string') return [{ key, value }];
+  if (Array.isArray(value)) return value.flatMap((item) => jsonStrings(item, key));
+  return value !== null && typeof value === 'object' ? Object.entries(value).flatMap(([name, item]) => jsonStrings(item, name)) : [];
+}
+
+/** The paragraphs of a manifest: each string value, at the first line of the file that holds its key (line 1 when none does); the raw text when it is not JSON. */
+function manifestParagraphs(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return paragraphsOf(text);
+  }
+  const keyLines = new Map();
+  text.split(LINE_BREAK).forEach((line, index) => {
+    const key = /^\s*("(?:[^"\\]|\\.)*")\s*:/.exec(line)?.[1];
+    if (key !== undefined && !keyLines.has(key)) keyLines.set(key, index + 1);
+  });
+  return jsonStrings(parsed).flatMap(({ key, value }) => paragraphsOf(value).map((paragraph) => ({ ...paragraph, line: keyLines.get(JSON.stringify(key)) ?? 1 })));
+}
+
+/** The paragraphs of a prose, manifest or HTML blob, by its extension. */
+function proseParagraphs(file, text) {
+  const extension = path.posix.extname(file).toLowerCase();
+  if (extension === '.json') return manifestParagraphs(text);
+  return paragraphsOf(extension === '.html' ? htmlText(text) : text);
+}
+
+/** True when a clause is the approved status clause: equal without case, a leading list marker or heading mark taken off. */
+const isApprovedClause = (clause) => clause.replace(/^(?:[-+>#]+\s+)+/, '').toLowerCase() === APPROVED_CLAUSE;
+
+/**
+ * True when a paragraph states the status of the external review other than as the approved clause. Clauses end at sentence ends, semicolons
+ * and parentheses; a clause (disclaimers masked) that mentions the review must be the approved clause, and the clause after an approved one
+ * must not open at a semicolon or a parenthesis (a reason).
+ */
+function hasUnapprovedStatus(paragraph) {
+  const parts = paragraph.split(CLAUSE_DELIMITER);
+  const clauses = parts.flatMap((part, index) => (index % 2 === 0 && part.trim() !== '' ? [{ text: part.trim(), opener: parts[index - 1] ?? '' }] : []));
+  return clauses.some((clause, index) => (isApprovedClause(clause.text)
+    ? [';', '('].includes(clauses[index + 1]?.opener)
+    : STATUS_TRIGGER.test(clause.text.replace(DISCLAIMER, ' '))));
+}
+
+/**
+ * R-WORDING: in the prose of every text blob that is not source code (Markdown and text as prose, HTML text nodes and attributes, manifests by
+ * string value, other files as text), refuses a wording-list entry, read in paragraphs with wrapped lines joined, and a sentence about the review's
+ * status other than the approved clause. A fenced shell command may hold list entries. Returns findings { rule, kind: 'content', entry, line }.
+ */
+export function scanWording({ entries, wordingMatcher, limits }) {
+  const { findings, add } = collectFindings(WORDING_RULE_ID, limits);
+  for (const entry of entries.filter((candidate) => candidate.path !== null)) {
+    const text = textOf(entry);
+    if (text === null || CODE_EXTENSIONS.includes(path.posix.extname(entry.path).toLowerCase())) continue;
+    const lines = proseParagraphs(entry.path, text)
+      .filter((paragraph) => hasUnapprovedStatus(paragraph.text) || (!paragraph.isCommand && wordingMatcher.hasEntry(maskStatusSpans(paragraph.text))))
+      .map((paragraph) => paragraph.line);
+    for (const line of new Set(lines)) add({ kind: 'content', entry, line });
+  }
+  return findings;
+}
+
+/** The 1-based lines of the first `maxLines` paragraphs of `text` that hold a list entry, read as files are (wrapped lines joined), with no status check; for commit and tag text. */
+export const wordingEntryLines = (text, wordingMatcher, maxLines) => paragraphsOf(text)
+  .filter((paragraph) => wordingMatcher.hasEntry(maskStatusSpans(paragraph.text))).map((paragraph) => paragraph.line).slice(0, maxLines);

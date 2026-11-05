@@ -1,7 +1,7 @@
 {
   "limits": {
     "maxTreeObjects": 20000, "maxBlobBytes": 8388608, "maxTotalBlobBytes": 268435456, "maxListingBytes": 33554432,
-    "maxPrivateListBytes": 65536, "maxPrivateEntries": 2000, "maxReportEntries": 1000, "maxHistoryCommits": 20000, "maxHistoryOccurrences": 200000, "gitDeadlineMs": 120000, "scanDeadlineMs": 30000,
+    "maxPrivateListBytes": 65536, "maxPrivateEntries": 2000, "maxWordingListBytes": 65536, "maxWordingEntries": 2000, "maxReportEntries": 1000, "maxHistoryCommits": 20000, "maxHistoryOccurrences": 200000, "gitDeadlineMs": 120000, "scanDeadlineMs": 30000,
     "secretScanDeadlineMs": 300000, "secretScanOutputBytes": 65536, "maxScanReportBytes": 8388608,
     "maxEvalUnitBytes": 4194304, "maxEvalBatchBytes": 8388608, "evalDeadlineMs": 60000, "maxEvalOutputBytes": 1048576
   },

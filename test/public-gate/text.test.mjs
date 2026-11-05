@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { hasValidTextConfig, scanIssues, scanReports } from '../../scripts/public-gate/rules-text.mjs';
-import { CONFIG_FILE, REPO_ROOT, createHistory, createRepo, gateArgs, historyArgs, runGate, runHistory, sha256, writeList } from '../lib/gate-fixtures.mjs';
+import { createWordingMatcher, hasValidTextConfig, scanIssues, scanReports, scanWording } from '../../scripts/public-gate/rules-text.mjs';
+import {
+  CONFIG_FILE, REPO_ROOT, completeArgs, createAnnotatedTag, createHistory, createRepo, gateArgs, historyArgs, makeTempDir, runCheckReport, runGate, runHistory, sha256, walkFiles, writeList,
+} from '../lib/gate-fixtures.mjs';
 
 const CONFIG = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
 const LIMITS = CONFIG.limits;
@@ -197,4 +199,186 @@ test('issue references: a lockfile held at another blob than its disposition sto
   const staleHistory = runHistory(historyArgs(history, writeList(['private-entry'])));
   assert.equal(staleHistory.status, 2);
   assert.match(staleHistory.stderr, /^stale-lockfile-disposition: /);
+});
+
+// ---- R-WORDING ------------------------------------------------------------------------------------------------------
+
+const TERM = ['flarn', 'quux'].join(' ');
+const TOOL = ['zorp', 'lint'].join('-');
+const SNAKE = ['snake', 'case', 'entry'].join('_');
+const SPACED = ['two', 'spaces'].join('  ');
+const REVIEW = ['security', 'review'].join(' ');
+const HOLD = `The external ${REVIEW} is on hold`;
+const matcher = createWordingMatcher([TERM, TOOL, SNAKE, SPACED], () => {});
+const wordingFindings = (name, text) => scanWording({ entries: [file(name, text)], wordingMatcher: matcher, limits: LIMITS });
+
+test('wording: the prohibited vocabulary in prose, a skill, a command file or a manifest description fails; an internal review-tool name fails', () => {
+  for (const name of ['README.md', 'docs/a.txt', 'skills/demo/SKILL.md', 'commands/demo.md', 'notes.yml', 'LICENSE']) {
+    assert.deepEqual(wordingFindings(name, `Intro.\n\nThis mentions ${TERM} here.\n`).map(({ rule, kind, line }) => [rule, kind, line]), [['R-WORDING', 'content', 3]], name);
+    assert.equal(wordingFindings(name, `Uses ${TOOL.toUpperCase()} daily.\n`).length, 1, name);
+  }
+  const manifest = JSON.stringify({ name: 'demo', description: `A demo with ${TERM}`, nested: { list: ['fine', `and ${TOOL}`] } }, null, 2);
+  assert.deepEqual(wordingFindings('.claude-plugin/plugin.json', manifest).map(({ line }) => line), [3, 5]);
+  assert.equal(wordingFindings('broken.json', `{ "description": "${TERM}", `).length, 1);
+  assert.equal(wordingFindings('page.html', `<p>About <b>${TERM.split(' ')[0]}</b> ${TERM.split(' ')[1]}</p>`).length, 1);
+  assert.equal(wordingFindings('page.html', `<img alt="${TERM}" src="x.png">`).length, 1);
+  assert.deepEqual(wordingFindings('page.html', `<script>var a = "${TERM}";</script><style>.a::after { content: "${TERM}"; }</style><p>fine</p>`), []);
+});
+
+test('wording: a page of unclosed script starts or unmatched angle brackets is read once, and an unclosed script hides only what follows it', { timeout: 20_000 }, () => {
+  assert.deepEqual(wordingFindings('page.html', '<script '.repeat(200_000)), []);
+  assert.deepEqual(wordingFindings('page.html', '<'.repeat(1_000_000)), []);
+  assert.equal(wordingFindings('page.html', `<p>${TERM}</p><script>var a = 1;`).length, 1);
+  assert.deepEqual(wordingFindings('page.html', `<script>var a = 1;<p>${TERM}</p>`), []);
+});
+
+test('wording: an entry split across a line break, with doubled spaces, emphasis or invisible characters, fails; an entry holding emphasis or a doubled space matches the text that holds it', () => {
+  const [first, second] = TERM.split(' ');
+  for (const text of [`${first}\n${second}`, `${first}   ${second}`, `**${first}** _${second}_`, `${first} ${second}`, `${first}​ ${second}`, `${first}\t${second}`, `${first}\r\n${second}`]) {
+    assert.equal(wordingFindings('a.md', text).length, 1, JSON.stringify(text));
+  }
+  assert.equal(wordingFindings('a.md', `uses ${SNAKE} in text`).length, 1);
+  assert.equal(wordingFindings('a.md', `uses ${SNAKE.replaceAll('_', '')} in text`).length, 1);
+  assert.equal(wordingFindings('a.md', 'uses two spaces in text').length, 1);
+  assert.equal(wordingFindings('a.md', `${first}\n\n${second}`).length, 0);
+});
+
+test('wording: an entry that is empty after normalisation or holds a tab is refused as a malformed wording list', () => {
+  for (const entry of ['__', '**', '​', 'a\tb']) assert.throws(() => createWordingMatcher([entry], () => {}), { cause: 'wording-list-malformed' }, JSON.stringify(entry));
+});
+
+test('wording: a fenced command example is left as written, a prose fence and an unclosed fence are not', () => {
+  const command = `run ${TERM}`;
+  for (const fence of [`\`\`\`sh\n${command}\n\`\`\``, `~~~bash\n${command}\n~~~`, `\`\`\`\`console\n${command}\n\`\`\`\``, `\`\`\`\n$ ${command}\n> more\n\`\`\``, `\`\`\`powershell\n${command}\n\`\`\``]) {
+    assert.deepEqual(wordingFindings('a.md', `Before.\n\n${fence}\n\nAfter.\n`), [], fence);
+  }
+  for (const fence of [`\`\`\`\n${command}\n\`\`\``, `\`\`\`text\n${command}\n\`\`\``, `\`\`\`sh\n${command}\n`, `\`\`\`\n$ ${command}\nplain ${TERM}\n\`\`\``]) {
+    assert.equal(wordingFindings('a.md', `Before.\n\n${fence}\n`).length, 1, fence);
+  }
+  assert.equal(wordingFindings('a.md', `\`\`\`sh\nThe external ${REVIEW} is complete.\n\`\`\`\n`).length, 1);
+});
+
+test('wording: the actual negative disclaimers, the carried approved status sentences and the held-write executable strings pass', () => {
+  const cited = [['OVERNIGHT-PACKAGING.md', 6, 6], ['EMBEDDED-WALLET-TESTER.md', 8, 8], ['TESTER-QUICKSTART.md', 29, 30], ['EMBEDDED-WALLET-TESTER.md', 4, 5], ['OVERNIGHT-CORE.md', 6, 7], ['OVERNIGHT-UI.md', 5, 6]];
+  for (const [name, from, to] of cited) {
+    const lines = readFileSync(path.join(REPO_ROOT, 'http-mcp/docs', name), 'utf8').split('\n');
+    let [first, last] = [from - 1, to - 1];
+    while (first > 0 && lines[first - 1].trim() !== '') first -= 1;
+    while (last < lines.length - 1 && lines[last + 1].trim() !== '') last += 1;
+    assert.deepEqual(wordingFindings(name, lines.slice(first, last + 1).join('\n')), [], `${name}:${from}`);
+  }
+  const executable = ['http-mcp/src/portal/wallet-rpc.mjs', 'http-mcp/public/portal/embedded-wallet/sdk-provider.mjs', 'http-mcp/public/portal/portal.js', 'http-mcp/public/portal/embedded-wallet/ui.mjs'];
+  for (const name of executable) assert.deepEqual(wordingFindings(name, readFileSync(path.join(REPO_ROOT, name), 'utf8')), [], name);
+  assert.deepEqual(wordingFindings('a.mjs', `const message = '${TERM}';\n`), []);
+  assert.deepEqual(wordingFindings('a.md', `It is **not** a ${REVIEW}, and _not_ ${REVIEW}ed either.\n`), []);
+});
+
+test('wording: only the approved status clause passes; a reason, another status or a disclaimer followed by a different status fails', () => {
+  const passing = [
+    `${HOLD}.`, `${HOLD.toLowerCase()}.`, `- ${HOLD}.`, `# ${HOLD}`, `Not a ${REVIEW}. ${HOLD}.`, `Not a ${REVIEW}, not live\nexecution. The\nexternal ${REVIEW} is on\nhold.`,
+    `Offline only; ${HOLD.toLowerCase()}.`, `Offline only (${HOLD.toLowerCase()}).`, `Not an independent ${REVIEW}; ${HOLD.toLowerCase()}.`, `It is not ${REVIEW}ed.`, `Not independent-${REVIEW.split(' ')[0]} review.`,
+    `${HOLD}. Funding was cut.`, `${HOLD}. ${HOLD}.`,
+  ];
+  for (const text of passing) assert.deepEqual(wordingFindings('a.md', `${text}\n`), [], JSON.stringify(text));
+  const failing = [
+    `The external ${REVIEW} is complete.`, `It is ${REVIEW.replace(' ', '-')}ed.`, 'The external review is complete.', `${HOLD} (pending funding).`, `${HOLD}; funding was cut.`, `${HOLD} because funding was cut.`,
+    `Offline (${HOLD.toLowerCase()}); funding was cut.`, `Not a ${REVIEW}; the external review is complete.`, `Not a ${REVIEW}, and the external ${REVIEW} is complete.`,
+    `Not a ${REVIEW}. It passed ${REVIEW}.`, 'It was security-reviewed.', 'External review: done.',
+  ];
+  for (const text of failing) assert.equal(wordingFindings('a.md', `${text}\n`).length, 1, JSON.stringify(text));
+  assert.deepEqual(wordingFindings('a.md', `Intro.\n\n${failing[0]}\n`).map(({ line }) => line), [3]);
+});
+
+// ---- the list and the CLI -------------------------------------------------------------------------------------------
+
+/** Runs a complete gate whose wording list is `listFile(repo)`. */
+const runWithWordingList = (listFile) => {
+  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
+  return runGate(completeArgs(repo, writeList(['private-entry']), ['--wording-list', listFile(repo)]));
+};
+
+test('wording list: a list inside the repository, missing, not UTF-8, empty, padded or over a limit is refused with its own cause', () => {
+  const written = (content) => () => {
+    const file = path.join(makeTempDir('wording'), 'list.txt');
+    writeFileSync(file, content);
+    return file;
+  };
+  const cases = [
+    [(repo) => { const inside = path.join(repo.dir, 'list.txt'); writeFileSync(inside, `${TERM}\n`); return inside; }, 'wording-list-in-repo'],
+    [() => path.join(makeTempDir('none'), 'none.txt'), 'wording-list-unreadable'],
+    [written(Buffer.from([0x61, 0xff, 0x0a])), 'wording-list-malformed'], [written('# only a comment\n'), 'wording-list-empty'],
+    [written(`${TERM} \n`), 'wording-list-malformed'], [written(`${TERM}\n__\n`), 'wording-list-malformed'],
+    [written(Array.from({ length: 2001 }, (_, index) => `entry-${index}`).join('\n')), 'limit:maxWordingEntries'], [written('e'.repeat(65_537)), 'limit:maxWordingListBytes'],
+  ];
+  for (const [listFile, cause] of cases) {
+    const result = runWithWordingList(listFile);
+    assert.equal(result.status, 2, cause);
+    assert.match(result.stderr, new RegExp(`^${cause}: `), cause);
+  }
+});
+
+test('wording list: the flag is required in complete scope and refused in generic scope', () => {
+  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
+  const list = writeList(['private-entry']);
+  const withoutFlag = runGate(gateArgs(repo, 'complete', ['--private-list', list, '--expected-root', repo.commit]));
+  assert.match(withoutFlag.stderr, /^bad-arguments: /);
+  const generic = runGate(gateArgs(repo, 'generic', ['--wording-list', writeList([TERM])]));
+  assert.match(generic.stderr, /^bad-arguments: /);
+  const complete = runGate(completeArgs(repo, list, ['--wording-list', writeList([TERM])]));
+  assert.equal(complete.status, 0, complete.stderr);
+});
+
+const reportRules = (result) => JSON.parse(result.stdout).findings.map(({ rule }) => rule);
+
+test('wording list: a wording entry in prose is an R-WORDING finding and not an R-PRIVATE one, and the reverse; the report names the list by its digest', () => {
+  const repo = createRepo([{ path: 'a.md', content: `uses ${TERM}\n` }, { path: 'b.md', content: 'mentions private-entry\n' }]);
+  const result = runGate(completeArgs(repo, writeList(['private-entry']), ['--wording-list', writeList([TERM])]));
+  assert.equal(result.status, 1);
+  assert.deepEqual(reportRules(result).sort(), ['R-PRIVATE', 'R-WORDING']);
+  assert.equal(JSON.parse(result.stdout).scanner.wordingListSha256, sha256(`${TERM}\n`));
+  const generic = JSON.parse(runGate(gateArgs(repo, 'generic')).stdout);
+  assert.equal(generic.rules.find(({ id }) => id === 'R-WORDING').status, 'not-run');
+  assert.equal('wordingListSha256' in generic.scanner, false);
+});
+
+test('wording list: a report made under another wording list is refused by check-report as made under another policy', () => {
+  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
+  const report = runGate(completeArgs(repo, writeList(['private-entry']), ['--wording-list', writeList([TERM])]));
+  const dir = makeTempDir('check');
+  const reportFile = path.join(dir, 'report.json');
+  writeFileSync(reportFile, report.stdout);
+  const context = { ...JSON.parse(report.stdout).scanner };
+  const contextFile = path.join(dir, 'context.json');
+  writeFileSync(contextFile, JSON.stringify(context));
+  assert.equal(runCheckReport(['--report', reportFile, '--head', repo.commit, '--context', contextFile]).status, 0);
+  writeFileSync(contextFile, JSON.stringify({ ...context, wordingListSha256: sha256('another') }));
+  const refused = runCheckReport(['--report', reportFile, '--head', repo.commit, '--context', contextFile]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /^report-policy-differs: /);
+});
+
+test('history: R-WORDING finds an entry in a tree file, in a commit message, in a wrapped commit message, in a tag message and in the pull-request text', () => {
+  const [first, second] = TERM.split(' ');
+  const history = createHistory([{ files: { 'a.md': 'plain\n' }, message: 'plain' }, { files: { 'a.md': `uses ${TERM}\n` }, message: `${first}\n${second}` }, { files: { 'a.md': 'plain\n' }, message: `mentions ${TERM}` }]);
+  createAnnotatedTag(history.dir, 'v1', history.commits[0], { message: `tag about ${TERM}` });
+  const prText = path.join(makeTempDir('pr'), 'pr.json');
+  writeFileSync(prText, JSON.stringify([{ body: `${first}\n${second}` }]));
+  const result = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList([TERM]), '--pr-text', prText], 'main,v1'));
+  assert.equal(result.status, 1, result.stderr);
+  const kinds = JSON.parse(result.stdout).findings.filter(({ rule }) => rule === 'R-WORDING').map(({ kind }) => kind).sort();
+  assert.deepEqual(kinds, ['content', 'message', 'message', 'message', 'pr-text']);
+  const harmless = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList(['harmless-entry'])], 'main'));
+  assert.equal(harmless.status, 0, harmless.stderr);
+  assert.equal(JSON.parse(harmless.stdout).scanner.wordingListSha256, sha256('harmless-entry\n'));
+});
+
+test('self-scan: the gate\'s own sources, tests and docs have no finding under an invented list used as both lists, and a joined entry in a comment is found', () => {
+  const own = ['scripts/public-gate', 'test/public-gate', 'docs'].flatMap(walkFiles);
+  const list = writeList([TERM]);
+  const files = own.map((name) => ({ path: path.relative(REPO_ROOT, name), content: readFileSync(name) }));
+  const clean = runGate(completeArgs(createRepo(files), list, ['--wording-list', list]));
+  assert.equal(clean.status, 0, clean.stdout);
+  const planted = runGate(completeArgs(createRepo([...files, { path: 'scripts/public-gate/planted.mjs', content: `// ${TERM}\n` }]), list, ['--wording-list', list]));
+  assert.equal(planted.status, 1);
+  assert.deepEqual(reportRules(planted), ['R-PRIVATE']);
 });

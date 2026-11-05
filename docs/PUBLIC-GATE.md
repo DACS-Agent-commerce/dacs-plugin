@@ -1,18 +1,18 @@
 # Public-content gate
 
 Reads one commit from Git objects (never the working tree or index, never following a symlink) and reports, under a
-declared scope, what the rules it runs found in it. The gate currently runs eleven rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
-(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules), `R-REPORT` and `R-ISSUE` (the text rules), `R-EVAL`
+declared scope, what the rules it runs found in it. The gate currently runs twelve rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
+(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules), `R-REPORT` and `R-ISSUE` and `R-WORDING` (the text rules), `R-EVAL`
 (dynamic code evaluation), `R-PRIVATE` (the private list) and `R-SECRET` (the secret scan). Exit 0 in complete scope means no rule found anything and every file
 could be read; it does not show that the content may become public. Generic scope runs the rules that need no list and reports
-`R-PRIVATE` as `not-run`, so its exit 0 is never a complete pass.
+`R-PRIVATE` and `R-WORDING` as `not-run`, so its exit 0 is never a complete pass.
 
 ```
 node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope generic \
   --gitleaks <binary> --gitleaks-sha256 <hex> [--out <file>]
 node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope complete \
   --gitleaks <binary> --gitleaks-sha256 <hex> \
-  --private-list <file> --expected-root <full-sha> [--private-evidence <file>] [--out <file>]
+  --private-list <file> --wording-list <file> --expected-root <full-sha> [--private-evidence <file>] [--out <file>]
 ```
 
 `--gitleaks` and `--gitleaks-sha256` are required in both scopes (see Secret scan). `--out` and `--private-evidence` create a new file and never overwrite one, and must name different files (exit 2 otherwise); without `--out` the report goes to stdout.
@@ -26,6 +26,11 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
 - **Private list.** A regular file outside `--repo` (symlinks resolved; a FIFO or device is refused), at most
   `maxPrivateListBytes` bytes and `maxPrivateEntries` entries, one exact entry per line. Blank and `#` lines and one leading
   byte-order mark are ignored; a line with leading or trailing whitespace is refused. A bare label fails only when listed.
+- **Wording list.** `--wording-list` (complete scope only; refused in generic scope, required in complete scope) names a second list, read
+  exactly as the private list is, with its own limits (`maxWordingListBytes`, `maxWordingEntries`) and causes (`wording-list-in-repo`,
+  `-unreadable`, `-malformed`, `-empty`). Its vocabulary is never in the repository: it holds the prohibited terms and the internal
+  review-tool names of the operator's records. A tool name must also be on the private list, which matches everywhere, fenced code and
+  source included. The report names the list by `scanner.wordingListSha256`, the digest of the bytes read, and `check-report` binds it.
 - **Matching.** `R-PRIVATE` (complete scope; `not-run` in generic scope) finds entries in paths and blobs, case-insensitive
   per code point exactly as JavaScript's `/iu`: simple case folding, no Unicode normalization (a combining accent differs
   from a precomposed letter) and no one-to-many folding (`ß` is not `ss`). CRLF, a lone CR and a lone LF each end a line.
@@ -43,6 +48,12 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `lockfileDispositions` (`path`, `blob`, `field`, `line`, `valueSha256`, `reason`): all five facts of the occurrence must match, and the
   field is found by parsing the lockfile. An entry whose path the target holds only at another blob stops the run with
   `stale-lockfile-disposition` (exit 2), so a later lockfile change needs a new review; a seventh link or a wildcard needs a new owner decision.
+- **Wording (`R-WORDING`, complete scope).** In every text blob that is not source code (Markdown and text as prose, HTML text and the
+  `title`, `alt`, `placeholder` and `content` values, manifests by string value, other files as text), list entries are matched in paragraphs:
+  wrapped lines joined, emphasis marks and invisible characters removed, white space collapsed, the entries normalised the same way. A fenced
+  shell command is left as written for the vocabulary. A sentence about the review's status passes only as the approved clause (case-insensitive,
+  with no reason added), or as a negative disclaimer. Clauses end at sentence ends, semicolons and parentheses; a reason after the approved
+  clause, in the same sentence, fails. In history mode the list is also matched in commit and tag messages, headers and `--pr-text`, with no status check.
 - **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
   file (`.d.ts`, `.d.mts` and `.d.cts` included), in a child
   process (`rules-eval-child.mjs`) under `run-bounded`. It flags the global `eval` and `Function` in these forms: called, with `new`, as a
@@ -123,9 +134,9 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `unexpected-root`) without a report. Complete scope also requires that root to be `--expected-root`. A shallow clone is refused
   (cause `shallow-history`), because its cut-off history would hide a second root and part of the history.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`,
-  `scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`; complete scope adds `expectedRoot`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
+  `scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`; complete scope adds `expectedRoot` and `wordingListSha256`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
   `unscannable`), `unscannable` (`location`, `cause`) and sorted `findings` (`rule`, `kind`, `location`, `line`). It holds
-  only fixed words, object ids, digests and numbers; no field is derived from the list itself. Every location is
+  only fixed words, object ids, digests and numbers; no field is derived from the private list, and the one wording-list field is a digest. Every location is
   `<commit>:<position>`, the entry's 1-based position in the commit's listing. `--private-evidence` (mode `0600`, written
   only after the report) maps each location to its exact path, or `hex:<bytes>` for a name that is not UTF-8. The two
   writes are not atomic together: a crash between them leaves a report without evidence.
@@ -197,15 +208,15 @@ missing, over 1 MiB, or malformed (a report is malformed unless it has the repor
 
 - **Review context.** A JSON file in our records with exactly `gateRevision` and `configSha256` (the current reviewed
   gate's identity), `scannerVersion`, `scannerPolicySha256` and `secretExceptionsSha256` (the scanner pin, the SHA-256 of
-  `.gitleaks.toml` and the SHA-256 of the baseline and exception entries, see Secret scan) and `expectedRoot` (the root
-  commit). Every expected value comes from it, from `--head` or from this gate's registered rule ids, never from the
-  report. The report's `scanner` must equal the context's six fields exactly, so a field the context does not name
+  `.gitleaks.toml` and the SHA-256 of the baseline and exception entries, see Secret scan), `expectedRoot` (the root
+  commit) and `wordingListSha256` (the SHA-256 of the wording list). Every expected value comes from it, from `--head` or from this gate's registered rule ids, never from the
+  report. The report's `scanner` must equal the context's seven fields exactly, so a field the context does not name
   refuses the report until the context names it.
 - **History reports.** A report of scope `history` also needs `--repo` and `--refs`, the run being checked: the refs are
   resolved now, as history mode resolves them, and the report must name exactly those refs (full ref names, object ids, tag
   objects and peeled commits, see History mode), so a ref moved or an annotated tag made again since the scan refuses the
   report. The report's `heads` must be exactly the distinct, sorted commits of those refs, and `--head` one of them; every rule including `R-IDENTITY` must be `passed` (so the scan ran with
-  `--allowed-identity`), and the report's `scanner` must equal the context's six fields, so a report made with `--pr-text` is
+  `--allowed-identity`), and the report's `scanner` must equal the context's seven fields, so a report made with `--pr-text` is
   refused. A tag ref whose name differs from its tag object's is refused with exit 2 as in history mode.
 - **Causes.** `report-not-complete` (scope is neither `complete` nor `history`), `report-other-head` (target commit is not `--head`; for a
   history report, `--head` is not among its heads), `report-refs-differ` (a history report's refs or heads are not those of the run being
@@ -215,20 +226,20 @@ missing, over 1 MiB, or malformed (a report is malformed unless it has the repor
   causes are `report-unreadable`, `report-malformed`, `context-unreadable`, `context-malformed`, `limit:maxCheckFileBytes`
   `bad-arguments`, and, for a history report, `bad-ref` (a `--refs` item that is neither a ref name nor a full object id)
   and the other causes of History mode.
-- **Not bound yet.** The report carries no digest of the private list (nothing in it derives from the list), so a
-  corrected list is not detected by this command.
+- **Not bound yet.** The report carries no digest of the private list (nothing in it derives from that list), so a
+  corrected private list is not detected by this command. A report made under another wording list is refused as `report-policy-differs`.
 
 ## History mode
 
 ```
-node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --private-list <file> --expected-root <full-sha> \
+node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --private-list <file> --wording-list <file> --expected-root <full-sha> \
   --gitleaks <file> --gitleaks-sha256 <hex> [--allowed-identity 'Name <email>'] [--pr-text <file.json>] [--out <file>]
 ```
 
 Walks every commit reachable from the refs (names or full object ids, comma-separated; any other revision expression, such
 as `main^{commit}` or an abbreviated id, exits 2 as `bad-ref`), parents first, and reports under
-scope `history`. Each commit's tree gets the same reading and the same ten rules as in complete scope (`R-ACCOUNT`,
-`R-ARCHIVE`, `R-ENV`, `R-EVAL`, `R-HOST`, `R-HOSTING`, `R-IP`, `R-ISSUE`, `R-PRIVATE` and `R-REPORT`), each occurrence judged by its own path,
+scope `history`. Each commit's tree gets the same reading and the same eleven rules as in complete scope (`R-ACCOUNT`,
+`R-ARCHIVE`, `R-ENV`, `R-EVAL`, `R-HOST`, `R-HOSTING`, `R-IP`, `R-ISSUE`, `R-PRIVATE`, `R-REPORT` and `R-WORDING`), each occurrence judged by its own path,
 and once over the union of its trees the stale checks for `lockfileDispositions` and `evalGeneratedFiles`, so a file, address or archive that an earlier commit
 held and a later one removed is found. Reading, limits, exit codes and output rules are those above; `--out` never
 overwrites a file, and there is no `--private-evidence`.
