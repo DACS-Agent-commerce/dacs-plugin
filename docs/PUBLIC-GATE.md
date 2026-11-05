@@ -46,8 +46,8 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
 - **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
   file (`.d.ts`, `.d.mts` and `.d.cts` included), in a child
   process (`rules-eval-child.mjs`) under `run-bounded`. It flags the global `eval` and `Function` in these forms: called, with `new`, as a
-  value or alias, through `globalThis`, `window`, `self` or `global` by member, bracket (literal key), optional or comma-expression access, and
-  through destructuring of those objects (declared, assigned, as a parameter default, in `for…of` or nested); and a string (literal, template or `+` with a string)
+  value or alias, through `globalThis`, `window`, `self` or `global` by member, bracket (literal key), optional or comma-expression access (or a conditional, `||`, `&&`, `??` or assignment giving one), and
+  through destructuring of those objects (declared, assigned, as a parameter default, in `for…of` or nested under a global object's own key such as `self`; a pattern under any other key is not read); and a string (literal, template, `+` with a string, or a conditional, logical or assignment operand that is one)
   passed to the global `setTimeout` or `setInterval`. A function callback passes; strings, comments, regular expressions, template text, types, interfaces, `implements` clauses and `declare` variable, function, class, enum and module declarations never count. A `declare` export assignment, import alias or class field is still read, because the TypeScript emitter keeps it.
   Inline code in `.html` and `.htm` files (scripts and event-handler attributes) is not read yet.
   A computed member, a computed destructuring key or a rest element of a global object makes the file unscannable (`eval-computed-member`). Other causes: `eval-parse-error`
