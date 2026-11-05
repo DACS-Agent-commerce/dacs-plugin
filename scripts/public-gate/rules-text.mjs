@@ -310,35 +310,29 @@ function proseFindingLines(text, wordingMatcher) {
   return new Set(lines);
 }
 
-/** Every string value of parsed JSON with the key it sits under (null at the top), walked with a stack so any depth is read. */
-function jsonStrings(root) {
-  const [strings, pending] = [[], [{ key: null, value: root }]];
-  while (pending.length > 0) {
-    const { key, value } = pending.pop();
-    if (typeof value === 'string') strings.push({ key, value });
-    else if (value !== null && typeof value === 'object') for (const [name, item] of Object.entries(value)) pending.push({ key: Array.isArray(value) ? key : name, value: item });
-  }
-  return strings;
-}
+/** A string literal of JSON text: in valid JSON nothing else holds a quote, so these are every key and string value, repeated keys included. */
+const JSON_STRING = /"(?:[^"\\]|\\.)*"/gs;
 
-/** The lines of a manifest where R-WORDING finds something: each string value read as prose, at the first line of the file that holds its key (line 1 when none does); the raw text when it is not JSON. */
+/** The lines of a manifest where R-WORDING finds something: each string literal (key or value, a repeated key's earlier value too) read as prose, at the line of
+ * the file that holds the literal; the raw text when it is not JSON. `JSON.parse` only checks validity: it drops repeated keys' earlier values and never shows keys. */
 function manifestFindingLines(text, wordingMatcher) {
-  let parsed;
   try {
-    parsed = JSON.parse(text);
+    JSON.parse(text);
   } catch {
     return proseFindingLines(text, wordingMatcher);
   }
-  const keyLines = new Map();
-  text.split(LINE_BREAK).forEach((line, index) => {
-    const key = /^\s*("(?:[^"\\]|\\.)*")\s*:/.exec(line)?.[1];
-    if (key !== undefined && !keyLines.has(key)) keyLines.set(key, index + 1);
-  });
-  return new Set(jsonStrings(parsed).filter(({ value }) => proseFindingLines(value, wordingMatcher).size > 0).map(({ key }) => keyLines.get(JSON.stringify(key)) ?? 1));
+  const lines = new Set();
+  let [line, from] = [1, 0];
+  for (const { 0: literal, index } of text.matchAll(JSON_STRING)) {
+    line += text.slice(from, index).match(/\r\n|\r|\n/g)?.length ?? 0;
+    from = index;
+    if (proseFindingLines(JSON.parse(literal), wordingMatcher).size > 0) lines.add(line);
+  }
+  return lines;
 }
 
 /**
- * R-WORDING: in every text blob that is not source code, read as prose (a `.json` manifest by string value), refuses a wording-list entry, a sentence about the
+ * R-WORDING: in every text blob that is not source code, read as prose (a `.json` manifest by string literal, keys included), refuses a wording-list entry, a sentence about the
  * review's status other than the approved clause, and a character reference other than `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&nbsp;`. Paragraphs are read
  * with wrapped lines joined, in three views: as written (the six decoded), with markup erased and with each markup token one space. Returns findings { rule, kind: 'content', entry, line }.
  */

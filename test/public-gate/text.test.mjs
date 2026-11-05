@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { createWordingMatcher, hasValidTextConfig, scanIssues, scanReports, scanWording, wordingEntryLines } from '../../scripts/public-gate/rules-text.mjs';
 import {
-  CONFIG_FILE, REPO_ROOT, completeArgs, createAnnotatedTag, createHistory, createRepo, gateArgs, historyArgs, makeTempDir, runCheckReport, runGate, runHistory, sha256, walkFiles, writeList,
+  CONFIG_FILE, REPO_ROOT, completeArgs, createAnnotatedTag, createHistory, createRepo, gateArgs, git, historyArgs, makeTempDir, runCheckReport, runGate, runHistory, sha256, walkFiles, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const CONFIG = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
@@ -220,7 +220,7 @@ test('wording: the prohibited vocabulary in prose, a skill, a command file or a 
     assert.equal(wordingFindings(name, `Uses ${TOOL.toUpperCase()} daily.\n`).length, 1, name);
   }
   const manifest = JSON.stringify({ name: 'demo', description: `A demo with ${TERM}`, nested: { list: ['fine', `and ${TOOL}`] } }, null, 2);
-  assert.deepEqual(wordingFindings('.claude-plugin/plugin.json', manifest).map(({ line }) => line), [3, 5]);
+  assert.deepEqual(wordingFindings('.claude-plugin/plugin.json', manifest).map(({ line }) => line), [3, 7]);
   assert.equal(wordingFindings('broken.json', `{ "description": "${TERM}", `).length, 1);
   assert.equal(wordingFindings('page.html', `<p>About <b>${FIRST}</b> ${SECOND}</p>`).length, 1);
   assert.equal(wordingFindings('page.html', `<img alt="${TERM}" src="x.png">`).length, 1);
@@ -316,6 +316,21 @@ test('wording: a file of many closed fences or a million unclosed fence openers 
     assert.equal(wordingFindings('a.md', `${pair.repeat(60_000)}\n${TERM}\n`).length, 1, JSON.stringify(pair));
   }
   assert.equal(wordingFindings('a.md', `${'```sh x\n'.repeat(1_000_000)}${TERM}\n`).length, 1);
+});
+
+test('wording: a manifest is read by every string literal, so a repeated key\'s earlier value and a key hold nothing back, each at its own line', () => {
+  const cases = [
+    [`{"description":"${TERM}","description":"safe"}`, [1]],
+    [`{\n "a": {\n "d": "${TERM}",\n "d": "ok"\n }\n}`, [3]],
+    [`{"flarn\\u0020quux":"x","${TERM}":1}`, [1]],
+    [`{"d":"flarn\\u0020quux","d":"ok"}`, [1]],
+    [`[{"x":"${TERM}","x":"ok"}]`, [1]],
+    [`{"the ${REVIEW} passed": true}`, [1]],
+    [`{\n"d": "ok",\n"d": "${TERM}"\r\n}`, [3]],
+    [`{"d":"${TERM}"}`, [1]],
+    [`{"d":"ok","e":"fine"}`, []],
+  ];
+  for (const [text, lines] of cases) assert.deepEqual(findingLines('p.json', text), lines, JSON.stringify(text));
 });
 
 test('wording: a manifest nested twenty thousand deep or holding a very long array is read without a stack overflow', () => {
@@ -475,6 +490,44 @@ test('history: with the approved clause holding a listed entry, R-WORDING finds 
   assert.equal(result.status, 1, result.stderr);
   const kinds = JSON.parse(result.stdout).findings.filter(({ rule }) => rule === 'R-WORDING').map(({ kind }) => kind).sort();
   assert.deepEqual(kinds, ['author', 'message', 'message', 'pr-text']);
+});
+
+const ALLOWED = 'Project <project@example.invalid>';
+const outputOf = (run) => `${run.stdout}${run.stderr}`;
+/** The object id of a commit on `history`'s second commit whose headers after the committer line are `headers`, or of a tag on it (`tag`). */
+const rawObject = (history, headers, tag = false) => {
+  const [parent] = history.commits.slice(-1);
+  const raw = tag
+    ? `object ${parent}\ntype commit\ntag t1\ntagger ${ALLOWED} 1700000000 +0000\n${headers}\n\nplain\n`
+    : `tree ${git(history.dir, ['rev-parse', `${parent}^{tree}`])}\nparent ${parent}\nauthor ${ALLOWED} 1700000000 +0000\ncommitter ${ALLOWED} 1700000000 +0000\n${headers}\n\nplain\n`;
+  return git(history.dir, ['hash-object', '-t', tag ? 'tag' : 'commit', '-w', '--literally', '--stdin'], { input: Buffer.from(raw) });
+};
+const runOnObject = (history, object, extra = []) => runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList([TERM]), ...extra], object));
+
+test('history: a header field that git wraps on lines starting with a space is read joined, so an entry across the fold is found; a blank continuation joins nothing', () => {
+  const history = createHistory([{}, {}]);
+  const [first, second] = TERM.split(' ');
+  const mergetag = `mergetag object ${history.commits[0]}\n type commit\n tag v1\n tagger ${ALLOWED} 1700000000 +0000\n \n a ${first}\n ${second} b`;
+  for (const [headers, tag] of [[`x-note ${first}\n ${second}`, false], [`x-note ${first}\n ${second}`, true], [mergetag, false]]) {
+    const object = rawObject(history, headers, tag);
+    const run = runOnObject(history, object);
+    assert.equal(run.status, 1, run.stderr);
+    const { findings } = JSON.parse(run.stdout);
+    assert.deepEqual(findings, [{ rule: 'R-WORDING', kind: 'header', commit: object, location: `${object}:header` }], JSON.stringify(headers));
+    assert.ok(!outputOf(run).includes(TERM));
+  }
+  const blank = runOnObject(history, rawObject(history, `x-note ${first}\n \n ${second}`));
+  assert.equal(blank.status, 0, blank.stderr);
+  const folded = runOnObject(history, rawObject(history, 'x-note a\n b'), ['--allowed-identity', ALLOWED]);
+  assert.equal(folded.status, 0, folded.stderr);
+});
+
+test('history: a manifest whose earlier value of a repeated key held an entry in an early commit is found though a later commit removes the file', () => {
+  const history = createHistory([{}, { files: { 'plugin.json': `{"description":"${TERM}","description":"safe"}` } }, { files: { 'a.txt': 'ok\n' } }]);
+  const run = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList([TERM])]));
+  assert.equal(run.status, 1, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout).findings, [{ rule: 'R-WORDING', kind: 'content', commit: history.commits[1], location: `${history.commits[1]}:1`, line: 1 }]);
+  assert.ok(!outputOf(run).includes(TERM));
 });
 
 test('self-scan: the gate\'s own sources, tests and docs have no finding under an invented list used as both lists, and a joined entry in a comment is found', () => {

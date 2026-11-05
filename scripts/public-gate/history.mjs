@@ -122,12 +122,14 @@ function metadataFindings({ sha, raw }, { matcher, wordingMatcher, identities, c
   const findings = [];
   const add = (rule, kind, field, line) => findings.push({ rule, kind, commit: sha, field, ...(line ? { line } : {}) });
   const seen = new Set();
+  const fields = [];
   for (const header of headers) {
     const matched = PERSON_LINE.exec(header);
     const person = matched && people.includes(matched[1]) ? matched : null;
     const kind = person ? person[1] : 'header';
+    if (header.startsWith(' ') && fields.length > 0) fields.at(-1).text += `\n${header}`;
+    else fields.push({ text: header, kind });
     if (matcher.hasEntry(header)) add(PRIVATE_RULE_ID, kind, kind);
-    if (wordingEntryLines(header, wordingMatcher, 1).length > 0) add(WORDING_RULE_ID, kind, kind);
     for (const { rule, refusedIn } of METADATA_ADDRESS_RULES) if (refusedIn(header, config).length > 0) add(rule, kind, kind);
     if (!person || !identities) continue;
     seen.add(kind);
@@ -135,6 +137,7 @@ function metadataFindings({ sha, raw }, { matcher, wordingMatcher, identities, c
     if (person[4] !== '+0000') add(IDENTITY_RULE_ID, 'timezone', kind);
   }
   if (identities) for (const kind of people) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, kind);
+  for (const { text, kind } of fields) if (wordingEntryLines(text, wordingMatcher, 1).length > 0) add(WORDING_RULE_ID, kind, kind);
   const message = split < 0 ? '' : raw.subarray(split + 2).toString('utf8');
   for (const line of matcher.entryLines(message, limits.maxReportEntries + 1)) add(PRIVATE_RULE_ID, 'message', 'message', line);
   for (const line of wordingEntryLines(message, wordingMatcher, limits.maxReportEntries + 1)) add(WORDING_RULE_ID, 'message', 'message', line);
