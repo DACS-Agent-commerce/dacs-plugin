@@ -57,6 +57,23 @@ test('eval :: "member, bracket, optional and comma-expression access to the glob
   assert.deepEqual(await failingSnippets(['let handler: Function; type Callback = Function; const x = y as Function;'], 'ts'), []);
 });
 
+test('eval :: "interfaces, implements clauses and declare declarations are erased by TypeScript, so nothing in them counts; a class extends clause and the code around them still do"', async () => {
+  const erased = [
+    'interface I extends Function {}', 'class C implements Function {}', 'interface I extends globalThis.Function {}', 'class C implements window.Function {}', 'class C extends Base implements Function {}',
+    'interface I { [window.eval]: number }', 'interface I { [globalThis[k]]: number }',
+    'declare class C extends Function {}', 'export declare class C extends Function {}', 'declare namespace N { class C extends Function {} }', 'declare module "m" { export class C extends Function {} }',
+  ];
+  assert.deepEqual(await failingSnippets(erased, 'ts'), []);
+  assert.deepEqual(await failingSnippets(['interface P extends Function {}\nconst x = <div />;'], 'tsx'), []);
+  const running = [
+    'class C extends Function {}', 'class C extends globalThis.Function implements I {}', 'const C = class extends Function {};', 'export class C extends Function {}', 'const f = eval<string>;',
+    'class C implements I { run = eval; }', 'interface I {}\neval("1");', 'declare const x: number;\neval("1");', 'namespace N { eval("1"); }',
+  ];
+  assert.deepEqual(await failingSnippets(running, 'ts'), names(running.length).map((name) => name.replace('.mjs', '.ts')));
+  assert.deepEqual(await failingSnippets(['interface\nI\n{ eval("1") }', 'declare\nnamespace\nN\n{ eval("1") }']), names(2));
+  assert.deepEqual(await scan([['a.ts', 'class C implements I { m() { return globalThis[k]; } }']]), { findings: [], unscannable: [{ path: 'a.ts', cause: 'eval-computed-member' }] });
+});
+
 test('eval :: "executable template substitutions are parsed; the same words in strings, template text, comments and regular expressions pass" (T08)', async () => {
   const failing = ['const t = `${eval("1")}`;', 'const t = `a ${`b ${new Function("x")}`}`;'];
   assert.deepEqual(await failingSnippets(failing), names(2));

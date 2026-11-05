@@ -102,7 +102,9 @@ function judge({ kind, text }, maxLines) {
     }
   };
   const visit = (node) => {
-    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+    // Types, interfaces, `implements` clauses and ambient (`declare`) declarations are erased: nothing in them runs. A class `extends` clause does.
+    if ((ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node)
+      || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || (node.flags & ts.NodeFlags.Ambient) !== 0) return;
     if (ts.isIdentifier(node)) {
       if (DYNAMIC_NAMES.has(node.text) && isUse(node)) flag(node);
     } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
