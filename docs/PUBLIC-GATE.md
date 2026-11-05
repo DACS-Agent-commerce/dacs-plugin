@@ -64,7 +64,12 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   value or alias, through `globalThis`, `window`, `self` or `global` by member, bracket (literal key), optional or comma-expression access (or a conditional, `||`, `&&`, `??` or assignment giving one), and
   through destructuring of those objects (declared, assigned, as a parameter default, in `for…of` or nested under a global object's own key such as `self`; a pattern under any other key is not read); and a string (literal, template, `+` with a string, or a conditional, logical or assignment operand that is one)
   passed to the global `setTimeout` or `setInterval`. A function callback passes; strings, comments, regular expressions, template text, types, interfaces, `implements` clauses and `declare` variable, function, class, enum and module declarations never count. A `declare` export assignment, import alias or class field is still read, because the TypeScript emitter keeps it.
-  Inline code in `.html` and `.htm` files (scripts and event-handler attributes) is not read yet.
+  Inline code in `.html` and `.htm` files is read entirely in the bounded child. Each case-insensitive `<script` prefix or whitespace/slash/quote-prefixed
+  `on…` attribute assignment start must match an exact form, otherwise the file is unscannable (`eval-html-unreadable`). A script permits an optional
+  `type="module"` or `type="text/javascript"`, then an optional `src="…"`, with no other attributes and no `<` in its body. An event handler
+  must be whitespace followed by `on…="…"`, with no spaces around `=` and no `&` or `<` in its body. Scripts require a closing `</script>`;
+  whitespace before tag ends is allowed. Script bodies and handler values are parsed as JS and findings keep their original HTML lines.
+  Nothing is exempted as data or a comment, and entities are never decoded; even a data script or a candidate in text must match these forms.
   A computed member, a computed destructuring key or a rest element of a global object makes the file unscannable (`eval-computed-member`). Other causes: `eval-parse-error`
   (the file has a syntax error), `eval-too-deep` (the file nests so deep that parsing it overflows the child's stack; the other files are still judged), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`;
   units go to the child in batches of at most `maxEvalBatchBytes`, its output is capped at `maxEvalOutputBytes`, and a reply that breaks the
