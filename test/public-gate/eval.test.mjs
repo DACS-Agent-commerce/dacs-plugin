@@ -3,9 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { GateInputError } from '../../scripts/public-gate/objects.mjs';
+import { GateInputError, readCommitObjects } from '../../scripts/public-gate/objects.mjs';
 import { createEvalScanner, hasValidEvalConfig } from '../../scripts/public-gate/rules-eval.mjs';
-import { CONFIG_FILE, REPO_ROOT, createHistory, createRepo, gateArgs, historyArgs, makeTempDir, runGate, runHistory, sha256, writeList } from '../lib/gate-fixtures.mjs';
+import { CONFIG_FILE, REPO_ROOT, completeArgs, createHistory, createRepo, gateArgs, historyArgs, makeTempDir, runGate, runHistory, sha256, writeList } from '../lib/gate-fixtures.mjs';
 
 const CONFIG = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
 const LIMITS = CONFIG.limits;
@@ -32,6 +32,14 @@ async function failingSnippets(snippets, extension = 'mjs') {
   assert.deepEqual(result.unscannable, []);
   return pathsOf(result);
 }
+/** Scans each snippet as `<index>.mjs` and returns the names of the snippets with a finding, whatever else they make unscannable. */
+const flaggedSnippets = async (snippets) => pathsOf(await scan(snippets.map((text, index) => [`s${index}.mjs`, text])));
+/** Asserts each snippet is unscannable as eval-computed-member and has no finding. */
+async function assertComputed(snippets) {
+  const result = await scan(snippets.map((text, index) => [`s${index}.mjs`, text]));
+  assert.deepEqual(result.findings, []);
+  assert.deepEqual(result.unscannable, snippets.map((_, index) => ({ path: `s${index}.mjs`, cause: 'eval-computed-member' })));
+}
 const names = (count) => Array.from({ length: count }, (_, index) => `s${index}.mjs`).sort();
 const failsWith = (cause) => (error) => error instanceof GateInputError && error.cause === cause;
 const withListed = (...entries) => ({ ...CONFIG, evalGeneratedFiles: entries.map(([file, bytes]) => ({ path: file, sha256: sha256(bytes), reason: 'generated code that holds eval by design' })) });
@@ -53,9 +61,17 @@ test('eval :: "member, bracket, optional and comma-expression access to the glob
     '(ok ? window : self).eval("1");', '(window || self).eval("1");', 'new (globalThis ?? window).Function("1");', 'let g; (g = window).eval("1");',
   ];
   assert.deepEqual(await failingSnippets(failing), names(failing.length));
-  const passing = ['thing.eval("1");', 'const o = { eval: 1, Function: 2 };', 'o.Function = 3;', 'class A { eval() {} Function() {} }', 'import { eval as e } from "x"; export { e };'];
-  assert.deepEqual(await failingSnippets(passing), []);
   assert.deepEqual(await failingSnippets(['let handler: Function; type Callback = Function; const x = y as Function;'], 'ts'), []);
+});
+
+test('eval :: "the name eval or Function fails on any object and in any key, property, member, binding, specifier or label position, whatever value holds it"', async () => {
+  const failing = [
+    'thing.eval("1");', 'const o = { eval: 1, Function: 2 };', 'o.Function = 3;', 'class A { eval() {} Function() {} }', 'import { eval as e } from "x"; export { e };', 'g.eval("1");',
+    'window.app.eval;', 'const [{ eval: run }, w] = [app, window];', 'export { x as "eval" };', 'import { "Function" as F } from "x";', 'const { "eval": e } = x;', 'x["Function"];', 'x[("eval")];',
+    'const o = { ["eval"]: 1 };', 'eval: for (;;) break eval;', 'const { eval: run } = [window][0];', '[window][0].eval();', 'const { eval: run } = { ...window };', 'Object(window).eval();',
+    'top.eval();', 'window.parent.eval();', 'frames.eval();',
+  ];
+  assert.deepEqual(await failingSnippets(failing), names(failing.length));
 });
 
 test('eval :: "interfaces, implements clauses and declare declarations are erased by TypeScript, so nothing in them counts; a class extends clause and the code around them still do"', async () => {
@@ -88,8 +104,12 @@ test('eval :: "executable template substitutions are parsed; the same words in s
   assert.deepEqual(await failingSnippets(harmless), []);
 });
 
-test('eval :: "the documented limits: a global object or timer held in a variable is not followed"', async () => {
-  assert.deepEqual(await failingSnippets(['const g = globalThis; g.eval("1");', 'const later = setTimeout; later("go()", 1);', 'const code = "go()"; setTimeout(code, 1);']), []);
+test('eval :: "the stated limits: a global object or timer held in a variable, a timer string held in a variable or property, a computed key on an expression naming no global object, property-reading functions, this and constructor chains"', async () => {
+  const limits = [
+    'const g = globalThis; g[name]("1");', 'const later = setTimeout; later("go()", 1);', 'const code = "go()"; setTimeout(code, 1);', 'setTimeout(task.code, 1);', 'top[name]("1");',
+    'parent[name]; frames[name];', 'Reflect.get(globalThis, name)("1");', 'Object.values(window);', 'this[name]("1");', '(() => {}).constructor("1");',
+  ];
+  assert.deepEqual(await scan(limits.map((text, index) => [`s${index}.mjs`, text])), { findings: [], unscannable: [] });
 });
 
 test('eval :: "this repository\'s own tracked files give no R-EVAL finding and no unscannable entry"', async () => {
@@ -180,6 +200,19 @@ test('eval :: "a computed member access on a global object with a non-literal ke
   assert.deepEqual(pathsOf(await scan([['literal.mjs', 'globalThis["eval"]("1");\n']])), ['literal.mjs']);
 });
 
+test('eval :: "a non-literal key read from any expression that names a global object, by member or destructuring, is unscannable; the same reads on expressions naming none pass"', async () => {
+  await assertComputed([
+    'const { [i]: { [k]: run } } = [globalThis];', 'const [{ ...rest }] = [window];', 'window.window[k];', '(0, window)[k];', '(c ? window : self)[k];', 'for (const { [k]: run } of [window]) {}',
+    '({ [k]: run } = window);', 'window[1n];', 'window[-0];', 'const { 1n: run } = window;', 'pick(window)[k];', '[window][0][k];', 'const { a: { [k]: run } = window } = {};',
+    'let run; for ({ [k]: run } of [self]) {}', 'function f({ ...all } = globalThis) {}',
+  ]);
+  const controls = [
+    'const { [i]: { [k]: run } } = [other];', 'const [{ ...rest }] = [other];', 'thing.window[k];', '(0, other)[k];', '(c ? a : b)[k];', 'for (const { [k]: run } of [other]) {}',
+    '({ [k]: run } = other);', 'thing[1n];', 'const { window: { [k]: run } } = other;', 'globalThis.window ??= globalThis;', 'Object.assign(globalThis, saved);',
+  ];
+  assert.deepEqual(await scan(controls.map((text, index) => [`s${index}.mjs`, text])), { findings: [], unscannable: [] });
+});
+
 test('eval :: "eval or Function taken out of a global object by any destructuring fails, and a computed key or a rest element on one is unscannable"', async (t) => {
   await t.test('a literal key fails whether it is declared, assigned, a parameter default, a loop variable, nested, in an array, or the source is a conditional', async () => {
     const failing = [
@@ -193,33 +226,33 @@ test('eval :: "eval or Function taken out of a global object by any destructurin
       'let run; ({ self: { eval: run } } = globalThis);', 'let run; [, { eval: run }] = [a, window];', 'const [, { eval: run }] = [...list, window];', 'const [...[{ eval: run }]] = [window];',
       'function f({ self: { eval: run } } = window) {}', 'for (const { self: { eval: run } } of [globalThis]) {}',
     ];
-    assert.deepEqual(await failingSnippets(failing), names(failing.length));
+    assert.deepEqual(await flaggedSnippets(failing), names(failing.length));
   });
-  await t.test('a computed key or a rest element on a global object is unscannable, as a member access is', async () => {
-    const unscannable = [
+  await t.test('a computed key or a rest element on a global object is unscannable, as a member access is, and so is one nested under any key of it', async () => {
+    await assertComputed([
       'const { [name]: run } = globalThis;', 'const { ...all } = globalThis;', 'let all; ({ ...all } = window);', 'let run; ({ [name]: run } = self);', 'function f({ [name]: run } = globalThis) {}',
       'for (const { [name]: run } of [globalThis]) {}', 'const { self: { [name]: run } } = globalThis;', 'const { [`a${suffix}`]: run } = global;',
-    ];
-    const result = await scan(unscannable.map((text, index) => [`s${index}.mjs`, text]));
-    assert.deepEqual(result.findings, []);
-    assert.deepEqual(result.unscannable, unscannable.map((_, index) => ({ path: `s${index}.mjs`, cause: 'eval-computed-member' })));
+      'const { app: { [name]: run } } = window;', 'const { app: { ...rest } } = window;', 'let rest; ({ app: { ...rest } } = window);',
+    ]);
   });
-  await t.test('the same patterns on other values, and other keys of a global object, pass', async () => {
-    const passing = [
-      'const { eval: run } = other;', 'const { [name]: run } = other;', 'const { ...rest } = other;', 'const { a, b } = globalThis;', 'const { setTimeout: later } = globalThis;', 'function f({ eval: run }) { return run; }',
-      'function f({ eval: run } = {}) { return run; }', 'let run; ({ eval: run } = other);', 'let run; ({ a: run } = globalThis);', 'const list = [globalThis, { eval: 1 }];', 'list = [globalThis, { Function: 1 }];',
-      'for (const { eval: run } of items) {}', 'for (const { eval: run } of [first, second]) {}', 'const { a: { eval: run } } = other;', 'register({ eval: 1 }, globalThis);',
-      'const { app: { eval: run } } = window;', 'const { app: { Function: Make } } = globalThis;', 'let run; ({ app: { eval: run } } = window);', 'const [{ eval: run }, w] = [app, window];',
-      'let run, w; [{ eval: run }, w] = [app, window];', 'const [{ eval: run }] = [[window]];', 'const { app: { [name]: run } } = window;', 'const { app: { ...rest } } = window;',
-      'let rest; ({ app: { ...rest } } = window);', 'const { window: { app: { eval: run } } } = globalThis;', 'const [...{ eval: run }] = [window];', 'const { list: [{ eval: run }] } = window;',
+  await t.test('the same patterns with no eval or Function key on other values, and other literal keys of a global object, pass', async () => {
+    const passing = ['const { [name]: run } = other;', 'const { ...rest } = other;', 'const { a, b } = globalThis;', 'const { setTimeout: later } = globalThis;', 'let run; ({ a: run } = globalThis);'];
+    assert.deepEqual(await scan(passing.map((text, index) => [`s${index}.mjs`, text])), { findings: [], unscannable: [] });
+  });
+  await t.test('an eval or Function key fails on any value, nested or not, a global object or not', async () => {
+    const failing = [
+      'const { eval: run } = other;', 'function f({ eval: run }) { return run; }', 'function f({ eval: run } = {}) { return run; }', 'let run; ({ eval: run } = other);', 'const list = [globalThis, { eval: 1 }];',
+      'list = [globalThis, { Function: 1 }];', 'for (const { eval: run } of items) {}', 'for (const { eval: run } of [first, second]) {}', 'const { a: { eval: run } } = other;', 'register({ eval: 1 }, globalThis);',
+      'const { app: { eval: run } } = window;', 'const { app: { Function: Make } } = globalThis;', 'let run; ({ app: { eval: run } } = window);', 'let run, w; [{ eval: run }, w] = [app, window];',
+      'const [{ eval: run }] = [[window]];', 'const { window: { app: { eval: run } } } = globalThis;', 'const [...{ eval: run }] = [window];', 'const { list: [{ eval: run }] } = window;',
       'const { eval: run } = [globalThis];', 'function f({ app: { eval: run } } = window) {}', 'for (const { app: { eval: run } } of [window]) {}', 'try {} catch ({ app: { eval: run } }) {}',
       'const { a: { eval: run } } = { ...other };', 'const { a = { eval: 1 } } = window;',
     ];
-    assert.deepEqual(await scan(passing.map((text, index) => [`s${index}.mjs`, text])), { findings: [], unscannable: [] });
+    assert.deepEqual(await flaggedSnippets(failing), names(failing.length));
   });
 });
 
-test('eval :: "computed, BigInt and negative-zero keys over literals holding globals retain nested destructuring checks"', async () => {
+test('eval :: "computed, BigInt and negative-zero keys over literals holding globals fail by the nested eval or Function name"', async () => {
   const failing = [
     'const i = 0; const { [i]: { eval: run } } = [globalThis]; run("6 * 7");',
     'let run; const i = 0; ({ [i]: { Function: run } } = [globalThis]); new run("return 6 * 7");',
@@ -234,8 +267,8 @@ test('eval :: "computed, BigInt and negative-zero keys over literals holding glo
     'const { 1n: { eval: run } } = { 1: window };',
     'const [...[{ [k]: { eval: run } }]] = [[0, window]];',
   ];
-  assert.deepEqual(await failingSnippets(failing), names(failing.length));
-  assert.deepEqual(await scan([['other.mjs', 'const { [k]: { eval: run } } = { a: other };']]), { findings: [], unscannable: [] });
+  assert.deepEqual(await flaggedSnippets(failing), names(failing.length));
+  assert.deepEqual(pathsOf(await scan([['other.mjs', 'const { [k]: { eval: run } } = { a: other };']])), ['other.mjs']);
 });
 
 const STUB_DIR = makeTempDir('eval-stub');
@@ -322,10 +355,13 @@ test('eval :: "history: the same bytes at a listed generated-file path and at an
 test('eval :: "setTimeout and setInterval with string arguments fail outside exact generated-file exceptions; function callbacks pass, and history evaluates each occurrence" (T14)', async () => {
   const failing = ['setTimeout("go()", 1);', "setInterval('go()', 1);", 'window.setTimeout("go()");', 'globalThis["setInterval"]("go()", 5);', 'setTimeout(`go(${x})`, 1);', 'setTimeout("a" + b, 1);', 'self?.setTimeout("go()");',
     'window.setTimeout(cond ? "go()" : fn, 1);', 'setTimeout(cond ? fn : "go()", 1);', 'setTimeout(fn || "go()");', 'setInterval(fn ?? "go()");', 'setTimeout(ok && "go()");', 'let s; setTimeout(s = "go()", 1);',
-    'let s = ""; setTimeout(s += "go()", 1);', '(globalThis || window).setTimeout("go()", 1);', '(cond ? setTimeout : setInterval)("go()", 1);', 'setTimeout("a" + (c ? "b" : "c"), 1);'];
+    'let s = ""; setTimeout(s += "go()", 1);', '(globalThis || window).setTimeout("go()", 1);', '(cond ? setTimeout : setInterval)("go()", 1);', 'setTimeout("a" + (c ? "b" : "c"), 1);',
+    // Any first argument but a function, a name or a property access may be a string: a call, a method result, a spread, a conditional or a logical operand.
+    'setTimeout(String(code));', 'setTimeout("a".concat("()"));', 'setTimeout(...["x()"]);', 'window.setTimeout(String(c));', '[setTimeout][0]("x()");', 'setTimeout(c ? f : "x()");',
+    'setTimeout(cond ? f : g, 1);', 'setTimeout(fn || other, 1);', 'setTimeout(tasks[0], 1);', 'setTimeout`go()`;', 'window.parent.setInterval(String(c));', 'setTimeout.call(null, "go()");'];
   assert.deepEqual(await failingSnippets(failing), names(failing.length));
   const passing = ['setTimeout(() => go(), 1);', 'setTimeout(function () { go(); }, 1);', 'setInterval(callback, 5);', 'thing.setTimeout("go()");', 'setTimeout();', 'const delay = setTimeout;', 'clearTimeout("x");',
-    'setTimeout(cond ? f : g, 1);', 'setTimeout(fn || other, 1);', '(cond ? thing : other).setTimeout("go()");'];
+    '(cond ? thing : other).setTimeout("go()");', 'socket.setTimeout(3000, () => {});', 'setTimeout(this.tick, 1);', 'setTimeout((fn), 1);'];
   assert.deepEqual(await failingSnippets(passing), []);
   const listed = await scan([[GENERATED_PATH, 'setTimeout("go()", 1);\n'], ['other.mjs', 'setTimeout("go()", 1);\n']], { config: withListed([GENERATED_PATH, 'setTimeout("go()", 1);\n']) });
   assert.deepEqual(pathsOf(listed), ['other.mjs']);
@@ -333,4 +369,59 @@ test('eval :: "setTimeout and setInterval with string arguments fail outside exa
   const run = runHistory(historyArgs(history, listFile()));
   assert.equal(run.status, 1, run.stderr);
   assert.deepEqual(evalFindings(JSON.parse(run.stdout)), [{ kind: 'content', commit: history.commits[1], location: `${history.commits[1]}:2`, line: 1 }]);
+});
+
+const linkTo = (target) => ({ content: target, mode: '120000' });
+const SCRIPT_LINKS = ['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx'].flatMap((extension) => [`l.${extension}`, `U.${extension.toUpperCase()}`]);
+const evalSymlinks = (report) => report.unscannable.filter(({ cause }) => cause === 'eval-symlink');
+
+test('eval :: "a symlink with a script extension, in any case, is unscannable as eval-symlink in generic and complete scope and is never followed; a link of another kind gets nothing from R-EVAL"', async (t) => {
+  const repo = createRepo([{ path: 'target.txt', content: EVAL_CALL }, { path: 'link.txt', ...linkTo('target.txt') }, ...SCRIPT_LINKS.map((file) => ({ path: file, ...linkTo('target.txt') }))]);
+  await t.test('the scanner over the commit\'s own Git objects', async () => {
+    const { entries } = await readCommitObjects({ repo: repo.dir, commit: repo.commit, limits: LIMITS });
+    const result = await createEvalScanner({ config: CONFIG, limits: LIMITS }).scan(entries);
+    assert.deepEqual(result.findings, []);
+    assert.deepEqual(result.unscannable.map(({ entry, cause }) => `${entry.path} ${cause}`).sort(), SCRIPT_LINKS.map((file) => `${file} eval-symlink`).sort());
+  });
+  for (const [scope, args] of [['generic', gateArgs(repo, 'generic')], ['complete', completeArgs(repo, listFile())]]) {
+    await t.test(`a ${scope} gate run`, () => {
+      const run = runGate(args);
+      assert.equal(run.status, 2, run.stderr);
+      const report = JSON.parse(run.stdout);
+      assert.deepEqual(report.findings, []);
+      assert.equal(evalSymlinks(report).length, SCRIPT_LINKS.length);
+      assert.equal(report.unscannable.length, SCRIPT_LINKS.length);
+      assert.deepEqual(report.rules.find(({ id }) => id === 'R-EVAL'), { id: 'R-EVAL', status: 'unscannable' });
+    });
+  }
+});
+
+test('eval :: "history: a script symlink is eval-symlink at the commit that holds it, also when a later commit deletes it, when it dangles and when it points at another link"', () => {
+  const links = { 'gone.MJS': linkTo('target.txt'), 'dangling.ts': linkTo('missing.js'), 'first.js': linkTo('second.cjs'), 'second.cjs': linkTo('target.txt') };
+  const history = createHistory([{}, { files: { 'target.txt': EVAL_CALL, ...links } }, { files: { 'target.txt': EVAL_CALL } }]);
+  const run = runHistory(historyArgs(history, listFile()));
+  assert.equal(run.status, 2, run.stderr);
+  const report = JSON.parse(run.stdout);
+  assert.deepEqual(report.findings, []);
+  assert.deepEqual(evalSymlinks(report).map(({ commit }) => commit), Object.keys(links).map(() => history.commits[1]));
+  assert.equal(report.unscannable.length, Object.keys(links).length);
+});
+
+test('eval :: "a listed generated path held as a symlink is eval-symlink and never exempt, even when its link text has the listed bytes"', async () => {
+  const repo = createRepo([{ path: 'chunk.txt', content: EVAL_CALL }, { path: GENERATED_PATH, ...linkTo('chunk.txt') }]);
+  const { entries } = await readCommitObjects({ repo: repo.dir, commit: repo.commit, limits: LIMITS });
+  const scanner = createEvalScanner({ config: withListed([GENERATED_PATH, 'chunk.txt']), limits: LIMITS });
+  const result = await scanner.scan(entries);
+  assert.deepEqual(result.unscannable.map(({ entry, cause }) => ({ path: entry.path, cause })), [{ path: GENERATED_PATH, cause: 'eval-symlink' }]);
+  scanner.requireNoStaleException();
+  const run = runGate(gateArgs(repo, 'generic'));
+  assert.equal(run.status, 2, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout).unscannable, [{ location: `${repo.commit}:2`, cause: 'eval-symlink' }]);
+});
+
+test('eval :: "a script-extension blob that is not text is eval-not-text when the reader accepts it as reviewed binary; one the reader already refuses gets nothing more from R-EVAL"', async () => {
+  const bytes = Buffer.from('eval\0("1")');
+  const config = { ...CONFIG, binaryDispositions: [...CONFIG.binaryDispositions, { path: 'reviewed.jsx', sha256: sha256(bytes), reason: 'reviewed binary' }] };
+  const result = await scan([['reviewed.jsx', bytes], ['unreviewed.jsx', bytes], ['nul.js', bytes]], { config });
+  assert.deepEqual(result, { findings: [], unscannable: [{ path: 'reviewed.jsx', cause: 'eval-not-text' }] });
 });
