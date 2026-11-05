@@ -15,7 +15,7 @@ const config = {primitives: [
 
 // Files under a temp root; a minimal resolver: relative paths are local files,
 // builtins are builtins, and `client-pkg` is a package boundary.
-function project(t, files) {
+function project(t, files, scanConfig = config) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'thin-scan-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(root, name), text);
@@ -30,7 +30,7 @@ function project(t, files) {
   const found = {violation: [], unverifiable: [], waiver: [], edge: []};
   const report = Object.fromEntries(Object.keys(found).map(k => [k, row => found[k].push(row)]));
   const modules = new Map();
-  const scan = createModuleScanner({ts, config, resolve, rel: p => path.relative(root, p), report, modules});
+  const scan = createModuleScanner({ts, config: scanConfig, resolve, rel: p => path.relative(root, p), report, modules});
   return {found, modules, scan: name => scan(path.join(root, name))};
 }
 const rules = rows => rows.map(r => `${r.rule}:${r.detail}`);
@@ -105,6 +105,61 @@ test('a type assertion or non-null mark does not hide a reflective call, a compu
     ...[1, 2, 3, 4, 5, 6, 7].map(l => `cast.ts:reflective-loader:${l}`), ...[2, 3, 4, 5].map(l => `key.ts:computed-member-call:${l}`),
   ]);
   assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`), ['handoff.ts:execution-readback:pay']);
+});
+
+test('a computed read that can supply a callable value is unverifiable wherever the value goes', t => {
+  const p = project(t, {'read.ts': [
+    'export function bound(c: any, k: string) { const read = c[k]; return read("h"); }',
+    'export function assigned(c: any, k: string) { let read; read = c[k]; return read; }',
+    'export function returned(c: any, k: string) { return c[k]; }',
+    'export function passed(c: any, k: string) { return use(c[k]); }',
+    'export function listed(c: any, k: string) { return [c[k]]; }',
+    'export function member(c: any, k: string) { return {read: c[k]}; }',
+    'export const optional = (c: any, k: string) => c?.[k];',
+    'export function viaCall(c: any, k: string) { return c[k].call(null, "h"); }',
+    'export function fallback(c: any, k: string) { return c[k] ?? null; }',
+    'export function constructed(c: any, k: string) { return new c[k](); }',
+    'export function cast(c: any, k: string) { const read = c[k] as any; return (c[k])!; }',
+    'export function computedText(c: any) { const read = c["get" + "TxByHash"]; return read; }',
+    '',
+  ].join('\n')});
+  p.scan('read.ts');
+  assert.deepEqual(p.found.violation, []);
+  assert.deepEqual(p.found.unverifiable.map(r => `${r.rule}:${r.line}`),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12].map(l => `computed-member-read:${l}`));
+});
+
+test('a computed read whose value is only used as data is not flagged', t => {
+  const p = project(t, {'data.ts': [
+    'export function size(xs: any[], i: number) { return xs[i].length; }',
+    'export function same(c: any, k: string) { return c[k] === 1 || !c[k] || typeof c[k] === "string"; }',
+    'export function branch(c: any, k: string) { if (c[k]) { return `${c[k]}`; } return c[k] ? 1 : 0; }',
+    'export function write(c: any, k: string) { c[k] = 1; c[k] += 1; c[k]++; delete c[k]; }',
+    'export function literal(c: any) { return [c["a"], c[0], c.a]; }',
+    'export function nested(c: any, k: string) { return c[k].name; }',
+    'export function directCall(c: any, k: string) { return c[k]("h"); }',
+    '',
+  ].join('\n')});
+  p.scan('data.ts');
+  assert.deepEqual(p.found.violation, []);
+  assert.deepEqual(p.found.unverifiable.map(r => `${r.rule}:${r.line}`), ['computed-member-call:7']);
+});
+
+test('a computed read of the global object is unverifiable, since the key can resolve to eval', t => {
+  const noReadback = {primitives: [{id: 'job-id', names: ['deriveJobId']}]};
+  const p = project(t, {'g.ts': [
+    'export function direct(key: string) { return globalThis[key]("return 1"); }',
+    'export function bound(key: string) { const f = globalThis[key]; return f; }',
+    'export function cast(key: string) { return (globalThis as any)[key]; }',
+    'export function other(key: string) { return [self[key], window?.[key], global[key]]; }',
+    'export function fromCall(key: string) { return new globalThis[key]("return 1"); }',
+    'export function safe(key: string) { globalThis[0]; globalThis["setTimeout"]; return globalThis.name + key; }',
+    '',
+  ].join('\n'), 'plain.ts': 'export function read(c: any, k: string) { const v = c[k]; return v; }\n'}, noReadback);
+  p.scan('g.ts'); p.scan('plain.ts');
+  assert.deepEqual(p.found.violation, []);
+  assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.rule}:${r.line}`),
+    [1, 2, 3, 4, 4, 4, 5].map(l => `g.ts:reflective-loader:${l}`));
 });
 
 test('a waiver without a reason is refused, and an unused waiver is reported', t => {
@@ -210,12 +265,12 @@ test('a waived readback helper reached through a form that cannot carry the waiv
   assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`).sort(), ['destructure.ts:execution-readback:a', 'destructure.ts:execution-readback:b', 'equals.ts:execution-readback:a', 'equals.ts:execution-readback:b', 'late.ts:execution-readback:a']);
   assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.line}:${r.rule}`).sort(), [
     'dynamic.ts:1:untracked-waived-import', 'dynamic.ts:2:untracked-waived-import', 'equals-export.ts:1:untracked-waived-import',
-    'ns-copy.ts:2:namespace-escape', 'ns-copy.ts:3:namespace-escape', 'ns-copy.ts:4:namespace-escape', 'ns-copy.ts:5:namespace-escape', 'ns-export.ts:2:namespace-escape', 'star-as.ts:1:untracked-waived-import',
+    'ns-copy.ts:2:namespace-escape', 'ns-copy.ts:3:namespace-escape', 'ns-copy.ts:4:namespace-escape', 'ns-copy.ts:5:computed-member-read', 'ns-copy.ts:5:namespace-escape', 'ns-export.ts:2:namespace-escape', 'star-as.ts:1:untracked-waived-import',
   ]);
-  // The same forms over a module without readback waivers add nothing.
+  // The same forms over a module without readback waivers add nothing, except the computed read h[key] itself.
   const plain = project(t, {'helper.ts': 'export function show(c: any) { return c; }\n', ...forms});
   for (const f of Object.keys(forms)) plain.scan(f);
-  assert.deepEqual(plain.found.unverifiable, []);
+  assert.deepEqual(plain.found.unverifiable.map(r => `${r.file}:${r.line}:${r.rule}`), ['ns-copy.ts:5:computed-member-read']);
 });
 
 test('an import cycle through a barrel cannot hide a waived readback helper from either end', t => {
