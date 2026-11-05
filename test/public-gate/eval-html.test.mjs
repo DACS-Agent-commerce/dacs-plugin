@@ -43,6 +43,9 @@ const UNREADABLE_ROWS = [
   ['handler hidden by another attribute', '<a title=" onx=" a // onmouseover="eval(1)">x</a>'],
   ['script hidden inside a handler', "<a onclick=\"a='<script>'; eval(x); b='</script>'\">a</a>"],
   ['unfinished handler', '<a onclick="eval(1)'],
+  ['named entities in an svg script', '<svg><script>a = "&quot;+eval(1)+&quot;"</script></svg>'],
+  ['numeric entities in an svg script', '<svg><script>x = "&#34;; eval(1); &#34;"</script></svg>'],
+  ['upper case svg', '<p>x</p><SVG><script>ready()</script></SVG>'],
 ];
 
 test('eval HTML :: exact script and handler forms are read on their original lines in html and htm files', async () => {
