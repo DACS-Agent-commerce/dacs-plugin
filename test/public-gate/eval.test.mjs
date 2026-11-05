@@ -336,6 +336,25 @@ test('eval :: "eval or Function taken out of a global object by any destructurin
   });
 });
 
+test('eval :: "computed, BigInt and negative-zero keys over literals holding globals retain nested destructuring checks"', async () => {
+  const failing = [
+    'const i = 0; const { [i]: { eval: run } } = [globalThis]; run("6 * 7");',
+    'let run; const i = 0; ({ [i]: { Function: run } } = [globalThis]); new run("return 6 * 7");',
+    'const { 1n: { eval: run } } = [null, globalThis]; run("6 * 7");',
+    'const { [-0]: { eval: run } } = [window];',
+    'for (const { [k]: { eval: run } } of [[window]]) run("1");',
+    'const { [k]: { eval: run } } = { a: window };',
+    'let run; ({ [k]: { eval: run } } = { a: window });',
+    'function f({ [k]: { eval: run } } = { a: window }) {}',
+    'const { [k]: [{ eval: run }] } = { a: [window] };',
+    'const [, ...{ [k - 1]: { eval: run } }] = [0, window];',
+    'const { 1n: { eval: run } } = { 1: window };',
+    'const [...[{ [k]: { eval: run } }]] = [[0, window]];',
+  ];
+  assert.deepEqual(await failingSnippets(failing), names(failing.length));
+  assert.deepEqual(await scan([['other.mjs', 'const { [k]: { eval: run } } = { a: other };']]), { findings: [], unscannable: [] });
+});
+
 const STUB_DIR = makeTempDir('eval-stub');
 /** A parser stand-in: a script that runs `body`; the stub's folder holds its pid file `pid.txt`. */
 function stubParser(body) {
