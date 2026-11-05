@@ -64,6 +64,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   written, on any object: a use, a property, method, member, key, binding, import or export name or a label, and a string or plain template literal with that text as a key,
   a computed name or a bracket key. **Timers:** a call to `setTimeout` or `setInterval` (written plainly, held anywhere in the callee, or as a member of an expression naming
   `globalThis`, `window`, `self` or `global`) fails unless its first argument is absent, a function, a name or a property access; a tagged template on one fails.
+  A callee that holds a timer but is not one (`.call`, `.apply`, `.bind`, a wrapper, a conditional) fails unless every argument is a function, a number, `this`, `null`, `undefined` or a global object.
   **Computed keys:** a non-literal (or BigInt) bracket key on an expression that names one of those four objects anywhere in it, or a destructuring (declared, a parameter,
   `=` or `for…of`) whose pattern has such a key, a rest element or a spread and whose value or defaults name one, makes the file unscannable (`eval-computed-member`).
   Strings, comments, regular expressions, template text, types, interfaces, `implements` clauses and `declare` variable, function, class, enum and module declarations never count;
@@ -79,7 +80,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   units go to the child in batches of at most `maxEvalBatchBytes`, its output is capped at `maxEvalOutputBytes`, and a reply that breaks the
   protocol stops the run with `eval-parser-failed` (exit 2). The only exceptions are the exact files of `evalGeneratedFiles` (`path`, `sha256`, `reason`):
   the same bytes at another path are another occurrence and fail, and an entry whose path the target holds only at other bytes stops the run with `stale-eval-exception`.
-  Limits of the detection: a global object or timer held in a variable; a timer string held in a variable or property; a computed key on an expression naming none of the
+  Limits of the detection: a global object or timer held in a variable; a timer string held in a variable or property; a timer passed as an argument (`Reflect.apply(setTimeout, …)`, `list.forEach(setTimeout)`); a computed key on an expression naming none of the
   four objects (`top`, `parent` and `frames` with a computed key included); functions that read a global's properties (`Reflect`, `Object.values`); `this` and `constructor` chains.
 - **Hosts (`R-HOST`, both scopes).** Every path and every text blob is read line by line, as written and with its
   escaped delimiters `\/`, `\@` and `\:` unescaped (`https:\/\/host\/x` is read as the URL it decodes to); a backslash ends a URL host.

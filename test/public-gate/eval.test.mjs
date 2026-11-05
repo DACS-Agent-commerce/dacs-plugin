@@ -125,10 +125,11 @@ test('eval :: "executable template substitutions are parsed; the same words in s
   assert.deepEqual(await failingSnippets(harmless), []);
 });
 
-test('eval :: "the stated limits: a global object or timer held in a variable, a timer string held in a variable or property, a computed key on an expression naming no global object, property-reading functions, this and constructor chains"', async () => {
+test('eval :: "the stated limits: a global object or timer held in a variable, a timer string held in a variable or property or passed as a value, a computed key on an expression naming no global object, property-reading functions, this and constructor chains"', async () => {
   const limits = [
     'const g = globalThis; g[name]("1");', 'const later = setTimeout; later("go()", 1);', 'const code = "go()"; setTimeout(code, 1);', 'setTimeout(task.code, 1);', 'top[name]("1");',
     'parent[name]; frames[name];', 'Reflect.get(globalThis, name)("1");', 'Object.values(window);', 'this[name]("1");', '(() => {}).constructor("1");',
+    'Reflect.apply(setTimeout, window, ["go()"]);', '["go()"].forEach(setTimeout);',
   ];
   assert.deepEqual(await scan(limits.map((text, index) => [`s${index}.mjs`, text])), { findings: [], unscannable: [] });
 });
@@ -379,10 +380,16 @@ test('eval :: "setTimeout and setInterval with string arguments fail outside exa
     'let s = ""; setTimeout(s += "go()", 1);', '(globalThis || window).setTimeout("go()", 1);', '(cond ? setTimeout : setInterval)("go()", 1);', 'setTimeout("a" + (c ? "b" : "c"), 1);',
     // Any first argument but a function, a name or a property access may be a string: a call, a method result, a spread, a conditional or a logical operand.
     'setTimeout(String(code));', 'setTimeout("a".concat("()"));', 'setTimeout(...["x()"]);', 'window.setTimeout(String(c));', '[setTimeout][0]("x()");', 'setTimeout(c ? f : "x()");',
-    'setTimeout(cond ? f : g, 1);', 'setTimeout(fn || other, 1);', 'setTimeout(tasks[0], 1);', 'setTimeout`go()`;', 'window.parent.setInterval(String(c));', 'setTimeout.call(null, "go()");'];
+    'setTimeout(cond ? f : g, 1);', 'setTimeout(fn || other, 1);', 'setTimeout(tasks[0], 1);', 'setTimeout`go()`;', 'window.parent.setInterval(String(c));', 'setTimeout.call(null, "go()");',
+    // A callee that only holds a timer (.call, .apply, .bind, a wrapper, a conditional or array) takes the code at a position nobody can know, so any argument but a receiver, a function or a number fails.
+    'setTimeout.call(window, "go()");', 'setTimeout.call(undefined, "go()");', 'setInterval.call(self, "go()", 5);', 'setTimeout["call"](window, "go()");', 'setTimeout?.call(window, "go()");', '(0, setTimeout.call)(window, "go()");',
+    'setTimeout.apply(window, ["go()"]);', 'setTimeout.apply(window, args);', 'setTimeout.bind(window, "go()")();', 'setTimeout.call.call(setTimeout, window, "go()");', 'window.setTimeout.call(null, "go()");',
+    'globalThis["setTimeout"].apply(null, ["go()"]);', 'window.setTimeout.bind(window)("go()");', '(cond ? window.setTimeout : f)("go()");', '[window.setTimeout][0]("go()");', 'window.setTimeout.call`go()`;',
+    'setTimeout.call(window, fn, 1);'];
   assert.deepEqual(await failingSnippets(failing), names(failing.length));
   const passing = ['setTimeout(() => go(), 1);', 'setTimeout(function () { go(); }, 1);', 'setInterval(callback, 5);', 'thing.setTimeout("go()");', 'setTimeout();', 'const delay = setTimeout;', 'clearTimeout("x");',
-    '(cond ? thing : other).setTimeout("go()");', 'socket.setTimeout(3000, () => {});', 'setTimeout(this.tick, 1);', 'setTimeout((fn), 1);'];
+    '(cond ? thing : other).setTimeout("go()");', 'socket.setTimeout(3000, () => {});', 'setTimeout(this.tick, 1);', 'setTimeout((fn), 1);',
+    'setTimeout.call(window, () => go(), 1);', 'setTimeout(() => go(), 5_000).unref();', 'setTimeout(fn, 1).refresh();', 'window.setTimeout(() => go(), 1);', '(0, setTimeout)(fn);'];
   assert.deepEqual(await failingSnippets(passing), []);
   const listed = await scan([[GENERATED_PATH, 'setTimeout("go()", 1);\n'], ['other.mjs', 'setTimeout("go()", 1);\n']], { config: withListed([GENERATED_PATH, 'setTimeout("go()", 1);\n']) });
   assert.deepEqual(pathsOf(listed), ['other.mjs']);
