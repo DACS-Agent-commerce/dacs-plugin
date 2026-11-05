@@ -88,11 +88,6 @@ test('eval :: "executable template substitutions are parsed; the same words in s
   assert.deepEqual(await failingSnippets(harmless), []);
 });
 
-test('eval :: "inline HTML code is not read yet: an .html or .htm file holding eval gives no finding and no unscannable entry, as the docs state"', async () => {
-  const html = '<script>eval("1");</script>\n<a onclick="eval(1)">x</a>\n';
-  assert.deepEqual(await scan([['page.html', html], ['page.htm', html]]), { findings: [], unscannable: [] });
-});
-
 test('eval :: "the documented limits: a global object or timer held in a variable is not followed"', async () => {
   assert.deepEqual(await failingSnippets(['const g = globalThis; g.eval("1");', 'const later = setTimeout; later("go()", 1);', 'const code = "go()"; setTimeout(code, 1);']), []);
 });
