@@ -273,7 +273,7 @@ async function runHistory(argv, signal) {
   }
   for (const { item, string, value } of prText?.strings ?? []) {
     for (const line of bounded(() => matcher.entryLines(value, limits.maxReportEntries + 1))) findings.push({ rule: PRIVATE_RULE_ID, kind: 'pr-text', item, string, line });
-    for (const line of bounded(() => wordingEntryLines(value, wordingMatcher, limits.maxReportEntries + 1))) findings.push({ rule: WORDING_RULE_ID, kind: 'pr-text', item, string, line });
+    for (const line of bounded(() => wordingEntryLines(value, wordingMatcher, limits.maxReportEntries + 1, { readMarkup: true }))) findings.push({ rule: WORDING_RULE_ID, kind: 'pr-text', item, string, line });
     requireWithinLimit();
   }
   requireNoStaleLockfileDisposition([...heldLockfiles.values()], config.lockfileDispositions);

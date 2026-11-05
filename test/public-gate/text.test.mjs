@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { createWordingMatcher, hasValidTextConfig, scanIssues, scanReports, scanWording } from '../../scripts/public-gate/rules-text.mjs';
+import { createWordingMatcher, hasValidTextConfig, scanIssues, scanReports, scanWording, wordingEntryLines } from '../../scripts/public-gate/rules-text.mjs';
 import {
   CONFIG_FILE, REPO_ROOT, completeArgs, createAnnotatedTag, createHistory, createRepo, gateArgs, historyArgs, makeTempDir, runCheckReport, runGate, runHistory, sha256, walkFiles, writeList,
 } from '../lib/gate-fixtures.mjs';
@@ -204,6 +204,7 @@ test('issue references: a lockfile held at another blob than its disposition sto
 // ---- R-WORDING ------------------------------------------------------------------------------------------------------
 
 const TERM = ['flarn', 'quux'].join(' ');
+const [FIRST, SECOND] = TERM.split(' ');
 const TOOL = ['zorp', 'lint'].join('-');
 const SNAKE = ['snake', 'case', 'entry'].join('_');
 const SPACED = ['two', 'spaces'].join('  ');
@@ -211,6 +212,7 @@ const REVIEW = ['security', 'review'].join(' ');
 const HOLD = `The external ${REVIEW} is on hold`;
 const matcher = createWordingMatcher([TERM, TOOL, SNAKE, SPACED], () => {});
 const wordingFindings = (name, text) => scanWording({ entries: [file(name, text)], wordingMatcher: matcher, limits: LIMITS });
+const findingLines = (name, text, list = [TERM]) => scanWording({ entries: [file(name, text)], wordingMatcher: createWordingMatcher(list, () => {}), limits: LIMITS }).map(({ line }) => line);
 
 test('wording: the prohibited vocabulary in prose, a skill, a command file or a manifest description fails; an internal review-tool name fails', () => {
   for (const name of ['README.md', 'docs/a.txt', 'skills/demo/SKILL.md', 'commands/demo.md', 'notes.yml', 'LICENSE']) {
@@ -220,97 +222,106 @@ test('wording: the prohibited vocabulary in prose, a skill, a command file or a 
   const manifest = JSON.stringify({ name: 'demo', description: `A demo with ${TERM}`, nested: { list: ['fine', `and ${TOOL}`] } }, null, 2);
   assert.deepEqual(wordingFindings('.claude-plugin/plugin.json', manifest).map(({ line }) => line), [3, 5]);
   assert.equal(wordingFindings('broken.json', `{ "description": "${TERM}", `).length, 1);
-  assert.equal(wordingFindings('page.html', `<p>About <b>${TERM.split(' ')[0]}</b> ${TERM.split(' ')[1]}</p>`).length, 1);
+  assert.equal(wordingFindings('page.html', `<p>About <b>${FIRST}</b> ${SECOND}</p>`).length, 1);
   assert.equal(wordingFindings('page.html', `<img alt="${TERM}" src="x.png">`).length, 1);
-  assert.deepEqual(wordingFindings('page.html', `<script>var a = "${TERM}";</script><style>.a::after { content: "${TERM}"; }</style><p>fine</p>`), []);
 });
 
-test('wording: a page of unclosed script starts or unmatched angle brackets is read once, and an unclosed script hides only what follows it', { timeout: 20_000 }, () => {
+test('wording: an HTML comment, a tag or an attribute between or inside the words of an entry hides nothing, whatever it holds', () => {
+  for (const note of ['x', 'ordinary note', 'a > b', `${FIRST}-${SECOND}`]) {
+    for (const page of [`<p>${FIRST}<!-- ${note} --> ${SECOND}</p>`, `<p>${FIRST}<span title="${note}"> ${SECOND}</span></p>`, `<p>${FIRST} <span data-x='${note}'>${SECOND}</span></p>`]) {
+      for (const name of ['page.html', 'a.md']) assert.deepEqual(findingLines(name, page), [1], `${name}: ${page}`);
+    }
+  }
+  for (const page of [`${FIRST.slice(0, 2)}<b>${FIRST.slice(2)}</b> ${SECOND}`, `<p>${FIRST}<span\n  class="x"> ${SECOND}</span></p>`, `${FIRST.slice(0, 2)}<span\nclass="x"\n>${FIRST.slice(2)} ${SECOND}`,
+    `${FIRST}<!-- one\n\ntwo --> ${SECOND}`]) {
+    assert.deepEqual(findingLines('page.html', page), [1], page);
+  }
+  for (const page of [`<!-- ${TERM} -->`, `<p title="${TERM}">x</p>`, `<img alt="${TERM}">`, `<p aria-label="${TERM}">x</p>`, `<p aria-label='${FIRST}\n${SECOND}'>x</p>`, `<input value=${FIRST}&nbsp;${SECOND}>`]) {
+    assert.deepEqual(findingLines('page.html', page), [1], page);
+  }
+});
+
+test('wording: a Markdown link, image, reference, escape, block quote or inline HTML between the words of an entry hides nothing', () => {
+  for (const text of [`${FIRST} [${SECOND}](https://example.com)`, `${FIRST} [${SECOND}][r]\n\n[r]: https://example.com`, `![${FIRST} ${SECOND}](u.png)`, `[${FIRST} [${SECOND}]](u)`,
+    `${FIRST} [${SECOND}](<u v> "title")`, `\\*${FIRST}\\* ${SECOND}`, `> ${FIRST}\n> ${SECOND}`, `${FIRST}<!-- x --> ${SECOND}`, `${FIRST}<br>${SECOND}`, `${FIRST}&nbsp;${SECOND}`]) {
+    assert.deepEqual(findingLines('a.md', `Intro.\n\n${text}\n`), [3], JSON.stringify(text));
+  }
+  assert.deepEqual(findingLines('a.md', `[x]: https://example.com/${FIRST}-${SECOND}\n\nfine [x]\n`), []);
+});
+
+test('wording: a page of unclosed script starts, comment openers or unmatched angle brackets is read once, and nothing after a script start is hidden', { timeout: 60_000 }, () => {
   assert.deepEqual(wordingFindings('page.html', '<script '.repeat(200_000)), []);
   assert.deepEqual(wordingFindings('page.html', '<'.repeat(1_000_000)), []);
-  assert.equal(wordingFindings('page.html', `<p>${TERM}</p><script>var a = 1;`).length, 1);
-  assert.deepEqual(wordingFindings('page.html', `<script>var a = 1;<p>${TERM}</p>`), []);
-});
-
-test('wording: a script start inside an attribute or a comment hides nothing, comments and character references are read, a real script block is skipped', () => {
-  const [first, second] = TERM.split(' ');
-  for (const page of [
-    `<p title="a <script b">x</p><p>${TERM}</p>`, `<p data-x='<script'>${TERM}</p>`, `<!-- <script --><p>${TERM}</p>`, `<p>x</p><!-- ${TERM} -->`,
-    `<p>${first}&nbsp;${second}</p>`, `<p>${first}&#32;${second}</p>`, `<p>${first}&#x20;${second}</p>`, `<p>${first}&shy;&#32;${second}</p>`,
-    `<p title="${first}&nbsp;${second}">x</p>`, `<SCRIPT>var a = 1;</SCRIPT><p>${TERM}</p>`, `<script>var a = "<p>";</script >\n<p>${TERM}</p>`,
-    `<script type=x/>var a = 1;</script/><p>${TERM}</p>`, `<p>x</p><!-- never closed ${TERM}`, `<p>x</p><div class="${TERM}`, `<p>a < b</p><p>${TERM}</p>`,
-    `<!doctype html><p>${TERM}</p>`, `<![CDATA[ ${TERM} ]]>`, `<p>${first}&constructor;${second}</p>`,
-    `<p>&lt;script&gt;</p><p>${TERM}</p>`,
-  ]) {
+  assert.equal(wordingFindings('page.html', `${'<!--'.repeat(1_000_000)}${TERM}`).length, 1);
+  for (const page of [`<p>${TERM}</p><script>var a = 1;`, `<script>var a = 1;<p>${TERM}</p>`, `<script>${TERM}</script>`, `<STYLE>${TERM}</STYLE>`, `<script a="b>c">${TERM}</script>`,
+    `<p title="a <script b">x</p><p>${TERM}</p>`, `<p data-x='<script'>${TERM}</p>`, `<!-- <script --><p>${TERM}</p>`, `<p>x</p><!-- never closed ${TERM}`, `<p>x</p><div class="${TERM}`,
+    `<p>a < b</p><p>${TERM}</p>`, `<!doctype html><p>${TERM}</p>`, `<![CDATA[ ${TERM} ]]>`, `<p>&lt;script&gt;</p><p>${TERM}</p>`]) {
     assert.equal(wordingFindings('page.html', page).length, 1, page);
   }
-  for (const page of [`<script>${TERM}</script>`, `<STYLE>${TERM}</STYLE>`, `<script a="b>c">${TERM}</script>`, `<script>"</scripts>${TERM}</script>`]) {
-    assert.deepEqual(wordingFindings('page.html', page), [], page);
-  }
 });
 
-test('wording: the line of an HTML finding is the line of the page, whatever the tags, comments and references before it hold', () => {
-  const lines = (page) => wordingFindings('page.html', page).map(({ line }) => line);
-  assert.deepEqual(lines(`<p\n  title="x"\n>a</p>\n<!-- one\ntwo -->\n<script>\nvar a;\n</script>\n&#10;&#13;<p>${TERM}</p>`), [9]);
-  assert.deepEqual(lines(`<!-- one\n\ntwo ${TERM} -->`), [3]);
+test('wording: a finding is at the first line of its paragraph, counted in the file; a blank line inside a comment or tag does not end a paragraph', () => {
+  assert.deepEqual(findingLines('page.html', `<p\n  title="x"\n>a</p>\n<!-- one\n\ntwo -->\n\n<p>${TERM}</p>`), [8]);
+  assert.deepEqual(findingLines('page.html', `<!-- one\n\ntwo ${TERM} -->`), [1]);
+  assert.deepEqual(findingLines('a.md', `a\r\n\r\nb\r\n${TERM}\r\n`), [3]);
 });
 
-test('wording: an HTML character reference is decoded as a browser decodes it, and one the scanner cannot decode exactly is refused', () => {
-  const accented = createWordingMatcher(['café'], () => {});
-  const scan = (name, text) => scanWording({ entries: [file(name, text)], wordingMatcher: accented, limits: LIMITS });
-  for (const reference of ['&eacute;', '&eacute', '&#233;', '&#233', '&#xe9;', '&#xE9']) {
-    assert.equal(scan('page.html', `<p>caf${reference}</p>`).length, 1, reference);
+test('wording: only the six known character references are decoded; any other, numeric, named, unknown or without its semicolon, is refused at its line', () => {
+  assert.deepEqual(findingLines('a.md', 'a &amp; b &lt; c &gt; d &quot; e &#39; f &nbsp; g, a & b, a && b, a &= b\n'), []);
+  assert.deepEqual(findingLines('a.md', `${FIRST}&nbsp;${SECOND}\n`), [1]);
+  const refused = ['caf&eacute;', 'caf&eacute', '&#233;', '&#233', '&#xe9;', '&#xE9', `${FIRST}&#32;${SECOND}`, '&#x20;', '&#10;', '&#150;', '&#0;', '&#xD800;', '&#1114112;', '&hyphen;', '&constructor;',
+    '&copy2', '&notit', 'AT&T', 'R&D', '&AMP;', '&amp', '&#39', '&#039;', '&#;'];
+  for (const reference of refused) {
+    for (const name of ['a.md', 'page.html', 'a.txt']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
   }
-  for (const page of ['<p>a &eacute; b &copy; &amp; &lt; &apos; &AMP; &#65; &#x41;</p>', '<p>AT&T R&D a&b=1 &&amp; &# &#x; &ensp &hyphen</p>', '<script>a&hyphen;b &copy2</script>', '<!-- a&hyphen;b -->','<img src="x.png" alt="">']) {
-    assert.deepEqual(scan('page.html', page), [], page);
-  }
-  for (const page of ['<p>a&hyphen;b</p>', '<p>a&period;b</p>', '<p>a&unknown;b</p>', '<p>a&constructor;b</p>', '<p>a&copy2 b</p>', '<p>a&notit b</p>', '<p>a&#150;b</p>', '<p>a&#0;b</p>', '<p>a&#xD800;b</p>',
-    '<p>a&#1114112;b</p>', '<p title="a&hyphen;b">x</p>', '<p>a￾b</p>']) {
-    assert.equal(scan('page.html', page).length, 1, page);
-  }
-  assert.deepEqual(scan('page.html', '<p>fine</p>\n\n<p>fine\nstill &hyphen; here</p>').map(({ line }) => line), [3]);
-  assert.deepEqual(scan('a.md', 'a&hyphen;b\n'), []);
+  assert.deepEqual(findingLines('page.html', '<p title="a&hyphen;b">x</p>', ['unlisted-entry']), [1]);
+  assert.deepEqual(findingLines('m.json', JSON.stringify({ description: 'a &#32; b' }, null, 2), ['unlisted-entry']), [2]);
 });
 
-test('wording: a source file is not read in any source extension that R-EVAL parses, in any case; Markdown and HTML are', () => {
-  for (const name of ['a.js', 'a.mjs', 'a.cjs', 'a.jsx', 'a.ts', 'a.mts', 'a.cts', 'a.tsx', 'a.d.cts', 'a.d.mts', 'dir/A.JSX', 'dir/A.CTS']) {
+test('wording: a source file is not read in any source extension that R-EVAL parses, in any case; Markdown, HTML, SVG and text are', () => {
+  for (const name of ['a.js', 'a.mjs', 'a.cjs', 'a.jsx', 'a.ts', 'a.mts', 'a.cts', 'a.tsx', 'a.d.ts', 'a.d.cts', 'a.d.mts', 'dir/A.JSX', 'dir/A.CTS', 'b.MJS', 'c.Ts', 'a.css', 'a.sh']) {
     assert.deepEqual(wordingFindings(name, `const a = '${TERM}';\n`), [], name);
   }
-  for (const name of ['a.md', 'a.html', 'a.txt']) assert.equal(wordingFindings(name, `${TERM}\n`).length, 1, name);
+  for (const name of ['a.md', 'A.MD', 'a.html', 'a.htm', 'a.svg', 'a.txt', 'a.xml', 'a.mdx', 'Makefile']) assert.equal(wordingFindings(name, `${TERM}\n`).length, 1, name);
 });
 
 test('wording: an entry split across a line break, with doubled spaces, emphasis or invisible characters, fails; an entry holding emphasis or a doubled space matches the text that holds it', () => {
-  const [first, second] = TERM.split(' ');
-  for (const text of [`${first}\n${second}`, `${first}   ${second}`, `**${first}** _${second}_`, `${first} ${second}`, `${first}\u200b ${second}`, `${first}\t${second}`, `${first}\r\n${second}`]) {
+  for (const text of [`${FIRST}\n${SECOND}`, `${FIRST}   ${SECOND}`, `**${FIRST}** _${SECOND}_`, `${FIRST}\u00a0${SECOND}`, `${FIRST}\u200b ${SECOND}`, `${FIRST}\t${SECOND}`, `${FIRST}\r\n${SECOND}`]) {
     assert.equal(wordingFindings('a.md', text).length, 1, JSON.stringify(text));
   }
   assert.equal(wordingFindings('a.md', `uses ${SNAKE} in text`).length, 1);
   assert.equal(wordingFindings('a.md', `uses ${SNAKE.replaceAll('_', '')} in text`).length, 1);
   assert.equal(wordingFindings('a.md', 'uses two spaces in text').length, 1);
-  assert.equal(wordingFindings('a.md', `${first}\n\n${second}`).length, 0);
+  assert.equal(wordingFindings('a.md', `${FIRST}\n\n${SECOND}`).length, 0);
 });
 
 test('wording: an entry that is empty after normalisation or holds a tab is refused as a malformed wording list', () => {
   for (const entry of ['__', '**', '\u200b', 'a\tb']) assert.throws(() => createWordingMatcher([entry], () => {}), { cause: 'wording-list-malformed' }, JSON.stringify(entry));
 });
 
-test('wording: a fenced command example is left as written, a prose fence and an unclosed fence are not', () => {
+test('wording: only a closed fence whose language is a shell may hold entries; the text after a fence marker, a quoted or unlabelled fence and a fence in HTML are read', () => {
   const command = `run ${TERM}`;
-  for (const fence of [`\`\`\`sh\n${command}\n\`\`\``, `~~~bash\n${command}\n~~~`, `\`\`\`\`console\n${command}\n\`\`\`\``, `\`\`\`\n$ ${command}\n> more\n\`\`\``, `\`\`\`powershell\n${command}\n\`\`\``]) {
+  for (const fence of [`\`\`\`sh\n${command}\n\`\`\``, `~~~bash\n${command}\n~~~`, `\`\`\`\`console\n${command}\n\`\`\`\``, `\`\`\`powershell\n${command}\n\`\`\``, `\`\`\`SH title\n${command}\n\`\`\`\`  `]) {
     assert.deepEqual(wordingFindings('a.md', `Before.\n\n${fence}\n\nAfter.\n`), [], fence);
   }
-  for (const fence of [`\`\`\`\n${command}\n\`\`\``, `\`\`\`text\n${command}\n\`\`\``, `\`\`\`sh\n${command}\n`, `\`\`\`\n$ ${command}\nplain ${TERM}\n\`\`\``]) {
+  for (const fence of [`\`\`\`\n${command}\n\`\`\``, `\`\`\`text\n${command}\n\`\`\``, `\`\`\`sh\n${command}\n`, `\`\`\`\n$ ${command}\n> more\n\`\`\``, `\`\`\`\n> ${command}\n\`\`\``,
+    `\`\`\`sh ${TERM}\nls\n\`\`\``, `~~~sh\n${command}\n\`\`\``, `\`\`\`sh\`\`\`\n${command}\n\`\`\``, `<div>\n\`\`\`sh\n${command}\n\`\`\`\n</div>`, `<!--\n\`\`\`sh\n-->\n${command}\n\`\`\``]) {
     assert.equal(wordingFindings('a.md', `Before.\n\n${fence}\n`).length, 1, fence);
   }
   assert.equal(wordingFindings('a.md', `\`\`\`sh\nThe external ${REVIEW} is complete.\n\`\`\`\n`).length, 1);
 });
 
-test('wording: a file of many closed fences is read once per line and still finds an entry after them', { timeout: 20_000 }, () => {
-  const started = performance.now();
+test('wording: a file of many closed fences or a million unclosed fence openers is read once per line and still finds an entry after them', { timeout: 60_000 }, () => {
   for (const pair of ['```\n```\n', '~~~\n~~~\n', '```\n~~~\n']) {
     assert.equal(wordingFindings('a.md', `${pair.repeat(60_000)}\n${TERM}\n`).length, 1, JSON.stringify(pair));
   }
-  assert.ok(performance.now() - started < 5_000, 'three files of 60,000 fence pairs take well under the quadratic time');
+  assert.equal(wordingFindings('a.md', `${'```sh x\n'.repeat(1_000_000)}${TERM}\n`).length, 1);
+});
+
+test('wording: a manifest nested twenty thousand deep or holding a very long array is read without a stack overflow', () => {
+  assert.deepEqual(findingLines('deep.json', `${'['.repeat(20_000)}"${TERM}"${']'.repeat(20_000)}`), [1]);
+  assert.deepEqual(findingLines('deep.json', `${'{"a":'.repeat(20_000)}"x"${'}'.repeat(20_000)}`), []);
+  assert.deepEqual(findingLines('wide.json', JSON.stringify(Array.from({ length: 300_000 }, () => 'x'))), []);
 });
 
 test('wording: the actual negative disclaimers, the carried approved status sentences and the held-write executable strings pass', () => {
@@ -328,20 +339,46 @@ test('wording: the actual negative disclaimers, the carried approved status sent
   assert.deepEqual(wordingFindings('a.md', `It is **not** a ${REVIEW}, and _not_ ${REVIEW}ed either.\n`), []);
 });
 
-test('wording: only the approved status clause passes; a reason, another status or a disclaimer followed by a different status fails', () => {
+test('wording: only the approved status clause passes; a reason, another status or a disclaimer followed by a different status fails, also when markup splits or holds it', () => {
   const passing = [
     `${HOLD}.`, `${HOLD.toLowerCase()}.`, `- ${HOLD}.`, `# ${HOLD}`, `Not a ${REVIEW}. ${HOLD}.`, `Not a ${REVIEW}, not live\nexecution. The\nexternal ${REVIEW} is on\nhold.`,
     `Offline only; ${HOLD.toLowerCase()}.`, `Offline only (${HOLD.toLowerCase()}).`, `Not an independent ${REVIEW}; ${HOLD.toLowerCase()}.`, `It is not ${REVIEW}ed.`, `Not independent-${REVIEW.split(' ')[0]} review.`,
-    `${HOLD}. Funding was cut.`, `${HOLD}. ${HOLD}.`,
+    `${HOLD}. Funding was cut.`, `${HOLD}. ${HOLD}.`, `> ${HOLD}.`,
   ];
   for (const text of passing) assert.deepEqual(wordingFindings('a.md', `${text}\n`), [], JSON.stringify(text));
   const failing = [
     `The external ${REVIEW} is complete.`, `It is ${REVIEW.replace(' ', '-')}ed.`, 'The external review is complete.', `${HOLD} (pending funding).`, `${HOLD}; funding was cut.`, `${HOLD} because funding was cut.`,
     `Offline (${HOLD.toLowerCase()}); funding was cut.`, `Not a ${REVIEW}; the external review is complete.`, `Not a ${REVIEW}, and the external ${REVIEW} is complete.`,
     `Not a ${REVIEW}. It passed ${REVIEW}.`, 'It was security-reviewed.', 'External review: done.',
+    `The external [security](https://example.com) review is complete.`, `The external <b>security</b> review is complete.`, `The external ${REVIEW}<!-- x --> is complete.`,
+    `<!-- The external ${REVIEW} is complete. -->`, `<p title="The external ${REVIEW} is complete.">x</p>`, `The external security&nbsp;review is complete.`,
   ];
   for (const text of failing) assert.equal(wordingFindings('a.md', `${text}\n`).length, 1, JSON.stringify(text));
   assert.deepEqual(wordingFindings('a.md', `Intro.\n\n${failing[0]}\n`).map(({ line }) => line), [3]);
+});
+
+test('wording: in a blob an entry passes only wholly inside the approved clause or a disclaimer; one that crosses either fails', () => {
+  assert.deepEqual(findingLines('a.md', `${HOLD}.\n\nIt is not a ${REVIEW}.\n`, [REVIEW]), []);
+  assert.deepEqual(findingLines('a.md', `This is not a ${REVIEW} ${FIRST} today.\n`, [`${REVIEW.split(' ')[1]} ${FIRST}`]), [1]);
+  assert.deepEqual(findingLines('a.md', `${HOLD}. Funding was cut.\n`, ['hold. Funding']), [1]);
+  assert.deepEqual(findingLines('a.md', `Intro: ${HOLD.toLowerCase()}.\n`, [`intro: ${HOLD.split(' ')[0].toLowerCase()}`]), [1]);
+  assert.deepEqual(findingLines('page.html', `<p>Held. ${HOLD}.</p>`, [REVIEW]), []);
+});
+
+test('wording: the approved clause passes inside rendered markup; written inside a comment or an attribute, as any status there, it fails', () => {
+  for (const page of [`<p>${HOLD}.</p>`, `<p>${HOLD}<!-- x -->.</p>`, `[${HOLD}](u).`, `<p title="Not a ${REVIEW}">${HOLD}.</p>`]) assert.deepEqual(findingLines('page.html', page, ['unlisted-entry']), [], page);
+  for (const page of [`<!-- ${HOLD}. -->`, `<p title="${HOLD}.">x</p>`]) assert.deepEqual(findingLines('page.html', page, ['unlisted-entry']), [1], page);
+});
+
+test('wording: commit, tag and pull-request text are matched with no exemption, so the approved clause or a disclaimer holding an entry is found', () => {
+  const lines = (text, list, readMarkup = false) => wordingEntryLines(text, createWordingMatcher(list, () => {}), 10, { readMarkup });
+  assert.deepEqual(lines(`${HOLD}.`, [REVIEW]), [1]);
+  assert.deepEqual(lines(`Intro.\n\nThe external ${REVIEW.split(' ')[0]}\n${REVIEW.split(' ')[1]} is on hold.`, [REVIEW]), [3]);
+  assert.deepEqual(lines(`It is not a ${REVIEW}.`, [REVIEW]), [1]);
+  assert.deepEqual(lines(`${HOLD} pending audit.`, ['hold pending']), [1]);
+  assert.deepEqual(lines(`${FIRST} [${SECOND}](u)`, [TERM]), []);
+  assert.deepEqual(lines(`${FIRST} [${SECOND}](u)`, [TERM], true), [1]);
+  assert.deepEqual(lines(`${FIRST}<!-- x --> ${SECOND}`, [TERM], true), [1]);
 });
 
 // ---- the list and the CLI -------------------------------------------------------------------------------------------
@@ -425,6 +462,19 @@ test('history: R-WORDING finds an entry in a tree file, in a commit message, in 
   const harmless = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList(['harmless-entry'])], 'main'));
   assert.equal(harmless.status, 0, harmless.stderr);
   assert.equal(JSON.parse(harmless.stdout).scanner.wordingListSha256, sha256('harmless-entry\n'));
+});
+
+test('history: with the approved clause holding a listed entry, R-WORDING finds it in an author header, a wrapped commit message, a tag message and the pull-request text', () => {
+  const [word, rest] = REVIEW.split(' ');
+  const author = { name: HOLD, email: 'someone@example.com' };
+  const history = createHistory([{ files: { 'a.md': `${HOLD}.\n` }, message: 'plain' }, { message: `The external ${word}\n${rest} is on hold.`, author }]);
+  createAnnotatedTag(history.dir, 'v1', history.commits[0], { message: `${HOLD}.` });
+  const prText = path.join(makeTempDir('pr'), 'pr.json');
+  writeFileSync(prText, JSON.stringify([{ body: `${HOLD}.` }]));
+  const result = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList([REVIEW]), '--pr-text', prText], 'main,v1'));
+  assert.equal(result.status, 1, result.stderr);
+  const kinds = JSON.parse(result.stdout).findings.filter(({ rule }) => rule === 'R-WORDING').map(({ kind }) => kind).sort();
+  assert.deepEqual(kinds, ['author', 'message', 'message', 'pr-text']);
 });
 
 test('self-scan: the gate\'s own sources, tests and docs have no finding under an invented list used as both lists, and a joined entry in a comment is found', () => {

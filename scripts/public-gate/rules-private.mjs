@@ -132,6 +132,8 @@ let foldTable = null;
  * - `hasEntry(text)`: whether an entry occurs in `text`.
  * - `entryLines(text, maxLines)`: the first `maxLines` distinct 1-based lines where an entry occurs; CRLF, a lone CR and
  *   a lone LF each end a line, and an entry never holds one, so it starts on the line where it ends.
+ * - `eachEntry(text, onEntry)`: calls `onEntry(start, end)` with the UTF-16 bounds of the longest entry ending at each index
+ *   where one ends, in order, until it returns true.
  * `checkpoint()` runs every CHECKPOINT_STEPS steps while building and matching; what it throws (the deadline) propagates.
  */
 export function createPrivateMatcher(entries, checkpoint) {
@@ -152,17 +154,20 @@ export function createPrivateMatcher(entries, checkpoint) {
   const failure = new Int32Array(next.length);
   const ends = new Uint8Array(next.length);
   for (const state of terminals) ends[state] = 1;
-  const queue = [...next[0].values()];
+  /** The UTF-16 length of each state's path, and of the longest entry ending in it (0 for none); case folding never changes a length. */
+  const [widths, longest] = [new Int32Array(next.length), new Int32Array(next.length)];
+  const queue = [0];
   for (const state of queue) {
     for (const [code, child] of next[state]) {
       let link = failure[state];
       for (; link !== 0 && !next[link].has(code); link = failure[link]) step();
-      failure[child] = next[link].get(code) ?? 0;
-      ends[child] |= ends[failure[child]];
+      failure[child] = state === 0 ? 0 : next[link].get(code) ?? 0;
+      widths[child] = widths[state] + (code > 0xffff ? 2 : 1);
+      longest[child] = ends[child] ? widths[child] : longest[failure[child]];
       queue.push(child);
     }
   }
-  /** Reads `text` once, calling `onEntry(line)` where an entry ends, and stops when it returns true. */
+  /** Reads `text` once, calling `onEntry(line, end, length)` where an entry ends, and stops when it returns true. */
   function walk(text, onEntry) {
     let [state, line] = [0, 1];
     for (let index = 0; index < text.length; index += 1) {
@@ -177,7 +182,7 @@ export function createPrivateMatcher(entries, checkpoint) {
       }
       state = target ?? 0;
       step();
-      if (ends[state] && onEntry(line)) return;
+      if (longest[state] && onEntry(line, index + 1, longest[state])) return;
     }
   }
   const entryLines = (text, maxLines) => {
@@ -185,7 +190,8 @@ export function createPrivateMatcher(entries, checkpoint) {
     walk(text, (line) => (lines.at(-1) === line ? false : lines.push(line) >= maxLines));
     return lines;
   };
-  return { hasEntry: (text) => entryLines(text, 1).length > 0, entryLines };
+  const eachEntry = (text, onEntry) => walk(text, (line, end, length) => onEntry(end - length, end));
+  return { hasEntry: (text) => entryLines(text, 1).length > 0, entryLines, eachEntry };
 }
 
 /**

@@ -206,195 +206,89 @@ const CLAUSE_DELIMITER = /([.!?](?=\s|$)|[;()])/;
 const SHELL_LANGUAGES = new Set(['sh', 'bash', 'shell', 'console', 'zsh', 'powershell', 'cmd']);
 /** Characters that never reach the matcher: invisible format characters and Markdown emphasis. */
 const IGNORED_CHARACTERS = /[\p{Cf}*_`]/gu;
-/** The start of a tag: its name, and whether it closes. */
-const HTML_TAG = /<(\/?)([a-zA-Z][^\s/>]*)/y;
-/** One attribute after a tag name: the separators before it, its name and its quoted or bare value; a quote never closed runs to the end of the page. */
-const HTML_ATTRIBUTE = /[\s/]*(?:([^\s/>][^\s/>=]*)(?:\s*=\s*(?:"([^"]*)(?:"|$)|'([^']*)(?:'|$)|([^\s>]*)))?)?/y;
-/** The end of a script or style block; one never closed runs to the end of the page, as a browser reads it. */
-const HTML_RAW_END = { script: /<\/script(?=[\s/>]|$)/gi, style: /<\/style(?=[\s/>]|$)/gi };
-const HTML_TEXT_ATTRIBUTES = new Set(['title', 'alt', 'placeholder', 'content']);
-/** A character reference: a number (the `;` is optional) or a name of letters and digits with its `;` when it has one. */
-const HTML_REFERENCE = /&(?:#(\d+);?|#[xX]([0-9a-fA-F]+);?|([a-zA-Z][a-zA-Z0-9]*)(;?))/g;
-/** The names of U+00A0 to U+00FF in order; a browser decodes them with or without the `;`, as it does the four markup names and the upper-case forms below. */
-const HTML_LATIN1_NAMES = ('nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest '
-  + 'Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig '
-  + 'agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml').split(' ');
-const HTML_LEGACY_NAMES = new Map([...HTML_LATIN1_NAMES.map((name, index) => [name, String.fromCharCode(0xa0 + index)]),
-  ['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '"'], ['AMP', '&'], ['LT', '<'], ['GT', '>'], ['QUOT', '"'], ['COPY', '©'], ['REG', '®']]);
-/** The names a browser decodes only with the `;`, and the characters they stand for. */
-const HTML_SEMICOLON_NAMES = new Map([['apos', "'"], ['ensp', ' '], ['emsp', ' '], ['thinsp', ' '], ['zwj', '‍'], ['zwnj', '‌']]);
-const HTML_LEGACY_NAME_LENGTH = Math.max(...[...HTML_LEGACY_NAMES.keys()].map((name) => name.length));
-/** Stands in the text for a reference the scanner cannot decode exactly; a page that holds it is refused. */
-const UNDECODED_REFERENCE = '￾';
+/** A numeric or named character reference, with or without its `;`. Only the six KNOWN_REFERENCES are read; a text holding any other is refused. */
+const CHARACTER_REFERENCE = /&(?:#[\da-zA-Z]*|[A-Za-z][\da-zA-Z]*);?/g;
+const KNOWN_REFERENCES = new Map([['&amp;', '&'], ['&lt;', '<'], ['&gt;', '>'], ['&quot;', '"'], ['&#39;', "'"], ['&nbsp;', ' ']]);
+/** Markup not shown as written, read left to right: an HTML comment, a tag with its attributes, a Markdown reference definition, link destination,
+ * reference label or link bracket, block-quote marks, an escaping backslash and a character reference. One never closed runs to the end of the text. */
+const MARKUP_TOKEN = new RegExp([String.raw`<!--[\s\S]*?(?:-->|$)`, String.raw`<(?:\/?[A-Za-z]|[!?])(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^"'>])*(?:>|$)`,
+  String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:[^\r\n]*`, String.raw`\]\([^)]*(?:\)|$)`, String.raw`\]\[[^\]]*(?:\]|$)`, String.raw`!?\[|\]`,
+  String.raw`(?<![^\r\n])[ \t]*(?:>[ \t]?)+`, String.raw`\\(?=[!-/:-@[-\`{-~]|\r|\n)`, CHARACTER_REFERENCE.source].join('|'), 'g');
+/** A fence line: its marker (backticks with no backtick after them, or tildes) and the text after it. */
+const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)$/;
 /** Source files, which R-WORDING does not read: the files the address rule reads as code, and the two source extensions it leaves out that R-EVAL parses. */
 const SOURCE_EXTENSIONS = new Set([...CODE_EXTENSIONS, '.jsx', '.cts']);
+const markupAs = (filler) => (text) => text.replace(MARKUP_TOKEN, (token) => (token === '\\' ? '' : filler));
+/** How metadata is read (as written) and, with markup, pull-request text and blobs; a blob as written has the six known references decoded. */
+const [METADATA_READINGS, MARKUP_READINGS] = [[(text) => text], [(text) => text, markupAs(''), markupAs(' ')]];
+const BLOB_READINGS = [(text) => text.replace(CHARACTER_REFERENCE, (reference) => KNOWN_REFERENCES.get(reference) ?? reference), markupAs(''), markupAs(' ')];
 
 /** Text as the wording rule reads it: invisible characters and emphasis removed, each run of Unicode white space one space. */
 const normalizeProse = (text) => text.replace(IGNORED_CHARACTERS, '').replace(/\p{White_Space}+/gu, ' ').trim();
-/** A paragraph with the approved clause and the disclaimers replaced by a line break, which no entry holds. */
-const maskStatusSpans = (paragraph) => paragraph.replace(DISCLAIMER, '\n').replace(APPROVED_SPAN, '\n');
+/** The views of `source` through `readings`, normalised, in their order; only the one as written when it holds no markup character. */
+const viewsThrough = (source, readings) => (/[&<>[\]\\]/.test(source) ? readings.map((read) => normalizeProse(read(source))) : [normalizeProse(source)]);
 
-/**
- * Builds the wording matcher over the list `entries`, each normalised as the text is. Returns the private matcher's `{ hasEntry, entryLines }`.
- * Throws GateInputError(wording-list-malformed) for an entry that holds a tab or is empty once normalised.
- */
+/** Builds the wording matcher over the list `entries`, each normalised as the text is. Returns the private matcher; throws GateInputError(wording-list-malformed) for an entry that holds a tab or is empty once normalised. */
 export function createWordingMatcher(entries, checkpoint) {
   const normalized = entries.map(normalizeProse);
   if (normalized.includes('') || entries.some((entry) => entry.includes('\t'))) throw new GateInputError('wording-list-malformed', 'a wording list entry is empty after normalisation or holds a tab');
   return createPrivateMatcher(normalized, checkpoint);
 }
 
-const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})\s*$/;
-
-/** Whether `line` closes a fence opened with `marker`: only that character, at least as many times. */
-function isClosingFence(line, marker) {
-  const run = CLOSING_FENCE.exec(line)?.[1];
-  return run !== undefined && run[0] === marker[0] && run.length >= marker.length;
-}
-
-/** Marks each line of `lines` as 'text', a fence 'delimiter' or a fenced shell command 'command'; an unclosed fence marks nothing as a command. */
-function markFences(lines) {
-  const states = lines.map(() => 'text');
-  for (let open = 0; open < lines.length; open += 1) {
-    const fence = /^ {0,3}(`{3,}|~{3,})\s*([^`\s]*)/.exec(lines[open]);
-    if (!fence) continue;
-    const [, marker, language] = fence;
-    let close = open + 1;
-    while (close < lines.length && !isClosingFence(lines[close], marker)) close += 1;
-    if (close === lines.length) close = -1;
-    states[open] = 'delimiter';
-    if (close < 0) break;
-    const body = lines.slice(open + 1, close).filter((line) => line.trim() !== '');
-    const isCommand = SHELL_LANGUAGES.has(language.toLowerCase()) || (body.length > 0 && body.every((line) => /^(?:\$|>) /.test(line)));
-    states[close] = 'delimiter';
-    if (isCommand) for (let index = open + 1; index < close; index += 1) states[index] = 'command';
-    open = close;
-  }
-  return states;
-}
-
-/** The paragraphs of `text` (runs of non-blank lines in one fence state) as { line (of the first line), text (wrapped lines joined, normalised), isCommand }. */
+/**
+ * The paragraphs of `text` as { line (1-based, of the first line), source, isCommand }: runs of lines in one fence state, ended by a blank line that does not start
+ * inside a markup token. A closed fence's opener is a paragraph of its own (the text after its marker is read), its closer is in none, and its body is a command
+ * when its language is a shell. An opener starts neither inside markup nor in an HTML block (non-blank lines from one that starts with `<`); its closer is the
+ * first later line of its marker, at least as long, with nothing after it. One pass each; an unclosed fence is text.
+ */
 function paragraphsOf(text) {
   const lines = text.split(LINE_BREAK);
-  const states = markFences(lines);
-  const paragraphs = [];
-  lines.forEach((line, index) => {
-    if (line.trim() === '' || states[index] === 'delimiter') return;
+  const [starts, inMarkup, states, paragraphs] = [[0], new Uint8Array(lines.length), lines.map(() => 'text'), []];
+  for (let index = 1; index < lines.length; index += 1) starts.push(starts[index - 1] + lines[index - 1].length + (text.startsWith('\r\n', starts[index - 1] + lines[index - 1].length) ? 2 : 1));
+  let [line, open, htmlBlock] = [0, null, false];
+  for (const { index, 0: token } of text.matchAll(MARKUP_TOKEN)) {
+    while (starts[line] <= index) line += 1;
+    for (; starts[line] < index + token.length; line += 1) inMarkup[line] = 1;
+  }
+  lines.forEach((content, index) => {
+    const fence = FENCE.exec(content);
+    if (open && fence?.[1][0] === open.marker[0] && fence[1].length >= open.marker.length && fence[2].trim() === '') {
+      states.fill(SHELL_LANGUAGES.has(open.language) ? 'command' : 'text', open.index + 1, index);
+      states[open.index] = 'opener';
+      states[index] = 'closer';
+      open = null;
+    } else if (!open && fence && !inMarkup[index] && !htmlBlock) open = { index, marker: fence[1], language: fence[2].trim().split(/\s/)[0].toLowerCase() };
+    htmlBlock = content.trim() !== '' && (htmlBlock || ((index === 0 || lines[index - 1].trim() === '') && /^ {0,3}</.test(content)));
+  });
+  lines.forEach((content, index) => {
+    if (states[index] === 'closer' || (content.trim() === '' && !inMarkup[index])) return;
     const last = paragraphs.at(-1);
-    if (last && last.end === index - 1 && last.state === states[index]) Object.assign(last, { end: index, joined: `${last.joined} ${line}` });
-    else paragraphs.push({ line: index + 1, end: index, state: states[index], joined: line });
+    if (last?.end === index - 1 && last.state === states[index] && states[index] !== 'opener') last.end = index;
+    else paragraphs.push({ first: index, end: index, state: states[index] });
   });
-  return paragraphs.map(({ line, state, joined }) => ({ line, text: normalizeProse(joined), isCommand: state === 'command' }));
+  return paragraphs.map(({ first, end, state }) => ({ line: first + 1, source: text.slice(starts[first], starts[end] + lines[end].length), isCommand: state === 'command' }));
 }
 
-/** The character a numeric reference stands for, or UNDECODED_REFERENCE when a browser reads it as another one (zero, a surrogate, past U+10FFFF, U+0080 to U+009F). */
-const numericReference = (code) => (code < 1 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) || (code >= 0x80 && code <= 0x9f) ? UNDECODED_REFERENCE : String.fromCodePoint(code));
+/** The approved-clause and disclaimer spans of `view` as [start, end], in order (they never overlap); none when it does not mention the review. */
+const exemptSpansOf = (view) => (STATUS_TRIGGER.test(view) ? [...view.matchAll(DISCLAIMER), ...view.matchAll(APPROVED_SPAN)].map((match) => [match.index, match.index + match[0].length])
+  .sort((first, second) => first[0] - second[0]) : []);
 
-/** What a name stands for: the exact character, the name itself when a browser leaves it as text, or UNDECODED_REFERENCE when the scanner cannot tell (a name it does not hold, or a legacy name that starts a longer one). */
-function namedReference(reference, name, semicolon) {
-  if (semicolon) return HTML_LEGACY_NAMES.get(name) ?? HTML_SEMICOLON_NAMES.get(name) ?? UNDECODED_REFERENCE;
-  if (HTML_LEGACY_NAMES.has(name)) return HTML_LEGACY_NAMES.get(name);
-  for (let length = Math.min(name.length, HTML_LEGACY_NAME_LENGTH); length >= 2; length -= 1) {
-    if (HTML_LEGACY_NAMES.has(name.slice(0, length))) return UNDECODED_REFERENCE;
-  }
-  return reference;
-}
-
-/** `text` with each character reference replaced by its character (a line break by a space, so no line number moves; one not decoded exactly by UNDECODED_REFERENCE). */
-const decodeEntities = (text) => text.replace(HTML_REFERENCE, (reference, decimal, hex, name, semicolon) => {
-  const character = name !== undefined ? namedReference(reference, name, semicolon === ';') : numericReference(decimal !== undefined ? Number(decimal) : parseInt(hex, 16));
-  return /[\r\n]/.test(character) ? ' ' : character;
-});
-
-/**
- * The text of an HTML page in one pass, with every line break kept: text nodes, comments, and the `title`, `alt`, `placeholder` and `content`
- * values, character references decoded. Only a real start tag opens a script or style block, which is skipped; a `<script` inside a comment or
- * an attribute does not. A tag or comment never closed, and a `<` that starts no tag, is read as text.
- */
-function htmlText(html) {
-  const blank = (text) => text.replace(/[^\n]/g, ' ');
-  let text = '';
-  let index = 0;
-  while (index < html.length) {
-    const open = html.indexOf('<', index);
-    text += decodeEntities(html.slice(index, open < 0 ? html.length : open));
-    if (open < 0) break;
-    HTML_TAG.lastIndex = open;
-    const start = HTML_TAG.exec(html);
-    if (html.startsWith('<!--', open) || (!start && '!?/'.includes(html[open + 1] ?? ' '))) {
-      const comment = html.startsWith('<!--', open);
-      const close = html.indexOf(comment ? '-->' : '>', open + 2);
-      text += ` ${html.slice(open + (comment ? 4 : 2), close < 0 ? html.length : close)} `;
-      index = close < 0 ? html.length : close + (comment ? 3 : 1);
-    } else if (!start) {
-      text += '<';
-      index = open + 1;
-    } else {
-      const values = [];
-      let end = HTML_TAG.lastIndex;
-      while (end < html.length && html[end] !== '>') {
-        HTML_ATTRIBUTE.lastIndex = end;
-        const attribute = HTML_ATTRIBUTE.exec(html);
-        end = HTML_ATTRIBUTE.lastIndex;
-        if (attribute[1] !== undefined && HTML_TEXT_ATTRIBUTES.has(attribute[1].toLowerCase())) values.push(attribute[2] ?? attribute[3] ?? attribute[4] ?? '');
-      }
-      if (end >= html.length) {
-        text += decodeEntities(html.slice(open));
-        break;
-      }
-      index = end + 1;
-      text += `${blank(html.slice(open, index))} ${decodeEntities(values.join(' ')).replace(/\s+/g, ' ')}`;
-      const rawEnd = start[1] === '' ? HTML_RAW_END[start[2].toLowerCase()] : undefined;
-      if (rawEnd) {
-        rawEnd.lastIndex = index;
-        const stop = rawEnd.exec(html)?.index ?? html.length;
-        text += blank(html.slice(index, stop));
-        index = stop;
-      }
-    }
-  }
-  return text;
-}
-
-/** Every string value of parsed JSON with the key it sits under (null at the top). */
-function jsonStrings(value, key = null) {
-  if (typeof value === 'string') return [{ key, value }];
-  if (Array.isArray(value)) return value.flatMap((item) => jsonStrings(item, key));
-  return value !== null && typeof value === 'object' ? Object.entries(value).flatMap(([name, item]) => jsonStrings(item, name)) : [];
-}
-
-/** The paragraphs of a manifest: each string value, at the first line of the file that holds its key (line 1 when none does); the raw text when it is not JSON. */
-function manifestParagraphs(text) {
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return paragraphsOf(text);
-  }
-  const keyLines = new Map();
-  text.split(LINE_BREAK).forEach((line, index) => {
-    const key = /^\s*("(?:[^"\\]|\\.)*")\s*:/.exec(line)?.[1];
-    if (key !== undefined && !keyLines.has(key)) keyLines.set(key, index + 1);
+/** Whether a list entry occurs in `view` other than wholly inside one of `spans`: an entry that crosses a span's edge counts. */
+function hasEntryOutside(view, wordingMatcher, spans) {
+  let [next, found] = [0, false];
+  wordingMatcher.eachEntry(view, (start, end) => {
+    while (spans[next]?.[1] < end) next += 1;
+    found = !(spans[next]?.[0] <= start);
+    return found;
   });
-  return jsonStrings(parsed).flatMap(({ key, value }) => paragraphsOf(value).map((paragraph) => ({ ...paragraph, line: keyLines.get(JSON.stringify(key)) ?? 1 })));
-}
-
-/** The paragraphs of a prose, manifest or HTML blob, by its extension; those of a page that hold a reference not decoded exactly are marked `refused`. */
-function proseParagraphs(file, text) {
-  const extension = path.posix.extname(file).toLowerCase();
-  if (extension === '.json') return manifestParagraphs(text);
-  if (extension !== '.html') return paragraphsOf(text);
-  return paragraphsOf(htmlText(text)).map((paragraph) => ({ ...paragraph, refused: paragraph.text.includes(UNDECODED_REFERENCE) }));
+  return found;
 }
 
 /** True when a clause is the approved status clause: equal without case, a leading list marker or heading mark taken off. */
 const isApprovedClause = (clause) => clause.replace(/^(?:[-+>#]+\s+)+/, '').toLowerCase() === APPROVED_CLAUSE;
 
-/**
- * True when a paragraph states the status of the external review other than as the approved clause. Clauses end at sentence ends, semicolons
- * and parentheses; a clause (disclaimers masked) that mentions the review must be the approved clause, and the clause after an approved one
- * must not open at a semicolon or a parenthesis (a reason).
- */
+/** True when a paragraph states the status of the external review other than as the approved clause. Clauses end at sentence ends, semicolons and parentheses; a
+ * clause (disclaimers masked) that mentions the review must be the approved clause, and the clause after an approved one must not open at `;` or `(` (a reason). */
 function hasUnapprovedStatus(paragraph) {
   const parts = paragraph.split(CLAUSE_DELIMITER);
   const clauses = parts.flatMap((part, index) => (index % 2 === 0 && part.trim() !== '' ? [{ text: part.trim(), opener: parts[index - 1] ?? '' }] : []));
@@ -403,25 +297,63 @@ function hasUnapprovedStatus(paragraph) {
     : STATUS_TRIGGER.test(clause.text.replace(DISCLAIMER, ' '))));
 }
 
+/** The lines of prose `text` holding a character reference other than the six known ones, or starting a paragraph one of whose views states a status other than the
+ * approved clause or, outside a fenced shell command, holds a list entry not wholly inside an approved clause or a disclaimer of that view. */
+function proseFindingLines(text, wordingMatcher) {
+  const lines = text.includes('&') ? text.split(LINE_BREAK).flatMap((line, index) => ([...line.matchAll(CHARACTER_REFERENCE)].some(([reference]) => !KNOWN_REFERENCES.has(reference)) ? [index + 1] : [])) : [];
+  for (const { line, source, isCommand } of paragraphsOf(text)) {
+    const [asWritten, ...rendered] = viewsThrough(source, BLOB_READINGS);
+    const statusViews = rendered.length === 0 ? [asWritten] : [...rendered, ...[...source.matchAll(MARKUP_TOKEN)].map(([token]) => normalizeProse(token))];
+    if (statusViews.some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view))
+      || (!isCommand && [...new Set([asWritten, ...rendered])].some((view) => hasEntryOutside(view, wordingMatcher, exemptSpansOf(view))))) lines.push(line);
+  }
+  return new Set(lines);
+}
+
+/** Every string value of parsed JSON with the key it sits under (null at the top), walked with a stack so any depth is read. */
+function jsonStrings(root) {
+  const [strings, pending] = [[], [{ key: null, value: root }]];
+  while (pending.length > 0) {
+    const { key, value } = pending.pop();
+    if (typeof value === 'string') strings.push({ key, value });
+    else if (value !== null && typeof value === 'object') for (const [name, item] of Object.entries(value)) pending.push({ key: Array.isArray(value) ? key : name, value: item });
+  }
+  return strings;
+}
+
+/** The lines of a manifest where R-WORDING finds something: each string value read as prose, at the first line of the file that holds its key (line 1 when none does); the raw text when it is not JSON. */
+function manifestFindingLines(text, wordingMatcher) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return proseFindingLines(text, wordingMatcher);
+  }
+  const keyLines = new Map();
+  text.split(LINE_BREAK).forEach((line, index) => {
+    const key = /^\s*("(?:[^"\\]|\\.)*")\s*:/.exec(line)?.[1];
+    if (key !== undefined && !keyLines.has(key)) keyLines.set(key, index + 1);
+  });
+  return new Set(jsonStrings(parsed).filter(({ value }) => proseFindingLines(value, wordingMatcher).size > 0).map(({ key }) => keyLines.get(JSON.stringify(key)) ?? 1));
+}
+
 /**
- * R-WORDING: in the prose of every text blob that is not source code (Markdown and text as prose, HTML text nodes and attributes, manifests by
- * string value, other files as text), refuses a wording-list entry, read in paragraphs with wrapped lines joined, and a sentence about the review's
- * status other than the approved clause. A fenced shell command may hold list entries. An HTML paragraph with a character reference the scanner
- * cannot decode exactly is refused as well. Returns findings { rule, kind: 'content', entry, line }.
+ * R-WORDING: in every text blob that is not source code, read as prose (a `.json` manifest by string value), refuses a wording-list entry, a sentence about the
+ * review's status other than the approved clause, and a character reference other than `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&nbsp;`. Paragraphs are read
+ * with wrapped lines joined, in three views: as written (the six decoded), with markup erased and with each markup token one space. Returns findings { rule, kind: 'content', entry, line }.
  */
 export function scanWording({ entries, wordingMatcher, limits }) {
   const { findings, add } = collectFindings(WORDING_RULE_ID, limits);
   for (const entry of entries.filter((candidate) => candidate.path !== null)) {
-    const text = textOf(entry);
-    if (text === null || SOURCE_EXTENSIONS.has(path.posix.extname(entry.path).toLowerCase())) continue;
-    const lines = proseParagraphs(entry.path, text)
-      .filter((paragraph) => paragraph.refused || hasUnapprovedStatus(paragraph.text) || (!paragraph.isCommand && wordingMatcher.hasEntry(maskStatusSpans(paragraph.text))))
-      .map((paragraph) => paragraph.line);
-    for (const line of new Set(lines)) add({ kind: 'content', entry, line });
+    const [text, extension] = [textOf(entry), path.posix.extname(entry.path).toLowerCase()];
+    if (text === null || SOURCE_EXTENSIONS.has(extension)) continue;
+    const lines = extension === '.json' ? manifestFindingLines(text, wordingMatcher) : proseFindingLines(text, wordingMatcher);
+    for (const line of [...lines].sort((first, second) => first - second)) add({ kind: 'content', entry, line });
   }
   return findings;
 }
 
-/** The 1-based lines of the first `maxLines` paragraphs of `text` that hold a list entry, read as files are (wrapped lines joined), with no status check; for commit and tag text. */
-export const wordingEntryLines = (text, wordingMatcher, maxLines) => paragraphsOf(text)
-  .filter((paragraph) => wordingMatcher.hasEntry(maskStatusSpans(paragraph.text))).map((paragraph) => paragraph.line).slice(0, maxLines);
+/** The 1-based lines of the first `maxLines` paragraphs of commit or tag text, a header or (with `readMarkup`) pull-request text that hold a list entry, read as
+ * written with wrapped lines joined and, with `readMarkup`, also with markup erased and spaced. No span is exempt and no status is checked. */
+export const wordingEntryLines = (text, wordingMatcher, maxLines, { readMarkup = false } = {}) => paragraphsOf(text)
+  .filter(({ source }) => viewsThrough(source, readMarkup ? MARKUP_READINGS : METADATA_READINGS).some((view) => wordingMatcher.hasEntry(view))).map(({ line }) => line).slice(0, maxLines);

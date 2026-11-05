@@ -48,15 +48,16 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `lockfileDispositions` (`path`, `blob`, `field`, `line`, `valueSha256`, `reason`): all five facts of the occurrence must match, and the
   field is found by parsing the lockfile. An entry whose path the target holds only at another blob stops the run with
   `stale-lockfile-disposition` (exit 2), so a later lockfile change needs a new review; a seventh link or a wildcard needs a new owner decision.
-- **Wording (`R-WORDING`, complete scope).** In every text blob that is not source code (the `R-EVAL` extensions and `.css` and `.sh`; Markdown and
-  text as prose, HTML text, comments and the `title`, `alt`, `placeholder` and `content` values with character references decoded, outside
-  `script` and `style` blocks, manifests by string value, other files as text), list entries are matched in paragraphs:
-  wrapped lines joined, emphasis marks and invisible characters removed, white space collapsed, the entries normalised the same way. A fenced
-  shell command is left as written for the vocabulary. A sentence about the review's status passes only as the approved clause (case-insensitive,
-  with no reason added), or as a negative disclaimer. Clauses end at sentence ends, semicolons and parentheses; a reason after the approved
-  clause, in the same sentence, fails. An HTML paragraph holding a character reference the scanner cannot decode exactly (a name outside the
-  Latin-1, markup and space names, a legacy name that starts a longer word, a number a browser reads as another character) or a U+FFFE fails:
-  write the character itself. In history mode the list is also matched in commit and tag messages, headers and `--pr-text`, with no status check.
+- **Wording (`R-WORDING`, complete scope).** In every text blob that is not source code (the `R-EVAL` extensions and `.css` and `.sh`; a `.json`
+  manifest by string value, every other file, Markdown and HTML included, as text), paragraphs (runs of non-blank lines, wrapped lines joined,
+  emphasis marks and invisible characters removed, white space collapsed, the entries normalised the same way) are read in three views: as
+  written with only `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&nbsp;` decoded, with markup erased, and with each markup token one space.
+  Markup is HTML comments and tags (attributes included), Markdown link destinations, reference labels and definitions, link brackets, block-quote
+  marks, escaping backslashes and character references; any other character reference fails (write the character). A list entry fails unless it
+  lies wholly inside the approved clause or a disclaimer of the same view; the body of a closed fence whose language is a shell may hold entries.
+  A sentence about the review's status (in the erased and spaced views and in each markup token) passes only as the approved clause
+  (case-insensitive, no reason added; never inside a token) or a negative disclaimer; clauses end at sentence ends, semicolons and parentheses. In history mode the list is also matched, with no exemption and no status check, in commit
+  and tag messages and headers as written and in `--pr-text` in all three views.
 - **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
   file (`.d.ts`, `.d.mts` and `.d.cts` included), in a child
   process (`rules-eval-child.mjs`) under `run-bounded`. It flags the global `eval` and `Function` in these forms: called, with `new`, as a
