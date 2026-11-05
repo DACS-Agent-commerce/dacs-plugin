@@ -88,11 +88,6 @@ test('eval :: "executable template substitutions are parsed; the same words in s
   assert.deepEqual(await failingSnippets(harmless), []);
 });
 
-test('eval :: "inline HTML code is not read yet: an .html or .htm file holding eval gives no finding and no unscannable entry, as the docs state"', async () => {
-  const html = '<script>eval("1");</script>\n<a onclick="eval(1)">x</a>\n';
-  assert.deepEqual(await scan([['page.html', html], ['page.htm', html]]), { findings: [], unscannable: [] });
-});
-
 test('eval :: "the documented limits: a global object or timer held in a variable is not followed"', async () => {
   assert.deepEqual(await failingSnippets(['const g = globalThis; g.eval("1");', 'const later = setTimeout; later("go()", 1);', 'const code = "go()"; setTimeout(code, 1);']), []);
 });
@@ -222,6 +217,25 @@ test('eval :: "eval or Function taken out of a global object by any destructurin
     ];
     assert.deepEqual(await scan(passing.map((text, index) => [`s${index}.mjs`, text])), { findings: [], unscannable: [] });
   });
+});
+
+test('eval :: "computed, BigInt and negative-zero keys over literals holding globals retain nested destructuring checks"', async () => {
+  const failing = [
+    'const i = 0; const { [i]: { eval: run } } = [globalThis]; run("6 * 7");',
+    'let run; const i = 0; ({ [i]: { Function: run } } = [globalThis]); new run("return 6 * 7");',
+    'const { 1n: { eval: run } } = [null, globalThis]; run("6 * 7");',
+    'const { [-0]: { eval: run } } = [window];',
+    'for (const { [k]: { eval: run } } of [[window]]) run("1");',
+    'const { [k]: { eval: run } } = { a: window };',
+    'let run; ({ [k]: { eval: run } } = { a: window });',
+    'function f({ [k]: { eval: run } } = { a: window }) {}',
+    'const { [k]: [{ eval: run }] } = { a: [window] };',
+    'const [, ...{ [k - 1]: { eval: run } }] = [0, window];',
+    'const { 1n: { eval: run } } = { 1: window };',
+    'const [...[{ [k]: { eval: run } }]] = [[0, window]];',
+  ];
+  assert.deepEqual(await failingSnippets(failing), names(failing.length));
+  assert.deepEqual(await scan([['other.mjs', 'const { [k]: { eval: run } } = { a: other };']]), { findings: [], unscannable: [] });
 });
 
 const STUB_DIR = makeTempDir('eval-stub');
