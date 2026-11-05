@@ -7,16 +7,18 @@ import { writeDiagnostic } from './redact.mjs';
  * stdin (a kind is js, jsx, ts, tsx or html, a whole HTML file), parses each unit with the TypeScript compiler (parsing only;
  * nothing is run), and writes `{ results: [{ lines, cause? }] }` to stdout: for each unit the distinct 1-based lines of dynamic
  * evaluation (at most `maxLines`) and, when the unit cannot be judged, one cause. No text, name or path leaves this process; a failure leaves a fixed text on stderr.
+ * The rules are syntactic and closed: no value is tracked, so a form they do not name is no finding.
  */
 
 const SCRIPT_KINDS = { js: ts.ScriptKind.JS, jsx: ts.ScriptKind.JSX, ts: ts.ScriptKind.TS, tsx: ts.ScriptKind.TSX };
 /** The kind of a unit that is a whole HTML file, from which the child itself takes the code. */
 const HTML_KIND = 'html';
-/** The global functions whose use evaluates code. */
+/** The names refused wherever they are written: the global functions whose use evaluates code. */
 const DYNAMIC_NAMES = new Set(['eval', 'Function']);
 /** The global functions that evaluate their first argument when it is a string. */
 const TIMER_NAMES = new Set(['setTimeout', 'setInterval']);
 const GLOBAL_OBJECTS = new Set(['globalThis', 'window', 'self', 'global']);
+
 /** `expression` without parentheses, non-null marks and type assertions, and, for a comma expression, only its last operand. */
 function unwrap(expression) {
   let current = expression;
@@ -27,66 +29,10 @@ function unwrap(expression) {
   return current;
 }
 
-/** The text of a string or number literal key, else undefined. */
-function literalKey(node) {
-  const key = unwrap(node);
+/** The text of a key written as a string, number or plain template literal, else undefined (a BigInt or any other expression). */
+function keyText(expression) {
+  const key = unwrap(expression);
   return ts.isStringLiteralLike(key) || ts.isNumericLiteral(key) ? key.text : undefined;
-}
-
-const keyOf = (name) => (ts.isComputedPropertyName(name) ? literalKey(name.expression) : ts.isBigIntLiteral(name) ? undefined : name.text);
-const LOGICAL = new Set(['BarBar', 'AmpersandAmpersand', 'QuestionQuestion'].flatMap((name) => [ts.SyntaxKind[`${name}Token`], ts.SyntaxKind[`${name}EqualsToken`]]));
-
-/** The expressions a value can come from: both branches of a conditional, both operands of a logical operator, the right of `=`, else the expression itself. */
-function valuesOf(expression) {
-  const node = unwrap(expression);
-  if (ts.isConditionalExpression(node)) return [...valuesOf(node.whenTrue), ...valuesOf(node.whenFalse)];
-  const kind = ts.isBinaryExpression(node) && node.operatorToken.kind;
-  if (LOGICAL.has(kind)) return [...valuesOf(node.left), ...valuesOf(node.right)];
-  return kind === ts.SyntaxKind.EqualsToken ? valuesOf(node.right) : [node];
-}
-const isGlobalObject = (expression) => valuesOf(expression).some((node) => {
-  if (ts.isIdentifier(node)) return GLOBAL_OBJECTS.has(node.text);
-  if (ts.isPropertyAccessExpression(node)) return isGlobalObject(node.expression) && GLOBAL_OBJECTS.has(node.name.text);
-  return ts.isElementAccessExpression(node) && isGlobalObject(node.expression) && GLOBAL_OBJECTS.has(literalKey(node.argumentExpression));
-});
-const INDEX = /^\d+$/;
-const INDEXES = new WeakMap();
-/** The position of `element` in its array literal or array pattern `container`; one pass indexes all of them. */
-const indexIn = (container, element) => INDEXES.get(element) ?? (container.elements.forEach((item, index) => INDEXES.set(item, index)), INDEXES.get(element));
-
-/** Whether the value `path` deep in `expression` is a global object. A step is a property key or array index as text, or null for any element; an array is no global object. */
-function globalAt(expression, path) {
-  const [step, ...rest] = path;
-  return valuesOf(expression).some((node) => {
-    if (isGlobalObject(node)) return path.every((key) => GLOBAL_OBJECTS.has(key));
-    if (step === undefined || (step !== null && ts.isArrayLiteralExpression(node) && !INDEX.test(step))) return false;
-    if (ts.isArrayLiteralExpression(node)) {
-      const spreadAt = node.elements.findIndex(ts.isSpreadElement);
-      return node.elements.some((element, index) => (ts.isSpreadElement(element) ? globalAt(element.expression, [null, ...rest])
-        : (step === null || String(index) === step || (spreadAt >= 0 && index > spreadAt)) && globalAt(element, rest)));
-    }
-    return ts.isObjectLiteralExpression(node) && node.properties.some((property) => {
-      if (ts.isSpreadAssignment(property)) return globalAt(property.expression, path);
-      const value = ts.isPropertyAssignment(property) ? property.initializer : ts.isShorthandPropertyAssignment(property) ? property.name : undefined;
-      return value !== undefined && (step === null || [step, undefined].includes(keyOf(property.name))) && globalAt(value, rest);
-    });
-  });
-}
-
-/** Whether a binding pattern or assignment target receives a global object from the value written beside it (see `globalAt`), `path` deep: an initializer or default, the right of `=`, the `of` operand, or an enclosing pattern's, reached through the key or index the target has in it (a rest element holds the array from its index on). */
-function receivesGlobal(target, path = []) {
-  const { parent } = target;
-  const indexed = (container, index, isRest) => receivesGlobal(container, isRest ? [path[0] === null ? null : String(index + Number(path[0])), ...path.slice(1)] : [String(index), ...path]);
-  if (ts.isVariableDeclaration(parent) || ts.isParameter(parent)) return parent.name === target && (parent.initializer ? globalAt(parent.initializer, path) : ts.isVariableDeclaration(parent) && receivesGlobal(parent.parent, path));
-  if (ts.isBinaryExpression(parent)) return parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && parent.left === target && (globalAt(parent.right, path) || receivesGlobal(parent, path));
-  if (ts.isForOfStatement(parent)) return parent.initializer === target && globalAt(parent.expression, [null, ...path]);
-  if (ts.isPropertyAssignment(parent)) return parent.initializer === target && receivesGlobal(parent.parent, [keyOf(parent.name) ?? null, ...path]);
-  if (ts.isArrayLiteralExpression(parent)) return indexed(parent, indexIn(parent, target), false);
-  if (ts.isSpreadElement(parent) && ts.isArrayLiteralExpression(parent.parent)) return indexed(parent.parent, indexIn(parent.parent, parent), true);
-  if (!ts.isBindingElement(parent) || parent.name !== target) return false;
-  const container = parent.parent;
-  return (parent.initializer !== undefined && globalAt(parent.initializer, path))
-    || (ts.isArrayBindingPattern(container) ? indexed(container, indexIn(container, parent), parent.dotDotDotToken !== undefined) : receivesGlobal(container, [(parent.propertyName && keyOf(parent.propertyName)) ?? null, ...path]));
 }
 
 /** A name this identifier declares or labels, or a property it names, is no use of the global of that name. */
@@ -97,61 +43,93 @@ function isUse(identifier) {
   return !isName && !isLabel && parent.propertyName !== identifier;
 }
 
+/** A test, kept per node, of whether a node holds anywhere in it a use of one of `names`. */
+function usesOf(names) {
+  const held = new WeakMap();
+  const holds = (node) => {
+    if (!held.has(node)) held.set(node, (ts.isIdentifier(node) && names.has(node.text) && isUse(node)) || ts.forEachChild(node, (child) => holds(child) || undefined) === true);
+    return held.get(node);
+  };
+  return holds;
+}
+const holdsGlobalObject = usesOf(GLOBAL_OBJECTS);
+const holdsTimer = usesOf(TIMER_NAMES);
+
+/** Whether `node` names eval or Function: as any identifier, as a literal property, member, binding or specifier name, or as a literal element-access key or computed name. */
+function namesDynamic(node) {
+  if (ts.isIdentifier(node)) return DYNAMIC_NAMES.has(node.text);
+  if (ts.isStringLiteralLike(node)) return DYNAMIC_NAMES.has(node.text) && (node.parent.name === node || node.parent.propertyName === node);
+  const key = ts.isElementAccessExpression(node) ? node.argumentExpression : ts.isComputedPropertyName(node) ? node.expression : undefined;
+  return key !== undefined && DYNAMIC_NAMES.has(keyText(key));
+}
+
+const isOpenKey = (name) => name !== undefined && (ts.isBigIntLiteral(name) || (ts.isComputedPropertyName(name) && keyText(name.expression) === undefined));
+/** Whether a destructuring pattern, or one nested in it, takes a non-literal or BigInt key, a rest element or a spread. */
+function hasOpenKey(target) {
+  const node = ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken ? target.left : target;
+  if (ts.isBindingElement(node)) return node.dotDotDotToken !== undefined || isOpenKey(node.propertyName) || hasOpenKey(node.name);
+  if (ts.isPropertyAssignment(node)) return isOpenKey(node.name) || hasOpenKey(node.initializer);
+  if (ts.isSpreadElement(node) || ts.isSpreadAssignment(node)) return true;
+  const isList = ts.isObjectBindingPattern(node) || ts.isArrayBindingPattern(node) || ts.isArrayLiteralExpression(node);
+  return (isList ? node.elements : ts.isObjectLiteralExpression(node) ? node.properties : []).some(hasOpenKey);
+}
+
+/** The pattern and its value at a destructuring: a declared or parameter pattern and its initializer (or `for…of` operand), the left and right of `=`, or a `for…of` target and operand. */
+function destructuringAt(node) {
+  if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && ts.isBindingPattern(node.name)) {
+    const loop = node.parent.parent;
+    return { pattern: node.name, value: node.initializer ?? (ts.isForOfStatement(loop) && loop.initializer === node.parent ? loop.expression : undefined) };
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) return { pattern: node.left, value: node.right };
+  return ts.isForOfStatement(node) && !ts.isVariableDeclarationList(node.initializer) ? { pattern: node.initializer, value: node.expression } : undefined;
+}
+
+/** Whether `node` reads a key that cannot be judged from an expression naming a global object: a non-literal element-access key, or an open destructuring key (see `hasOpenKey`). */
+function readsOpenKey(node) {
+  if (ts.isElementAccessExpression(node)) return keyText(node.argumentExpression) === undefined && holdsGlobalObject(node.expression);
+  const site = destructuringAt(node);
+  return site !== undefined && hasOpenKey(site.pattern) && (holdsGlobalObject(site.pattern) || (site.value !== undefined && holdsGlobalObject(site.value)));
+}
+
+/** Whether `callee` is a timer: an expression holding a use of setTimeout or setInterval, or such a literal-key member of an expression naming a global object. */
+function isTimer(callee) {
+  const node = unwrap(callee);
+  if (holdsTimer(node)) return true;
+  const key = ts.isPropertyAccessExpression(node) ? node.name.text : ts.isElementAccessExpression(node) ? keyText(node.argumentExpression) : undefined;
+  return TIMER_NAMES.has(key) && holdsGlobalObject(node.expression);
+}
+
+/** The first timer arguments that cannot be a string: a function, a name or a property access. */
+const CODE_FREE_ARGUMENTS = [ts.isArrowFunction, ts.isFunctionExpression, ts.isIdentifier, ts.isPropertyAccessExpression];
+/** Whether `node` calls a timer with a first argument that may be a string: a tagged template, or any present argument but those above. */
+function isStringTimerCall(node) {
+  if (ts.isTaggedTemplateExpression(node)) return isTimer(node.tag);
+  if (!ts.isCallExpression(node) || !isTimer(node.expression) || node.arguments.length === 0) return false;
+  return !CODE_FREE_ARGUMENTS.some((isCodeFree) => isCodeFree(unwrap(node.arguments[0])));
+}
+
 /** The statement kinds the emitter drops whole when they carry their own `declare` modifier; any other `declare` node is still emitted. */
 const DROPPED_DECLARATIONS = new Set([ts.SyntaxKind.VariableStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration]);
 const isDroppedDeclaration = (node) => DROPPED_DECLARATIONS.has(node.kind) && (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.DeclareKeyword);
-
-const isStringArgument = (argument) => argument !== undefined && valuesOf(argument).some((node) => ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)
-  || (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.PlusToken || node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) && (isStringArgument(node.left) || isStringArgument(node.right))));
-
-/** The names of the globals a callee can reach, each written plainly or as a member of a global object with a literal key (undefined for any other form). */
-const globalNamesOf = (callee) => valuesOf(callee).map((node) => {
-  if (ts.isIdentifier(node)) return node.text;
-  if (ts.isPropertyAccessExpression(node) && isGlobalObject(node.expression)) return node.name.text;
-  return ts.isElementAccessExpression(node) && isGlobalObject(node.expression) ? literalKey(node.argumentExpression) : undefined;
-});
+// Types, interfaces, `implements` clauses and `declare` variable, function, class, enum and namespace statements are erased: nothing in them runs. A class `extends` clause does,
+// and so do a `declare` export assignment, import alias or class field, which the emitter keeps.
+const isErased = (node) => (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node)
+  || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isDroppedDeclaration(node);
 
 /** Judges one unit, whose first line is line `firstLine` of its file: { lines, cause? }. */
 function judge({ kind, text, firstLine = 1 }, maxLines) {
   const source = ts.createSourceFile(`unit.${kind}`, text, ts.ScriptTarget.Latest, true, SCRIPT_KINDS[kind]);
   if (source.parseDiagnostics.length > 0) return { lines: [], cause: 'eval-parse-error' };
   const lines = new Set();
-  let computedMember = false;
-  const flag = (node) => {
-    if (lines.size < maxLines) lines.add(source.getLineAndCharacterOfPosition(node.getStart(source)).line + firstLine);
-  };
-  const checkMember = (node) => {
-    if (!isGlobalObject(node.expression)) return;
-    const key = ts.isPropertyAccessExpression(node) ? node.name.text : literalKey(node.argumentExpression);
-    if (key === undefined) computedMember = true;
-    else if (DYNAMIC_NAMES.has(key)) flag(node);
-  };
-  const checkPattern = (pattern) => {
-    for (const member of ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties) {
-      const key = member.propertyName ?? member.name;
-      const name = key && keyOf(key);
-      if (member.dotDotDotToken || ts.isSpreadAssignment(member) || name === undefined) computedMember = true;
-      else if (DYNAMIC_NAMES.has(name)) flag(member);
-    }
-  };
+  let openKey = false;
   const visit = (node) => {
-    // Types, interfaces, `implements` clauses and `declare` variable, function, class, enum and namespace statements are erased: nothing in them runs. A class `extends` clause does,
-    // and so do a `declare` export assignment, import alias or class field, which the emitter keeps.
-    if ((ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node)
-      || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isDroppedDeclaration(node)) return;
-    if (ts.isIdentifier(node)) {
-      if (DYNAMIC_NAMES.has(node.text) && isUse(node)) flag(node);
-    } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-      checkMember(node);
-    } else if ((ts.isObjectBindingPattern(node) || ts.isObjectLiteralExpression(node)) && receivesGlobal(node)) {
-      checkPattern(node);
-    } else if (ts.isCallExpression(node) && globalNamesOf(node.expression).some((name) => TIMER_NAMES.has(name)) && isStringArgument(node.arguments[0])) {
-      flag(node);
-    }
+    if (isErased(node)) return;
+    if ((namesDynamic(node) || isStringTimerCall(node)) && lines.size < maxLines) lines.add(source.getLineAndCharacterOfPosition(node.getStart(source)).line + firstLine);
+    openKey ||= readsOpenKey(node);
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return { lines: [...lines].sort((first, second) => first - second), ...(computedMember ? { cause: 'eval-computed-member' } : {}) };
+  return { lines: [...lines].sort((first, second) => first - second), ...(openKey ? { cause: 'eval-computed-member' } : {}) };
 }
 
 /*
