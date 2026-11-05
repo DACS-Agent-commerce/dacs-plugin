@@ -128,6 +128,8 @@ const SCRIPT_TRIGGER = /<script/gi;
 const SCRIPT_EXACT = /<script(?: type="module"| type="text\/javascript"| src="[^"<>&]*")*>([^<]*)<\/script>/yd;
 const HANDLER_TRIGGER = /(?<![A-Za-z0-9])on[A-Za-z0-9]*\s*=/gi;
 const HANDLER_EXACT = / on[a-z]+="([^"&]*)"/yd;
+/* The reader does not track tags, so code that holds an `on…=` not written as a property (`this.onerror=null` is one) may be a tag's attribute it cannot see. */
+const ATTRIBUTE_LIKE = /(?<![A-Za-z0-9.])on[A-Za-z0-9]*\s*=/i;
 
 /** Matches the sticky `pattern` at `index` of `text`; null when there is no such position or no match there. */
 function matchAt(pattern, text, index) {
@@ -161,9 +163,10 @@ function blanked(text, ranges) {
 
 /**
  * The code in an HTML file as JS units { kind, text, firstLine }: each non-blank script body, then each event-handler value as the
- * body of a function. Returns undefined when a `<script` or an `on…=` is not in an exact form. An accepted script body is
- * blanked before the handler trigger runs, and the trigger resumes after each accepted handler value (code, so `this.onerror=null`
- * in it is no attribute).
+ * body of a function. Returns undefined when a `<script` or an `on…=` is not in an exact form, or when the two readings meet: an
+ * accepted script body or handler value that holds an attribute-like `on…=`, or a handler value that overlaps a script body (either
+ * could be a quoted attribute value in the browser's reading, hiding real code). An accepted script body is blanked before the
+ * handler trigger runs, and the trigger resumes after each accepted handler value (code, so `this.onerror=null` in it is no attribute).
  */
 function htmlUnitsOf(text) {
   const lineStarts = ts.computeLineStarts(text);
@@ -171,17 +174,21 @@ function htmlUnitsOf(text) {
   const bodies = [];
   for (const { index } of text.matchAll(SCRIPT_TRIGGER)) {
     const script = matchAt(SCRIPT_EXACT, text, index);
-    if (script === null) return undefined;
+    if (script === null || ATTRIBUTE_LIKE.test(script[1])) return undefined;
     const [bodyStart, bodyEnd] = script.indices[1];
     if (script[1].trim() !== '') units.push({ kind: 'js', text: script[1], firstLine: lineOf(lineStarts, bodyStart) });
     bodies.push([bodyStart, bodyEnd]);
   }
   const handlerText = blanked(text, bodies);
   HANDLER_TRIGGER.lastIndex = 0;
+  let nextBody = 0;
   for (let found = HANDLER_TRIGGER.exec(handlerText); found !== null; found = HANDLER_TRIGGER.exec(handlerText)) {
     const handler = matchAt(HANDLER_EXACT, handlerText, found.index - 1);
-    if (handler === null) return undefined;
-    units.push({ kind: 'js', text: `(function () {${handler[1]}\n})`, firstLine: lineOf(lineStarts, handler.indices[1][0]) });
+    if (handler === null || ATTRIBUTE_LIKE.test(handler[1])) return undefined;
+    const [valueStart, valueEnd] = handler.indices[1];
+    while (nextBody < bodies.length && bodies[nextBody][1] <= valueStart) nextBody += 1;
+    if (nextBody < bodies.length && bodies[nextBody][0] < valueEnd) return undefined;
+    units.push({ kind: 'js', text: `(function () {${handler[1]}\n})`, firstLine: lineOf(lineStarts, valueStart) });
     HANDLER_TRIGGER.lastIndex = HANDLER_EXACT.lastIndex;
   }
   return units;

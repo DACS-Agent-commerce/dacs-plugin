@@ -126,10 +126,29 @@ test('eval :: "handler forms outside the exact form are unreadable and entities 
   assert.deepEqual(await scanHtml('<a person="1" xonclick="eval(1)" 9onload="eval(1)" region=2>x</a>\n'), { findings: [], unscannable: [] });
 });
 
-test('eval :: "an accepted script body is masked before handlers are looked for, so on...= text inside code is neither unreadable nor a handler"', async () => {
-  const html = '<script>\nconst a = " onclick=\'x\' ";\neval(a); // onload=\n</script>\n<a onclick="go()">x</a>\n';
+test('eval :: "an accepted script body is masked before handlers are looked for, so a property assignment of an on... name inside code is neither unreadable nor a handler"', async () => {
+  const html = '<script>\nwindow.onload = go;\neval(a); // this.onerror=null\n</script>\n<a onclick="go()">x</a>\n';
   assert.deepEqual(await scanHtml(html), { findings: [htmlFinding(3)], unscannable: [] });
-  assert.deepEqual(await scanHtml('<script>const b = "on=1";</script>\n'), { findings: [], unscannable: [] });
+  assert.deepEqual(await scanHtml('<script>const b = "a.on=1";</script>\n'), { findings: [], unscannable: [] });
+});
+
+test('eval :: "a page whose quoting hides a handler is unreadable, never clean: a <script in an attribute value, an on…= in a script body or in another handler value, a script inside a handler value"', async () => {
+  const hiding = [
+    `<a title="<script>'" onclick="eval(1)" y="'</script>">x</a>`, // a script body that holds a real handler
+    `<a onclick="a='<script>'; eval(x); b='</script>'">a</a>`, // a script inside a handler value
+    `<a onclick="eval(x); a='<script>'">x</a><b title="</script>">y</b>`, // a handler value that reaches a script body
+    `<a title=" onx=" a // onmouseover="eval(1)">x</a>`, // a fake handler that swallows the real one
+    '<script>const a = " onclick=\'x\' ";</script>', '<script>eval(a); // onload=\n</script>', '<script>\nonclick = go;</script>', '<script>const b = "on=1";</script>',
+  ];
+  for (const html of hiding) assert.deepEqual(await scanHtml(`${html}\n`), { findings: [], unscannable: UNREADABLE }, html);
+  assert.deepEqual(await scanHtml('<a title="t" onclick="eval(1)" y="z">x</a>\n'), { findings: [htmlFinding(1)], unscannable: [] });
+  assert.deepEqual(await scanHtml('<script>const a = 1;</script>\n<a onclick="if (a < b) eval(1)">x</a>\n'), { findings: [htmlFinding(2)], unscannable: [] });
+  assert.deepEqual(await scanHtml('<a onclick="this.onerror=null">x</a>\n<script>window.onload=go;</script>\n'), { findings: [], unscannable: [] });
+});
+
+test('eval :: "a page with many scripts and many handlers is read in linear time"', async () => {
+  const html = `${'<script>a;</script>'.repeat(30_000)}\n${'<a onclick="go()">x</a>'.repeat(30_000)}`;
+  assert.deepEqual(await scanHtml(html, { limits: { ...LIMITS, maxEvalUnitBytes: html.length + 1 } }), { findings: [], unscannable: [] });
 });
 
 test('eval :: "a script or handler that cannot be parsed is a parse error, a computed global member is unscannable, and findings elsewhere in the page are still reported"', async () => {

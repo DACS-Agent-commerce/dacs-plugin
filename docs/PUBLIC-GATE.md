@@ -68,7 +68,8 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   every `<script` must be `<script`, any of ` type="module"`, ` type="text/javascript"` and ` src="…"` (the value holds none of `"<>&`), `>`, a body without `<`, and `</script>`
   (lower case, no other attribute or space, so `data-type`, JSON data blocks and single quotes are unreadable); a non-blank body is judged as a script, at its line of the file.
   Every `on…=` not directly after an ASCII letter or digit must be ` on[a-z]+="…"` (a space first; the value holds none of `"&`) and is judged as the body of a function, at its line;
-  after an accepted value the search resumes behind it, and accepted script bodies are not searched. Entities are never decoded. `javascript:` URLs, `srcdoc`, SVG `<set>` and `<animate>`, and XHTML are not read.
+  after an accepted value the search resumes behind it, and accepted script bodies are not searched. The file is unreadable too when a script body or handler value holds an `on…=`
+  that does not directly follow a `.` (it could be an attribute of a tag the reader does not see; `this.onerror=null` is read), or when a handler value overlaps a script body. Entities are never decoded. `javascript:` URLs, `srcdoc`, SVG `<set>` and `<animate>`, and XHTML are not read.
   A computed member, a computed destructuring key or a rest element of a global object makes the file unscannable (`eval-computed-member`). Other causes: `eval-parse-error`
   (the file, or a script or handler in an HTML file, has a syntax error), `eval-too-deep` (the file nests so deep that parsing it overflows the child's stack; the other files are still judged), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`
   (for an HTML file, the size of the whole file; an HTML file lists one cause, that of its first unit that has one);
