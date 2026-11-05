@@ -50,6 +50,7 @@ test('eval :: "member, bracket, optional and comma-expression access to the glob
     'globalThis.eval("1");', 'window["eval"]("1");', 'globalThis?.eval?.("1");', '(0, eval)("1");', 'const run = eval; run("1");', 'const list = [eval];', 'register(eval);',
     'self.Function("return 1");', 'new globalThis.Function("return 1");', 'window[`eval`]("1");', 'const { eval: run } = globalThis;', 'class Runner extends Function {}',
     'globalThis.window.eval("1");', 'const make = window.Function;', '(eval)("1");', 'const o = { eval };',
+    '(ok ? window : self).eval("1");', '(window || self).eval("1");', 'new (globalThis ?? window).Function("1");', 'let g; (g = window).eval("1");',
   ];
   assert.deepEqual(await failingSnippets(failing), names(failing.length));
   const passing = ['thing.eval("1");', 'const o = { eval: 1, Function: 2 };', 'o.Function = 3;', 'class A { eval() {} Function() {} }', 'import { eval as e } from "x"; export { e };'];
@@ -175,7 +176,7 @@ test('eval :: "the generated-file list is exact: a new unlisted chunk fails and 
 });
 
 test('eval :: "a computed member access on a global object with a non-literal key is unscannable" (T11)', async () => {
-  const unscannable = ['globalThis[name]("1");', 'window["ev" + "al"]("1");', 'self[names[0]];', 'globalThis?.[key];', 'const pick = (k) => window[k];'];
+  const unscannable = ['globalThis[name]("1");', 'window["ev" + "al"]("1");', 'self[names[0]];', 'globalThis?.[key];', 'const pick = (k) => window[k];', '(ok ? window : self)[k]("1");'];
   const result = await scan(unscannable.map((text, index) => [`s${index}.mjs`, text]));
   assert.deepEqual(result.findings, []);
   assert.deepEqual(result.unscannable, unscannable.map((_, index) => ({ path: `s${index}.mjs`, cause: 'eval-computed-member' })));
@@ -191,7 +192,11 @@ test('eval :: "eval or Function taken out of a global object by any destructurin
       'function f({ eval: run } = globalThis) { return run; }', 'const f = ({ Function: Make } = window) => Make;', 'for (const { eval: run } of [globalThis]) run("1");',
       'let run; for ({ eval: run } of [window]) run("1");', 'const { self: { eval: run } } = globalThis;', 'const [{ eval: run }] = [globalThis];', 'let run; [{ eval: run }] = [window];',
       'const { a: { eval: run } = globalThis } = {};', 'let run; ({ a: { eval: run } = globalThis } = {});', 'const { eval: run } = ready ? globalThis : other;', 'const { eval: run } = other || window;',
-      'const { eval: run } = (0, globalThis);', 'const { "Function": Make } = global;',
+      'const { eval: run } = (0, globalThis);', 'const { "Function": Make } = global;', 'let run; ({ window: { eval: run } = other } = globalThis);', 'const { a: { eval: run } } = { a: window };',
+      'const { window: { eval: run } } = { window };', 'let run; [...[{ eval: run }]] = [window];', 'let o; const { eval: run } = (o = window);', 'const { a: { eval: run } } = { ...{ a: window } };',
+      'const { self: { eval: run } } = globalThis;', 'const { "window": { eval: run } } = globalThis;', 'const [a, { eval: run }] = [app, window];', 'const { window: { self: { Function: Make } } } = globalThis;',
+      'let run; ({ self: { eval: run } } = globalThis);', 'let run; [, { eval: run }] = [a, window];', 'const [, { eval: run }] = [...list, window];', 'const [...[{ eval: run }]] = [window];',
+      'function f({ self: { eval: run } } = window) {}', 'for (const { self: { eval: run } } of [globalThis]) {}',
     ];
     assert.deepEqual(await failingSnippets(failing), names(failing.length));
   });
@@ -209,6 +214,11 @@ test('eval :: "eval or Function taken out of a global object by any destructurin
       'const { eval: run } = other;', 'const { [name]: run } = other;', 'const { ...rest } = other;', 'const { a, b } = globalThis;', 'const { setTimeout: later } = globalThis;', 'function f({ eval: run }) { return run; }',
       'function f({ eval: run } = {}) { return run; }', 'let run; ({ eval: run } = other);', 'let run; ({ a: run } = globalThis);', 'const list = [globalThis, { eval: 1 }];', 'list = [globalThis, { Function: 1 }];',
       'for (const { eval: run } of items) {}', 'for (const { eval: run } of [first, second]) {}', 'const { a: { eval: run } } = other;', 'register({ eval: 1 }, globalThis);',
+      'const { app: { eval: run } } = window;', 'const { app: { Function: Make } } = globalThis;', 'let run; ({ app: { eval: run } } = window);', 'const [{ eval: run }, w] = [app, window];',
+      'let run, w; [{ eval: run }, w] = [app, window];', 'const [{ eval: run }] = [[window]];', 'const { app: { [name]: run } } = window;', 'const { app: { ...rest } } = window;',
+      'let rest; ({ app: { ...rest } } = window);', 'const { window: { app: { eval: run } } } = globalThis;', 'const [...{ eval: run }] = [window];', 'const { list: [{ eval: run }] } = window;',
+      'const { eval: run } = [globalThis];', 'function f({ app: { eval: run } } = window) {}', 'for (const { app: { eval: run } } of [window]) {}', 'try {} catch ({ app: { eval: run } }) {}',
+      'const { a: { eval: run } } = { ...other };', 'const { a = { eval: 1 } } = window;',
     ];
     assert.deepEqual(await scan(passing.map((text, index) => [`s${index}.mjs`, text])), { findings: [], unscannable: [] });
   });
@@ -296,9 +306,12 @@ test('eval :: "history: the same bytes at a listed generated-file path and at an
 });
 
 test('eval :: "setTimeout and setInterval with string arguments fail outside exact generated-file exceptions; function callbacks pass, and history evaluates each occurrence" (T14)', async () => {
-  const failing = ['setTimeout("go()", 1);', "setInterval('go()', 1);", 'window.setTimeout("go()");', 'globalThis["setInterval"]("go()", 5);', 'setTimeout(`go(${x})`, 1);', 'setTimeout("a" + b, 1);', 'self?.setTimeout("go()");'];
+  const failing = ['setTimeout("go()", 1);', "setInterval('go()', 1);", 'window.setTimeout("go()");', 'globalThis["setInterval"]("go()", 5);', 'setTimeout(`go(${x})`, 1);', 'setTimeout("a" + b, 1);', 'self?.setTimeout("go()");',
+    'window.setTimeout(cond ? "go()" : fn, 1);', 'setTimeout(cond ? fn : "go()", 1);', 'setTimeout(fn || "go()");', 'setInterval(fn ?? "go()");', 'setTimeout(ok && "go()");', 'let s; setTimeout(s = "go()", 1);',
+    'let s = ""; setTimeout(s += "go()", 1);', '(globalThis || window).setTimeout("go()", 1);', '(cond ? setTimeout : setInterval)("go()", 1);', 'setTimeout("a" + (c ? "b" : "c"), 1);'];
   assert.deepEqual(await failingSnippets(failing), names(failing.length));
-  const passing = ['setTimeout(() => go(), 1);', 'setTimeout(function () { go(); }, 1);', 'setInterval(callback, 5);', 'thing.setTimeout("go()");', 'setTimeout();', 'const delay = setTimeout;', 'clearTimeout("x");'];
+  const passing = ['setTimeout(() => go(), 1);', 'setTimeout(function () { go(); }, 1);', 'setInterval(callback, 5);', 'thing.setTimeout("go()");', 'setTimeout();', 'const delay = setTimeout;', 'clearTimeout("x");',
+    'setTimeout(cond ? f : g, 1);', 'setTimeout(fn || other, 1);', '(cond ? thing : other).setTimeout("go()");'];
   assert.deepEqual(await failingSnippets(passing), []);
   const listed = await scan([[GENERATED_PATH, 'setTimeout("go()", 1);\n'], ['other.mjs', 'setTimeout("go()", 1);\n']], { config: withListed([GENERATED_PATH, 'setTimeout("go()", 1);\n']) });
   assert.deepEqual(pathsOf(listed), ['other.mjs']);
