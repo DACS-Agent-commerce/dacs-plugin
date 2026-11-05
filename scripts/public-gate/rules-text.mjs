@@ -206,11 +206,17 @@ const CLAUSE_DELIMITER = /([.!?](?=\s|$)|[;()])/;
 const SHELL_LANGUAGES = new Set(['sh', 'bash', 'shell', 'console', 'zsh', 'powershell', 'cmd']);
 /** Characters that never reach the matcher: invisible format characters and Markdown emphasis. */
 const IGNORED_CHARACTERS = /[\p{Cf}*_`]/gu;
-/** A script or style block; one never closed runs to the end of the page, as a browser reads it, so no start is searched twice. */
-const HTML_BLOCKS = /<(script|style)\b[\s\S]*?(?:<\/\1\s*>|$)/gi;
-/** A tag stops at the next `<`, so a page of unmatched `<` is read once, not once per `<`. */
-const HTML_TAG = /<[^<>]*>/g;
-const HTML_TEXT_ATTRIBUTE = /\b(?:title|alt|placeholder|content)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+/** The start of a tag: its name, and whether it closes. */
+const HTML_TAG = /<(\/?)([a-zA-Z][^\s/>]*)/y;
+/** One attribute after a tag name: the separators before it, its name and its quoted or bare value; a quote never closed runs to the end of the page. */
+const HTML_ATTRIBUTE = /[\s/]*(?:([^\s/>][^\s/>=]*)(?:\s*=\s*(?:"([^"]*)(?:"|$)|'([^']*)(?:'|$)|([^\s>]*)))?)?/y;
+/** The end of a script or style block; one never closed runs to the end of the page, as a browser reads it. */
+const HTML_RAW_END = { script: /<\/script(?=[\s/>]|$)/gi, style: /<\/style(?=[\s/>]|$)/gi };
+const HTML_TEXT_ATTRIBUTES = new Set(['title', 'alt', 'placeholder', 'content']);
+const HTML_ENTITY = /&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z][a-zA-Z0-9]{1,31}));/g;
+const HTML_NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ensp: ' ', emsp: ' ', thinsp: ' ', shy: '', zwj: '', zwnj: '' };
+/** Source files, which R-WORDING does not read: the files the address rule reads as code, and the two source extensions it leaves out that R-EVAL parses. */
+const SOURCE_EXTENSIONS = new Set([...CODE_EXTENSIONS, '.jsx', '.cts']);
 
 /** Text as the wording rule reads it: invisible characters and emphasis removed, each run of Unicode white space one space. */
 const normalizeProse = (text) => text.replace(IGNORED_CHARACTERS, '').replace(/\p{White_Space}+/gu, ' ').trim();
@@ -270,9 +276,62 @@ function paragraphsOf(text) {
   return paragraphs.map(({ line, state, joined }) => ({ line, text: normalizeProse(joined), isCommand: state === 'command' }));
 }
 
-/** The text nodes and the `title`, `alt`, `placeholder` and `content` values of an HTML page, outside script and style, with every line break kept. */
-const htmlText = (html) => html.replace(HTML_BLOCKS, (block) => block.replace(/[^\n]/g, ' '))
-  .replace(HTML_TAG, (tag) => `${tag.replace(/[^\n]/g, ' ')} ${[...tag.matchAll(HTML_TEXT_ATTRIBUTE)].map((match) => match[1] ?? match[2]).join(' ').replace(/\s+/g, ' ')}`);
+/** `text` with each character reference replaced by its character (a line break or an unknown name by a space, so no line number moves). */
+const decodeEntities = (text) => text.replace(HTML_ENTITY, (reference, decimal, hex, name) => {
+  const code = decimal !== undefined ? Number(decimal) : hex !== undefined ? parseInt(hex, 16) : null;
+  const character = code === null ? (Object.hasOwn(HTML_NAMED_ENTITIES, name) ? HTML_NAMED_ENTITIES[name] : ' ') : code > 0x10ffff ? ' ' : String.fromCodePoint(code);
+  return /[\r\n]/.test(character) ? ' ' : character;
+});
+
+/**
+ * The text of an HTML page in one pass, with every line break kept: text nodes, comments, and the `title`, `alt`, `placeholder` and `content`
+ * values, character references decoded. Only a real start tag opens a script or style block, which is skipped; a `<script` inside a comment or
+ * an attribute does not. A tag or comment never closed, and a `<` that starts no tag, is read as text.
+ */
+function htmlText(html) {
+  const blank = (text) => text.replace(/[^\n]/g, ' ');
+  let text = '';
+  let index = 0;
+  while (index < html.length) {
+    const open = html.indexOf('<', index);
+    text += decodeEntities(html.slice(index, open < 0 ? html.length : open));
+    if (open < 0) break;
+    HTML_TAG.lastIndex = open;
+    const start = HTML_TAG.exec(html);
+    if (html.startsWith('<!--', open) || (!start && '!?/'.includes(html[open + 1] ?? ' '))) {
+      const comment = html.startsWith('<!--', open);
+      const close = html.indexOf(comment ? '-->' : '>', open + 2);
+      text += ` ${html.slice(open + (comment ? 4 : 2), close < 0 ? html.length : close)} `;
+      index = close < 0 ? html.length : close + (comment ? 3 : 1);
+    } else if (!start) {
+      text += '<';
+      index = open + 1;
+    } else {
+      const values = [];
+      let end = HTML_TAG.lastIndex;
+      while (end < html.length && html[end] !== '>') {
+        HTML_ATTRIBUTE.lastIndex = end;
+        const attribute = HTML_ATTRIBUTE.exec(html);
+        end = HTML_ATTRIBUTE.lastIndex;
+        if (attribute[1] !== undefined && HTML_TEXT_ATTRIBUTES.has(attribute[1].toLowerCase())) values.push(attribute[2] ?? attribute[3] ?? attribute[4] ?? '');
+      }
+      if (end >= html.length) {
+        text += decodeEntities(html.slice(open));
+        break;
+      }
+      index = end + 1;
+      text += `${blank(html.slice(open, index))} ${decodeEntities(values.join(' ')).replace(/\s+/g, ' ')}`;
+      const rawEnd = start[1] === '' ? HTML_RAW_END[start[2].toLowerCase()] : undefined;
+      if (rawEnd) {
+        rawEnd.lastIndex = index;
+        const stop = rawEnd.exec(html)?.index ?? html.length;
+        text += blank(html.slice(index, stop));
+        index = stop;
+      }
+    }
+  }
+  return text;
+}
 
 /** Every string value of parsed JSON with the key it sits under (null at the top). */
 function jsonStrings(value, key = null) {
@@ -329,7 +388,7 @@ export function scanWording({ entries, wordingMatcher, limits }) {
   const { findings, add } = collectFindings(WORDING_RULE_ID, limits);
   for (const entry of entries.filter((candidate) => candidate.path !== null)) {
     const text = textOf(entry);
-    if (text === null || CODE_EXTENSIONS.includes(path.posix.extname(entry.path).toLowerCase())) continue;
+    if (text === null || SOURCE_EXTENSIONS.has(path.posix.extname(entry.path).toLowerCase())) continue;
     const lines = proseParagraphs(entry.path, text)
       .filter((paragraph) => hasUnapprovedStatus(paragraph.text) || (!paragraph.isCommand && wordingMatcher.hasEntry(maskStatusSpans(paragraph.text))))
       .map((paragraph) => paragraph.line);

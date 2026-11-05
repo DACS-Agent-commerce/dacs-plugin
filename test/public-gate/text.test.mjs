@@ -232,6 +232,36 @@ test('wording: a page of unclosed script starts or unmatched angle brackets is r
   assert.deepEqual(wordingFindings('page.html', `<script>var a = 1;<p>${TERM}</p>`), []);
 });
 
+test('wording: a script start inside an attribute or a comment hides nothing, comments and character references are read, a real script block is skipped', () => {
+  const [first, second] = TERM.split(' ');
+  for (const page of [
+    `<p title="a <script b">x</p><p>${TERM}</p>`, `<p data-x='<script'>${TERM}</p>`, `<!-- <script --><p>${TERM}</p>`, `<p>x</p><!-- ${TERM} -->`,
+    `<p>${first}&nbsp;${second}</p>`, `<p>${first}&#32;${second}</p>`, `<p>${first}&#x20;${second}</p>`, `<p>${first}&shy;&unknown;${second}</p>`,
+    `<p title="${first}&nbsp;${second}">x</p>`, `<SCRIPT>var a = 1;</SCRIPT><p>${TERM}</p>`, `<script>var a = "<p>";</script >\n<p>${TERM}</p>`,
+    `<script type=x/>var a = 1;</script/><p>${TERM}</p>`, `<p>x</p><!-- never closed ${TERM}`, `<p>x</p><div class="${TERM}`, `<p>a < b</p><p>${TERM}</p>`,
+    `<!doctype html><p>${TERM}</p>`, `<![CDATA[ ${TERM} ]]>`, `<p>${first}&constructor;${second}</p>`,
+    `<p>&lt;script&gt;</p><p>${TERM}</p>`,
+  ]) {
+    assert.equal(wordingFindings('page.html', page).length, 1, page);
+  }
+  for (const page of [`<script>${TERM}</script>`, `<STYLE>${TERM}</STYLE>`, `<script a="b>c">${TERM}</script>`, `<script>"</scripts>${TERM}</script>`]) {
+    assert.deepEqual(wordingFindings('page.html', page), [], page);
+  }
+});
+
+test('wording: the line of an HTML finding is the line of the page, whatever the tags, comments and references before it hold', () => {
+  const lines = (page) => wordingFindings('page.html', page).map(({ line }) => line);
+  assert.deepEqual(lines(`<p\n  title="x"\n>a</p>\n<!-- one\ntwo -->\n<script>\nvar a;\n</script>\n&#10;&#13;<p>${TERM}</p>`), [9]);
+  assert.deepEqual(lines(`<!-- one\n\ntwo ${TERM} -->`), [3]);
+});
+
+test('wording: a source file is not read in any source extension that R-EVAL parses, in any case; Markdown and HTML are', () => {
+  for (const name of ['a.js', 'a.mjs', 'a.cjs', 'a.jsx', 'a.ts', 'a.mts', 'a.cts', 'a.tsx', 'a.d.cts', 'a.d.mts', 'dir/A.JSX', 'dir/A.CTS']) {
+    assert.deepEqual(wordingFindings(name, `const a = '${TERM}';\n`), [], name);
+  }
+  for (const name of ['a.md', 'a.html', 'a.txt']) assert.equal(wordingFindings(name, `${TERM}\n`).length, 1, name);
+});
+
 test('wording: an entry split across a line break, with doubled spaces, emphasis or invisible characters, fails; an entry holding emphasis or a doubled space matches the text that holds it', () => {
   const [first, second] = TERM.split(' ');
   for (const text of [`${first}\n${second}`, `${first}   ${second}`, `**${first}** _${second}_`, `${first} ${second}`, `${first}​ ${second}`, `${first}\t${second}`, `${first}\r\n${second}`]) {

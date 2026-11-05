@@ -48,8 +48,9 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `lockfileDispositions` (`path`, `blob`, `field`, `line`, `valueSha256`, `reason`): all five facts of the occurrence must match, and the
   field is found by parsing the lockfile. An entry whose path the target holds only at another blob stops the run with
   `stale-lockfile-disposition` (exit 2), so a later lockfile change needs a new review; a seventh link or a wildcard needs a new owner decision.
-- **Wording (`R-WORDING`, complete scope).** In every text blob that is not source code (Markdown and text as prose, HTML text and the
-  `title`, `alt`, `placeholder` and `content` values, manifests by string value, other files as text), list entries are matched in paragraphs:
+- **Wording (`R-WORDING`, complete scope).** In every text blob that is not source code (the `R-EVAL` extensions and `.css` and `.sh`; Markdown and
+  text as prose, HTML text, comments and the `title`, `alt`, `placeholder` and `content` values with character references decoded, outside
+  `script` and `style` blocks, manifests by string value, other files as text), list entries are matched in paragraphs:
   wrapped lines joined, emphasis marks and invisible characters removed, white space collapsed, the entries normalised the same way. A fenced
   shell command is left as written for the vocabulary. A sentence about the review's status passes only as the approved clause (case-insensitive,
   with no reason added), or as a negative disclaimer. Clauses end at sentence ends, semicolons and parentheses; a reason after the approved
