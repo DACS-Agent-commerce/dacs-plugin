@@ -64,9 +64,14 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   value or alias, through `globalThis`, `window`, `self` or `global` by member, bracket (literal key), optional or comma-expression access, and
   through destructuring of those objects (declared, assigned, as a parameter default, in `for…of` or nested); and a string (literal, template or `+` with a string)
   passed to the global `setTimeout` or `setInterval`. A function callback passes; strings, comments, regular expressions, template text and types never count.
-  Inline code in `.html` and `.htm` files (scripts and event-handler attributes) is not read yet.
+  Inline code in `.html` and `.htm` files is read by the same child, with linear patterns, in exact forms only; anything else in the file is unscannable (`eval-html-unreadable`, and then no finding of that file is listed):
+  every `<script` must be `<script`, any of ` type="module"`, ` type="text/javascript"` and ` src="…"` (the value holds none of `"<>&`), `>`, a body without `<`, and `</script>`
+  (lower case, no other attribute or space, so `data-type`, JSON data blocks and single quotes are unreadable); a non-blank body is judged as a script, at its line of the file.
+  Every `on…=` not directly after an ASCII letter or digit must be ` on[a-z]+="…"` (a space first; the value holds none of `"&`) and is judged as the body of a function, at its line;
+  after an accepted value the search resumes behind it, and accepted script bodies are not searched. Entities are never decoded. `javascript:` URLs, `srcdoc`, SVG `<set>` and `<animate>`, and XHTML are not read.
   A computed member, a computed destructuring key or a rest element of a global object makes the file unscannable (`eval-computed-member`). Other causes: `eval-parse-error`
-  (the file has a syntax error), `eval-too-deep` (the file nests so deep that parsing it overflows the child's stack; the other files are still judged), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`;
+  (the file, or a script or handler in an HTML file, has a syntax error), `eval-too-deep` (the file nests so deep that parsing it overflows the child's stack; the other files are still judged), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`
+  (for an HTML file, the size of the whole file; an HTML file lists one cause, that of its first unit that has one);
   units go to the child in batches of at most `maxEvalBatchBytes`, its output is capped at `maxEvalOutputBytes`, and a reply that breaks the
   protocol stops the run with `eval-parser-failed` (exit 2). The only exceptions are the exact files of `evalGeneratedFiles` (`path`, `sha256`, `reason`):
   the same bytes at another path are another occurrence and fail, and an entry whose path the target holds only at other bytes stops the

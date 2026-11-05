@@ -64,9 +64,102 @@ test('eval :: "executable template substitutions are parsed; the same words in s
   assert.deepEqual(await failingSnippets(harmless), []);
 });
 
-test('eval :: "inline HTML code is not read yet: an .html or .htm file holding eval gives no finding and no unscannable entry, as the docs state"', async () => {
-  const html = '<script>eval("1");</script>\n<a onclick="eval(1)">x</a>\n';
-  assert.deepEqual(await scan([['page.html', html], ['page.htm', html]]), { findings: [], unscannable: [] });
+const scanHtml = (html, options) => scan([['page.html', html]], options);
+const UNREADABLE = [{ path: 'page.html', cause: 'eval-html-unreadable' }];
+const htmlFinding = (line) => ({ path: 'page.html', rule: 'R-EVAL', kind: 'content', line });
+
+test('eval :: "HTML scripts and handlers in the exact forms are judged as code, and a finding carries its line in the HTML file" (T08)', async (t) => {
+  await t.test('each allowed script form reports the line of the eval call inside its body', async () => {
+    for (const tag of ['<script>', '<script type="module">', '<script type="text/javascript">', '<script src="app.js">', '<script src="app.js" type="module">']) {
+      assert.deepEqual(await scanHtml(`<p>one</p>\n<p>two</p>\n${tag}\nconst x = 1;\neval("1");\n</script>\n`), { findings: [htmlFinding(5)], unscannable: [] }, tag);
+    }
+  });
+  await t.test('a handler reports its own line, and a value over several lines counts them', async () => {
+    const html = '<p>x</p>\n<a href="#" onclick="go()">a</a>\n<b onmouseover="eval(1)">b</b>\n<i onfocus="a();\nnew Function(1)">c</i>\n';
+    assert.deepEqual(await scanHtml(html), { findings: [htmlFinding(3), htmlFinding(5)], unscannable: [] });
+  });
+  await t.test('lines count as the JavaScript parser counts them: CRLF and a lone CR are one break each', async () => {
+    for (const lineBreak of ['\r\n', '\r']) {
+      const html = ['<p>x</p>', '<script>', 'eval(1);', '</script>', '<a onclick="', 'new Function(1)">c</a>', ''].join(lineBreak);
+      assert.deepEqual((await scanHtml(html)).findings, [htmlFinding(3), htmlFinding(6)], JSON.stringify(lineBreak));
+    }
+  });
+  await t.test('an .htm file is read the same way', async () => {
+    const result = await scan([['page.htm', '<script>eval(1);</script>\n<a onclick="eval(1)">x</a>\n']]);
+    assert.deepEqual(result.findings.map(({ line }) => line), [1, 2]);
+  });
+  await t.test('a handler that closes its own wrapper, or ends in a line comment, cannot hide code', async () => {
+    assert.deepEqual((await scanHtml('<a onclick="}); eval(1); (function () {">x</a>\n')).findings, [htmlFinding(1)]);
+    assert.deepEqual(await scanHtml('<a onclick="go() // note">x</a>\n<b onclick="eval(1) // note">y</b>\n'), { findings: [htmlFinding(2)], unscannable: [] });
+  });
+  await t.test('an on…= inside an accepted handler value is code, not another attribute', async () => {
+    assert.deepEqual(await scanHtml('<img onerror="this.onerror=null; eval(1)" src="a.png">\n'), { findings: [htmlFinding(1)], unscannable: [] });
+  });
+});
+
+test('eval :: "HTML with no code to judge gives no finding and no unscannable entry: blank and src-only scripts, harmless handlers and the same words in text or comments"', async () => {
+  const harmless = ['<script src="app.js"></script>', '<script></script>', '<script type="module">  \n </script>', '<a onclick="go(1)">eval(1)</a>', '<a onclick="return false">x</a>',
+    '<p>eval("1") and new Function("x") in text</p>', '<!-- eval(1) -->', '<script>const s = "eval(1)"; // new Function(1)\n</script>',
+    '<input person="a" region="b" onclick>', '<a xonclick="eval(1)" 9onclick="eval(1)">x</a>'];
+  assert.deepEqual(await scanHtml(`${harmless.join('\n')}\n`), { findings: [], unscannable: [] });
+});
+
+test('eval :: "script forms outside the exact list are unreadable, never read as data or skipped: another type, data-type, a type inside a value, other attributes, case, spacing, an entity, no closing tag or a < in the body" (T08)', async () => {
+  const forms = [
+    '<script type="application/json">{"a":1}</script>', '<script data-type="application/json" type="text/javascript">eval("1");</script>', '<script type="text/javascript" data-type="application/json">eval("1");</script>',
+    '<script data-note="type=application/json">eval("1");</script>', '<script type="application/json" type="text/javascript">eval("1");</script>', '<script type="module" type="application/json">x</script>',
+    "<script type='module'>eval(1);</script>", '<script type=module>eval(1);</script>', '<script type="text&#47;javascript">eval(1);</script>', '<script type="text/jscript">eval(1);</script>',
+    '<SCRIPT>eval(1);</SCRIPT>', '<script >eval(1);</script>', '<script\ntype="module">eval(1);</script>', '<script/type="module">eval(1);</script>', '<script async>eval(1);</script>', '<script src="a.js"/>',
+    '<script src="a&amp;b.js">eval(1);</script>', '<script src="a<b.js">eval(1);</script>', '<script src=\'a.js\'>eval(1);</script>', '<scripts>eval(1);</scripts>',
+    '<script>eval(1);', '<script>if (a < b) eval(1);</script>', '<script>eval(1);</script >', '<script>eval(1);</SCRIPT>',
+  ];
+  for (const form of forms) assert.deepEqual(await scanHtml(`<p>x</p>\n${form}\n`), { findings: [], unscannable: UNREADABLE }, form);
+});
+
+test('eval :: "handler forms outside the exact form are unreadable and entities are never decoded; a name that only ends in on, or starts after a letter or digit, is no handler" (T08)', async () => {
+  const forms = [
+    "<a onclick='eval(1)'>x</a>", '<a onclick=eval(1)>x</a>', '<a onclick = "eval(1)">x</a>', '<a onclick ="eval(1)">x</a>', '<a ONCLICK="eval(1)">x</a>', '<a OnClick="eval(1)">x</a>', '<a\nonclick="eval(1)">x</a>',
+    '<a\tonclick="eval(1)">x</a>', '<a data-onclick="eval(1)">x</a>', '<a onclick="&#101;val(1)">x</a>', '<a onclick="a&amp;b">x</a>', '<a onclick2="x">y</a>', '<a on="x">y</a>', '<p>turn on = 3</p>',
+    '<a onclick="never closed>x</a>',
+  ];
+  for (const form of forms) assert.deepEqual(await scanHtml(`<p>x</p>\n${form}\n`), { findings: [], unscannable: UNREADABLE }, form);
+  assert.deepEqual(await scanHtml('<a person="1" xonclick="eval(1)" 9onload="eval(1)" region=2>x</a>\n'), { findings: [], unscannable: [] });
+});
+
+test('eval :: "an accepted script body is masked before handlers are looked for, so on...= text inside code is neither unreadable nor a handler"', async () => {
+  const html = '<script>\nconst a = " onclick=\'x\' ";\neval(a); // onload=\n</script>\n<a onclick="go()">x</a>\n';
+  assert.deepEqual(await scanHtml(html), { findings: [htmlFinding(3)], unscannable: [] });
+  assert.deepEqual(await scanHtml('<script>const b = "on=1";</script>\n'), { findings: [], unscannable: [] });
+});
+
+test('eval :: "a script or handler that cannot be parsed is a parse error, a computed global member is unscannable, and findings elsewhere in the page are still reported"', async () => {
+  assert.deepEqual(await scanHtml('<script>eval(</script>\n'), { findings: [], unscannable: [{ path: 'page.html', cause: 'eval-parse-error' }] });
+  assert.deepEqual(await scanHtml('<a onclick="eval(">x</a>\n'), { findings: [], unscannable: [{ path: 'page.html', cause: 'eval-parse-error' }] });
+  assert.deepEqual(await scanHtml('<a onclick="globalThis[k]">x</a>\n'), { findings: [], unscannable: [{ path: 'page.html', cause: 'eval-computed-member' }] });
+  assert.deepEqual(await scanHtml('<script>eval(1);</script>\n<a onclick="globalThis[k]">x</a>\n'), { findings: [htmlFinding(1)], unscannable: [{ path: 'page.html', cause: 'eval-computed-member' }] });
+});
+
+test('eval :: "an HTML file is held to maxEvalUnitBytes and to the exact generated-file exceptions like any other file"', async () => {
+  const html = '<script>eval(1);</script>\n';
+  const tight = { ...LIMITS, maxEvalUnitBytes: Buffer.byteLength(html) - 1 };
+  assert.deepEqual(await scanHtml(html, { limits: tight }), { findings: [], unscannable: [{ path: 'page.html', cause: 'limit:maxEvalUnitBytes' }] });
+  const listed = await scan([['gen/page.html', html], ['other.html', html]], { config: withListed(['gen/page.html', html]) });
+  assert.deepEqual(pathsOf(listed), ['other.html']);
+});
+
+test('eval :: "a 200,000-space tag and 50,000 script starts are read in linear time: unreadable, never a parse timeout"', async () => {
+  const limits = { ...LIMITS, evalDeadlineMs: 20_000 };
+  const hostile = [`<script${' '.repeat(200_000)}>eval(1);</script>`, '<script '.repeat(50_000), `<script>${'x'.repeat(1_000_000)}`, `${' on'.repeat(100_000)}=`];
+  for (const html of hostile) assert.deepEqual(await scanHtml(html, { limits }), { findings: [], unscannable: UNREADABLE }, html.slice(0, 20));
+  for (const html of [' on'.repeat(100_000), 'on'.repeat(500_000), `on${'a'.repeat(1_000_000)}`]) assert.deepEqual(await scanHtml(html, { limits }), { findings: [], unscannable: [] }, html.slice(0, 20));
+  assert.deepEqual(await scanHtml(`<a${' '.repeat(200_000)}onclick="eval(1)">x</a>`, { limits }), { findings: [htmlFinding(1)], unscannable: [] });
+});
+
+test('eval :: "a gate run reports an unreadable HTML file as an unscannable entry and exits 2, not as a finding"', () => {
+  const repo = createRepo([{ path: 'page.html', content: '<script type="application/json">{}</script>\n' }]);
+  const run = runGate(gateArgs(repo, 'generic'));
+  assert.equal(run.status, 2, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout).unscannable, [{ location: `${repo.commit}:1`, cause: 'eval-html-unreadable' }]);
 });
 
 test('eval :: "the documented limits: a global object or timer held in a variable is not followed"', async () => {
