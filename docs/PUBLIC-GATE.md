@@ -63,7 +63,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   process (`rules-eval-child.mjs`) under `run-bounded`. It flags the global `eval` and `Function` in these forms: called, with `new`, as a
   value or alias, through `globalThis`, `window`, `self` or `global` by member, bracket (literal key), optional or comma-expression access, and
   through destructuring of those objects (declared, assigned, as a parameter default, in `for…of` or nested); and a string (literal, template or `+` with a string)
-  passed to the global `setTimeout` or `setInterval`. A function callback passes; strings, comments, regular expressions, template text and types never count.
+  passed to the global `setTimeout` or `setInterval`. A function callback passes; strings, comments, regular expressions, template text, types, interfaces, `implements` clauses and `declare` declarations never count.
   Inline code in `.html` and `.htm` files is read by the same child, with linear patterns, in exact forms only; anything else in the file is unscannable (`eval-html-unreadable`, and then no finding of that file is listed):
   every `<script` must be `<script`, any of ` type="module"`, ` type="text/javascript"` and ` src="…"` (the value holds none of `"<>&`), `>`, a body without `<`, and `</script>`
   (lower case, no other attribute or space, so `data-type`, JSON data blocks and single quotes are unreadable); a non-blank body is judged as a script, at its line of the file.
