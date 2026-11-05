@@ -97,6 +97,27 @@ test('eval :: "interfaces, implements clauses and declare declarations are erase
   assert.deepEqual(await scan([['a.ts', 'class C implements I { m() { return globalThis[k]; } }']]), { findings: [], unscannable: [{ path: 'a.ts', cause: 'eval-computed-member' }] });
 });
 
+test('eval :: "a global object or timer named only in an erased type counts for nothing; named in code that runs, it still counts"', async () => {
+  const typeOnly = [
+    'const v = ({} as typeof globalThis)[key];', 'const v = (<typeof window>{})[key];', 'const v = ({} satisfies Partial<typeof self>)[key];', 'const v = (o as Window & typeof globalThis)[key];',
+    'const v = make<typeof window>()[key];', 'const v = (make<typeof global>)[key];', 'const v = ((w: typeof window) => w)(o)[key];', 'const v = ((): typeof self => o)()[key];',
+    'const v = (class implements globalThis.I {})[key];', 'const v = (class { x!: typeof window })[key];', 'const v = (class { declare x: typeof window })[key];',
+    'const { [k]: v } = o as typeof globalThis;', 'const { [k]: v = (d as typeof window) } = o;', 'const { [k]: f = (w: typeof window) => 0 } = o;', '({ [k]: v } = o as typeof globalThis);',
+    'for (const { [k]: v } of list as Array<typeof window>) {}', 'function f({ [k]: v } = o as typeof self) {}',
+    'make<typeof setTimeout>()("x");', '((t: typeof setInterval) => run)(o)("x");', '(o as typeof window).setTimeout("x");', 'make<typeof setTimeout>()`x`;',
+  ];
+  assert.deepEqual(await scan(typeOnly.map((text, index) => [`s${index}.ts`, text])), { findings: [], unscannable: [] });
+  const openKeys = [
+    'const v = (o as any, globalThis)[key];', 'const v = (globalThis as any)[key];', 'const v = ((w: typeof window) => globalThis)(o)[key];', 'const { [k]: v } = globalThis as typeof globalThis;',
+    'const v = (class extends globalThis.B {})[key];', 'const v = (class { @(globalThis.d) declare x: T })[key];',
+  ];
+  const unjudged = await scan(openKeys.map((text, index) => [`s${index}.ts`, text]));
+  assert.deepEqual(unjudged.findings, []);
+  assert.deepEqual(unjudged.unscannable, openKeys.map((_, index) => ({ path: `s${index}.ts`, cause: 'eval-computed-member' })));
+  const timers = ['make<typeof x>(setTimeout)("x");', '(window as typeof window).setTimeout("x");'];
+  assert.deepEqual(await failingSnippets(timers, 'ts'), ['s0.ts', 's1.ts']);
+});
+
 test('eval :: "executable template substitutions are parsed; the same words in strings, template text, comments and regular expressions pass" (T08)', async () => {
   const failing = ['const t = `${eval("1")}`;', 'const t = `a ${`b ${new Function("x")}`}`;'];
   assert.deepEqual(await failingSnippets(failing), names(2));
