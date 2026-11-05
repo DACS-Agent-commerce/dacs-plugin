@@ -49,17 +49,25 @@ const isDroppedDeclaration = (node) => DROPPED_DECLARATIONS.has(node.kind) && (t
 const isErased = (node) => (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node)
   || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isDroppedDeclaration(node);
 
-/** A test, kept per node, of whether a node holds anywhere in it, outside erased nodes, a use of one of `names`. */
-function usesOf(names) {
+/** A test, kept per node, of whether a node holds anywhere in it, outside erased nodes, a node for which `matches` is true. */
+function holding(matches) {
   const held = new WeakMap();
   const holds = (node) => {
-    if (!held.has(node)) held.set(node, !isErased(node) && ((ts.isIdentifier(node) && names.has(node.text) && isUse(node)) || ts.forEachChild(node, (child) => holds(child) || undefined) === true));
+    if (!held.has(node)) held.set(node, !isErased(node) && (matches(node) || ts.forEachChild(node, (child) => holds(child) || undefined) === true));
     return held.get(node);
   };
   return holds;
 }
-const holdsGlobalObject = usesOf(GLOBAL_OBJECTS);
-const holdsTimer = usesOf(TIMER_NAMES);
+const isUseOf = (names) => (node) => ts.isIdentifier(node) && names.has(node.text) && isUse(node);
+const holdsGlobalObject = holding(isUseOf(GLOBAL_OBJECTS));
+
+/** Whether `node` is setTimeout or setInterval itself: a use of the name, or such a literal-key member of an expression naming a global object. */
+function isTimerItself(node) {
+  if (ts.isIdentifier(node)) return isUseOf(TIMER_NAMES)(node);
+  const key = ts.isPropertyAccessExpression(node) ? node.name.text : ts.isElementAccessExpression(node) ? keyText(node.argumentExpression) : undefined;
+  return TIMER_NAMES.has(key) && holdsGlobalObject(node.expression);
+}
+const holdsTimer = holding(isTimerItself);
 
 /** Whether `node` names eval or Function: as any identifier, as a literal property, member, binding or specifier name, or as a literal element-access key or computed name. */
 function namesDynamic(node) {
@@ -97,21 +105,24 @@ function readsOpenKey(node) {
   return site !== undefined && hasOpenKey(site.pattern) && (holdsGlobalObject(site.pattern) || (site.value !== undefined && holdsGlobalObject(site.value)));
 }
 
-/** Whether `callee` is a timer: an expression holding a use of setTimeout or setInterval, or such a literal-key member of an expression naming a global object. */
-function isTimer(callee) {
-  const node = unwrap(callee);
-  if (holdsTimer(node)) return true;
-  const key = ts.isPropertyAccessExpression(node) ? node.name.text : ts.isElementAccessExpression(node) ? keyText(node.argumentExpression) : undefined;
-  return TIMER_NAMES.has(key) && holdsGlobalObject(node.expression);
-}
-
 /** The first timer arguments that cannot be a string: a function, a name or a property access. */
 const CODE_FREE_ARGUMENTS = [ts.isArrowFunction, ts.isFunctionExpression, ts.isIdentifier, ts.isPropertyAccessExpression];
-/** Whether `node` calls a timer with a first argument that may be a string: a tagged template, or any present argument but those above. */
+/** The arguments that pass in a call whose callee only holds a timer (`.call`, `.apply`, `.bind`, a wrapper): the receiver, `this`, `null`, `undefined`, a global object, a number or a function. */
+const isReceiverOrFunction = (argument) => {
+  const node = unwrap(argument);
+  return ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isNumericLiteral(node) || node.kind === ts.SyntaxKind.ThisKeyword || node.kind === ts.SyntaxKind.NullKeyword
+    || (ts.isIdentifier(node) && (node.text === 'undefined' || GLOBAL_OBJECTS.has(node.text)));
+};
+/**
+ * Whether `node` calls a timer with an argument that may be a string: a tagged template on an expression holding a timer; a call of the timer itself with a first argument that is
+ * present and none of CODE_FREE_ARGUMENTS; or a call of an expression that only holds a timer, where the place of the code is unknown, with any argument but those of isReceiverOrFunction.
+ */
 function isStringTimerCall(node) {
-  if (ts.isTaggedTemplateExpression(node)) return isTimer(node.tag);
-  if (!ts.isCallExpression(node) || !isTimer(node.expression) || node.arguments.length === 0) return false;
-  return !CODE_FREE_ARGUMENTS.some((isCodeFree) => isCodeFree(unwrap(node.arguments[0])));
+  if (ts.isTaggedTemplateExpression(node)) return holdsTimer(node.tag);
+  if (!ts.isCallExpression(node)) return false;
+  const callee = unwrap(node.expression);
+  if (isTimerItself(callee)) return node.arguments.length > 0 && !CODE_FREE_ARGUMENTS.some((isCodeFree) => isCodeFree(unwrap(node.arguments[0])));
+  return holdsTimer(callee) && !node.arguments.every(isReceiverOrFunction);
 }
 
 /** Judges one unit: { lines, cause? }. */
