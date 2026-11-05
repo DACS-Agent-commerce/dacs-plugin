@@ -49,14 +49,14 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   value or alias, through `globalThis`, `window`, `self` or `global` by member, bracket (literal key), optional or comma-expression access (or a conditional, `||`, `&&`, `??` or assignment giving one), and
   through destructuring of those objects (declared, assigned, as a parameter default, in `for…of` or nested under a global object's own key such as `self`; a pattern under any other key is not read); and a string (literal, template, `+` with a string, or a conditional, logical or assignment operand that is one)
   passed to the global `setTimeout` or `setInterval`. A function callback passes; strings, comments, regular expressions, template text, types, interfaces, `implements` clauses and `declare` variable, function, class, enum and module declarations never count. A `declare` export assignment, import alias or class field is still read, because the TypeScript emitter keeps it.
-  Inline code in `.html` and `.htm` files is read entirely in the bounded child. Each case-insensitive `<script` prefix or whitespace/slash/quote-prefixed
-  `on…` attribute assignment start must match an exact form, otherwise the file is unscannable (`eval-html-unreadable`). A script permits an optional
-  `type="module"` or `type="text/javascript"`, then an optional `src="…"`, with no other attributes and no `<` in its body. An event handler
-  must be whitespace followed by `on…="…"`, with no spaces around `=` and no `&` or `<` in its body. Scripts require a closing `</script>`;
-  whitespace before tag ends is allowed. Script bodies and handler values are parsed as JS and findings keep their original HTML lines.
-  Nothing is exempted as data or a comment, and entities are never decoded; even a data script or a candidate in text must match these forms.
+  Inline code in `.html` and `.htm` files is read by the same child, with linear patterns, in exact forms only; anything else in the file is unscannable (`eval-html-unreadable`, and then no finding of that file is listed):
+  every `<script` must be `<script`, an optional ` type="module"` or ` type="text/javascript"` and optional ` src="…"` in either order (the value holds none of `"<>&`), `>`, a body without `<`, and `</script>`
+  (lower case, no other attribute or space, so `data-type`, JSON data blocks and single quotes are unreadable); a non-blank body is judged as a script, at its line of the file.
+  Every `on…=` not directly after an ASCII letter or digit must be ` on[a-z]+="…"` (a space first; the value holds none of `"&`) and is judged as the body of a function, at its line;
+  after an accepted value the search resumes behind it, and accepted script bodies are not searched. The file is unreadable too when a script body or handler value holds an `on…=`
+  that does not directly follow a `.` (it could be an attribute of a tag the reader does not see; `this.onerror=null` is read), or when a handler value overlaps a script body. Entities are never decoded. `javascript:` URLs, `srcdoc`, SVG `<set>` and `<animate>`, and XHTML are not read.
   A computed member, a computed destructuring key or a rest element of a global object makes the file unscannable (`eval-computed-member`). Other causes: `eval-parse-error`
-  (the file has a syntax error), `eval-too-deep` (the file nests so deep that parsing it overflows the child's stack; the other files are still judged), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`;
+  (the file, script or handler has a syntax error), `eval-too-deep` (the file nests so deep that parsing it overflows the child's stack; the other files are still judged), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`;
   units go to the child in batches of at most `maxEvalBatchBytes`, its output is capped at `maxEvalOutputBytes`, and a reply that breaks the
   protocol stops the run with `eval-parser-failed` (exit 2). The only exceptions are the exact files of `evalGeneratedFiles` (`path`, `sha256`, `reason`):
   the same bytes at another path are another occurrence and fail, and an entry whose path the target holds only at other bytes stops the

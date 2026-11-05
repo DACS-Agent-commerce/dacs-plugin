@@ -10,7 +10,7 @@ import { textOf } from './rules-address.mjs';
 export const EVAL_RULE_ID = 'R-EVAL';
 
 const PARSER_CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'rules-eval-child.mjs');
-const SCRIPT_KIND_BY_EXTENSION = { '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx', '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx', '.html': 'html', '.htm': 'html' };
+const UNIT_KIND_BY_EXTENSION = { '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx', '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx', '.html': 'html', '.htm': 'html' };
 const UNIT_CAUSES = ['eval-parse-error', 'eval-computed-member', 'eval-too-deep', 'eval-html-unreadable'];
 const GENERATED_KEYS = ['path', 'reason', 'sha256'];
 
@@ -30,7 +30,7 @@ export function hasValidEvalConfig({ evalGeneratedFiles }) {
 /** The units of code in a text blob at `file`, as { kind, text }: the whole file for a JS, TS or HTML extension, none otherwise; only the child reads inline HTML code. */
 function unitsOf(file, text) {
   const extension = path.posix.extname(file).toLowerCase();
-  return Object.hasOwn(SCRIPT_KIND_BY_EXTENSION, extension) ? [{ kind: SCRIPT_KIND_BY_EXTENSION[extension], text }] : [];
+  return Object.hasOwn(UNIT_KIND_BY_EXTENSION, extension) ? [{ kind: UNIT_KIND_BY_EXTENSION[extension], text }] : [];
 }
 
 /** Splits `units` into runs whose texts hold at most `maxBytes` together; a unit over it is alone in its run. */

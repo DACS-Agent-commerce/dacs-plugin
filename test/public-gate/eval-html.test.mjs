@@ -28,7 +28,6 @@ const UNREADABLE_ROWS = [
   ['duplicate script attributes', '<script type="text/plain" type="text/javascript">eval(1)</script>'],
   ['data script is not exempted', '<script type="application/json">eval(1)</script>'],
   ['less than in script body', '<script>if (a < b) eval(1)</script>'],
-  ['less than in handler body', '<a onclick="if (a < b) eval(1)">x</a>'],
   ['slash before script attribute', '<script/src="a.mjs">eval(1)</script>'],
   ['unterminated script', '<script>eval(1)'],
   ['closing tag attributes', '<script>eval(1)</script extra>'],
@@ -36,19 +35,29 @@ const UNREADABLE_ROWS = [
   ['form feed and slash handler', '<a\f/onclick="eval(1)">x</a>'],
   ['handler after adjacent double quote', '<a title="x"onclick="eval(1)">x</a>'],
   ['handler after adjacent single quote', "<a title='x'onclick=\"eval(1)\">x</a>"],
+  ['upper case script', '<SCRIPT>eval(1)</SCRIPT>'],
+  ['upper case quoted handler', '<a ONCLICK="eval(1)">x</a>'],
+  ['duplicate approved type', '<script type="module" type="module">eval(1)</script>'],
+  ['duplicate source', '<script src="a.mjs" src="b.mjs">eval(1)</script>'],
+  ['attribute-like code in a script', '<script>const b = "on=1";</script>'],
+  ['handler hidden by another attribute', '<a title=" onx=" a // onmouseover="eval(1)">x</a>'],
+  ['script hidden inside a handler', "<a onclick=\"a='<script>'; eval(x); b='</script>'\">a</a>"],
   ['unfinished handler', '<a onclick="eval(1)'],
 ];
 
 test('eval HTML :: exact script and handler forms are read on their original lines in html and htm files', async () => {
   const result = await scan([
     ['page.HTML', '<script>\neval(1);\n</script>\n<a onclick="eval(2)">x</a>'],
-    ['page.htm', '<SCRIPT type="module">\nnew Function("return 1");\n</SCRIPT>'],
+    ['page.htm', '<script type="module">\nnew Function("return 1");\n</script>'],
     ['cr.html', 'text\r<script>\reval(1)</script>'],
     ['typed.html', '<script type="text/javascript" src="a.mjs">eval(1)</script>'],
-    ['handler.html', '<button\nONCLICK="\nreturn Function(\'x\');">x</button>'],
+    ['reverse.html', '<script src="a.mjs" type="module">eval(1)</script>'],
+    ['comparison.html', '<a onclick="if (a < b) eval(1)">x</a>'],
+    ['wrapper.html', '<a onclick="}); eval(1); (function () {">x</a>'],
+    ['handler.html', '<button\n onclick="\nreturn Function(\'x\');">x</button>'],
   ]);
   assert.deepEqual(result.unscannable, []);
-  assert.deepEqual(result.findings.map(({ entry, line }) => [entry.path, line]), [['page.HTML', 2], ['page.HTML', 4], ['page.htm', 2], ['cr.html', 3], ['typed.html', 1], ['handler.html', 3]]);
+  assert.deepEqual(result.findings.map(({ entry, line }) => [entry.path, line]), [['page.HTML', 2], ['page.HTML', 4], ['page.htm', 2], ['cr.html', 3], ['typed.html', 1], ['reverse.html', 1], ['comparison.html', 1], ['wrapper.html', 1], ['handler.html', 3]]);
   assert.deepEqual(await scan([['safe.html', '<p>Only once, one by one.</p><script type="module" src="a.mjs"></script><script>ready();</script><a onclick="ready()">x</a>']]), { findings: [], unscannable: [] });
 });
 
