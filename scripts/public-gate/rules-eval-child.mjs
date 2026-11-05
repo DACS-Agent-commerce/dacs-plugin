@@ -153,6 +153,8 @@ const HANDLER_TRIGGER = /(?<![A-Za-z0-9])on[A-Za-z0-9]*\s*=/gi;
 const HANDLER_EXACT = / on[a-z]+="([^"&]*)"/yd;
 /* The reader does not track tags, so code that holds an `on…=` not written as a property (`this.onerror=null` is one) may be a tag's attribute it cannot see. */
 const ATTRIBUTE_LIKE = /(?<![A-Za-z0-9.])on[A-Za-z0-9]*\s*=/i;
+/* Inside `<svg>` the browser decodes character references in a script body, so a body read as text there may run other code. */
+const FOREIGN_CONTENT = /<svg/i;
 
 /** Matches the sticky `pattern` at `index` of `text`; null when there is no such position or no match there. */
 function matchAt(pattern, text, index) {
@@ -186,12 +188,13 @@ function blanked(text, ranges) {
 
 /**
  * The code in an HTML file as JS units { kind, text, firstLine }: each non-blank script body, then each event-handler value as the
- * body of a function. Returns undefined when a `<script` or an `on…=` is not in an exact form, or when the two readings meet: an
+ * body of a function. Returns undefined when the file holds an `<svg`, when a `<script` or an `on…=` is not in an exact form, or when the two readings meet: an
  * accepted script body or handler value that holds an attribute-like `on…=`, or a handler value that overlaps a script body (either
  * could be a quoted attribute value in the browser's reading, hiding real code). An accepted script body is blanked before the
  * handler trigger runs, and the trigger resumes after each accepted handler value (code, so `this.onerror=null` in it is no attribute).
  */
 function htmlUnitsOf(text) {
+  if (FOREIGN_CONTENT.test(text)) return undefined;
   const lineStarts = ts.computeLineStarts(text);
   const units = [];
   const bodies = [];
