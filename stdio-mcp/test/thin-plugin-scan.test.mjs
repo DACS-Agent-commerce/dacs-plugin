@@ -162,6 +162,50 @@ test('a computed read of the global object is unverifiable, since the key can re
     [1, 2, 3, 4, 4, 4, 5].map(l => `g.ts:reflective-loader:${l}`));
 });
 
+test('a computed read handed on by a logical assignment or a template tag is still unverifiable', t => {
+  const p = project(t, {'handed.ts': [
+    'export function called(c: any, k: string) { return (c[k] ??= null)("h"); }',
+    'export function orBound(c: any, k: string) { const g = (c[k] ||= 0); return g; }',
+    'export function andPassed(c: any, k: string) { return use(c[k] &&= 0); }',
+    'export function wrapped(c: any, k: string) { return ((c[k] as any) ||= 0)!; }',
+    'export function tagged(c: any, k: string) { return tag`${c[k]}`; }',
+    'export function taggedMember(c: any, k: string) { return String.raw`a${c[k]}b${c[k]}`; }',
+    'export function tagItself(c: any, k: string) { return c[k]`x`; }',
+    '',
+  ].join('\n'), 'kept.ts': [
+    'export function statement(c: any, k: string) { c[k] ||= 1; c[k] ??= 1; (c[k] &&= 1); }',
+    'export function plain(c: any, k: string) { c[k] = c[k] + 1; return `${c[k]}`; }',
+    '',
+  ].join('\n')});
+  p.scan('handed.ts'); p.scan('kept.ts');
+  assert.deepEqual(p.found.violation, []);
+  assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.line}:${r.rule}`),
+    [1, 2, 3, 4, 5, 6, 6, 7].map(l => `handed.ts:${l}:computed-member-read`));
+});
+
+test('a computed read of the global object is unverifiable whatever is taken from it or done with it next', t => {
+  const noReadback = {primitives: [{id: 'job-id', names: ['deriveJobId']}]};
+  const p = project(t, {'g.ts': [
+    'export function nested(a: string, b: string) { return globalThis[a][b]("return 1"); }',
+    'export function ctor(k: string) { return globalThis[k].constructor("return 1")(); }',
+    'export function literalMember(k: string) { return (globalThis as any)[k]["constructor"]; }',
+    'export function chain(k: string) { return globalThis[k].mainModule.require("fs"); }',
+    'export function logicalBound(k: string) { const g = (globalThis[k] ||= 0); return g; }',
+    'export function logicalCalled(k: string) { return (globalThis[k] ??= 0)("return 1"); }',
+    'export function tagged(k: string) { return tag`${globalThis[k]}`; }',
+    'export function optionalMember(k: string) { return self?.[k]?.name; }',
+    '',
+  ].join('\n'), 'data.ts': [
+    'export function writes(k: string) { globalThis[k] ||= 1; (window[k] ??= 1); globalThis[k] += 1; delete global[k]; }',
+    'export function inspected(k: string) { return [typeof self[k], k in self, self[k] === undefined, !self[k], `${self[k]}`]; }',
+    '',
+  ].join('\n')}, noReadback);
+  p.scan('g.ts'); p.scan('data.ts');
+  assert.deepEqual(p.found.violation, []);
+  assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.line}:${r.rule}`),
+    [1, 2, 3, 4, 5, 6, 7, 8].map(l => `g.ts:${l}:reflective-loader`));
+});
+
 test('a waiver without a reason is refused, and an unused waiver is reported', t => {
   const p = project(t, {
     'ok.ts': '// thin-plugin-waiver primitive:job-id -- display-only label, never signed\nexport function deriveJobId() { return 1; }\n',

@@ -32,15 +32,25 @@ export function createModuleScanner(context) {
   // Operators whose result can be one of their own operands; any other binary operator makes a new value.
   const operandPassingOperators = [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.CommaToken];
   const memberName = p => ts.isPropertyAccessExpression(p) ? p.name.text : ts.isStringLiteralLike(p.argumentExpression) ? p.argumentExpression.text : '';
+  // ||=, &&= and ??= give back the old value when they keep it, so their result carries the left read on.
+  const logicalAssignmentOperators = [ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken];
+  const resultDiscarded = a => ts.isExpressionStatement(outerOf(a).parent);
   // True when the value of the expression o is only inspected, assigned over or discarded, so it cannot
-  // be handed on as a callable. A member read is data unless it picks call/apply/bind off the value.
-  const usedAsData = o => {
+  // be handed on as a callable. A member read is data unless it picks call/apply/bind off the value, or
+  // unless anyMemberRead is set: the global object's members include eval, Function and process, and
+  // every member of those leads on (eval.constructor is Function). A template substitution is text
+  // unless the template is tagged, which hands the value to the tag.
+  const usedAsData = (o, anyMemberRead = false) => {
     const p = o.parent;
-    if ((ts.isPropertyAccessExpression(p) || ts.isElementAccessExpression(p)) && p.expression === o) return !['call', 'apply', 'bind'].includes(memberName(p));
-    if (ts.isBinaryExpression(p)) return isAssignment(p) ? p.left === o : !operandPassingOperators.includes(p.operatorToken.kind);
+    if ((ts.isPropertyAccessExpression(p) || ts.isElementAccessExpression(p)) && p.expression === o) return !anyMemberRead && !['call', 'apply', 'bind'].includes(memberName(p));
+    if (ts.isBinaryExpression(p)) {
+      if (!isAssignment(p)) return !operandPassingOperators.includes(p.operatorToken.kind);
+      return p.left === o && (!logicalAssignmentOperators.includes(p.operatorToken.kind) || resultDiscarded(p));
+    }
     if (ts.isConditionalExpression(p)) return p.condition === o;
+    if (ts.isTemplateSpan(p)) return !ts.isTaggedTemplateExpression(p.parent.parent);
     return ts.isElementAccessExpression(p) || ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p) || ts.isTypeOfExpression(p) || ts.isVoidExpression(p)
-      || ts.isDeleteExpression(p) || ts.isTemplateSpan(p) || ts.isIfStatement(p) || ts.isWhileStatement(p) || ts.isDoStatement(p);
+      || ts.isDeleteExpression(p) || ts.isIfStatement(p) || ts.isWhileStatement(p) || ts.isDoStatement(p);
   };
   const calledDirectly = o => ts.isCallExpression(o.parent) && o.parent.expression === o;
   // x[k] with a key the scanner cannot read, whose value can be a function: bound, passed, returned,
@@ -52,7 +62,7 @@ export function createModuleScanner(context) {
   // member of the global object), not only when called by their bare name. A key the scanner cannot
   // read (globalThis[key]) can name them too, so any read of the global object through one counts.
   const reflectiveRead = n => {
-    if (ts.isElementAccessExpression(n)) return globalObject(n.expression) && (ts.isStringLiteralLike(n.argumentExpression) ? ['eval', 'Function'].includes(n.argumentExpression.text) : computedKey(n) && !usedAsData(outerOf(n)));
+    if (ts.isElementAccessExpression(n)) return globalObject(n.expression) && (ts.isStringLiteralLike(n.argumentExpression) ? ['eval', 'Function'].includes(n.argumentExpression.text) : computedKey(n) && !usedAsData(outerOf(n), true));
     if (!ts.isIdentifier(n) || !['eval', 'Function'].includes(n.text)) return false;
     const p = n.parent;
     if (ts.isPropertyAccessExpression(p) && p.name === n) return globalObject(p.expression);
