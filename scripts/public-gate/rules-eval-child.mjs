@@ -159,7 +159,7 @@ function judge({ kind, text, firstLine = 1 }, maxLines) {
  * spot must then match its exact form, else the whole file is unreadable. Entities are never decoded.
  */
 const SCRIPT_TRIGGER = /<script/gi;
-const SCRIPT_EXACT = /<script(?: type="module"| type="text\/javascript"| src="[^"<>&]*")*>([^<]*)<\/script>/yd;
+const SCRIPT_EXACT = /<script(?: type="(?:module|text\/javascript)"(?: src="[^"<>&]*")?| src="[^"<>&]*"(?: type="(?:module|text\/javascript)")?)?>([^<]*)<\/script>/yd;
 const HANDLER_TRIGGER = /(?<![A-Za-z0-9])on[A-Za-z0-9]*\s*=/gi;
 const HANDLER_EXACT = / on[a-z]+="([^"&]*)"/yd;
 /* The reader does not track tags, so code that holds an `on…=` not written as a property (`this.onerror=null` is one) may be a tag's attribute it cannot see. */
