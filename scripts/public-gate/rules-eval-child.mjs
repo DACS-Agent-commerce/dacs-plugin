@@ -41,11 +41,19 @@ function isUse(identifier) {
   return !isName && !isLabel && parent.propertyName !== identifier;
 }
 
-/** A test, kept per node, of whether a node holds anywhere in it a use of one of `names`. */
+/** The statement kinds the emitter drops whole when they carry their own `declare` modifier; any other `declare` node is still emitted. */
+const DROPPED_DECLARATIONS = new Set([ts.SyntaxKind.VariableStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration]);
+const isDroppedDeclaration = (node) => DROPPED_DECLARATIONS.has(node.kind) && (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.DeclareKeyword);
+// Types, interfaces, `implements` clauses and `declare` variable, function, class, enum and namespace statements are erased: nothing in them runs. A class `extends` clause does,
+// and so do a `declare` export assignment, import alias or class field, which the emitter keeps. Every walk of the tree, `visit` and `usesOf` alike, stops at an erased node.
+const isErased = (node) => (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node)
+  || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isDroppedDeclaration(node);
+
+/** A test, kept per node, of whether a node holds anywhere in it, outside erased nodes, a use of one of `names`. */
 function usesOf(names) {
   const held = new WeakMap();
   const holds = (node) => {
-    if (!held.has(node)) held.set(node, (ts.isIdentifier(node) && names.has(node.text) && isUse(node)) || ts.forEachChild(node, (child) => holds(child) || undefined) === true);
+    if (!held.has(node)) held.set(node, !isErased(node) && ((ts.isIdentifier(node) && names.has(node.text) && isUse(node)) || ts.forEachChild(node, (child) => holds(child) || undefined) === true));
     return held.get(node);
   };
   return holds;
@@ -105,14 +113,6 @@ function isStringTimerCall(node) {
   if (!ts.isCallExpression(node) || !isTimer(node.expression) || node.arguments.length === 0) return false;
   return !CODE_FREE_ARGUMENTS.some((isCodeFree) => isCodeFree(unwrap(node.arguments[0])));
 }
-
-/** The statement kinds the emitter drops whole when they carry their own `declare` modifier; any other `declare` node is still emitted. */
-const DROPPED_DECLARATIONS = new Set([ts.SyntaxKind.VariableStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration]);
-const isDroppedDeclaration = (node) => DROPPED_DECLARATIONS.has(node.kind) && (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.DeclareKeyword);
-// Types, interfaces, `implements` clauses and `declare` variable, function, class, enum and namespace statements are erased: nothing in them runs. A class `extends` clause does,
-// and so do a `declare` export assignment, import alias or class field, which the emitter keeps.
-const isErased = (node) => (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node)
-  || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isDroppedDeclaration(node);
 
 /** Judges one unit: { lines, cause? }. */
 function judge({ kind, text }, maxLines) {
