@@ -236,7 +236,7 @@ test('wording: a script start inside an attribute or a comment hides nothing, co
   const [first, second] = TERM.split(' ');
   for (const page of [
     `<p title="a <script b">x</p><p>${TERM}</p>`, `<p data-x='<script'>${TERM}</p>`, `<!-- <script --><p>${TERM}</p>`, `<p>x</p><!-- ${TERM} -->`,
-    `<p>${first}&nbsp;${second}</p>`, `<p>${first}&#32;${second}</p>`, `<p>${first}&#x20;${second}</p>`, `<p>${first}&shy;&unknown;${second}</p>`,
+    `<p>${first}&nbsp;${second}</p>`, `<p>${first}&#32;${second}</p>`, `<p>${first}&#x20;${second}</p>`, `<p>${first}&shy;&#32;${second}</p>`,
     `<p title="${first}&nbsp;${second}">x</p>`, `<SCRIPT>var a = 1;</SCRIPT><p>${TERM}</p>`, `<script>var a = "<p>";</script >\n<p>${TERM}</p>`,
     `<script type=x/>var a = 1;</script/><p>${TERM}</p>`, `<p>x</p><!-- never closed ${TERM}`, `<p>x</p><div class="${TERM}`, `<p>a < b</p><p>${TERM}</p>`,
     `<!doctype html><p>${TERM}</p>`, `<![CDATA[ ${TERM} ]]>`, `<p>${first}&constructor;${second}</p>`,
@@ -255,6 +255,23 @@ test('wording: the line of an HTML finding is the line of the page, whatever the
   assert.deepEqual(lines(`<!-- one\n\ntwo ${TERM} -->`), [3]);
 });
 
+test('wording: an HTML character reference is decoded as a browser decodes it, and one the scanner cannot decode exactly is refused', () => {
+  const accented = createWordingMatcher(['café'], () => {});
+  const scan = (name, text) => scanWording({ entries: [file(name, text)], wordingMatcher: accented, limits: LIMITS });
+  for (const reference of ['&eacute;', '&eacute', '&#233;', '&#233', '&#xe9;', '&#xE9']) {
+    assert.equal(scan('page.html', `<p>caf${reference}</p>`).length, 1, reference);
+  }
+  for (const page of ['<p>a &eacute; b &copy; &amp; &lt; &apos; &AMP; &#65; &#x41;</p>', '<p>AT&T R&D a&b=1 &&amp; &# &#x; &ensp &hyphen</p>', '<script>a&hyphen;b &copy2</script>', '<!-- a&hyphen;b -->','<img src="x.png" alt="">']) {
+    assert.deepEqual(scan('page.html', page), [], page);
+  }
+  for (const page of ['<p>a&hyphen;b</p>', '<p>a&period;b</p>', '<p>a&unknown;b</p>', '<p>a&constructor;b</p>', '<p>a&copy2 b</p>', '<p>a&notit b</p>', '<p>a&#150;b</p>', '<p>a&#0;b</p>', '<p>a&#xD800;b</p>',
+    '<p>a&#1114112;b</p>', '<p title="a&hyphen;b">x</p>', '<p>a￾b</p>']) {
+    assert.equal(scan('page.html', page).length, 1, page);
+  }
+  assert.deepEqual(scan('page.html', '<p>fine</p>\n\n<p>fine\nstill &hyphen; here</p>').map(({ line }) => line), [3]);
+  assert.deepEqual(scan('a.md', 'a&hyphen;b\n'), []);
+});
+
 test('wording: a source file is not read in any source extension that R-EVAL parses, in any case; Markdown and HTML are', () => {
   for (const name of ['a.js', 'a.mjs', 'a.cjs', 'a.jsx', 'a.ts', 'a.mts', 'a.cts', 'a.tsx', 'a.d.cts', 'a.d.mts', 'dir/A.JSX', 'dir/A.CTS']) {
     assert.deepEqual(wordingFindings(name, `const a = '${TERM}';\n`), [], name);
@@ -264,7 +281,7 @@ test('wording: a source file is not read in any source extension that R-EVAL par
 
 test('wording: an entry split across a line break, with doubled spaces, emphasis or invisible characters, fails; an entry holding emphasis or a doubled space matches the text that holds it', () => {
   const [first, second] = TERM.split(' ');
-  for (const text of [`${first}\n${second}`, `${first}   ${second}`, `**${first}** _${second}_`, `${first} ${second}`, `${first}​ ${second}`, `${first}\t${second}`, `${first}\r\n${second}`]) {
+  for (const text of [`${first}\n${second}`, `${first}   ${second}`, `**${first}** _${second}_`, `${first} ${second}`, `${first}\u200b ${second}`, `${first}\t${second}`, `${first}\r\n${second}`]) {
     assert.equal(wordingFindings('a.md', text).length, 1, JSON.stringify(text));
   }
   assert.equal(wordingFindings('a.md', `uses ${SNAKE} in text`).length, 1);
@@ -274,7 +291,7 @@ test('wording: an entry split across a line break, with doubled spaces, emphasis
 });
 
 test('wording: an entry that is empty after normalisation or holds a tab is refused as a malformed wording list', () => {
-  for (const entry of ['__', '**', '​', 'a\tb']) assert.throws(() => createWordingMatcher([entry], () => {}), { cause: 'wording-list-malformed' }, JSON.stringify(entry));
+  for (const entry of ['__', '**', '\u200b', 'a\tb']) assert.throws(() => createWordingMatcher([entry], () => {}), { cause: 'wording-list-malformed' }, JSON.stringify(entry));
 });
 
 test('wording: a fenced command example is left as written, a prose fence and an unclosed fence are not', () => {

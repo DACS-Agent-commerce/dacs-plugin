@@ -213,8 +213,19 @@ const HTML_ATTRIBUTE = /[\s/]*(?:([^\s/>][^\s/>=]*)(?:\s*=\s*(?:"([^"]*)(?:"|$)|
 /** The end of a script or style block; one never closed runs to the end of the page, as a browser reads it. */
 const HTML_RAW_END = { script: /<\/script(?=[\s/>]|$)/gi, style: /<\/style(?=[\s/>]|$)/gi };
 const HTML_TEXT_ATTRIBUTES = new Set(['title', 'alt', 'placeholder', 'content']);
-const HTML_ENTITY = /&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z][a-zA-Z0-9]{1,31}));/g;
-const HTML_NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ensp: ' ', emsp: ' ', thinsp: ' ', shy: '', zwj: '', zwnj: '' };
+/** A character reference: a number (the `;` is optional) or a name of letters and digits with its `;` when it has one. */
+const HTML_REFERENCE = /&(?:#(\d+);?|#[xX]([0-9a-fA-F]+);?|([a-zA-Z][a-zA-Z0-9]*)(;?))/g;
+/** The names of U+00A0 to U+00FF in order; a browser decodes them with or without the `;`, as it does the four markup names and the upper-case forms below. */
+const HTML_LATIN1_NAMES = ('nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest '
+  + 'Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig '
+  + 'agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml').split(' ');
+const HTML_LEGACY_NAMES = new Map([...HTML_LATIN1_NAMES.map((name, index) => [name, String.fromCharCode(0xa0 + index)]),
+  ['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '"'], ['AMP', '&'], ['LT', '<'], ['GT', '>'], ['QUOT', '"'], ['COPY', '©'], ['REG', '®']]);
+/** The names a browser decodes only with the `;`, and the characters they stand for. */
+const HTML_SEMICOLON_NAMES = new Map([['apos', "'"], ['ensp', ' '], ['emsp', ' '], ['thinsp', ' '], ['zwj', '‍'], ['zwnj', '‌']]);
+const HTML_LEGACY_NAME_LENGTH = Math.max(...[...HTML_LEGACY_NAMES.keys()].map((name) => name.length));
+/** Stands in the text for a reference the scanner cannot decode exactly; a page that holds it is refused. */
+const UNDECODED_REFERENCE = '￾';
 /** Source files, which R-WORDING does not read: the files the address rule reads as code, and the two source extensions it leaves out that R-EVAL parses. */
 const SOURCE_EXTENSIONS = new Set([...CODE_EXTENSIONS, '.jsx', '.cts']);
 
@@ -276,10 +287,22 @@ function paragraphsOf(text) {
   return paragraphs.map(({ line, state, joined }) => ({ line, text: normalizeProse(joined), isCommand: state === 'command' }));
 }
 
-/** `text` with each character reference replaced by its character (a line break or an unknown name by a space, so no line number moves). */
-const decodeEntities = (text) => text.replace(HTML_ENTITY, (reference, decimal, hex, name) => {
-  const code = decimal !== undefined ? Number(decimal) : hex !== undefined ? parseInt(hex, 16) : null;
-  const character = code === null ? (Object.hasOwn(HTML_NAMED_ENTITIES, name) ? HTML_NAMED_ENTITIES[name] : ' ') : code > 0x10ffff ? ' ' : String.fromCodePoint(code);
+/** The character a numeric reference stands for, or UNDECODED_REFERENCE when a browser reads it as another one (zero, a surrogate, past U+10FFFF, U+0080 to U+009F). */
+const numericReference = (code) => (code < 1 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) || (code >= 0x80 && code <= 0x9f) ? UNDECODED_REFERENCE : String.fromCodePoint(code));
+
+/** What a name stands for: the exact character, the name itself when a browser leaves it as text, or UNDECODED_REFERENCE when the scanner cannot tell (a name it does not hold, or a legacy name that starts a longer one). */
+function namedReference(reference, name, semicolon) {
+  if (semicolon) return HTML_LEGACY_NAMES.get(name) ?? HTML_SEMICOLON_NAMES.get(name) ?? UNDECODED_REFERENCE;
+  if (HTML_LEGACY_NAMES.has(name)) return HTML_LEGACY_NAMES.get(name);
+  for (let length = Math.min(name.length, HTML_LEGACY_NAME_LENGTH); length >= 2; length -= 1) {
+    if (HTML_LEGACY_NAMES.has(name.slice(0, length))) return UNDECODED_REFERENCE;
+  }
+  return reference;
+}
+
+/** `text` with each character reference replaced by its character (a line break by a space, so no line number moves; one not decoded exactly by UNDECODED_REFERENCE). */
+const decodeEntities = (text) => text.replace(HTML_REFERENCE, (reference, decimal, hex, name, semicolon) => {
+  const character = name !== undefined ? namedReference(reference, name, semicolon === ';') : numericReference(decimal !== undefined ? Number(decimal) : parseInt(hex, 16));
   return /[\r\n]/.test(character) ? ' ' : character;
 });
 
@@ -356,11 +379,12 @@ function manifestParagraphs(text) {
   return jsonStrings(parsed).flatMap(({ key, value }) => paragraphsOf(value).map((paragraph) => ({ ...paragraph, line: keyLines.get(JSON.stringify(key)) ?? 1 })));
 }
 
-/** The paragraphs of a prose, manifest or HTML blob, by its extension. */
+/** The paragraphs of a prose, manifest or HTML blob, by its extension; those of a page that hold a reference not decoded exactly are marked `refused`. */
 function proseParagraphs(file, text) {
   const extension = path.posix.extname(file).toLowerCase();
   if (extension === '.json') return manifestParagraphs(text);
-  return paragraphsOf(extension === '.html' ? htmlText(text) : text);
+  if (extension !== '.html') return paragraphsOf(text);
+  return paragraphsOf(htmlText(text)).map((paragraph) => ({ ...paragraph, refused: paragraph.text.includes(UNDECODED_REFERENCE) }));
 }
 
 /** True when a clause is the approved status clause: equal without case, a leading list marker or heading mark taken off. */
@@ -382,7 +406,8 @@ function hasUnapprovedStatus(paragraph) {
 /**
  * R-WORDING: in the prose of every text blob that is not source code (Markdown and text as prose, HTML text nodes and attributes, manifests by
  * string value, other files as text), refuses a wording-list entry, read in paragraphs with wrapped lines joined, and a sentence about the review's
- * status other than the approved clause. A fenced shell command may hold list entries. Returns findings { rule, kind: 'content', entry, line }.
+ * status other than the approved clause. A fenced shell command may hold list entries. An HTML paragraph with a character reference the scanner
+ * cannot decode exactly is refused as well. Returns findings { rule, kind: 'content', entry, line }.
  */
 export function scanWording({ entries, wordingMatcher, limits }) {
   const { findings, add } = collectFindings(WORDING_RULE_ID, limits);
@@ -390,7 +415,7 @@ export function scanWording({ entries, wordingMatcher, limits }) {
     const text = textOf(entry);
     if (text === null || SOURCE_EXTENSIONS.has(path.posix.extname(entry.path).toLowerCase())) continue;
     const lines = proseParagraphs(entry.path, text)
-      .filter((paragraph) => hasUnapprovedStatus(paragraph.text) || (!paragraph.isCommand && wordingMatcher.hasEntry(maskStatusSpans(paragraph.text))))
+      .filter((paragraph) => paragraph.refused || hasUnapprovedStatus(paragraph.text) || (!paragraph.isCommand && wordingMatcher.hasEntry(maskStatusSpans(paragraph.text))))
       .map((paragraph) => paragraph.line);
     for (const line of new Set(lines)) add({ kind: 'content', entry, line });
   }

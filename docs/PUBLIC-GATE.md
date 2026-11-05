@@ -54,7 +54,9 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   wrapped lines joined, emphasis marks and invisible characters removed, white space collapsed, the entries normalised the same way. A fenced
   shell command is left as written for the vocabulary. A sentence about the review's status passes only as the approved clause (case-insensitive,
   with no reason added), or as a negative disclaimer. Clauses end at sentence ends, semicolons and parentheses; a reason after the approved
-  clause, in the same sentence, fails. In history mode the list is also matched in commit and tag messages, headers and `--pr-text`, with no status check.
+  clause, in the same sentence, fails. An HTML paragraph holding a character reference the scanner cannot decode exactly (a name outside the
+  Latin-1, markup and space names, a legacy name that starts a longer word, a number a browser reads as another character) or a U+FFFE fails:
+  write the character itself. In history mode the list is also matched in commit and tag messages, headers and `--pr-text`, with no status check.
 - **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
   file (`.d.ts`, `.d.mts` and `.d.cts` included), in a child
   process (`rules-eval-child.mjs`) under `run-bounded`. It flags the global `eval` and `Function` in these forms: called, with `new`, as a
