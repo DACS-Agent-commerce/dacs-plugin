@@ -4,7 +4,7 @@ import { writeDiagnostic } from './redact.mjs';
 
 /**
  * The eval rule's parser, run as a child process by rules-eval.mjs. It reads `{ units: [{ kind, text }], maxLines }` from
- * stdin, parses each unit with the TypeScript compiler (parsing only; nothing is run), and writes `{ results: [{ lines,
+ * stdin, reads exact inline HTML forms for `html` units, parses JS/TS with the TypeScript compiler (nothing is run), and writes `{ results: [{ lines,
  * cause? }] }` to stdout: for each unit the distinct 1-based lines of dynamic evaluation (at most `maxLines`) and, when
  * the unit cannot be judged, one cause. No text, name or path leaves this process; a failure leaves a fixed text on stderr.
  */
@@ -152,10 +152,44 @@ function judge({ kind, text }, maxLines) {
   return { lines: [...lines].sort((first, second) => first - second), ...(computedMember ? { cause: 'eval-computed-member' } : {}) };
 }
 
+// Every candidate must match an exact form; no comment, data-script or entity exemptions.
+const HTML_START = /<script|[\t\n\f\r /"']on[a-z][a-z\d:_-]*[\t\n\f\r ]*=/gi;
+const SCRIPT_FORM = /^(<script(?:[\t\n\f\r ]+type="(?:module|text\/javascript)")?(?:[\t\n\f\r ]+src="[^"<>]*")?[\t\n\f\r ]*>)([^<]*)<\/script[\t\n\f\r ]*>/i;
+const HANDLER_FORM = /^([\t\n\f\r ]+on[a-z][a-z\d:_-]*=")([^"&<]*)"/i;
+
+/** Counts source line breaks in a range, counting a CRLF pair once even across range boundaries. */
+function lineBreaksBetween(text, start, end) {
+  let count = 0;
+  for (let index = start; index < end; index += 1) {
+    const character = text[index];
+    if (character === '\r' || character === '\u2028' || character === '\u2029' || (character === '\n' && text[index - 1] !== '\r')) count += 1;
+  }
+  return count;
+}
+
+/** Reads only exact inline HTML forms, under the same child deadline as JS parsing, and maps findings to their original lines. */
+function judgeHtml({ text }, maxLines) {
+  const lines = new Set();
+  let cause;
+  let cursor = 0;
+  let line = 1;
+  for (const candidate of text.matchAll(HTML_START)) {
+    const form = (candidate[0][0] === '<' ? SCRIPT_FORM : HANDLER_FORM).exec(text.slice(candidate.index));
+    if (form === null) return { lines: [], cause: 'eval-html-unreadable' };
+    line += lineBreaksBetween(text, cursor, candidate.index);
+    cursor = candidate.index;
+    const firstLine = line + lineBreaksBetween(text, candidate.index, candidate.index + form[1].length);
+    const result = judge({ kind: 'js', text: form[2] }, maxLines);
+    for (const found of result.lines) if (lines.size < maxLines) lines.add(firstLine + found - 1);
+    cause ??= result.cause;
+  }
+  return { lines: [...lines].sort((first, second) => first - second), ...(cause ? { cause } : {}) };
+}
+
 /** Judges one unit as `judge` does; a unit nested so deep that parsing or walking it overflows the stack is unscannable on its own (`eval-too-deep`). */
 function judgeWithinStack(unit, maxLines) {
   try {
-    return judge(unit, maxLines);
+    return unit.kind === 'html' ? judgeHtml(unit, maxLines) : judge(unit, maxLines);
   } catch (error) {
     if (error instanceof RangeError) return { lines: [], cause: 'eval-too-deep' };
     throw error;
@@ -164,7 +198,7 @@ function judgeWithinStack(unit, maxLines) {
 
 try {
   const { units, maxLines } = JSON.parse(readFileSync(0, 'utf8'));
-  if (!Array.isArray(units) || !Number.isSafeInteger(maxLines) || maxLines < 1 || units.some(({ kind, text }) => !Object.hasOwn(SCRIPT_KINDS, kind) || typeof text !== 'string')) throw new Error('unexpected input');
+  if (!Array.isArray(units) || !Number.isSafeInteger(maxLines) || maxLines < 1 || units.some(({ kind, text }) => (!Object.hasOwn(SCRIPT_KINDS, kind) && kind !== 'html') || typeof text !== 'string')) throw new Error('unexpected input');
   process.stdout.write(JSON.stringify({ results: units.map((unit) => judgeWithinStack(unit, maxLines)) }));
 } catch {
   process.exitCode = 2;

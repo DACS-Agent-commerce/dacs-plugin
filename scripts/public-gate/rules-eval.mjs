@@ -10,8 +10,8 @@ import { textOf } from './rules-address.mjs';
 export const EVAL_RULE_ID = 'R-EVAL';
 
 const PARSER_CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'rules-eval-child.mjs');
-const SCRIPT_KIND_BY_EXTENSION = { '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx', '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx' };
-const UNIT_CAUSES = ['eval-parse-error', 'eval-computed-member', 'eval-too-deep'];
+const SCRIPT_KIND_BY_EXTENSION = { '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx', '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx', '.html': 'html', '.htm': 'html' };
+const UNIT_CAUSES = ['eval-parse-error', 'eval-computed-member', 'eval-too-deep', 'eval-html-unreadable'];
 const GENERATED_KEYS = ['path', 'reason', 'sha256'];
 
 const sha256Of = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -27,7 +27,7 @@ export function hasValidEvalConfig({ evalGeneratedFiles }) {
     && new Set(evalGeneratedFiles.map((row) => row.path)).size === evalGeneratedFiles.length;
 }
 
-/** The units of code in a text blob at `file`, as { kind, text }: the whole file for a JS or TS extension, none otherwise (inline HTML code is not read). */
+/** The units of code in a text blob at `file`, as { kind, text }: the whole file for a JS, TS or HTML extension, none otherwise; only the child reads inline HTML code. */
 function unitsOf(file, text) {
   const extension = path.posix.extname(file).toLowerCase();
   return Object.hasOwn(SCRIPT_KIND_BY_EXTENSION, extension) ? [{ kind: SCRIPT_KIND_BY_EXTENSION[extension], text }] : [];
@@ -71,7 +71,7 @@ function decodeResults(stdout, count, maxLines) {
  * unit's kind and the SHA-256 of its text, so shared bytes are parsed once; every occurrence is still judged by its own path.
  * `scan(entries)` returns { findings, unscannable } for the entries ({ path, kind, bytes, ... }) of one tree:
  * findings { rule, kind: 'content', entry, line } for each line of dynamic evaluation outside an exact generated file, and
- * unscannable { entry, cause } with cause eval-parse-error, eval-computed-member, eval-too-deep, eval-parse-timeout or limit:maxEvalUnitBytes.
+ * unscannable { entry, cause } with cause eval-parse-error, eval-computed-member, eval-too-deep, eval-html-unreadable, eval-parse-timeout or limit:maxEvalUnitBytes.
  * It throws GateInputError for a bad parser reply (eval-parser-failed), too many findings (limit:maxReportEntries) and
  * the run-bounded causes (output limit, spawn failure, interrupt). `requireNoStaleException()` throws
  * GateInputError(stale-eval-exception) when a listed path was scanned only at other bytes than its entry names.
