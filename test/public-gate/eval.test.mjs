@@ -62,12 +62,18 @@ test('eval :: "interfaces, implements clauses and declare declarations are erase
     'interface I extends Function {}', 'class C implements Function {}', 'interface I extends globalThis.Function {}', 'class C implements window.Function {}', 'class C extends Base implements Function {}',
     'interface I { [window.eval]: number }', 'interface I { [globalThis[k]]: number }',
     'declare class C extends Function {}', 'export declare class C extends Function {}', 'declare namespace N { class C extends Function {} }', 'declare module "m" { export class C extends Function {} }',
+    'declare const x = eval("1");', 'declare function f() { eval("1"); }', 'declare enum E { A = eval("1") }', 'declare global { var g: typeof eval; }', 'class C { declare static x: Function }',
+    'namespace N { declare class C { m() { eval("1"); } } }',
   ];
   assert.deepEqual(await failingSnippets(erased, 'ts'), []);
   assert.deepEqual(await failingSnippets(['interface P extends Function {}\nconst x = <div />;'], 'tsx'), []);
   const running = [
     'class C extends Function {}', 'class C extends globalThis.Function implements I {}', 'const C = class extends Function {};', 'export class C extends Function {}', 'const f = eval<string>;',
     'class C implements I { run = eval; }', 'interface I {}\neval("1");', 'declare const x: number;\neval("1");', 'namespace N { eval("1"); }',
+    // The emitter keeps these despite `declare`: an export assignment, an import alias and a decorated class field.
+    'declare export default eval(payload);', 'declare export = eval(payload);', 'declare import e = globalThis.eval;\ne("1");', 'declare import e = Function;\nnew e("x");',
+    'export declare import e = globalThis.eval;', 'declare export import e = globalThis.eval;', 'class C { @(eval("1")) declare x: number }', 'class C { @(globalThis.eval) declare x: number }',
+    'class C { declare x = eval("1") }',
   ];
   assert.deepEqual(await failingSnippets(running, 'ts'), names(running.length).map((name) => name.replace('.mjs', '.ts')));
   assert.deepEqual(await failingSnippets(['interface\nI\n{ eval("1") }', 'declare\nnamespace\nN\n{ eval("1") }']), names(2));

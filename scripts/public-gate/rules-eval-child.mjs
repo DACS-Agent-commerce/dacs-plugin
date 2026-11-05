@@ -63,6 +63,10 @@ function isUse(identifier) {
   return !isName && !isLabel && parent.propertyName !== identifier;
 }
 
+/** The statement kinds the emitter drops whole when they carry their own `declare` modifier; any other `declare` node is still emitted. */
+const DROPPED_DECLARATIONS = new Set([ts.SyntaxKind.VariableStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration]);
+const isDroppedDeclaration = (node) => DROPPED_DECLARATIONS.has(node.kind) && (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.DeclareKeyword);
+
 const isStringArgument = (argument) => {
   const node = argument && unwrap(argument);
   if (!node) return false;
@@ -102,9 +106,10 @@ function judge({ kind, text }, maxLines) {
     }
   };
   const visit = (node) => {
-    // Types, interfaces, `implements` clauses and ambient (`declare`) declarations are erased: nothing in them runs. A class `extends` clause does.
+    // Types, interfaces, `implements` clauses and `declare` variable, function, class, enum and namespace statements are erased: nothing in them runs. A class `extends` clause does,
+    // and so do a `declare` export assignment, import alias or class field, which the emitter keeps.
     if ((ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node)
-      || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || (node.flags & ts.NodeFlags.Ambient) !== 0) return;
+      || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isDroppedDeclaration(node)) return;
     if (ts.isIdentifier(node)) {
       if (DYNAMIC_NAMES.has(node.text) && isUse(node)) flag(node);
     } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
