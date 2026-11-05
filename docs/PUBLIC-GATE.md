@@ -45,18 +45,21 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `stale-lockfile-disposition` (exit 2), so a later lockfile change needs a new review; a seventh link or a wildcard needs a new owner decision.
 - **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
   file (`.d.ts`, `.d.mts` and `.d.cts` included), in a child
-  process (`rules-eval-child.mjs`) under `run-bounded`. It flags the global `eval` and `Function` in these forms: called, with `new`, as a
-  value or alias, through `globalThis`, `window`, `self` or `global` by member, bracket (literal key), optional or comma-expression access (or a conditional, `||`, `&&`, `??` or assignment giving one), and
-  through destructuring of those objects (declared, assigned, as a parameter default, in `for…of` or nested under a global object's own key such as `self`; a pattern under any other key is not read); and a string (literal, template, `+` with a string, or a conditional, logical or assignment operand that is one)
-  passed to the global `setTimeout` or `setInterval`. A function callback passes; strings, comments, regular expressions, template text, types, interfaces, `implements` clauses and `declare` variable, function, class, enum and module declarations never count. A `declare` export assignment, import alias or class field is still read, because the TypeScript emitter keeps it.
-  Inline code in `.html` and `.htm` files (scripts and event-handler attributes) is not read yet.
-  A computed member, a computed destructuring key or a rest element of a global object makes the file unscannable (`eval-computed-member`). Other causes: `eval-parse-error`
-  (the file has a syntax error), `eval-too-deep` (the file nests so deep that parsing it overflows the child's stack; the other files are still judged), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`;
+  process (`rules-eval-child.mjs`) under `run-bounded`. Its rules are syntactic and track no value. **Names:** the name `eval` or `Function` fails wherever it is
+  written, on any object: a use, a property, method, member, key, binding, import or export name or a label, and a string or plain template literal with that text as a key,
+  a computed name or a bracket key. **Timers:** a call to `setTimeout` or `setInterval` (written plainly, held anywhere in the callee, or as a member of an expression naming
+  `globalThis`, `window`, `self` or `global`) fails unless its first argument is absent, a function, a name or a property access; a tagged template on one fails.
+  **Computed keys:** a non-literal (or BigInt) bracket key on an expression that names one of those four objects anywhere in it, or a destructuring (declared, a parameter,
+  `=` or `for…of`) whose pattern has such a key, a rest element or a spread and whose value or defaults name one, makes the file unscannable (`eval-computed-member`).
+  Strings, comments, regular expressions, template text, types, interfaces, `implements` clauses and `declare` variable, function, class, enum and module declarations never count;
+  a `declare` export assignment, import alias or class field is still read, because the TypeScript emitter keeps it. Inline code in `.html` and `.htm` files is not read here.
+  A symlink with one of these extensions (any case) is unscannable (`eval-symlink`), never followed and never exempt; a blob that is not text but has a reviewed binary disposition is `eval-not-text`.
+  Other causes: `eval-parse-error`, `eval-too-deep` (the file nests so deep that parsing it overflows the child's stack; the other files are still judged), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`;
   units go to the child in batches of at most `maxEvalBatchBytes`, its output is capped at `maxEvalOutputBytes`, and a reply that breaks the
   protocol stops the run with `eval-parser-failed` (exit 2). The only exceptions are the exact files of `evalGeneratedFiles` (`path`, `sha256`, `reason`):
-  the same bytes at another path are another occurrence and fail, and an entry whose path the target holds only at other bytes stops the
-  run with `stale-eval-exception`. Limits of the detection: only a plain `setTimeout` or `setInterval` call (or a member of a global object) is read for
-  string arguments written beside it (not a string or timer held in a variable), a name shadowed by a local variable is still read as the global, a global object is read only as written beside the member or pattern (not through a variable, an argument or `this`), and `constructor` chains and `Reflect` are not followed.
+  the same bytes at another path are another occurrence and fail, and an entry whose path the target holds only at other bytes stops the run with `stale-eval-exception`.
+  Limits of the detection: a global object or timer held in a variable; a timer string held in a variable or property; a computed key on an expression naming none of the
+  four objects (`top`, `parent` and `frames` with a computed key included); functions that read a global's properties (`Reflect`, `Object.values`); `this` and `constructor` chains.
 - **Hosts (`R-HOST`, both scopes).** Every path and every text blob is read line by line, as written and with its
   escaped delimiters `\/`, `\@` and `\:` unescaped (`https:\/\/host\/x` is read as the URL it decodes to); a backslash ends a URL host.
   An escaped dot (`\.`) is not unescaped, because it is regex syntax in the code's own host patterns. A dotted name is a host when it is the

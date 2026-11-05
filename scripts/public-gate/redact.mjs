@@ -13,7 +13,7 @@ export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.
 /** Schema values shared by every report: a SHA-256 digest, a rule status and an unscannable entry's cause. */
 export const SHA256_HEX = /^[0-9a-f]{64}$/;
 export const STATUSES = ['passed', 'findings', 'not-run', 'unscannable'];
-export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition', 'eval-parse-error', 'eval-computed-member', 'eval-too-deep', 'eval-parse-timeout', 'limit:maxEvalUnitBytes'];
+export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition', 'eval-symlink', 'eval-not-text', 'eval-parse-error', 'eval-computed-member', 'eval-too-deep', 'eval-parse-timeout', 'limit:maxEvalUnitBytes'];
 const SCOPES = ['generic', 'complete'];
 const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, EVAL_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, REPORT_RULE_ID, ISSUE_RULE_ID, PRIVATE_RULE_ID, SECRET_RULE_ID];
 const KINDS = ['path', 'content'];

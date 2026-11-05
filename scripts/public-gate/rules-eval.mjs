@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { RunBoundedError, runBounded } from '../lib/run-bounded.mjs';
+import { classifyBlob } from './classify.mjs';
 import { GateInputError } from './objects.mjs';
 import { textOf } from './rules-address.mjs';
 
@@ -10,7 +11,7 @@ import { textOf } from './rules-address.mjs';
 export const EVAL_RULE_ID = 'R-EVAL';
 
 const PARSER_CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'rules-eval-child.mjs');
-const SCRIPT_KIND_BY_EXTENSION = { '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx', '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx' };
+const SCRIPT_KIND_BY_EXTENSION = new Map(Object.entries({ '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx', '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx' }));
 const UNIT_CAUSES = ['eval-parse-error', 'eval-computed-member', 'eval-too-deep'];
 const GENERATED_KEYS = ['path', 'reason', 'sha256'];
 
@@ -25,12 +26,6 @@ export function hasValidEvalConfig({ evalGeneratedFiles }) {
   return Array.isArray(evalGeneratedFiles)
     && evalGeneratedFiles.every((row) => row !== null && typeof row === 'object' && isDeepStrictEqual(Object.keys(row).sort(), GENERATED_KEYS) && isText(row.path) && /^[0-9a-f]{64}$/.test(row.sha256) && isText(row.reason))
     && new Set(evalGeneratedFiles.map((row) => row.path)).size === evalGeneratedFiles.length;
-}
-
-/** The units of code in a text blob at `file`, as { kind, text }: the whole file for a JS or TS extension, none otherwise (inline HTML code is not read). */
-function unitsOf(file, text) {
-  const extension = path.posix.extname(file).toLowerCase();
-  return Object.hasOwn(SCRIPT_KIND_BY_EXTENSION, extension) ? [{ kind: SCRIPT_KIND_BY_EXTENSION[extension], text }] : [];
 }
 
 /** Splits `units` into runs whose texts hold at most `maxBytes` together; a unit over it is alone in its run. */
@@ -71,7 +66,7 @@ function decodeResults(stdout, count, maxLines) {
  * unit's kind and the SHA-256 of its text, so shared bytes are parsed once; every occurrence is still judged by its own path.
  * `scan(entries)` returns { findings, unscannable } for the entries ({ path, kind, bytes, ... }) of one tree:
  * findings { rule, kind: 'content', entry, line } for each line of dynamic evaluation outside an exact generated file, and
- * unscannable { entry, cause } with cause eval-parse-error, eval-computed-member, eval-too-deep, eval-parse-timeout or limit:maxEvalUnitBytes.
+ * unscannable { entry, cause } with cause eval-symlink, eval-not-text, eval-parse-error, eval-computed-member, eval-too-deep, eval-parse-timeout or limit:maxEvalUnitBytes.
  * It throws GateInputError for a bad parser reply (eval-parser-failed), too many findings (limit:maxReportEntries) and
  * the run-bounded causes (output limit, spawn failure, interrupt). `requireNoStaleException()` throws
  * GateInputError(stale-eval-exception) when a listed path was scanned only at other bytes than its entry names.
@@ -109,32 +104,36 @@ export function createEvalScanner({ config, limits, signal, parser = { command: 
     for (const batch of batchesOf([...pending.values()], limits.maxEvalBatchBytes)) await parseBatch(batch);
   }
 
-  function occurrencesIn(entries) {
-    const occurrences = [];
-    for (const entry of entries) {
-      if (entry.path === null || entry.kind !== 'blob' || !entry.bytes) continue;
-      const key = `${entry.path}\0${sha256Of(entry.bytes)}`;
-      if (listedPaths.has(entry.path)) {
-        heldPaths.add(entry.path);
-        heldExact.add(key);
-      }
-      const text = exact.has(key) ? null : textOf(entry);
-      if (text === null) continue;
-      const units = unitsOf(entry.path, text).map((unit) => ({ ...unit, key: `${unit.kind}\0${sha256Of(unit.text)}` }));
-      if (units.length > 0) occurrences.push({ entry, units });
+  /**
+   * What the rule makes of one entry, decided in this order: nothing for a path without a script extension or one the reader
+   * already reports as unscannable; `eval-symlink` for a symlink, never followed and never exempt; `eval-not-text` for a blob
+   * that is not text; nothing for an exact generated file; else the unit { kind, text, key } to judge.
+   */
+  function outcomeOf(entry) {
+    const kind = entry.path === null ? undefined : SCRIPT_KIND_BY_EXTENSION.get(path.posix.extname(entry.path).toLowerCase());
+    if (kind === undefined || entry.problem || !entry.bytes) return {};
+    const text = textOf(entry);
+    if (text === null && classifyBlob(entry.path, entry.bytes, config).problem) return {};
+    if (entry.kind === 'symlink') return { cause: 'eval-symlink' };
+    if (text === null) return { cause: 'eval-not-text' };
+    if (listedPaths.has(entry.path)) {
+      const listedKey = `${entry.path}\0${sha256Of(entry.bytes)}`;
+      heldPaths.add(entry.path);
+      heldExact.add(listedKey);
+      if (exact.has(listedKey)) return {};
     }
-    return occurrences;
+    return { unit: { kind, text, key: `${kind}\0${sha256Of(text)}` } };
   }
 
   async function scan(entries) {
-    const occurrences = occurrencesIn(entries);
-    await parseMissing(occurrences.flatMap(({ units }) => units));
+    const outcomes = entries.map((entry) => ({ entry, ...outcomeOf(entry) }));
+    await parseMissing(outcomes.flatMap(({ unit }) => unit ?? []));
     const findings = [];
     const unscannable = [];
-    for (const { entry, units } of occurrences) {
-      const lines = new Set(units.flatMap(({ key }) => results.get(key).lines));
-      lines.forEach((line) => findings.push({ rule: EVAL_RULE_ID, kind: 'content', entry, line }));
-      new Set(units.flatMap(({ key }) => results.get(key).cause ?? [])).forEach((cause) => unscannable.push({ entry, cause }));
+    for (const { entry, cause, unit } of outcomes) {
+      const result = unit === undefined ? { lines: [], cause } : results.get(unit.key);
+      result.lines.forEach((line) => findings.push({ rule: EVAL_RULE_ID, kind: 'content', entry, line }));
+      if (result.cause !== undefined) unscannable.push({ entry, cause: result.cause });
       if (findings.length > limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${limits.maxReportEntries} findings`);
     }
     return { findings, unscannable };
