@@ -65,16 +65,18 @@ const PROJECT = { name: 'Project', email: 'project@example.invalid' };
 /**
  * Builds a repository whose commits are `steps`, oldest first, using plumbing only. A step is { files, message, parents
  * (indexes of earlier steps, default the one before), author, committer ({ name, email }), tz }; `refs` maps a branch name
- * to a step index. Returns { dir, commits } with the object ids in step order.
+ * to a step index. A file's value is its content, or { content, mode } for another mode (120000 for a symlink).
+ * Returns { dir, commits } with the object ids in step order.
  */
 export function createHistory(steps, refs = { main: steps.length - 1 }) {
   const dir = makeTempDir('history');
   git(dir, ['init', '-q']);
   const commits = [];
   steps.forEach((step, index) => {
-    const records = Object.entries(step.files ?? { 'a.txt': `step ${index}\n` }).map(([file, content]) => {
+    const records = Object.entries(step.files ?? { 'a.txt': `step ${index}\n` }).map(([file, value]) => {
+      const { content, mode } = value?.mode ? value : { content: value, mode: '100644' };
       const oid = git(dir, ['hash-object', '-w', '--stdin'], { input: Buffer.from(content) });
-      return Buffer.from(`100644 ${oid}\t${file}\0`);
+      return Buffer.from(`${mode} ${oid}\t${file}\0`);
     });
     const env = { GIT_INDEX_FILE: path.join(dir, `fixture-index-${index}`) };
     git(dir, ['update-index', '--add', '-z', '--index-info'], { input: Buffer.concat(records), env });
