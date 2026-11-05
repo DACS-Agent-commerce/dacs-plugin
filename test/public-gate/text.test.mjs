@@ -258,6 +258,14 @@ test('wording: a fenced command example is left as written, a prose fence and an
   assert.equal(wordingFindings('a.md', `\`\`\`sh\nThe external ${REVIEW} is complete.\n\`\`\`\n`).length, 1);
 });
 
+test('wording: a file of many closed fences is read once per line and still finds an entry after them', { timeout: 20_000 }, () => {
+  const started = performance.now();
+  for (const pair of ['```\n```\n', '~~~\n~~~\n', '```\n~~~\n']) {
+    assert.equal(wordingFindings('a.md', `${pair.repeat(60_000)}\n${TERM}\n`).length, 1, JSON.stringify(pair));
+  }
+  assert.ok(performance.now() - started < 5_000, 'three files of 60,000 fence pairs take well under the quadratic time');
+});
+
 test('wording: the actual negative disclaimers, the carried approved status sentences and the held-write executable strings pass', () => {
   const cited = [['OVERNIGHT-PACKAGING.md', 6, 6], ['EMBEDDED-WALLET-TESTER.md', 8, 8], ['TESTER-QUICKSTART.md', 29, 30], ['EMBEDDED-WALLET-TESTER.md', 4, 5], ['OVERNIGHT-CORE.md', 6, 7], ['OVERNIGHT-UI.md', 5, 6]];
   for (const [name, from, to] of cited) {

@@ -227,6 +227,14 @@ export function createWordingMatcher(entries, checkpoint) {
   return createPrivateMatcher(normalized, checkpoint);
 }
 
+const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})\s*$/;
+
+/** Whether `line` closes a fence opened with `marker`: only that character, at least as many times. */
+function isClosingFence(line, marker) {
+  const run = CLOSING_FENCE.exec(line)?.[1];
+  return run !== undefined && run[0] === marker[0] && run.length >= marker.length;
+}
+
 /** Marks each line of `lines` as 'text', a fence 'delimiter' or a fenced shell command 'command'; an unclosed fence marks nothing as a command. */
 function markFences(lines) {
   const states = lines.map(() => 'text');
@@ -234,7 +242,9 @@ function markFences(lines) {
     const fence = /^ {0,3}(`{3,}|~{3,})\s*([^`\s]*)/.exec(lines[open]);
     if (!fence) continue;
     const [, marker, language] = fence;
-    const close = lines.findIndex((line, index) => index > open && new RegExp(`^ {0,3}${marker[0]}{${marker.length},}\\s*$`).test(line));
+    let close = open + 1;
+    while (close < lines.length && !isClosingFence(lines[close], marker)) close += 1;
+    if (close === lines.length) close = -1;
     states[open] = 'delimiter';
     if (close < 0) break;
     const body = lines.slice(open + 1, close).filter((line) => line.trim() !== '');
