@@ -71,15 +71,18 @@ export function createFakeLocks() {
   return locks;
 }
 
-// head(lane) -> {revision}; append(lane, expectedRevision, record) -> {revision}.
-// `failures` makes a kind's commit throw; `beforeCommit` runs a hook while a kind is being persisted.
+// head(lane) -> {revision, lastKind, signedBytes}; append(lane, expectedRevision, record) -> {revision}.
+// `lastKind` is the newest record's kind and `signedBytes` the newest `signed` record's bytes (both undefined
+// when there is none). `failures` makes a kind's commit throw; `beforeCommit` runs a hook while a kind is being persisted.
 export function createMemoryRecords() {
   const lanes = new Map();
   const store = {
     failures: new Map(),
     beforeCommit: new Map(),
     async head(lane) {
-      return { revision: lanes.get(lane)?.length ?? 0 };
+      const records = lanes.get(lane) ?? [];
+      const signed = records.findLast((record) => record.kind === 'signed');
+      return { revision: records.length, lastKind: records.at(-1)?.kind, signedBytes: signed && Uint8Array.from(signed.bytes) };
     },
     async append(lane, expectedRevision, record) {
       await store.beforeCommit.get(record.kind)?.(record);

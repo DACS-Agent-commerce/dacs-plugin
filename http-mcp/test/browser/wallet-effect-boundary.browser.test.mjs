@@ -489,3 +489,146 @@ test('the EB signer and EB transmitter run the EB5r and EB8f tails immediately b
     assert.deepEqual(world.records.kinds('lane-1'), ['signed', 'dispatch-started', 'dispatch-unknown']);
   });
 });
+
+test('the bytes the wrapped signer returned are the bytes persisted and the only bytes the transmitter sends', async (t) => {
+  await t.test('a sign step returning other bytes than the wrapped signer does not change what is persisted or sent', async () => {
+    const world = createWorld();
+    const { error } = await world.settled(world.runPass({ sign: async (armed) => { await world.sign(armed); return new Uint8Array([2]); } }));
+    assert.equal(error, undefined);
+    assert.deepEqual([...world.records.records('lane-1')[0].bytes], world.SIGNED_BYTES);
+    assert.deepEqual([...world.sent[0]], world.SIGNED_BYTES);
+  });
+
+  const otherBytes = [
+    { name: 'other bytes than the persisted ones', send: (world, armed) => world.send(armed, new Uint8Array([99])) },
+    { name: 'the persisted array changed by the stage before the transmitter', send: (world, armed, bytes) => { bytes[0] = 99; return world.send(armed, bytes); } },
+    { name: 'a shorter prefix of the persisted bytes', send: (world, armed, bytes) => world.send(armed, bytes.slice(0, 2)) },
+    { name: 'no bytes', send: (world, armed) => world.send(armed) },
+    { name: 'a value that is not bytes', send: (world, armed) => world.send(armed, 'text') },
+  ];
+  for (const row of otherBytes) {
+    await t.test(`the transmitter refuses ${row.name} with transport 0 and records dispatch-withheld`, async () => {
+      const world = createWorld();
+      const { error } = await world.settled(world.runPass({ stages: [{ name: 'dispatch', send: (armed, bytes) => row.send(world, armed, bytes) }] }));
+      assertRefusal(error, 'eb_bytes_mismatch');
+      assert.equal(world.counts.transport, 0);
+      assert.deepEqual(world.records.kinds('lane-1'), ['signed', 'dispatch-started', 'dispatch-withheld']);
+    });
+  }
+
+  await t.test('a second signature in one pass is refused and the signer ran once', async () => {
+    const world = createWorld();
+    const { error } = await world.settled(world.runPass({ sign: async (armed) => { await world.sign(armed); return world.sign(armed); } }));
+    assertRefusal(error, 'eb_signer_repeated');
+    assert.equal(world.counts.signer, 1);
+    assert.equal(world.counts.transport, 0);
+  });
+
+  await t.test('a send step that signs again after the bytes were persisted is refused and the signer is not called', async () => {
+    const first = createWorld();
+    first.records.beforeCommit.set('dispatch-started', () => { first.state.killed = true; });
+    await first.settled(first.runPass());
+    first.records.beforeCommit.clear();
+    const resumed = createWorld({ records: first.records });
+    const { error } = await resumed.settled(resumed.runPass({
+      retained: { bytes: new Uint8Array(first.SIGNED_BYTES) },
+      sign: undefined,
+      stages: [{ name: 'dispatch', send: (armed) => resumed.sign(armed) }],
+    }));
+    assertRefusal(error, 'eb_signer_repeated');
+    assert.deepEqual([resumed.counts.signer, resumed.counts.transport], [0, 0]);
+  });
+
+  await t.test('a sign step that sends before the bytes are persisted is refused eb_bytes_mismatch', async () => {
+    const world = createWorld();
+    const { error } = await world.settled(world.runPass({ sign: async (armed) => { await world.sign(armed); return world.send(armed, new Uint8Array(world.SIGNED_BYTES)); } }));
+    assertRefusal(error, 'eb_bytes_mismatch');
+    assert.equal(world.counts.transport, 0);
+    assert.deepEqual(world.records.kinds('lane-1'), []);
+  });
+
+  await t.test('a signer result that is not bytes is refused before anything is persisted', async () => {
+    const world = createWorld();
+    const { error } = await world.settled(world.runPass({ sign: (armed) => ebSign(async () => 'signature', armed)() }));
+    assertRefusal(error, 'eb_signed_bytes_invalid');
+    assert.deepEqual(world.records.kinds('lane-1'), []);
+  });
+});
+
+// Each row leaves a lane in a state, then a second pass asks to resume that lane's retained bytes.
+const laneStates = [
+  { name: 'only a signed record (the crash came before the intent)', resumable: true, prepare: (w) => w.records.failures.set('dispatch-started', new Error('disk full')) },
+  { name: 'signed-held (EB7 refused)', resumable: true, prepare: (w) => w.records.beforeCommit.set('signed', () => { w.state.admission = 'profile_not_admitted'; }) },
+  { name: 'dispatch-withheld (EB8f refused)', resumable: true, prepare: (w) => w.records.beforeCommit.set('dispatch-started', () => { w.state.killed = true; }) },
+  { name: 'dispatch-started and no answer (a crash during the send)', resumable: false, prepare: (w) => w.records.failures.set('dispatch-acknowledged', new Error('tab closed')) },
+  { name: 'dispatch-unknown (the answer was lost)', resumable: false, prepare: (w) => { w.behavior.transport = async () => { throw new Error('socket reset'); }; } },
+  { name: 'dispatch-acknowledged', resumable: false, prepare: () => {} },
+];
+
+test('K0-F8 a lane\'s records decide whether a pass may sign or resume its retained bytes', async (t) => {
+  for (const row of laneStates) {
+    const verdict = row.resumable ? 'transmits the retained bytes once' : 'is refused eb_resume_not_allowed with transport 0';
+    await t.test(`resuming a lane that holds ${row.name} ${verdict}`, async () => {
+      const first = createWorld();
+      row.prepare(first);
+      await first.settled(first.runPass());
+      first.records.failures.clear();
+      first.records.beforeCommit.clear();
+      const before = first.records.kinds('lane-1').length;
+      const restarted = createWorld({ records: first.records });
+      const { error } = await restarted.settled(restarted.runPass({ retained: { bytes: new Uint8Array(first.SIGNED_BYTES) }, sign: undefined }));
+      if (row.resumable) {
+        assert.equal(error, undefined);
+        assert.equal(restarted.counts.transport, 1);
+      } else {
+        assertRefusal(error, 'eb_resume_not_allowed');
+        assert.equal(restarted.counts.transport, 0);
+        assert.equal(first.records.kinds('lane-1').length, before, 'nothing was appended');
+      }
+      assert.equal(restarted.counts.signer, 0);
+    });
+  }
+
+  await t.test('retained bytes on an empty lane are refused eb_resume_not_allowed with signer 0 and transport 0', async () => {
+    const world = createWorld();
+    const { error } = await world.settled(world.runPass({ retained: { bytes: new Uint8Array([99]) }, sign: undefined }));
+    assertRefusal(error, 'eb_resume_not_allowed');
+    assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
+    assert.deepEqual(world.records.kinds('lane-1'), []);
+  });
+
+  await t.test('retained bytes that differ from the lane\'s signed record are refused eb_resume_not_allowed', async () => {
+    const first = createWorld();
+    first.records.beforeCommit.set('dispatch-started', () => { first.state.killed = true; });
+    await first.settled(first.runPass());
+    first.records.beforeCommit.clear();
+    const restarted = createWorld({ records: first.records });
+    const { error } = await restarted.settled(restarted.runPass({ retained: { bytes: new Uint8Array([99]) }, sign: undefined }));
+    assertRefusal(error, 'eb_resume_not_allowed');
+    assert.equal(restarted.counts.transport, 0);
+  });
+
+  await t.test('a store head that cannot prove the last record is refused eb_persist_failed', async () => {
+    const world = createWorld();
+    world.records.head = async () => ({ revision: 'one' });
+    const { error } = await world.settled(world.runPass());
+    assertRefusal(error, 'eb_persist_failed');
+    assert.equal(world.counts.signer, 0);
+  });
+
+  for (const row of laneStates) {
+    await t.test(`a new signing pass on a lane that holds ${row.name} is refused eb_lane_not_empty with signer 1 in total`, async () => {
+      const first = createWorld();
+      row.prepare(first);
+      await first.settled(first.runPass());
+      first.records.failures.clear();
+      first.records.beforeCommit.clear();
+      const before = first.records.kinds('lane-1').length;
+      const second = createWorld({ records: first.records });
+      const { error } = await second.settled(second.runPass());
+      assertRefusal(error, 'eb_lane_not_empty');
+      assert.deepEqual([first.counts.signer + second.counts.signer, second.counts.transport], [1, 0]);
+      assert.equal(first.records.kinds('lane-1').length, before);
+    });
+  }
+});

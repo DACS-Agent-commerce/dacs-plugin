@@ -17,8 +17,11 @@
 // the EB transmitter `ebTransmit(innerSend, armed)`. Both refuse `tp1_fence_not_owned` outside the pass that armed
 // them. Stages are `dispatch`, or `confirm` then `broadcast` for a signed transaction; a stage that is not
 // acknowledged ends the pass, so an unknown confirmation never advances to broadcast.
+// The inner signer's bytes are the only bytes persisted and the only bytes that can be sent. A signing pass needs an
+// empty lane; a resume needs the newest record `signed`, `signed-held` or `<stage>-withheld` with the same bytes.
 // Nothing here touches a network, IndexedDB or navigator: the Web Locks manager, the clock, the checks and the
-// record store (`head(lane)`, `append(lane, expectedRevision, record)`) are injected. No page loads this module yet.
+// record store (`head(lane)` -> `{ revision, lastKind, signedBytes }`, `append(lane, expectedRevision, record)`)
+// are injected. No page loads this module yet.
 
 /** Time allowed to acquire the wallet fence before `tp1_fence_timeout`. */
 export const FENCE_TIMEOUT_MS = 10_000;
@@ -29,6 +32,8 @@ const FENCE_LOCK_PREFIX = 'dacs-wallet-effects:';
 const CONNECTION_REPLACEMENT_OPERATION = 'connection-replacement';
 const STAGE_NAMES = new Set(['dispatch', 'confirm', 'broadcast']);
 const MAX_CAUSE_MESSAGE_LENGTH = 200;
+const RESUMABLE_KINDS = new Set(['signed', 'signed-held', ...[...STAGE_NAMES].map((name) => `${name}-withheld`)]);
+const sameBytes = (a, b) => a instanceof Uint8Array && b instanceof Uint8Array && a.length === b.length && a.every((byte, index) => byte === b[index]);
 
 const SYSTEM_CLOCK = Object.freeze({
   now: () => performance.now(),
@@ -178,6 +183,7 @@ function createArmedPass({ fence, checks, clock, stoppedCode }, { operationId, a
     live: true,
     signCalls: 0,
     sendCalls: 0,
+    signedBytes: undefined, bytes: undefined, // the inner signer's bytes, then the persisted bytes (the only ones sent)
     assertOwned() {
       if (!armed.live || !fence.owns(armed.capability, operationId)) throw refuse('tp1_fence_not_owned');
     },
@@ -230,11 +236,12 @@ function createArmedPass({ fence, checks, clock, stoppedCode }, { operationId, a
     },
     beforeSigner() {
       armed.recheckBeforeEffect();
-      armed.signCalls += 1;
+      if (armed.bytes !== undefined || armed.signCalls++ > 0) throw refuse('eb_signer_repeated');
     },
-    beforeSend() {
+    beforeSend(bytes) {
       armed.assertOwned();
       if (armed.sendCalls > 0) throw refuse('eb_transmission_repeated');
+      if (!sameBytes(bytes, armed.bytes)) throw refuse('eb_bytes_mismatch');
       armed.admit();
       armed.bound();
       armed.sendCalls += 1;
@@ -246,63 +253,71 @@ function createArmedPass({ fence, checks, clock, stoppedCode }, { operationId, a
 /**
  * The EB signer: wraps the inner signer so that, when the library calls it, it awaits the final stop read, runs
  * the synchronous rechecks (owner, admission, approval, digest, generation) and calls `innerSign` in the same
- * tick. Rejects with the refusal (inner signer not called) outside the pass that created `armed`.
+ * tick, once per pass; the pass persists the bytes `innerSign` returns. Rejects with the refusal (inner signer not
+ * called) outside the pass that created `armed`.
  */
 export function ebSign(innerSign, armed) {
   return async (...args) => {
     await armed.finalStop();
     armed.beforeSigner();
-    return innerSign(...args);
+    const signed = await innerSign(...args);
+    armed.signedBytes = signed instanceof Uint8Array ? Uint8Array.from(signed) : undefined;
+    return signed;
   };
 }
 
 /**
- * The EB transmitter (EB8f): awaits the final stop read, runs the synchronous checks (owner, admission, digest,
- * generation) and calls `innerSend` in the same tick, once per stage. Rejects with the refusal (inner send not
- * called) outside the pass that created `armed`.
+ * The EB transmitter (EB8f): awaits the final stop read, runs the synchronous checks (owner, once per stage, bytes,
+ * admission, digest, generation) and calls `innerSend` in the same tick. The first argument is the bytes to send; it
+ * must equal the persisted bytes (`eb_bytes_mismatch`). Rejects (inner send not called) outside its own pass.
  */
 export function ebTransmit(innerSend, armed) {
-  return async (...args) => {
+  return async (bytes, ...rest) => {
     await armed.finalStop();
-    armed.beforeSend();
-    return innerSend(...args);
+    armed.beforeSend(bytes);
+    return innerSend(bytes, ...rest);
   };
 }
 
 // Appends under the lane's revision: the head is read once, every append is compared against the revision the
 // previous append returned, and a failed, malformed or out-of-sequence answer is `eb_persist_failed`.
 function createLaneCursor(records, lane, identity) {
-  let revision;
+  let head;
+  const readHead = async () => {
+    head ??= await records.head(lane);
+    if (!Number.isSafeInteger(head?.revision) || head.revision < 0) throw new TypeError('record store returned a malformed lane head');
+    return head;
+  };
+  const guarded = (step) => step().catch((cause) => { throw refuse('eb_persist_failed', cause); });
   return {
-    async append(fields) {
-      try {
-        revision ??= (await records.head(lane)).revision;
-        if (!Number.isSafeInteger(revision) || revision < 0) throw new TypeError('record store returned a malformed lane head');
-        const next = await records.append(lane, revision, { ...identity, ...fields });
-        if (next?.revision !== revision + 1) throw new TypeError('record store returned an out-of-sequence revision');
-        revision = next.revision;
-      } catch (cause) {
-        throw refuse('eb_persist_failed', cause);
-      }
-    },
+    head: () => guarded(readHead),
+    append: (fields) => guarded(async () => {
+      const { revision } = await readHead();
+      const next = await records.append(lane, revision, { ...identity, ...fields });
+      if (next?.revision !== revision + 1) throw new TypeError('record store returned an out-of-sequence revision');
+      head = { revision: next.revision };
+    }),
   };
 }
 
+// A signing pass needs an empty lane; a resume needs a newest record that shows nothing sent, and the same bytes.
 async function obtainSignedBytes(armed, cursor, { sign, retained }) {
+  const { revision, lastKind, signedBytes } = await cursor.head();
   if (retained !== undefined) {
+    if (!RESUMABLE_KINDS.has(lastKind) || !sameBytes(retained.bytes, signedBytes)) throw refuse('eb_resume_not_allowed', lastKind);
     await armed.finalStop();
     armed.recheckBeforeEffect();
-    return retained.bytes;
+    return Uint8Array.from(retained.bytes);
   }
-  const signed = await sign(armed);
+  if (revision !== 0) throw refuse('eb_lane_not_empty', lastKind);
+  await sign(armed);
   if (armed.signCalls === 0) throw refuse('eb_signer_bypassed');
-  if (!(signed instanceof Uint8Array) || signed.length === 0) throw refuse('eb_signed_bytes_invalid');
-  const bytes = Uint8Array.from(signed);
-  await cursor.append({ kind: 'signed', bytes });
-  return bytes;
+  if (armed.signedBytes === undefined || armed.signedBytes.length === 0) throw refuse('eb_signed_bytes_invalid');
+  await cursor.append({ kind: 'signed', bytes: armed.signedBytes });
+  return armed.signedBytes;
 }
 
-async function runStage(armed, cursor, { name, send }, bytes) {
+async function runStage(armed, cursor, { name, send }) {
   try {
     await armed.verifyBeforeIntent();
   } catch (error) {
@@ -317,7 +332,7 @@ async function runStage(armed, cursor, { name, send }, bytes) {
   armed.sendCalls = 0;
   let result;
   try {
-    result = await send(armed, bytes);
+    result = await send(armed, armed.bytes.slice());
   } catch (error) {
     if (armed.sendCalls > 0) return unknown(error);
     await cursor.append({ kind: `${name}-withheld`, stage: name, cause: describeCause(error) });
@@ -361,10 +376,10 @@ export function createEffectBoundary({ fence, checks, records, clock = SYSTEM_CL
     const passId = newPassId();
     const cursor = createLaneCursor(records, lane, { operationId, lane, pinVersion, approvalRevision, passId });
     await armed.refresh();
-    const bytes = await obtainSignedBytes(armed, cursor, request);
+    armed.bytes = await obtainSignedBytes(armed, cursor, request);
     const outcomes = [];
     for (const stage of request.stages ?? []) {
-      outcomes.push(await runStage(armed, cursor, stage, bytes));
+      outcomes.push(await runStage(armed, cursor, stage));
       if (outcomes.at(-1).state !== 'acknowledged') break;
     }
     return { operationId, passId, outcomes };
