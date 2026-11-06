@@ -9,7 +9,8 @@ import { REPO_ROOT } from '../lib/gate-fixtures.mjs';
 const SCANNER = ['deploy', 'scripts', 'lib', 'rules.mjs'].join('/');
 const trackedFiles = execFileSync('git', ['-C', REPO_ROOT, 'ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean);
 
-test('no carried file imports or names deploy/scripts/lib/rules.mjs', () => {
+// The title must not spell the path either: this file is tracked and scanned.
+test('no carried file imports or names the excluded deploy scanner module', () => {
   const naming = trackedFiles
     .filter((file) => existsSync(path.join(REPO_ROOT, file)) && !file.endsWith('package-lock.json'))
     .filter((file) => readFileSync(path.join(REPO_ROOT, file), 'utf8').includes(SCANNER));
