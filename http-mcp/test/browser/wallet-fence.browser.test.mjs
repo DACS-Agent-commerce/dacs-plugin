@@ -119,6 +119,14 @@ test('a lock request that rejects refuses eb_fence_failed with that error as the
   assert.equal(tab.clock.pendingTimers(), 0, 'the acquisition timer is cancelled');
 });
 
+test('a lock request that throws synchronously refuses eb_fence_failed with that error as the cause and cancels the timeout', async () => {
+  const tab = createTab({ locks: { request() { throw new Error('locks threw'); } } });
+  const { error } = await settled(tab.fence.run('op-1', async () => 'ran'));
+  assertRefusal(error, 'eb_fence_failed');
+  assert.equal(error.cause.message, 'locks threw');
+  assert.equal(tab.clock.pendingTimers(), 0);
+});
+
 test('K0-B6 a nested step of the same operation reuses the capability: one acquisition, no deadlock', async () => {
   const tab = createTab();
   const result = await tab.fence.run('op-1', (capability) => tab.fence.run('op-1', async (nested) => [capability, nested], capability));
