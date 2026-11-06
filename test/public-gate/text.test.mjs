@@ -372,6 +372,23 @@ test('wording: only the approved status clause passes; a reason, another status 
   assert.deepEqual(wordingFindings('a.md', `Intro.\n\n${failing[0]}\n`).map(({ line }) => line), [3]);
 });
 
+test('wording: any dash, white space, emphasis, underscore or invisible character between the words of a status phrase counts as a gap', () => {
+  const [SECURITY, EXTERNAL, WORD] = ['security', 'external', REVIEW.split(' ')[1]];
+  const failing = [
+    ['a.md', `The ${EXTERNAL}-${WORD} is complete.`], ['a.md', `The ${EXTERNAL}__${WORD} is complete.`], ['a.md', `The ${EXTERNAL}–${WORD} is complete.`],
+    ['a.md', `The ${EXTERNAL}‑${WORD} is complete.`], ['a.md', `The ${SECURITY}‑${WORD} is complete.`], ['a.md', `The ${SECURITY}‐${WORD} is complete.`],
+    ['a.yml', `${EXTERNAL}_${WORD}: complete`], ['a.yml', `${SECURITY}_${WORD}: passed`], ['a.json', `{"${EXTERNAL}_${WORD}": "complete"}`],
+    ['a.md', `The **${EXTERNAL}**${WORD} is complete.`], ['a.md', `The ${EXTERNAL}­${WORD} is complete.`], ['a.md', `The ${EXTERNAL} ${SECURITY}-\n${WORD} is complete.`],
+    ['a.md', `The ${EXTERNAL}-\n${WORD} is complete.`], ['a.md', `The ${EXTERNAL} ${SECURITY}-${WORD} is on hold.`], ['a.md', `The se**cur**ity ${WORD} is complete.`],
+  ];
+  for (const [name, text] of failing) assert.equal(wordingFindings(name, `${text}\n`).length, 1, JSON.stringify(text));
+  const passing = [
+    `Not a ${SECURITY}–${WORD}.`, `Not a ${REVIEW.replace(' ', '-')}.`, `It is _not_ ${SECURITY}‑${WORD}ed.`, `Not an independent–${REVIEW}.`, `**${HOLD}.**`, `_${HOLD}._`,
+    `The *${EXTERNAL}* ${REVIEW} is on hold.`, `* ${HOLD}.`, `\`${SECURITY}${WORD[0].toUpperCase()}${WORD.slice(1)}ed\` is \`false\`.`,
+  ];
+  for (const text of passing) assert.deepEqual(wordingFindings('a.md', `${text}\n`), [], JSON.stringify(text));
+});
+
 test('wording: in a blob an entry passes only wholly inside the approved clause or a disclaimer; one that crosses either fails', () => {
   assert.deepEqual(findingLines('a.md', `${HOLD}.\n\nIt is not a ${REVIEW}.\n`, [REVIEW]), []);
   assert.deepEqual(findingLines('a.md', `This is not a ${REVIEW} ${FIRST} today.\n`, [`${REVIEW.split(' ')[1]} ${FIRST}`]), [1]);
