@@ -412,6 +412,17 @@ test('wording: commit, tag and pull-request text are matched with no exemption, 
   assert.deepEqual(lines(`${FIRST}<!-- x --> ${SECOND}`, [TERM], true), [1]);
 });
 
+test('wording: pull-request text is read with the six known character references decoded and any other reference found, as a blob is', () => {
+  const lines = (text, list, readMarkup = true) => wordingEntryLines(text, createWordingMatcher(list, () => {}), 10, { readMarkup });
+  assert.deepEqual(lines("Acme's tool", ["Acme's tool"]), [1]);
+  assert.deepEqual(lines('Acme&#39;s tool', ["Acme's tool"]), [1]);
+  assert.deepEqual(lines('Intro.\n\nR&amp;D tool', ['R&D tool']), [3]);
+  assert.deepEqual(lines('Acme&#x27;s tool', ["Acme's tool"]), [1]);
+  assert.deepEqual(lines('Intro.\n\nfine\nAcme&apos;s tool', ["Acme's tool"]), [4]);
+  assert.deepEqual(lines('Acme&#39;s tool', ["Acme's tool"], false), []);
+  assert.deepEqual(lines('Acme&#x27;s tool', ["Acme's tool"], false), []);
+});
+
 // ---- the list and the CLI -------------------------------------------------------------------------------------------
 
 /** Runs a complete gate whose wording list is `listFile(repo)`. */
