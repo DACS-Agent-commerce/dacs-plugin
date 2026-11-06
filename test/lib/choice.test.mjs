@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ChoiceError, MAX_SELECTOR_CHARS, parseChoice, parseFlags } from '../../scripts/lib/choice.mjs';
-import { createRepo, runGate, writeList } from './gate-fixtures.mjs';
+import { cleanScannerArgs, createRepo, runGate, writeList } from './gate-fixtures.mjs';
 
 // One row per real CLI selector. Later owners add theirs: sdk-input --prepare, import-check subcommands and --plugin.
 const HOSTILE_VALUES = {
@@ -16,7 +16,7 @@ const HOSTILE_VALUES = {
 const repo = createRepo([{ path: 'a.txt', content: 'clean\n' }]);
 const listFile = writeList(['unused-label']);
 const COMPLETE_ONLY_FLAGS = ['--private-list', listFile, '--expected-root', repo.commit];
-const gateWithScope = (value) => runGate(['--repo', repo.dir, '--commit', repo.commit,
+const gateWithScope = (value) => runGate(['--repo', repo.dir, '--commit', repo.commit, ...cleanScannerArgs(),
   ...(value === undefined ? [] : ['--scope', value]), ...(value === 'complete' ? COMPLETE_ONLY_FLAGS : [])]);
 
 const SELECTORS = [
