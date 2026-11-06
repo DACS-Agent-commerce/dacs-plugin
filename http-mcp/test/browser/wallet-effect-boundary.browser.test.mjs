@@ -751,3 +751,61 @@ test('K0-F8 a resume starts at the stage the lane held or withheld and never re-
     }
   }
 });
+
+// The same store, but its head names the given stage (or none): the pass must not take its first stage from a head that omits it.
+const withLastStage = (records, lastStage) => ({
+  head: async (lane) => ({ ...(await records.head(lane)), lastStage }),
+  append: (...args) => records.append(...args),
+});
+
+test('K0-F8 a resume takes the held stage from the record kind, so a store head without or with another lastStage cannot skip it', async (t) => {
+  const resume = async (row, lastStage, names) => {
+    const first = createWorld();
+    row.prepare(first);
+    await first.settled(first.runPass({ stages: row.stages.map((name) => ({ name, send: first.send })) }));
+    first.records.beforeCommit.clear();
+    first.records.failures.clear();
+    const before = first.records.kinds('lane-1').length;
+    const resumed = createWorld({ records: withLastStage(first.records, lastStage) });
+    const { error } = await resumed.settled(resumed.runPass({
+      retained: { bytes: new Uint8Array(first.SIGNED_BYTES) }, sign: undefined, stages: names.map((name) => ({ name, send: resumed.send })),
+    }));
+    return { error, resumed, appended: first.records.kinds('lane-1').length - before };
+  };
+  for (const row of heldStageLanes) {
+    // `named` rows end in `<stage>-withheld`; the other row ends in `signed-held`, whose stage only the head carries.
+    const named = row.name !== 'confirm-acknowledged and signed-held for broadcast';
+    for (const name of ['dispatch', 'confirm', 'broadcast']) {
+      const accepted = named && name === row.held;
+      await t.test(`a lane holding ${row.name}, head without lastStage, ${accepted ? `transmits ${name} once` : `refuses a resume of ${name} eb_resume_not_allowed with transport 0`}`, async () => {
+        const { error, resumed, appended } = await resume(row, undefined, [name]);
+        if (accepted) {
+          assert.equal(error, undefined);
+          assert.equal(resumed.counts.transport, 1);
+        } else {
+          assertRefusal(error, 'eb_resume_not_allowed');
+          assert.deepEqual([resumed.counts.signer, resumed.counts.transport, appended], [0, 0, 0]);
+        }
+      });
+    }
+    if (named) {
+      await t.test(`a lane holding ${row.name}, head naming another stage, refuses a resume of ${row.held} eb_resume_not_allowed with transport 0`, async () => {
+        const { error, resumed } = await resume(row, row.held === 'dispatch' ? 'confirm' : 'dispatch', [row.held]);
+        assertRefusal(error, 'eb_resume_not_allowed');
+        assert.deepEqual([resumed.counts.signer, resumed.counts.transport], [0, 0]);
+      });
+    }
+  }
+
+  const signedOnly = { name: 'only a signed record before confirm', stages: ['confirm', 'broadcast'], prepare: (w) => w.records.failures.set('confirm-started', new Error('disk full')) };
+  await t.test('a lane holding only a signed record refuses a resume that starts at broadcast eb_resume_not_allowed with transport 0', async () => {
+    const { error, resumed, appended } = await resume(signedOnly, undefined, ['broadcast']);
+    assertRefusal(error, 'eb_resume_not_allowed');
+    assert.deepEqual([resumed.counts.signer, resumed.counts.transport, appended], [0, 0, 0]);
+  });
+  await t.test('a lane holding only a signed record transmits confirm once when the resume starts there', async () => {
+    const { error, resumed } = await resume(signedOnly, undefined, ['confirm']);
+    assert.equal(error, undefined);
+    assert.equal(resumed.counts.transport, 1);
+  });
+});
