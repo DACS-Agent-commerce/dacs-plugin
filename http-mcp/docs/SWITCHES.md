@@ -147,9 +147,9 @@ never run still counts. Each of these in `src/config.mjs` is an
   expression from division by the token before it, so it refuses what it
   might have misread);
 - an import or re-export of anything but `node:path` and
-  `./switch-files.mjs`, by exact name (`CONFIG_IMPORTS` in
-  `deploy/scripts/lib/rules.mjs`). Allowing another module is a reviewed
-  edit there.
+  `./switch-files.mjs`, by exact name (the `CONFIG_IMPORTS` list of the
+  source repository's package check, which this repository does not carry).
+  Allowing another module is a reviewed edit there.
 
 So no read in `src/config.mjs` is silently missed by mistake. The check
 catches accidental drift only; it is not a security boundary. It is a lexer,

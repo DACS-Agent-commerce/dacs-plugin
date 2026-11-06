@@ -45,10 +45,15 @@ const isRuling = (entry) => entry !== null && typeof entry === 'object' && isDee
 export const hasValidSecretConfig = (config) => SEMVER.test(config.scanner?.version)
   && [config.secretBaseline, config.secretExceptions].every((list) => Array.isArray(list) && list.every(isRuling));
 
-/** The scan's identity for the report: the scanner version, the SHA-256 of the policy file and the SHA-256 of the baseline and exception entries. */
-export function secretScanIdentity(config) {
+/**
+ * The scan's identity for the report: the scanner version, the SHA-256 of the scanner executable, the SHA-256 of the policy file
+ * and the SHA-256 of the baseline and exception entries. `scanner.sha256` is the executable's digest that scanSecrets checked
+ * the copy it ran against, so call this only after scanSecrets returned.
+ */
+export function secretScanIdentity(config, scanner) {
   return {
     scannerVersion: config.scanner.version,
+    scannerSha256: scanner.sha256,
     scannerPolicySha256: sha256Of(readFileSync(POLICY_FILE)),
     secretExceptionsSha256: sha256Of(JSON.stringify({ baseline: config.secretBaseline, exceptions: config.secretExceptions })),
   };

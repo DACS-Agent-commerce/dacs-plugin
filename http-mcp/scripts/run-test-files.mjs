@@ -1,6 +1,6 @@
-// Usage: node scripts/run-test-files.mjs <dir> <out.jsonl> [timeoutSec=600] [--known <file>] [file...]
+// Usage: node scripts/run-test-files.mjs <dir> <out.jsonl> [timeoutSec=600] [--known <file>] [--browser] [file...]
 import { spawn } from 'node:child_process';
-import { readdirSync, readFileSync, appendFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, appendFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,20 +10,33 @@ const reporter = fileURLToPath(new URL('./test-file-reporter.mjs', import.meta.u
 export const TIMEOUT = '[timeout]';
 export const PROCESS = '[process failure]';
 export const INCOMPLETE = '[incomplete results]';
-const SENTINELS = [TIMEOUT, PROCESS, INCOMPLETE];
-const CLASSES = ['main-defect', 'environment', 'browser'];
+// A file that cannot load because a module it imports is not carried (see carryOver).
+export const CARRY_OVER = '[carry-over]';
+const SENTINELS = [TIMEOUT, PROCESS, INCOMPLETE, CARRY_OVER];
+const CLASSES = ['main-defect', 'environment', 'browser', 'carry-over'];
 const FIELDS = ['class', 'expect', 'file', 'reason', 'test'];
+const TEST_ROOT = 'test';
 // Shared fixture modules named *.test.mjs that register no tests.
 const MODULES = ['test/dacs-loopback-fixture.test.mjs'];
 let ownTmp, current;
 
-export function discover(dir, prefix) {
+// The test files under dir/prefix; browser files (browser/ and *.browser.test.mjs) only when browser is set.
+export function discover(dir, prefix, browser = false) {
   return readdirSync(join(dir, prefix), { withFileTypes: true }).flatMap((entry) => {
     const file = `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) return ['browser', 'fixtures', 'helpers'].includes(entry.name) ? [] : discover(dir, file);
-    return entry.isFile() && entry.name.endsWith('.test.mjs') && !entry.name.endsWith('.browser.test.mjs') && !MODULES.includes(file) ? [file] : [];
+    if (entry.isDirectory()) return ['fixtures', 'helpers', ...browser ? [] : ['browser']].includes(entry.name) ? [] : discover(dir, file, browser);
+    return entry.isFile() && entry.name.endsWith('.test.mjs') && (browser || !entry.name.endsWith('.browser.test.mjs')) && !MODULES.includes(file) ? [file] : [];
   });
 }
+
+function discoverTests(dir, browser) {
+  if (!existsSync(join(dir, TEST_ROOT))) throw new Error(`Test root not found: ${TEST_ROOT}`);
+  return discover(dir, TEST_ROOT, browser);
+}
+
+// A plain relative path in the form posix.normalize gives, on one line, that stays inside the run directory.
+const isRunPath = (path) => typeof path === 'string' && path.trim() !== '' && !/[\r\n]/.test(path) && path === posix.normalize(path) &&
+  !path.startsWith('/') && path !== '..' && !path.startsWith('../');
 
 export function readKnown(path) {
   const entries = path ? JSON.parse(readFileSync(path, 'utf8')) : [];
@@ -32,9 +45,9 @@ export function readKnown(path) {
   for (const entry of entries) {
     if (!entry || typeof entry !== 'object' || Object.keys(entry).sort().join(',') !== FIELDS.join(',') ||
       !FIELDS.every((field) => typeof entry[field] === 'string' && entry[field].trim()) ||
-      !CLASSES.includes(entry.class) ||
-      /[\r\n]/.test(entry.reason) || entry.file !== posix.normalize(entry.file) ||
-      entry.file.startsWith('/') || entry.file.startsWith('../')) throw new Error('Invalid known failure entry');
+      !CLASSES.includes(entry.class) || /[\r\n]/.test(entry.reason) || !isRunPath(entry.file) ||
+      // A carry-over entry is the one on the [carry-over] test, and its expect is the missing module's path.
+      (entry.class === 'carry-over') !== (entry.test === CARRY_OVER) || entry.class === 'carry-over' && !isRunPath(entry.expect)) throw new Error('Invalid known failure entry');
     const id = key(entry.file, entry.test);
     if (known.has(id)) throw new Error(`Duplicate known failure: ${id}`);
     known.set(id, entry);
@@ -42,7 +55,7 @@ export function readKnown(path) {
   return known;
 }
 
-export const newState = () => ({ counts: undefined, success: undefined, fileSummary: false, fileSuccess: undefined, exited: undefined, error: undefined, passing: [], seen: [], failures: [] });
+export const newState = () => ({ counts: undefined, success: undefined, fileSummary: false, fileSuccess: undefined, exited: undefined, error: undefined, passing: [], seen: [], failures: [], loadFailures: [] });
 
 // Adds one reporter line to a file's state; a line that is not a reporter event
 // makes the file a process failure.
@@ -61,6 +74,10 @@ export function record(state, line, name = (test) => test) {
     state.failures.push({ test: PROCESS, error: event.error });
   } else if (event.type === 'test:exit') {
     if (name(event.test) === PROCESS) state.exited = { exitCode: event.exitCode, signal: event.signal };
+  } else if (event.type === 'test:load-failure') {
+    // The path of a module the file could not load; it is neither a pass nor a failure of a test.
+    if (isRunPath(event.path)) state.loadFailures.push(event.path);
+    else state.error = 'Invalid reporter output';
   } else {
     if (event.type === 'test:pass' || event.type === 'test:fail') state.seen.push(event.test);
     if (event.type === 'test:fail' && !event.todo && !event.skipped) {
@@ -101,6 +118,21 @@ export function classify({ code, signal, timedOut, timeoutMs, error, counts, fil
   return sentinels;
 }
 
+// What a file that cannot load ends with: its process exits 1 and it never reports its own summary.
+const LOAD_FAILURE = [{ test: PROCESS, error: 'exit code 1' }, { test: INCOMPLETE, error: 'no per-file test summary' }];
+
+// Turns the failures of a file that only failed to load into one [carry-over]
+// failure naming the missing module, when the file has an entry for it. Only
+// those two failures count: with a timeout, a signal, a test that started,
+// any other failure, or not exactly one load-failure record that equals the
+// entry's expect, the failures are returned as they are (DC-P7).
+export function carryOver(file, { failures, loadFailures, started }, known) {
+  const [path] = loadFailures;
+  const onlyLoadFailure = failures.length === LOAD_FAILURE.length &&
+    failures.every(({ test, error, cause }, index) => test === LOAD_FAILURE[index].test && error === LOAD_FAILURE[index].error && cause === undefined);
+  return !started && loadFailures.length === 1 && onlyLoadFailure && known.get(key(file, CARRY_OVER))?.expect === path ? [{ test: CARRY_OVER, error: path }] : failures;
+}
+
 // Splits one file's failures into new and known, and finds its entries that now
 // pass or match no test. An entry excuses its test only when the name is a single
 // result in the file and every failure under it carries the entry's expected cause.
@@ -117,13 +149,14 @@ export function judge(file, { failures, passing, seen, exit }, known) {
   return {
     newFailures: failing.filter((test) => !excused(test)),
     knownFailures: failing.filter(excused),
-    knownNowPassing: entries.filter((entry) => !failing.includes(entry.test) &&
-      (passing.includes(entry.test) || SENTINELS.includes(entry.test) && exit === 0 && !failing.length)).map((entry) => entry.test),
+    // A carry-over entry is spent as soon as the file loads, whatever else it reports.
+    knownNowPassing: entries.filter((entry) => !failing.includes(entry.test) && (entry.test === CARRY_OVER ? complete :
+      passing.includes(entry.test) || SENTINELS.includes(entry.test) && exit === 0 && !failing.length)).map((entry) => entry.test),
     staleKnown: complete ? entries.filter((entry) => !SENTINELS.includes(entry.test) && !seen.includes(entry.test)).map((entry) => entry.test) : [],
   };
 }
 
-function runOne(dir, file, timeoutMs, tapOut) {
+function runOne(dir, file, timeoutMs, tapOut, known) {
   return new Promise((done) => {
     const t0 = Date.now();
     const env = { ...process.env, NODE_ENV: 'test' };
@@ -156,8 +189,9 @@ function runOne(dir, file, timeoutMs, tapOut) {
     child.on('close', (code, signal) => {
       clearTimeout(timer);
       current = undefined;
-      const { counts, passing, seen, failures, error } = state;
+      const { counts, passing, seen, failures, error, loadFailures } = state;
       failures.push(...classify({ ...state, code, signal, timedOut, timeoutMs, pending, failing: failures.map(({ test }) => test) }));
+      failures.splice(0, failures.length, ...carryOver(file, { failures, loadFailures, started: seen.some((test) => name(test) !== PROCESS) }, known));
       if (failures.length) {
         if (stderr) appendFileSync(tapOut, `\n${stderr.split('\n').map((line) => `# stderr: ${line}`).join('\n')}\n`);
       } else rmSync(tapOut);
@@ -180,13 +214,15 @@ async function main() {
     if (!args[index + 1] || args[index + 1].startsWith('--')) throw new Error('--known requires a file');
     knownArg = args.splice(index, 2)[1];
   }
+  const browserIndex = args.indexOf('--browser'), browser = browserIndex !== -1;
+  if (browser) args.splice(browserIndex, 1);
   const [dir, out, timeoutArg = '600', ...only] = args;
   const timeoutMs = Number(timeoutArg) * 1000;
   if (!dir || !out || !Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2147483647 || only.some((file) => file.startsWith('--'))) {
-    throw new Error('Usage: run-test-files.mjs <dir> <out.jsonl> [timeoutSec=600] [--known <file>] [file...]');
+    throw new Error('Usage: run-test-files.mjs <dir> <out.jsonl> [timeoutSec=600] [--known <file>] [--browser] [file...]');
   }
   const known = readKnown(knownArg && resolve(dir, knownArg));
-  const files = (only.length ? only.map((file) => posix.normalize(file)) : [...discover(dir, 'test'), ...discover(dir, 'deploy/test')]).sort();
+  const files = (only.length ? only.map((file) => posix.normalize(file)) : discoverTests(dir, browser)).sort();
   if (!files.length || new Set(files).size !== files.length || files.some((file) => file.startsWith('/') || file.startsWith('../'))) throw new Error('Expected unique relative test files');
   // docs/TESTING.md: the suites run with TMPDIR set to a fresh directory you own.
   // GitHub sets none, which leaves the shared /tmp, so such a run makes a private
@@ -210,7 +246,7 @@ async function main() {
     error('Stale known failure: ', `Known failure matches no test: ${file}: ${test}`);
   };
   for (const file of files) {
-    const result = await runOne(dir, file, timeoutMs, join(tapDir, `${file.replace(/[\\/]/g, '__')}.tap`));
+    const result = await runOne(dir, file, timeoutMs, join(tapDir, `${file.replace(/[\\/]/g, '__')}.tap`), known);
     Object.assign(result, judge(file, result, known));
     delete result.passing;
     delete result.seen;
