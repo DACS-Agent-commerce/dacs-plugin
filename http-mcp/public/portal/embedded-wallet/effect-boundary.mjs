@@ -15,16 +15,14 @@
 //            every path.
 // The pass hands out two things to the library that signs or sends: the EB signer `ebSign(innerSign, armed)` and
 // the EB transmitter `ebTransmit(innerSend, armed)`. Both refuse `tp1_fence_not_owned` outside the pass that armed
-// them. Stages are `dispatch`, or `confirm` then `broadcast` for a signed transaction; a stage that is not
-// acknowledged ends the pass, so an unknown confirmation never advances to broadcast.
+// them. Stages are `dispatch`, or `confirm` then `broadcast`; a stage that is not acknowledged ends the pass.
 // The inner signer's bytes are the only bytes persisted and the only bytes that can be sent; the sign and send steps
-// get an opaque handle, so the pass's byte snapshots (the resume bytes are copied at the start) stay private. A signing
-// pass needs an empty lane; a resume needs the newest record `signed`, `signed-held`, `<stage>-withheld` or
-// `confirm-acknowledged` with the same bytes and the same operation, pin version and approval revision as the lane's
-// `signed` record, and its first stage must be the held or withheld one (`broadcast` after an acknowledged
-// confirmation). Nothing here touches a network, IndexedDB or navigator: the Web Locks manager, the clock, the checks
-// and the record store (`head(lane)` -> `{ revision, lastKind, lastStage, signedBytes, signedIdentity }`,
-// `append(lane, expectedRevision, record)`) are injected. No page loads this yet.
+// get an opaque handle, so the pass's byte snapshots stay private. A signing pass needs an empty lane; a resume needs
+// the newest record `signed`, `signed-held`, `<stage>-withheld` or `confirm-acknowledged` with the same bytes and the
+// same operation, pin version and approval revision as the lane's `signed` record, and its first stage must be the
+// held one (`broadcast` after an acknowledged confirmation). The Web Locks manager, the clock, the checks and the
+// record store (`head(lane)` -> `{ revision, lastKind, lastStage, signedBytes, signedIdentity }`, `append(lane,
+// expectedRevision, record)`) are injected; nothing here touches a network, IndexedDB or navigator. No page loads this yet.
 
 /** Time allowed to acquire the wallet fence before `tp1_fence_timeout`. */
 export const FENCE_TIMEOUT_MS = 10_000;
@@ -71,8 +69,7 @@ function runCheck(check, ...args) {
 }
 
 function enforce(answer) {
-  if (answer === true) return;
-  throw typeof answer === 'string' && answer !== '' ? refuse(answer) : refuse('eb_check_invalid', answer);
+  if (answer !== true) throw typeof answer === 'string' && answer !== '' ? refuse(answer) : refuse('eb_check_invalid', answer);
 }
 
 const describeCause = (error) => ({
@@ -98,8 +95,7 @@ function createReadBudget(clock, limitMs) {
   });
 }
 
-// Resolves with the function that releases the lock. A grant that reaches the callback after the timeout returns
-// at once, so the lock is released and nothing is granted.
+// Resolves with the function that releases the lock. A grant after the timeout returns at once and grants nothing.
 function requestLock(locks, name, clock, timeoutMs) {
   return new Promise((resolve, reject) => {
     const abort = new AbortController();
@@ -179,9 +175,8 @@ export function createWalletFence({ locks, walletId, clock = SYSTEM_CLOCK, timeo
 const PASSES = new WeakMap();
 const passOf = (armed) => { if (!PASSES.has(armed)) throw refuse('tp1_fence_not_owned'); return PASSES.get(armed); };
 
-// The pass's state: `capability` is the fence capability once acquired (nested steps pass it back to `runPass`),
-// `live` ends with the pass, `signed` is the inner signer's bytes and `bytes` the persisted ones (the only ones sent).
-// Only ebSign and ebTransmit reach it, through `armed`. The synchronous methods never await.
+// The pass's state: `capability` is the fence capability (nested steps pass it back to `runPass`), `live` ends with
+// the pass, `signed` is the inner signer's bytes, `bytes` the persisted ones (the only sent). Synchronous methods never await.
 function createArmedPass({ fence, checks, clock, stoppedCode }, { operationId, approvalRevision }) {
   const binding = Object.freeze({ digest: runCheck(checks.connectionDigest), generation: fence.connectionGeneration });
   const readWithinBudget = createReadBudget(clock, PASS_READ_DEADLINE_MS);
@@ -247,10 +242,9 @@ function createArmedPass({ fence, checks, clock, stoppedCode }, { operationId, a
 }
 
 /**
- * The EB signer: wraps the inner signer so that, when the library calls it, it awaits the final stop read, runs
- * the synchronous rechecks (owner, admission, approval, digest, generation) and calls `innerSign` in the same
- * tick, once per pass; the pass persists the bytes `innerSign` returns. Rejects with the refusal (inner signer not
- * called) outside the pass that created `armed`.
+ * The EB signer: wraps the inner signer so that the library's call awaits the final stop read, runs the synchronous
+ * rechecks (owner, admission, approval, digest, generation) and calls `innerSign` in the same tick, once per pass.
+ * Rejects (inner signer not called) outside the pass that created `armed`.
  */
 export function ebSign(innerSign, armed) {
   return async (...args) => {
@@ -298,20 +292,31 @@ function createLaneCursor(records, lane, identity) {
   };
 }
 
+// A resume starts at the stage the newest record holds: a `<stage>-withheld` kind names it, a `signed-held` record
+// carries it (refused when missing), an acknowledged confirmation leaves `broadcast`. A lane with only `signed` has
+// reached no stage, so never `broadcast`.
+function startsAtHeldStage({ lastKind, lastStage }, stages) {
+  const first = stages?.[0]?.name;
+  if (lastKind === 'signed') return first !== 'broadcast';
+  if (lastKind === 'confirm-acknowledged') return first === 'broadcast';
+  const held = lastKind.endsWith('-withheld') ? lastKind.slice(0, -'-withheld'.length) : lastStage;
+  return STAGE_NAMES.has(held) && first === held && (lastStage === undefined || lastStage === held);
+}
+
 // A signing pass needs an empty lane. A resume needs a newest record that shows nothing sent, the same bytes, the
-// operation, pin version and approval revision of the lane's `signed` record, and (when that record names a stage)
-// that stage first. `retained.bytes` is the pass's own copy, taken when it started.
+// operation, pin version and approval revision of the lane's `signed` record, and the held stage first.
+// `retained.bytes` is the pass's own copy, taken when it started.
 async function obtainSignedBytes(pass, cursor, { sign, retained, stages, operationId, pinVersion, approvalRevision }) {
-  const { revision, lastKind, lastStage, signedBytes, signedIdentity } = await cursor.head();
+  const head = await cursor.head();
   if (retained !== undefined) {
-    const resumeStage = lastKind === 'confirm-acknowledged' ? 'broadcast' : lastStage;
+    const { signedIdentity } = head;
     const sameIdentity = signedIdentity?.operationId === operationId && signedIdentity.pinVersion === pinVersion && signedIdentity.approvalRevision === approvalRevision;
-    if (!RESUMABLE_KINDS.has(lastKind) || (resumeStage !== undefined && stages?.[0]?.name !== resumeStage) || !sameBytes(retained.bytes, signedBytes) || !sameIdentity) throw refuse('eb_resume_not_allowed', lastKind);
+    if (!RESUMABLE_KINDS.has(head.lastKind) || !startsAtHeldStage(head, stages) || !sameBytes(retained.bytes, head.signedBytes) || !sameIdentity) throw refuse('eb_resume_not_allowed', head.lastKind);
     await pass.finalStop();
     pass.recheckBeforeEffect();
     return retained.bytes;
   }
-  if (revision !== 0) throw refuse('eb_lane_not_empty', lastKind);
+  if (head.revision !== 0) throw refuse('eb_lane_not_empty', head.lastKind);
   await sign(pass.armed);
   if (pass.signCalls === 0) throw refuse('eb_signer_bypassed');
   if (pass.signed === undefined || pass.signed.length === 0) throw refuse('eb_signed_bytes_invalid');
@@ -362,10 +367,9 @@ function assertPassRequest(request) {
  * Builds the pass runner for one wallet. `checks`: `admission()` and `approval(revision)` answer `true` or a refusal
  * code; `connectionDigest()` answers the local digest; `stopped()` answers a boolean (true = stopped); `readAuthority()`
  * resolves when the binding is current. `records` is the record store. `stoppedCode` is the refusal for a stop
- * (`writes_stopped`, or `seller_stopped`).
- * `runPass({ operationId, lane, pinVersion, approvalRevision, sign | retained, stages, capability? })` resolves
- * `{ operationId, passId, outcomes }`, one outcome per stage that ran (`acknowledged` or `unknown`). It rejects with
- * an `EffectBoundaryRefusal` for every refusal, with the signer and transport untouched where K0 says so.
+ * (`writes_stopped`, or `seller_stopped`). `runPass({ operationId, lane, pinVersion, approvalRevision, sign | retained,
+ * stages, capability? })` resolves `{ operationId, passId, outcomes }`, one outcome per stage that ran (`acknowledged`
+ * or `unknown`). It rejects with an `EffectBoundaryRefusal` for every refusal, signer and transport untouched where K0 says so.
  */
 export function createEffectBoundary({ fence, checks, records, clock = SYSTEM_CLOCK, newPassId = () => globalThis.crypto.randomUUID(), stoppedCode = 'writes_stopped' }) {
   requireFunctions('fence', fence, ['run', 'owns']);
