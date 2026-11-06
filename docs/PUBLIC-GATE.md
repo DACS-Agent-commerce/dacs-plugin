@@ -58,7 +58,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   In a status phrase, white space, a Unicode dash (`Pd`), invisible format characters and `_`, `*` or a backtick between the words count as a gap (a camelCase name has none).
   A sentence about the review's status (in the erased and spaced views and in each markup token) passes only as the approved clause
   (case-insensitive, no reason added; never inside a token) or a negative disclaimer; clauses end at sentence ends, semicolons and parentheses. In history mode the list is also matched, with no exemption and no status check, in commit
-  and tag messages and headers (continuation lines joined to their header) as written and in `--pr-text` in all three views.
+  and tag messages and headers (continuation lines joined to their header) as written and in `--pr-text` in all three views (the first with the six references decoded; any other character reference there fails, as in a blob).
 - **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
   file (`.d.ts`, `.d.mts` and `.d.cts` included), in a child
   process (`rules-eval-child.mjs`) under `run-bounded`. Its rules are syntactic and track no value. **Names:** the name `eval` or `Function` fails wherever it is
