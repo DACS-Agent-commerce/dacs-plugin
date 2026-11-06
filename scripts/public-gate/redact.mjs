@@ -8,7 +8,7 @@ import { ISSUE_RULE_ID, REPORT_RULE_ID, WORDING_RULE_ID } from './rules-text.mjs
 import { SECRET_RULE_ID, SEMVER } from './secret-scan.mjs';
 
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
-export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr', 'rules-eval-child.stderr': 'stderr' });
+export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr', 'rules-eval-child.stderr': 'stderr', 'sdk-input.stdout': 'stdout', 'sdk-input.stderr': 'stderr' });
 
 /** Schema values shared by every report: a SHA-256 digest, a rule status and an unscannable entry's cause. */
 export const SHA256_HEX = /^[0-9a-f]{64}$/;
@@ -60,6 +60,7 @@ const DIAGNOSTICS = {
   'stale-lockfile-disposition': 'a lockfileDispositions entry names a path the target holds only at another blob',
   'stale-eval-exception': 'an evalGeneratedFiles entry names a path the target holds only at other bytes',
   'eval-parser-failed': 'the eval parser stopped with an error status or wrote an unexpected result',
+  'inventory-malformed': 'scripts/ci/dependency-roots.json is malformed', 'sdk-input-refused': 'a dependency root holds a forbidden SDK input (see the report)', 'sdk-input-unavailable': 'a dependency root cannot supply its SDK input (see the report)',
   'internal-error': 'the gate failed unexpectedly', limit: 'a configured limit was reached',
 };
 
@@ -134,6 +135,11 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
 export async function publish({ report, evidence }, { out, evidenceFile }) {
   await deliver(out ? 'gate.report-file' : 'gate.stdout', report, out);
   if (evidenceFile) writeNew(evidenceFile, evidence, 'evidence', 0o600);
+}
+
+/** Writes `text`, built only from fixed names and enum values, to `route` (a stdout route). Throws GateInputError(output-unwritable). */
+export function writeRecord(text, route) {
+  return deliver(route, text);
 }
 
 /** Writes `<cause>: <fixed text>` to stderr, on `route` (a stderr route); a cause without a fixed text is written as internal-error. */
