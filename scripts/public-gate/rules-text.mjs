@@ -333,7 +333,7 @@ function proseFindingLines(text, wordingMatcher) {
   const lines = unknownReferenceLines(text);
   for (const { line, source, isCommand } of paragraphsOf(text)) {
     const [asWritten, ...rendered] = viewsThrough(source, BLOB_READINGS);
-    const statusViews = rendered.length === 0 ? [asWritten] : rendered;
+    const statusViews = rendered.length === 0 ? [asWritten] : [...rendered];
     // The same readings with invisible characters and emphasis as a space, so `external_review` and `external**review` still read as two words.
     statusViews.push(...(rendered.length === 0 ? [source] : BLOB_READINGS.slice(1).map((read) => read(source))).map((view) => normalizeProse(view, ' ')));
     if (statusViews.some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view)) || (rendered.length > 0 && hasUnapprovedStatusInToken(source))
