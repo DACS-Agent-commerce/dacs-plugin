@@ -97,6 +97,21 @@ test('eval :: "interfaces, implements clauses and declare declarations are erase
   assert.deepEqual(await scan([['a.ts', 'class C implements I { m() { return globalThis[k]; } }']]), { findings: [], unscannable: [{ path: 'a.ts', cause: 'eval-computed-member' }] });
 });
 
+test('eval :: "type-only imports and exports are erased by TypeScript, so a name in them counts for nothing; the same forms without type still count"', async () => {
+  const erased = [
+    'import type { eval as E } from "pkg";', 'import type { Function } from "pkg";', 'import type { "eval" as E } from "pkg";', 'import { type eval as E } from "pkg";', 'import { type Function } from "pkg";',
+    'import type { eval as E }\nfrom "pkg";', 'export type { eval } from "pkg";', 'export type { eval as E } from "pkg";', 'export type { x as Function } from "pkg";', 'export { type eval } from "pkg";',
+    'export type { eval };', 'export { type eval as E };', 'import type e = globalThis.eval;', 'export type * as eval from "pkg";', 'import type eval from "pkg";',
+  ];
+  assert.deepEqual(await failingSnippets(erased, 'ts'), []);
+  assert.deepEqual(await failingSnippets(['import type { eval as E } from "pkg";'], 'tsx'), []);
+  const running = [
+    'import { eval as E } from "pkg";', 'import { type A, eval as E } from "pkg";', 'import { Function } from "pkg";', 'export { eval } from "pkg";', 'export { type A, eval } from "pkg";',
+    'export * as eval from "pkg";', 'import eval from "pkg";', 'import e = globalThis.eval;', 'import type { A } from "pkg";\neval("1");', 'export type { A } from "pkg";\neval("1");',
+  ];
+  assert.deepEqual(await failingSnippets(running, 'ts'), names(running.length).map((name) => name.replace('.mjs', '.ts')));
+});
+
 test('eval :: "a global object or timer named only in an erased type counts for nothing; named in code that runs, it still counts"', async () => {
   const typeOnly = [
     'const v = ({} as typeof globalThis)[key];', 'const v = (<typeof window>{})[key];', 'const v = ({} satisfies Partial<typeof self>)[key];', 'const v = (o as Window & typeof globalThis)[key];',

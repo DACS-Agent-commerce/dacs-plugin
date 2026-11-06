@@ -46,10 +46,12 @@ function isUse(identifier) {
 /** The statement kinds the emitter drops whole when they carry their own `declare` modifier; any other `declare` node is still emitted. */
 const DROPPED_DECLARATIONS = new Set([ts.SyntaxKind.VariableStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration]);
 const isDroppedDeclaration = (node) => DROPPED_DECLARATIONS.has(node.kind) && (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.DeclareKeyword);
-// Types, interfaces, `implements` clauses and `declare` variable, function, class, enum and namespace statements are erased: nothing in them runs. A class `extends` clause does,
+/** Whether `node` is an import or export written with `type` (a whole declaration, an alias, or one specifier), which the emitter drops. */
+const isTypeOnlyModuleNode = (node) => (ts.isImportClause(node) || ts.isExportDeclaration(node) || ts.isImportEqualsDeclaration(node) || ts.isImportSpecifier(node) || ts.isExportSpecifier(node)) && node.isTypeOnly;
+// Types, interfaces, `implements` clauses, type-only imports and exports, and `declare` variable, function, class, enum and namespace statements are erased: nothing in them runs. A class `extends` clause does,
 // and so do a `declare` export assignment, import alias or class field, which the emitter keeps. Every walk of the tree, `visit` and `usesOf` alike, stops at an erased node.
 const isErased = (node) => (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node)
-  || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isDroppedDeclaration(node);
+  || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isTypeOnlyModuleNode(node) || isDroppedDeclaration(node);
 
 /** A test, kept per node, of whether a node holds anywhere in it, outside erased nodes, a node for which `matches` is true. */
 function holding(matches) {
