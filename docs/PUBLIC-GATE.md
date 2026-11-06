@@ -163,3 +163,19 @@ overwrites a file, and there is no `--private-evidence`.
   the list. `target` is `heads` (the object ids the refs name, sorted) and `commits` (how many were read). Each finding and
   each `unscannable` item also holds its `commit`, except findings of `--pr-text`. `scanner` holds `gateRevision`,
   `configSha256` and `expectedRoot`, and adds `prTextSha256` when the file is given.
+
+## Bounded downloads, subprocesses and the gitleaks installer
+
+Library code and an installer; the gate and no workflow run them yet.
+
+- **`fetch-bounded.mjs`.** Downloads one https address to a new file and checks its SHA-256. The byte cap and the total deadline
+  (redirects included) are enforced while the body streams, before the checksum; a `Content-Length` over the cap is refused first.
+  Redirects are followed by hand, https only, at most 5. A reply that arrives after the download ended is discarded and released.
+  Every failure after the file exists removes it, with its own cause (`download-too-large`, `-timeout`, `-http-failure`, `-truncated`,
+  `-checksum-mismatch`, `-redirect-refused`, `-too-many-redirects`, `-destination-exists`, `-failed`, or `interrupted`).
+- **`run-bounded.mjs`.** Runs a command in its own process group under a deadline and an output cap. Past either, or on an abort, it
+  stops collecting output, sends SIGTERM to the group and SIGKILL after 2 s, and rejects once with `subprocess-timeout`,
+  `subprocess-output-limit` or `interrupted` after the child has exited. A child that exits on its own resolves with its status.
+- **`install-gitleaks.mjs --dir <folder>`.** Installs gitleaks 8.30.1 (linux x64, URL and SHA-256 in `GITLEAKS_PIN`) as
+  `<folder>/gitleaks`: only a matching archive is extracted, only its `gitleaks` file, which must be a regular file reporting the
+  pinned version. An existing binary is refused (`install-exists`), never trusted. Exit 0 installed, 2 refused with one cause line.
