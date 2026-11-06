@@ -305,7 +305,7 @@ function proseFindingLines(text, wordingMatcher) {
   const lines = text.includes('&') ? text.split(LINE_BREAK).flatMap((line, index) => ([...line.matchAll(CHARACTER_REFERENCE)].some(([reference]) => !KNOWN_REFERENCES.has(reference)) ? [index + 1] : [])) : [];
   for (const { line, source, isCommand } of paragraphsOf(text)) {
     const [asWritten, ...rendered] = viewsThrough(source, BLOB_READINGS);
-    const statusViews = rendered.length === 0 ? [asWritten] : [...rendered, ...[...source.matchAll(MARKUP_TOKEN)].map(([token]) => normalizeProse(token))];
+    const statusViews = rendered.length === 0 ? [asWritten] : [...rendered, ...[...source.matchAll(MARKUP_TOKEN)].flatMap(([token]) => [normalizeProse(token), normalizeProse(token, ' ')])];
     // The same readings with invisible characters and emphasis as a space, so `external_review` and `external**review` still read as two words.
     statusViews.push(...(rendered.length === 0 ? [source] : BLOB_READINGS.slice(1).map((read) => read(source))).map((view) => normalizeProse(view, ' ')));
     if (statusViews.some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view))
