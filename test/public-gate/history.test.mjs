@@ -305,7 +305,7 @@ test('the history report holds no pull-request key path and nothing derived from
     ['content', `${commit}:2`, 2], ['message', `${commit}:message`, 3], ['path', `${commit}:2`, undefined], ['pr-text', 'pr-1:5', 1], ['pr-text', 'pr-1:6', 1], ['pr-text', 'pr-1:7', 1],
   ]);
   const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|\d+\.\d+\.\d+|pr-[1-9][0-9]*:[1-9][0-9]*|ref-[1-9][0-9]*|refs\/heads\/main|history|R-[A-Z]+|path|content|message|pr-text|ref|passed|not-run|findings)$/;
-  const keys = new Set(['scope', 'target', 'heads', 'refs', 'ref', 'object', 'commits', 'scanner', 'gateRevision', 'configSha256', 'scannerVersion', 'scannerPolicySha256', 'secretExceptionsSha256', 'expectedRoot', 'wordingListSha256', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
+  const keys = new Set(['scope', 'target', 'heads', 'refs', 'ref', 'object', 'commits', 'scanner', 'gateRevision', 'configSha256', 'scannerVersion', 'scannerPolicySha256', 'scannerSha256', 'secretExceptionsSha256', 'expectedRoot', 'wordingListSha256', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
   const walk = (value) => {
     if (typeof value === 'string') assert.match(value, fixed);
     else if (typeof value === 'number') assert.ok(Number.isSafeInteger(value) && value > 0);

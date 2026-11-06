@@ -108,6 +108,14 @@ test('check-report accepts a saved history report for the refs of the run being 
   assert.deepEqual([check().status, check().stdout, check().stderr], [0, '', '']);
 });
 
+test('check-report refuses a saved history report made by another scanner executable than the context pins, and one that does not name its executable', () => {
+  const { report, check } = savedReport();
+  const { scannerSha256, ...withoutExecutable } = report.scanner;
+  assert.match(scannerSha256, /^[0-9a-f]{64}$/);
+  refused(check({ saved: { ...report, scanner: { ...report.scanner, scannerSha256: sha256('another executable') } } }), 1, 'report-policy-differs');
+  refused(check({ saved: { ...report, scanner: withoutExecutable } }), 1, 'report-policy-differs');
+});
+
 test('check-report refuses a saved history report when the run being checked selects other refs, or the same ref name now points to another tag object', () => {
   const { history, check } = savedReport();
   refused(check({ refs: 'second' }), 1, 'report-refs-differ');

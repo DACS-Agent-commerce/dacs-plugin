@@ -106,13 +106,13 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
     exactPaths.set(entry.position, [location, entry.path ?? `hex:${entry.pathBytes.toString('hex')}`]);
     return location;
   };
-  const { gateRevision, configSha256, expectedRoot, wordingListSha256, scannerVersion, scannerPolicySha256, secretExceptionsSha256 } = scanner;
+  const { gateRevision, configSha256, expectedRoot, wordingListSha256, scannerVersion, scannerSha256, scannerPolicySha256, secretExceptionsSha256 } = scanner;
   const report = {
     scope: checked(scope, SCOPES),
     target: { commit, tree: checked(target.tree, FULL_OBJECT_ID) },
     scanner: {
       gateRevision: checked(gateRevision, SHA256_HEX), configSha256: checked(configSha256, SHA256_HEX), scannerVersion: checked(scannerVersion, SEMVER),
-      scannerPolicySha256: checked(scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(secretExceptionsSha256, SHA256_HEX),
+      scannerSha256: checked(scannerSha256, SHA256_HEX), scannerPolicySha256: checked(scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(secretExceptionsSha256, SHA256_HEX),
       ...(expectedRoot === undefined ? {} : { expectedRoot: checked(expectedRoot, FULL_OBJECT_ID) }),
       ...(wordingListSha256 === undefined ? {} : { wordingListSha256: checked(wordingListSha256, SHA256_HEX) }),
     },

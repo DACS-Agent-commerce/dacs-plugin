@@ -19,7 +19,7 @@ function keyPaths(value, prefix = '') {
 }
 
 const REPORT_KEYS = ['.findings', '.findings[].kind', '.findings[].line', '.findings[].location', '.findings[].rule', '.rules', '.rules[].id', '.rules[].status',
-  '.scanner', '.scanner.configSha256', '.scanner.expectedRoot', '.scanner.gateRevision', '.scanner.scannerPolicySha256', '.scanner.scannerVersion', '.scanner.secretExceptionsSha256', '.scanner.wordingListSha256', '.scope', '.target', '.target.commit', '.target.tree',
+  '.scanner', '.scanner.configSha256', '.scanner.expectedRoot', '.scanner.gateRevision', '.scanner.scannerPolicySha256', '.scanner.scannerSha256', '.scanner.scannerVersion', '.scanner.secretExceptionsSha256', '.scanner.wordingListSha256', '.scope', '.target', '.target.commit', '.target.tree',
   '.unscannable', '.unscannable[].cause', '.unscannable[].location'];
 
 test('generic scope exits 0 with the private rule not-run; complete scope without the list exits 2; both reports carry scope, target, scanner identity and each rule\'s status', () => {
