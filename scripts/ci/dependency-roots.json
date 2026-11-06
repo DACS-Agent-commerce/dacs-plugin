@@ -1,0 +1,9 @@
+{
+  "roots": [
+    { "path": ".", "reason": "repository tooling: the public-content gate and its tests", "prepare": ["root"] },
+    { "path": "http-mcp", "reason": "the http-mcp plugin; holds F's recorded legacy file:vendor SDK entry until P41a", "prepare": ["http-mcp"] },
+    { "path": "http-mcp/wallet-build", "reason": "the wallet bundle build of http-mcp, with its own exact registry SDK version", "prepare": ["http-mcp"] },
+    { "path": "stdio-mcp", "reason": "the stdio-mcp plugin and its exact registry SDK version", "prepare": ["stdio", "buyer"] },
+    { "path": "stdio-mcp/buyer", "reason": "the buyer package, when the checkout has one", "prepare": ["buyer"], "optional": true }
+  ]
+}
