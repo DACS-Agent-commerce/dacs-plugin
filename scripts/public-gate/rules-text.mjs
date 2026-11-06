@@ -197,10 +197,12 @@ export function requireNoStaleLockfileDisposition(entries, dispositions) {
 // ---- R-WORDING ------------------------------------------------------------------------------------------------------
 
 const APPROVED_CLAUSE = 'the external security review is on hold';
-/** A negative disclaimer; hyphen and space are equal. */
-const DISCLAIMER = /\bnot (?:(?:a|an[ -]independent|independent)[ -]security[ -]review|security[ -]reviewed)\b/gi;
+/** The gap between the words of a status phrase: white space or any dash, one or more (an empty gap would flag a camelCase field name). */
+const GAP = String.raw`[\s\p{Pd}]+`;
+/** A negative disclaimer; white space and any dash are equal. */
+const DISCLAIMER = new RegExp(String.raw`\bnot (?:(?:a|an${GAP}independent|independent)${GAP}security${GAP}review|security${GAP}reviewed)\b`, 'giu');
 const APPROVED_SPAN = new RegExp(APPROVED_CLAUSE, 'gi');
-const STATUS_TRIGGER = /security[ -]review|external review/i;
+const STATUS_TRIGGER = new RegExp(`(?:security|external)${GAP}review`, 'iu');
 /** Sentence ends, semicolons and parentheses split a paragraph into clauses; the delimiter is kept. */
 const CLAUSE_DELIMITER = /([.!?](?=\s|$)|[;()])/;
 const SHELL_LANGUAGES = new Set(['sh', 'bash', 'shell', 'console', 'zsh', 'powershell', 'cmd']);
@@ -223,14 +225,14 @@ const markupAs = (filler) => (text) => text.replace(MARKUP_TOKEN, (token) => (to
 const [METADATA_READINGS, MARKUP_READINGS] = [[(text) => text], [(text) => text, markupAs(''), markupAs(' ')]];
 const BLOB_READINGS = [(text) => text.replace(CHARACTER_REFERENCE, (reference) => KNOWN_REFERENCES.get(reference) ?? reference), markupAs(''), markupAs(' ')];
 
-/** Text as the wording rule reads it: invisible characters and emphasis removed, each run of Unicode white space one space. */
-const normalizeProse = (text) => text.replace(IGNORED_CHARACTERS, '').replace(/\p{White_Space}+/gu, ' ').trim();
+/** Text as the wording rule reads it: invisible characters and emphasis replaced by `filler` (nothing for the list, a space for the status words), each run of Unicode white space one space. */
+const normalizeProse = (text, filler = '') => text.replace(IGNORED_CHARACTERS, filler).replace(/\p{White_Space}+/gu, ' ').trim();
 /** The views of `source` through `readings`, normalised, in their order; only the one as written when it holds no markup character. */
 const viewsThrough = (source, readings) => (/[&<>[\]\\]/.test(source) ? readings.map((read) => normalizeProse(read(source))) : [normalizeProse(source)]);
 
 /** Builds the wording matcher over the list `entries`, each normalised as the text is. Returns the private matcher; throws GateInputError(wording-list-malformed) for an entry that holds a tab or is empty once normalised. */
 export function createWordingMatcher(entries, checkpoint) {
-  const normalized = entries.map(normalizeProse);
+  const normalized = entries.map((entry) => normalizeProse(entry));
   if (normalized.includes('') || entries.some((entry) => entry.includes('\t'))) throw new GateInputError('wording-list-malformed', 'a wording list entry is empty after normalisation or holds a tab');
   return createPrivateMatcher(normalized, checkpoint);
 }
@@ -304,6 +306,8 @@ function proseFindingLines(text, wordingMatcher) {
   for (const { line, source, isCommand } of paragraphsOf(text)) {
     const [asWritten, ...rendered] = viewsThrough(source, BLOB_READINGS);
     const statusViews = rendered.length === 0 ? [asWritten] : [...rendered, ...[...source.matchAll(MARKUP_TOKEN)].map(([token]) => normalizeProse(token))];
+    // The same readings with invisible characters and emphasis as a space, so `external_review` and `external**review` still read as two words.
+    statusViews.push(...(rendered.length === 0 ? [source] : BLOB_READINGS.slice(1).map((read) => read(source))).map((view) => normalizeProse(view, ' ')));
     if (statusViews.some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view))
       || (!isCommand && [...new Set([asWritten, ...rendered])].some((view) => hasEntryOutside(view, wordingMatcher, exemptSpansOf(view))))) lines.push(line);
   }
