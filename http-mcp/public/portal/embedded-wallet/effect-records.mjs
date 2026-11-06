@@ -142,12 +142,16 @@ const appendLaneRecord = (database, lane, expectedRevision, record) => transact(
   return () => ({ revision: next });
 });
 
-const toLaneHead = (laneRecords) => ({
-  revision: laneRecords.length,
-  lastKind: laneRecords.at(-1)?.kind,
-  lastStage: laneRecords.at(-1)?.stage,
-  signedBytes: laneRecords[0]?.kind === 'signed' ? Uint8Array.from(laneRecords[0].bytes) : undefined,
-});
+const toLaneHead = (laneRecords) => {
+  const signed = laneRecords[0]?.kind === 'signed' ? laneRecords[0] : undefined;
+  return {
+    revision: laneRecords.length,
+    lastKind: laneRecords.at(-1)?.kind,
+    lastStage: laneRecords.at(-1)?.stage,
+    signedBytes: signed && Uint8Array.from(signed.bytes),
+    signedIdentity: signed && { operationId: signed.operationId, pinVersion: signed.pinVersion, approvalRevision: signed.approvalRevision },
+  };
+};
 
 /**
  * Reads a lane's records (oldest first, as stored) and says what they prove about dispatch: `signed` (the first

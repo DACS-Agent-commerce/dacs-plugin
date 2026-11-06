@@ -71,9 +71,9 @@ export function createFakeLocks() {
   return locks;
 }
 
-// head(lane) -> {revision, lastKind, lastStage, signedBytes}; append(lane, expectedRevision, record) -> {revision}.
-// `lastKind` and `lastStage` are the newest record's kind and stage and `signedBytes` the newest `signed` record's
-// bytes (each undefined when there is none). `failures` makes a kind's commit throw; `beforeCommit` runs a hook while a kind is being persisted.
+// head(lane) -> {revision, lastKind, lastStage, signedBytes, signedIdentity}; append(lane, expectedRevision, record) -> {revision}.
+// `lastKind` and `lastStage` are the newest record's kind and stage, `signedBytes` the newest `signed` record's bytes
+// and `signedIdentity` its operationId, pinVersion and approvalRevision (each undefined when there is none). `failures` makes a kind's commit throw; `beforeCommit` runs a hook while a kind is being persisted.
 export function createMemoryRecords() {
   const lanes = new Map();
   const store = {
@@ -82,7 +82,10 @@ export function createMemoryRecords() {
     async head(lane) {
       const records = lanes.get(lane) ?? [];
       const signed = records.findLast((record) => record.kind === 'signed');
-      return { revision: records.length, lastKind: records.at(-1)?.kind, lastStage: records.at(-1)?.stage, signedBytes: signed && Uint8Array.from(signed.bytes) };
+      return {
+        revision: records.length, lastKind: records.at(-1)?.kind, lastStage: records.at(-1)?.stage, signedBytes: signed && Uint8Array.from(signed.bytes),
+        signedIdentity: signed && { operationId: signed.operationId, pinVersion: signed.pinVersion, approvalRevision: signed.approvalRevision },
+      };
     },
     async append(lane, expectedRevision, record) {
       await store.beforeCommit.get(record.kind)?.(record);

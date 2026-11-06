@@ -1186,3 +1186,52 @@ test('a browser process killed before and after each record\'s commit leaves egr
     }
   }
 });
+
+// A resume is bound to the operation, pin version and approval revision of the lane's `signed` record.
+const resumeLaneRows = [
+  { name: 'signed', arrange: (idb) => idb.cutAt(onKind('dispatch-started'), 'before'), stages: ['dispatch'], last: 'signed', killed: true },
+  { name: 'signed-held', arrange: (idb, proc) => proc.on('stop', 4, () => { proc.state.killed = true; }), stages: ['dispatch'], last: 'signed-held' },
+  { name: 'dispatch-withheld', arrange: (idb, proc) => proc.on('stop', 5, () => { proc.state.killed = true; }), stages: ['dispatch'], last: 'dispatch-withheld' },
+  { name: 'confirm-acknowledged', arrange: (idb) => idb.cutAt(onKind('broadcast-started'), 'before'), stages: TX_STAGES, last: 'confirm-acknowledged', killed: true, resumeStages: ['broadcast'] },
+];
+const otherIdentities = [
+  { name: 'operation', overrides: { operationId: 'op-2' } },
+  { name: 'pin version', overrides: { pinVersion: 'pin-2' } },
+  { name: 'approval revision', overrides: { approvalRevision: 'approval-2' } },
+];
+
+test('a resume of a lane left by another operation, pin version or approval revision is refused eb_resume_not_allowed with nothing sent or appended', async (t) => {
+  for (const row of resumeLaneRows) {
+    const resumeStages = row.resumeStages ?? row.stages;
+    const leave = async () => {
+      const idb = createFakeIndexedDb();
+      const first = startProcess(idb);
+      row.arrange(idb, first);
+      const running = first.settled(first.run({ stages: stagesOf(first, row.stages) }));
+      if (row.killed) await untilKilled(idb);
+      else await running;
+      assert.equal(kindsOf(idb).at(-1), row.last, 'the lane is left in the state under test');
+      return idb;
+    };
+
+    for (const other of otherIdentities) {
+      await t.test(`a lane holding ${row.name} refuses a resume under another ${other.name}`, async () => {
+        const idb = await leave();
+        const before = kindsOf(idb);
+        const next = startProcess(idb.restart());
+        const { error } = await next.settled(next.run({ ...other.overrides, retained: { bytes: Uint8Array.from(SIGNED) }, sign: undefined, stages: stagesOf(next, resumeStages) }));
+        assertRefusal(error, 'eb_resume_not_allowed');
+        assert.deepEqual([next.counts.signer, next.counts.transport], [0, 0]);
+        assert.deepEqual(kindsOf(idb), before, 'nothing was appended');
+      });
+    }
+
+    await t.test(`a lane holding ${row.name} still resumes under its own operation, pin version and approval revision`, async () => {
+      const idb = await leave();
+      const next = startProcess(idb.restart());
+      const { error } = await next.settled(next.run({ retained: { bytes: Uint8Array.from(SIGNED) }, sign: undefined, stages: stagesOf(next, resumeStages) }));
+      assert.equal(error, undefined);
+      assert.equal(next.counts.transport, 1);
+    });
+  }
+});

@@ -20,10 +20,11 @@
 // The inner signer's bytes are the only bytes persisted and the only bytes that can be sent; the sign and send steps
 // get an opaque handle, so the pass's byte snapshots (the resume bytes are copied at the start) stay private. A signing
 // pass needs an empty lane; a resume needs the newest record `signed`, `signed-held`, `<stage>-withheld` or
-// `confirm-acknowledged` with the same bytes, and its first stage must be the held or withheld one (`broadcast`
-// after an acknowledged confirmation). Nothing here touches a network, IndexedDB or
-// navigator: the Web Locks manager, the clock, the checks and the record store (`head(lane)` -> `{ revision,
-// lastKind, lastStage, signedBytes }`, `append(lane, expectedRevision, record)`) are injected. No page loads this yet.
+// `confirm-acknowledged` with the same bytes and the same operation, pin version and approval revision as the lane's
+// `signed` record, and its first stage must be the held or withheld one (`broadcast` after an acknowledged
+// confirmation). Nothing here touches a network, IndexedDB or navigator: the Web Locks manager, the clock, the checks
+// and the record store (`head(lane)` -> `{ revision, lastKind, lastStage, signedBytes, signedIdentity }`,
+// `append(lane, expectedRevision, record)`) are injected. No page loads this yet.
 
 /** Time allowed to acquire the wallet fence before `tp1_fence_timeout`. */
 export const FENCE_TIMEOUT_MS = 10_000;
@@ -297,13 +298,15 @@ function createLaneCursor(records, lane, identity) {
   };
 }
 
-// A signing pass needs an empty lane. A resume needs a newest record that shows nothing sent, the same bytes, and
-// (when that record names a stage) that stage first. `retained.bytes` is the pass's own copy, taken when it started.
-async function obtainSignedBytes(pass, cursor, { sign, retained, stages }) {
-  const { revision, lastKind, lastStage, signedBytes } = await cursor.head();
+// A signing pass needs an empty lane. A resume needs a newest record that shows nothing sent, the same bytes, the
+// operation, pin version and approval revision of the lane's `signed` record, and (when that record names a stage)
+// that stage first. `retained.bytes` is the pass's own copy, taken when it started.
+async function obtainSignedBytes(pass, cursor, { sign, retained, stages, operationId, pinVersion, approvalRevision }) {
+  const { revision, lastKind, lastStage, signedBytes, signedIdentity } = await cursor.head();
   if (retained !== undefined) {
     const resumeStage = lastKind === 'confirm-acknowledged' ? 'broadcast' : lastStage;
-    if (!RESUMABLE_KINDS.has(lastKind) || (resumeStage !== undefined && stages?.[0]?.name !== resumeStage) || !sameBytes(retained.bytes, signedBytes)) throw refuse('eb_resume_not_allowed', lastKind);
+    const sameIdentity = signedIdentity?.operationId === operationId && signedIdentity.pinVersion === pinVersion && signedIdentity.approvalRevision === approvalRevision;
+    if (!RESUMABLE_KINDS.has(lastKind) || (resumeStage !== undefined && stages?.[0]?.name !== resumeStage) || !sameBytes(retained.bytes, signedBytes) || !sameIdentity) throw refuse('eb_resume_not_allowed', lastKind);
     await pass.finalStop();
     pass.recheckBeforeEffect();
     return retained.bytes;
