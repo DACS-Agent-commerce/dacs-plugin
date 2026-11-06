@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -8,16 +7,13 @@ import { loadConfig } from '../../scripts/public-gate/gate.mjs';
 import { GateInputError, readCommitObjects } from '../../scripts/public-gate/objects.mjs';
 import { hasValidSecretConfig, PATH_GATED_RULES, SECRET_RULE_ID, scanSecrets } from '../../scripts/public-gate/secret-scan.mjs';
 import { REPO_ROOT, completeArgs, createRepo, gateArgs, makeTempDir, runGate, sha256, writeList } from '../lib/gate-fixtures.mjs';
-import { findPinnedGitleaks, writeStubGitleaks } from '../lib/stub-gitleaks.mjs';
+import { findPinnedGitleaks, plantedKey, skipWithoutScanner, writeStubGitleaks } from '../lib/stub-gitleaks.mjs';
 
 const CONFIG = loadConfig();
 const POLICY_FILE = path.join(REPO_ROOT, '.gitleaks.toml');
-const BASE62 = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const SAMPLE_RULE = 'generic-api-key';
 const MARKER = ['marker', 'value'].join('-');
 
-/** A GitHub-token-shaped value built at run time, so no key-shaped literal is committed. */
-const plantedKey = () => `${['ghp', '_'].join('')}${Array.from(randomBytes(36), (byte) => BASE62[byte % BASE62.length]).join('')}`;
 const readEntries = async (repo) => (await readCommitObjects({ repo: repo.dir, commit: repo.commit, limits: CONFIG.limits })).entries;
 const withLimits = (limits, config = CONFIG) => ({ ...config, limits: { ...config.limits, ...limits } });
 const scan = async (repo, stub, config = CONFIG) => scanSecrets({ entries: await readEntries(repo), config, scanner: { binary: stub.binary, sha256: stub.sha256 } });
@@ -288,12 +284,7 @@ test('hasValidSecretConfig accepts the shipped config and refuses each malformed
 });
 
 const realScanner = findPinnedGitleaks();
-const needsRealScanner = (t) => {
-  if (realScanner) return false;
-  assert.ok(!process.env.CI, 'CI must provide the pinned gitleaks (GITLEAKS_BIN or PATH)');
-  t.skip('the pinned gitleaks is not installed here');
-  return true;
-};
+const needsRealScanner = (t) => skipWithoutScanner(t, realScanner);
 const scanReal = async (repo, config = CONFIG) => scan(repo, realScanner, config);
 
 test('real scanner: a key-shaped value built at test time is found in the target tree in an ordinary file, in a valid package-lock.json, in a file named .gitleaks.toml, beside a gitleaks:allow comment, in a file marked export-ignore and -diff, and in an export-subst file; a policy or ignore file inside the target changes nothing; in CI the test refuses to skip without the binary', async (t) => {

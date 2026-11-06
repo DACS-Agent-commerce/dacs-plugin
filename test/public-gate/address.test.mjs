@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { GateInputError } from '../../scripts/public-gate/objects.mjs';
-import { hasValidAddressConfig, hasValidIpDispositions, refusedMetadataEmails, scanAccounts, scanHosts, scanIps } from '../../scripts/public-gate/rules-address.mjs';
+import { hasValidAddressConfig, hasValidIpDispositions, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps, scanAccounts, scanHosts, scanIps } from '../../scripts/public-gate/rules-address.mjs';
 import { CONFIG_FILE, createHistory, createRepo, gateArgs, git, historyArgs, REPO_ROOT, runGate, runHistory, sha256, writeList } from '../lib/gate-fixtures.mjs';
 
 /** Planted names are built here, so no unlisted host or account is written out in this file. */
@@ -12,6 +12,10 @@ const name = (...labels) => labels.join('.');
 const LISTED = name('registry', 'harbor', 'dev');
 const OTHER = name('node1', 'harbor', 'dev');
 const ATTACKER = name('attacker', 'xyz');
+const ATTACKER_ENCODED = ATTACKER.replaceAll('.', '%2e');
+/** An escape that is not UTF-8, a double-encoded dot, an encoded slash and an encoded NUL: none resolves to a host. */
+const UNDECODABLE_HOSTS = ['%ff.example.com', 'example.com%2fx', 'evil%252ecom', 'example.com%00'];
+const urlOf = (host) => `https://${host}/x`;
 const FORGE_EMAIL = `${['12345', 'harbor-dev'].join('+')}@${name('users', 'noreply', 'github', 'com')}`;
 const FORGE_IDENTITY = `Harbor Dev <${FORGE_EMAIL}>`;
 const PUBLICATION_IDENTITY = 'DACS Agent Commerce <dacs-plugin@users.noreply.invalid>';
@@ -89,6 +93,45 @@ test('hosts: the line of a finding counts CRLF, a lone CR and LF as one line bre
 test('hosts: a name with a template placeholder or an IP literal is left to other rules, and a URL userinfo does not hide the host', () => {
   const files = { 'src/a.mjs': `const a = \`https://\${host}/x\`;\nconst b = 'http://127.0.0.1:8080/';\nconst c = 'https://user@${OTHER}/x';\n` };
   assert.deepEqual(scanned(scanHosts, files), ['R-HOST content src/a.mjs 3']);
+});
+
+test('hosts: a percent-encoded dot, an upper-case encoding or a trailing dot in a URL host does not hide an unlisted host', () => {
+  const files = {
+    'docs/encoded.md': [ATTACKER_ENCODED, `${ATTACKER.toUpperCase()}.`, ATTACKER_ENCODED.replace('%2e', '%2E'), `${ATTACKER}%2e`].map((host) => urlOf(host)).join('\n') + '\n',
+    'src/encoded.mjs': `const url = '${urlOf(ATTACKER_ENCODED)}';\n`,
+  };
+  assert.deepEqual(scanned(scanHosts, files), [1, 2, 3, 4].map((line) => `R-HOST content docs/encoded.md ${line}`).concat('R-HOST content src/encoded.mjs 1'));
+});
+
+test('hosts: an encoded form of a listed host passes, and an encoded subdomain of it fails', () => {
+  const files = { 'docs/encoded.md': ['github%2ecom', 'GITHUB%2Ecom.', 'api%2egithub%2ecom'].map((host) => urlOf(host)).join('\n') + '\n' };
+  assert.deepEqual(scanned(scanHosts, files), ['R-HOST content docs/encoded.md 3']);
+});
+
+test('hosts: a URL host whose escapes cannot be decoded or normalised fails, and a template placeholder still passes', () => {
+  const files = {
+    'docs/undecodable.md': UNDECODABLE_HOSTS.map((host) => urlOf(host)).join('\n') + '\n',
+    'docs/templates.md': ['%s', '%(host)s'].map((host) => urlOf(host)).join(' and ') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), [1, 2, 3, 4].map((line) => `R-HOST content docs/undecodable.md ${line}`));
+});
+
+test('hosts and IPs: an encoded IP literal in a URL gets the same result as the plain one', () => {
+  const encodedLoopback = { 'docs/ip.md': 'http://127%2e0%2e0%2e1/\n' };
+  const encodedPublic = { 'docs/ip.md': `http://${PUBLIC_V4.replaceAll('.', '%2e')}/\n` };
+  const plainPublic = { 'docs/ip.md': `http://${PUBLIC_V4}/\n` };
+  assert.deepEqual(scanned(scanIps, encodedLoopback, NO_DISPOSITIONS), scanned(scanIps, { 'docs/ip.md': 'http://127.0.0.1/\n' }, NO_DISPOSITIONS));
+  assert.deepEqual(scanned(scanIps, encodedPublic, NO_DISPOSITIONS), ['R-IP content docs/ip.md 1']);
+  assert.deepEqual(scanned(scanIps, encodedPublic, NO_DISPOSITIONS), scanned(scanIps, plainPublic, NO_DISPOSITIONS));
+  assert.deepEqual(scanned(scanHosts, { ...encodedLoopback, 'docs/other.md': encodedPublic['docs/ip.md'] }), []);
+});
+
+test('commit metadata: the host and IP checks read an encoded URL host as the host it resolves to, and refuse one that cannot be decoded', () => {
+  assert.deepEqual(refusedMetadataHosts(`subject\n\nhttps://${ATTACKER_ENCODED}/a and https://${ATTACKER}./b`, CONFIG), [ATTACKER]);
+  assert.deepEqual(refusedMetadataHosts('https://github%2ecom/x', CONFIG), []);
+  assert.deepEqual(refusedMetadataHosts(urlOf(UNDECODABLE_HOSTS[0]), CONFIG), [UNDECODABLE_HOSTS[0]]);
+  assert.deepEqual(refusedMetadataIps(`http://${PUBLIC_V4.replaceAll('.', '%2e')}/`), [PUBLIC_V4]);
+  assert.deepEqual(refusedMetadataIps('http://127%2e0%2e0%2e1/'), []);
 });
 
 test('accounts: an email outside reserved domains fails in content; the SSH form of a listed code host passes; an exact publicIdentities entry with a code-host no-reply email passes in commit metadata; F\'s exact reserved identity passes both metadata and content rules; an unlisted identity still fails the identity rule', () => {
@@ -334,7 +377,7 @@ test('generic scope runs the three address rules; a finding names rule, kind, lo
   const clean = createRepo([{ path: 'a.md', content: 'See https://example.com/ and mail dev@example.com on 127.0.0.1\n' }]);
   const passing = runGate(gateArgs(clean, 'generic'));
   assert.equal(passing.status, 0, passing.stderr);
-  assert.deepEqual(JSON.parse(passing.stdout).rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }, { id: 'R-SECRET', status: 'passed' }]);
+  assert.deepEqual(JSON.parse(passing.stdout).rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-EVAL', status: 'passed' }, { id: 'R-HOST', status: 'passed' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-ISSUE', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }, { id: 'R-REPORT', status: 'passed' }, { id: 'R-SECRET', status: 'passed' }, { id: 'R-WORDING', status: 'not-run' }]);
   const planted = createRepo([{ path: 'a.md', content: `ok\nSee https://${OTHER}/ and mail dev@${LISTED} via ${PUBLIC_V4}\n` }]);
   const failing = runGate(gateArgs(planted, 'generic'));
   assert.equal(failing.status, 1);
@@ -344,7 +387,7 @@ test('generic scope runs the three address rules; a finding names rule, kind, lo
     { rule: 'R-HOST', kind: 'content', location: `${planted.commit}:1`, line: 2 },
     { rule: 'R-IP', kind: 'content', location: `${planted.commit}:1`, line: 2 },
   ]);
-  assert.deepEqual(report.rules.map((rule) => rule.status), ['findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings']);
+  assert.deepEqual(report.rules.map((rule) => rule.status), ['findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings', 'findings', 'not-run']);
   for (const text of [OTHER, LISTED, PUBLIC_V4, 'a.md']) assert.ok(!`${failing.stdout}${failing.stderr}`.includes(text));
 });
 

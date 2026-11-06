@@ -1,8 +1,9 @@
 {
   "limits": {
     "maxTreeObjects": 20000, "maxBlobBytes": 8388608, "maxTotalBlobBytes": 268435456, "maxListingBytes": 33554432,
-    "maxPrivateListBytes": 65536, "maxPrivateEntries": 2000, "maxReportEntries": 1000, "maxHistoryCommits": 20000, "gitDeadlineMs": 120000, "scanDeadlineMs": 30000,
-    "secretScanDeadlineMs": 300000, "secretScanOutputBytes": 65536, "maxScanReportBytes": 8388608
+    "maxPrivateListBytes": 65536, "maxPrivateEntries": 2000, "maxWordingListBytes": 65536, "maxWordingEntries": 2000, "maxReportEntries": 1000, "maxHistoryCommits": 20000, "maxHistoryOccurrences": 200000, "gitDeadlineMs": 120000, "scanDeadlineMs": 30000,
+    "secretScanDeadlineMs": 300000, "secretScanOutputBytes": 65536, "maxScanReportBytes": 8388608,
+    "maxEvalUnitBytes": 4194304, "maxEvalBatchBytes": 8388608, "evalDeadlineMs": 60000, "maxEvalOutputBytes": 1048576
   },
   "scanner": { "version": "8.30.1" },
   "secretBaseline": [
@@ -144,6 +145,25 @@
     { "path": "http-mcp/test/oauth-loopback.test.mjs", "blob": "db62907d2903efca139fa213f42f0d75cbe0505c", "line": 161, "context": " '[<ip>]',", "sha256": "3e48ef9d22e096da6838540fb846999890462c8a32730a4f7a5eaee6945315f7", "reason": "loopback literal in another notation that the test feeds the redirect check to see accepted" },
     { "path": "http-mcp/test/oauth-loopback.test.mjs", "blob": "db62907d2903efca139fa213f42f0d75cbe0505c", "line": 161, "context": " '[<ip>]',", "sha256": "a07a1797704a5da07d0d6925b6a0d64aaf4eee0f0cfade9fbcddc2f5fd6edf4a", "reason": "loopback literal in another notation that the test feeds the redirect check to see accepted" },
     { "path": "http-mcp/test/oauth-loopback.test.mjs", "blob": "db62907d2903efca139fa213f42f0d75cbe0505c", "line": 161, "context": " '[<ip>]']", "sha256": "b6cf5bd6081fb775fc3f89927e582d7e945f955c35b73a07879d75bb4ea96a01", "reason": "loopback literal in another notation that the test feeds the redirect check to see accepted" }
+  ],
+  "publicRepositories": { "owner": "DACS-Agent-commerce", "repositories": ["dacs-sdk", "DACS-Standard", "Community", "dacs-plugin"] },
+  "lockfileDispositions": [
+    { "path": "stdio-mcp/package-lock.json", "blob": "2d064ce7cbe3858df1f04b34157864c444aa6ae9", "field": "packages[\"node_modules/@confio/ics23\"].deprecated", "line": 1167, "valueSha256": "73db8b1fb39b70e63f1b64d8d5a7d41f7873b8d4fa8a5455f8955bfae5d3829e", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
+    { "path": "stdio-mcp/package-lock.json", "blob": "2d064ce7cbe3858df1f04b34157864c444aa6ae9", "field": "packages[\"node_modules/@cosmjs/crypto\"].deprecated", "line": 1295, "valueSha256": "1ae46a6eb64871e470bbe6cda47a9676f54ec6d7b8ada88c01f69da140130fb6", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
+    { "path": "stdio-mcp/package-lock.json", "blob": "2d064ce7cbe3858df1f04b34157864c444aa6ae9", "field": "packages[\"node_modules/request\"].deprecated", "line": 15700, "valueSha256": "2520e437d9b0330c48889295afc16ae18dfa95fecadaea9b1952ae79716c263c", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
+    { "path": "http-mcp/wallet-build/package-lock.json", "blob": "3eb3a13163a28d7612ec08546d84a8261ef90ca3", "field": "packages[\"node_modules/@confio/ics23\"].deprecated", "line": 1139, "valueSha256": "73db8b1fb39b70e63f1b64d8d5a7d41f7873b8d4fa8a5455f8955bfae5d3829e", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
+    { "path": "http-mcp/wallet-build/package-lock.json", "blob": "3eb3a13163a28d7612ec08546d84a8261ef90ca3", "field": "packages[\"node_modules/@cosmjs/crypto\"].deprecated", "line": 1267, "valueSha256": "1ae46a6eb64871e470bbe6cda47a9676f54ec6d7b8ada88c01f69da140130fb6", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
+    { "path": "http-mcp/wallet-build/package-lock.json", "blob": "3eb3a13163a28d7612ec08546d84a8261ef90ca3", "field": "packages[\"node_modules/request\"].deprecated", "line": 15590, "valueSha256": "2520e437d9b0330c48889295afc16ae18dfa95fecadaea9b1952ae79716c263c", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" }
+  ],
+  "evalGeneratedFiles": [
+    { "path": "http-mcp/public/portal/embedded-wallet/demos-runtime.mjs", "sha256": "fe938adbf6b0bc4e6d70bafa3b67afd0a11e58d7b052a18e126c7f8f2be75dcf", "reason": "bundler output of the embedded wallet runtime; dynamic evaluation comes from bundled dependencies" },
+    { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-3UJPRL3I.mjs", "sha256": "b3979c29ee57e4fbf0f4edf342b3ab0304d8f7cc68ebbd1c4948e301225e9676", "reason": "bundler output of the embedded wallet runtime; dynamic evaluation comes from bundled dependencies" },
+    { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-6EJ2AFTE.mjs", "sha256": "0a5be4e92487230395a1aa67549b921754c365ff1ad626de8af6b0833610e84a", "reason": "bundler output of the embedded wallet runtime; dynamic evaluation comes from bundled dependencies" },
+    { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs", "sha256": "490765d47d1517a38ca9c239a15f02cb81412b1adcd2732dc6ff0ab60773d4cf", "reason": "bundler output of the embedded wallet runtime; dynamic evaluation comes from bundled dependencies" },
+    { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-GEQKB2PE.mjs", "sha256": "06b8ce0552bcc2596431c81f842d4ce5672a840c421754874203dd96c5521635", "reason": "bundler output of the embedded wallet runtime; dynamic evaluation comes from bundled dependencies" },
+    { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-SSXDWXVZ.mjs", "sha256": "e05b230bff996dc6eff47fbb8c782c77dab46298f84502c20388fcc5000662d1", "reason": "bundler output of the embedded wallet runtime; dynamic evaluation comes from bundled dependencies" },
+    { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-YUIZVLEY.mjs", "sha256": "1a6aa2ee94c51cc227a0b9ecdacba868b4f3cd6b8db80761a6987f63f45f6b10", "reason": "bundler output of the embedded wallet runtime; dynamic evaluation comes from bundled dependencies" },
+    { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/entry-AVSAFOKW.mjs", "sha256": "3fbb64b8f2e65a90ab7334bc0508c624d5c5742106313e39168523dcd340b5f8", "reason": "bundler output of the embedded wallet runtime; dynamic evaluation comes from bundled dependencies" }
   ],
   "publicIdentities": ["DACS Agent Commerce <dacs-plugin@users.noreply.invalid>"]
 }

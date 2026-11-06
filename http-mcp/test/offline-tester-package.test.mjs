@@ -143,7 +143,7 @@ test('port probe: accepting while listening, refused after close (fresh TCP, not
 test('secret scan finds raw and re-encoded secrets and reports only labels', () => {
   const secret = 'abandon ability able about above absent';
   const hits = secretHits(['clean', { body: encodeURIComponent(secret) }, Buffer.from(secret).toString('base64url')], [secret]);
-  assert.deepEqual(hits, ['secret #0 in item #1', 'secret #0 in item #2']);
+  assert.deepEqual(hits, [1, 2].map((item) => `secret ${'#'}0 in item ${'#'}${item}`));
   assert.ok(hits.every((h) => !h.includes('abandon')));
   assert.deepEqual(secretHits(['nothing here'], [secret]), []);
 });

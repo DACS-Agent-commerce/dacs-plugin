@@ -34,7 +34,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
+Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -73,8 +73,8 @@ Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 | `http-mcp/docs/DEVNET-NODE2-FALLBACK.md` | `5ecd381cfb596aa109b6a4da286ff8499025b820` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/DEVNET-NODE2-SR2-BINDING.md` | `14be5edb59a22104b9a03269b7bd78f004aed1ef` | verbatim |
 | `http-mcp/docs/DEVNET-OPERATOR-CLI-ISSUED-RECOVERY.md` | `7d314b142320194edeeca8378bc0138ef1bef1b5` | edited: internal process wording removed (no review-gate or candidate references) |
-| `http-mcp/docs/DEVNET-OPERATOR-CLI.md` | `98426b5001a38dc04d6a6814c0939beb3b33fa8d` | verbatim |
-| `http-mcp/docs/DEVNET-OPERATOR-PAYMENT-RECOVERY.md` | `4dc6ed1b4732550f1df0cd1c98fe13c64dcfda30` | verbatim |
+| `http-mcp/docs/DEVNET-OPERATOR-CLI.md` | `a26adbe1046b243d14af176aa0ec00f891c28552` | changed here after a verbatim import: the list of what the tests do not show ends with a disclaimer sentence, as the public-gate wording rule requires |
+| `http-mcp/docs/DEVNET-OPERATOR-PAYMENT-RECOVERY.md` | `301c4111215bf1aacc1c3f145890ffd4077d6383` | changed here after a verbatim import: the list of what the evidence does not establish ends with a disclaimer sentence, as the public-gate wording rule requires |
 | `http-mcp/docs/DEVNET-OPERATOR-RECOVERY.md` | `720a802556ca9bae6858b2f21d35a0d34bdccd45` | verbatim |
 | `http-mcp/docs/DEVNET-OPERATOR-SEQUENTIAL.md` | `3e9a84e829333d12e1e2e749c84f96fca3d80f5d` | verbatim |
 | `http-mcp/docs/DEVNET-RECIPIENT-BALANCE.md` | `f36e480bf8de10b940207b03c2ef7a3308ef00fd` | verbatim |
@@ -82,8 +82,8 @@ Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 | `http-mcp/docs/EMBEDDED-WALLET-FLOW-COVERAGE.md` | `27798c78872f503dba182cbad06176634e764381` | edited: public wording: internal review, process, PR and private-path references removed or reworded; directory name in a column header corrected; digests of internal run logs and a source manifest removed |
 | `http-mcp/docs/EMBEDDED-WALLET-INTEGRATION.md` | `d5894a9ff7498d9e86e98500bdd5f6fb1220bfb5` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/EMBEDDED-WALLET-PACKAGING.md` | `f69d900b7b3dc87df226124e625b49a3b2dae073` | edited: exclusion wording follows the renamed label
-| `http-mcp/docs/EMBEDDED-WALLET-SDK.md` | `06d78b664e6d9b0c42bc9b88719effb327b4a47f` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; build and test commands written as plain npm and node commands |
-| `http-mcp/docs/EMBEDDED-WALLET-TESTER.md` | `257fea10444ec1c8306dc23a074a52b857dbb987` | edited: public wording: internal review, process, PR and private-path references removed or reworded; security review status given in the exact public sentence; directory name in a command corrected; public wording: internal process and layout references reworded |
+| `http-mcp/docs/EMBEDDED-WALLET-SDK.md` | `8ccbe63c02ff99879267b536a4178d6b116f00eb` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; build and test commands written as plain npm and node commands; then changed here: the not-claimed list uses disclaimer forms, as the public-gate wording rule requires |
+| `http-mcp/docs/EMBEDDED-WALLET-TESTER.md` | `8c9fa22eb95a036b42bde35227d8d2004d77ba6d` | edited: public wording: internal review, process, PR and private-path references removed or reworded; status given in the exact public sentence; directory name in a command corrected; public wording: internal process and layout references reworded; then changed here: the last prohibition no longer names the review, as the public-gate wording rule requires |
 | `http-mcp/docs/EMBEDDED-WALLET-UI.md` | `ef559cc6f95a207be660285391a0451d2b1ec348` | edited: public wording: internal review, process, PR and private-path references removed or reworded; public wording: internal process and layout references reworded |
 | `http-mcp/docs/FEE-APPROVAL-RECOVERY-CONTRACT.md` | `66133790dbd106b2453a777e554540e437b928de` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/IDENTITY-RECOVERY.md` | `070df4a46056f9238aa380364ba92a3253a88393` | verbatim |
@@ -105,7 +105,7 @@ Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 | `http-mcp/docs/SELLER-POLICY-AND-DELIVERY-EVIDENCE.md` | `c2d72575e79f76d500cc356919c2d69cca894b2c` | verbatim |
 | `http-mcp/docs/SELLER-SESSION-DELEGATION.md` | `8fd3ab45639a1072833b4759b5111ecfeb5ca912` | edited: reference to a document that is not carried removed; decision dates removed |
 | `http-mcp/docs/SELLER-SR2-AGREEMENT-INTEGRATION.md` | `c2bcd14e05a0cb6886639bd18f2260faf68b85fc` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
-| `http-mcp/docs/SELLER-UNCERTAIN-PAYMENT-RECOVERY.md` | `1d43f7697860d6023b8dc26cf9146d4bd720665f` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
+| `http-mcp/docs/SELLER-UNCERTAIN-PAYMENT-RECOVERY.md` | `b921e31e9beb2e7ff4147aeaeccb1f63fb4f87f6` | edited: public wording: internal review, process, PR and private-path references removed or reworded; then changed here: the outside-this-result list ends with a disclaimer sentence, as the public-gate wording rule requires |
 | `http-mcp/docs/SERVICE-PUBLIC-TEXT-REPORT.md` | `386b1e8778be522ecc55786e6ef377fe6c6c6233` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/SERVICE-REQUEST-BINDING.md` | `75024bc4c5d4c53fa4ad859e7e8eee148d7c90c7` | edited: links into a local spec checkout replaced by citations and one link to the public DACS-Standard repository; public wording |
 | `http-mcp/docs/SHOWCASE-LEDGER.md` | `389bcb6ea79648030446c3343206786ecd06cdb4` | verbatim |
@@ -117,7 +117,7 @@ Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 | `http-mcp/docs/STORAGE-PROGRAM-BINDING-OMISSION-READBACK.md` | `e7d9c358e0f892e3b47eaeb857b9eeb355f3a125` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording |
 | `http-mcp/docs/SWITCHES.md` | `547a9b89ae7a9be377375535144157fa9451e7a0` | edited: "this PR" wording replaced by a description; further public wording |
 | `http-mcp/docs/TESTER-DASHBOARD.md` | `1beab6f78d92fbe01b4312cf3da21aac9396ae10` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
-| `http-mcp/docs/TESTER-QUICKSTART.md` | `ad5e77e9fc666f8dd383503beab9e9690c9667d3` | edited: public wording: internal review, process, PR and private-path references removed or reworded; security review status given in the exact public sentence; directory name in a command corrected |
+| `http-mcp/docs/TESTER-QUICKSTART.md` | `ad5e77e9fc666f8dd383503beab9e9690c9667d3` | edited: public wording: internal review, process, PR and private-path references removed or reworded; status given in the exact public sentence; directory name in a command corrected |
 | `http-mcp/docs/TESTING.md` | `669bf85470717c6cc0d01c14561eb32f6d5ed348` | edited: a "state of this repository" note; install directory corrected |
 | `http-mcp/docs/WALLET-EXTENSION-PROBE.md` | `fe3e9432d64faa61b3c64f617163e8c65f50350b` | edited: public wording: internal process and layout references removed or reworded; further public wording |
 | `http-mcp/docs/WALLET-WRITE-BATCH.md` | `0853b7ee0a6a46510f99bedcae97ddf03fc7c65a` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -150,13 +150,13 @@ Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 | `http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-YUIZVLEY.mjs` | `57fce607ea6f158bc82913323dda5f99bc9a2f7a` | verbatim |
 | `http-mcp/public/portal/embedded-wallet/runtime-chunks/entry-AVSAFOKW.mjs` | `7e2c5cfab5d666a98c5cef4f39cd14a60fcae7ba` | verbatim |
 | `http-mcp/public/portal/embedded-wallet/runtime-manifest.json` | `ccd667c3d4869f62728d44a8e1e0810ba82e2adc` | verbatim |
-| `http-mcp/public/portal/embedded-wallet/sdk-provider.mjs` | `6e82c6a7056ffb44431ae2a1c643e0ca5ca4ef76` | edited: held-gate id renamed to external-security-review; comments: internal references removed; held-write message states only that the external security review is on hold; further public wording |
+| `http-mcp/public/portal/embedded-wallet/sdk-provider.mjs` | `6e82c6a7056ffb44431ae2a1c643e0ca5ca4ef76` | edited: held-gate id renamed; comments: internal references removed; held-write message reworded to the approved status sentence; further public wording |
 | `http-mcp/public/portal/embedded-wallet/stores.mjs` | `5ac4343b09dd01d1e4608e21878208d832c81b81` | verbatim |
-| `http-mcp/public/portal/embedded-wallet/ui.mjs` | `f393a15669bcc9aed9bef0c0e4be067a523edf4f` | edited: held-write message states only that the external security review is on hold |
+| `http-mcp/public/portal/embedded-wallet/ui.mjs` | `f393a15669bcc9aed9bef0c0e4be067a523edf4f` | edited: held-write message reworded to the approved status sentence |
 | `http-mcp/public/portal/embedded-wallet/vault.mjs` | `a719e24f38605351df2c29d451e3ea90185f2d59` | verbatim |
 | `http-mcp/public/portal/index.html` | `12e87e4d5c4400f57ceb02756abce1af1679373a` | verbatim |
 | `http-mcp/public/portal/portal.css` | `a6385360ad0131096bf0ac4e5846e4bacfee8052` | verbatim |
-| `http-mcp/public/portal/portal.js` | `5dba627b180b3ae1acd76cb52b4227dbc5d01d3d` | edited: held-write message states only that the external security review is on hold; further public wording |
+| `http-mcp/public/portal/portal.js` | `5dba627b180b3ae1acd76cb52b4227dbc5d01d3d` | edited: held-write message reworded to the approved status sentence; further public wording |
 | `http-mcp/public/portal/purchased-report.mjs` | `f64f78d96fc3b850a702a5a2d71100484dbfdea5` | verbatim |
 | `http-mcp/public/portal/seller-identity.mjs` | `c21ce4ca4105ffa94b032c05be2d28bf9e284e09` | verbatim |
 | `http-mcp/public/portal/seller-name.mjs` | `bcddb5789d7d1f8c5e572001d3e4edd2b9729eb4` | verbatim |
@@ -222,7 +222,7 @@ Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 | `http-mcp/src/portal/routes.mjs` | `491e2d5e442108413c238d0e6cb4a2153574ebd9` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/src/portal/start-intent.mjs` | `b7b64329439ae584731ddad5a3467d10972819b5` | verbatim |
 | `http-mcp/src/portal/wallet-extension-probe.mjs` | `1bcf76033d28699fa3e205a0452c7b1e6fa77f71` | verbatim |
-| `http-mcp/src/portal/wallet-rpc.mjs` | `4925eabfa7aaf0325548403860dd606a8f2dfee6` | edited: held-gate id renamed to external-security-review; comments: internal references removed; held-write message states only that the external security review is on hold |
+| `http-mcp/src/portal/wallet-rpc.mjs` | `4925eabfa7aaf0325548403860dd606a8f2dfee6` | edited: held-gate id renamed; comments: internal references removed; held-write message reworded to the approved status sentence |
 | `http-mcp/src/seller-identities.mjs` | `35040dac138ad5953c1711ab8927f0a1c16bcf70` | verbatim |
 | `http-mcp/src/store/database.mjs` | `3e0795a5e682b986e9a84fb003075ba09d1415b9` | verbatim |
 | `http-mcp/src/switch-files.mjs` | `42eb9b315d1674da3e00da5300f637e8b15fd9c8` | verbatim |
@@ -589,7 +589,7 @@ Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 | `http-mcp/test/oauth-loopback.test.mjs` | `db62907d2903efca139fa213f42f0d75cbe0505c` | edited: address replaced by a documentation address; credential-shaped URL built at test time |
 | `http-mcp/test/oauth-refresh.test.mjs` | `a815b40e5b0f6fe546fa5fd2b283888955f8da45` | verbatim |
 | `http-mcp/test/oauth.test.mjs` | `315bc3cc1cfa9cad0bcdcf2d97280dae2e9e7b8e` | edited: public wording: internal process and layout references reworded
-| `http-mcp/test/offline-tester-package.test.mjs` | `072f82eac4b92739fd7a9cf513f36c9e27ee97d6` | edited: comment: internal log references removed; example checkout path made neutral |
+| `http-mcp/test/offline-tester-package.test.mjs` | `ea1915412f85159bfa08fb249b4a65b5b96f430a` | edited: comment: internal log references removed; example checkout path made neutral; then changed here: the expected secret-scan labels are built so the file holds no issue-style reference |
 | `http-mcp/test/offline-tester.test.mjs` | `4a6b2a9db2fba243f8bcd135d47b8574163fd051` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/operator-session-lifecycle.test.mjs` | `5127a0005d6bdd79cd664f62a66b95123e8a0c68` | verbatim |
 | `http-mcp/test/ops-health-lost-attempt.test.mjs` | `095bdd17b880f52f7ed9bf5d8511a164ac97d964` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -599,7 +599,7 @@ Files: 750 (verbatim 504, edited 216, changed here 6, added 24).
 | `http-mcp/test/overnight-acceptance-core.test.mjs` | `be9fab0bf534bdffb8f7cf8125e4ae971e7e5b43` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/overnight-acceptance-ui.test.mjs` | `2099f64506281dbf705a3c8c0519c57f5fa719ae` | verbatim |
 | `http-mcp/test/overnight-acceptance.test.mjs` | `8dcbd9c2235ba91efe49e0097fa411edaac6acbc` | verbatim |
-| `http-mcp/test/overnight-core-seller.test.mjs` | `e761db72a2b790235351c3d4986a5ca1db3c3167` | edited: held-gate id renamed to external-security-review; comments: internal references removed; expects the reworded held-write reason |
+| `http-mcp/test/overnight-core-seller.test.mjs` | `e761db72a2b790235351c3d4986a5ca1db3c3167` | edited: held-gate id renamed; comments: internal references removed; expects the reworded held-write reason |
 | `http-mcp/test/overnight-package.test.mjs` | `1afdaf8310a61acbbf27575a7ce2a5610eba3aaa` | verbatim |
 | `http-mcp/test/overnight-ui.test.mjs` | `ee29f12c9ed915c4a6822ce67af93a507cbe9660` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/package-paths.test.mjs` | `7072517013e0e5643653f37c49625551f018fa9a` | edited: sample list shortened with the exclusion pattern |

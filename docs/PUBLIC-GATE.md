@@ -1,18 +1,18 @@
 # Public-content gate
 
 Reads one commit from Git objects (never the working tree or index, never following a symlink) and reports, under a
-declared scope, what the rules it runs found in it. The gate currently runs eight rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
-(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules), `R-PRIVATE` (the private list) and `R-SECRET`
-(the secret scan). Exit 0 in complete scope means no rule found anything and every file
-could be read; it does not show that the content may become public. Generic scope runs the address rules and reports
-`R-PRIVATE` as `not-run`, so its exit 0 is never a complete pass.
+declared scope, what the rules it runs found in it. The gate currently runs twelve rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
+(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules), `R-REPORT` and `R-ISSUE` and `R-WORDING` (the text rules), `R-EVAL`
+(dynamic code evaluation), `R-PRIVATE` (the private list) and `R-SECRET` (the secret scan). Exit 0 in complete scope means no rule found anything and every file
+could be read; it does not show that the content may become public. Generic scope runs the rules that need no list and reports
+`R-PRIVATE` and `R-WORDING` as `not-run`, so its exit 0 is never a complete pass.
 
 ```
 node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope generic \
   --gitleaks <binary> --gitleaks-sha256 <hex> [--out <file>]
 node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope complete \
   --gitleaks <binary> --gitleaks-sha256 <hex> \
-  --private-list <file> --expected-root <full-sha> [--private-evidence <file>] [--out <file>]
+  --private-list <file> --wording-list <file> --expected-root <full-sha> [--private-evidence <file>] [--out <file>]
 ```
 
 `--gitleaks` and `--gitleaks-sha256` are required in both scopes (see Secret scan). `--out` and `--private-evidence` create a new file and never overwrite one, and must name different files (exit 2 otherwise); without `--out` the report goes to stdout.
@@ -26,11 +26,65 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
 - **Private list.** A regular file outside `--repo` (symlinks resolved; a FIFO or device is refused), at most
   `maxPrivateListBytes` bytes and `maxPrivateEntries` entries, one exact entry per line. Blank and `#` lines and one leading
   byte-order mark are ignored; a line with leading or trailing whitespace is refused. A bare label fails only when listed.
+- **Wording list.** `--wording-list` (complete scope only; refused in generic scope, required in complete scope) names a second list, read
+  exactly as the private list is, with its own limits (`maxWordingListBytes`, `maxWordingEntries`) and causes (`wording-list-in-repo`,
+  `-unreadable`, `-malformed`, `-empty`). Its vocabulary is never in the repository: it holds the prohibited terms and the internal
+  review-tool names of the operator's records. A tool name must also be on the private list, which matches everywhere, fenced code and
+  source included. The report names the list by `scanner.wordingListSha256`, the digest of the bytes read, and `check-report` binds it.
 - **Matching.** `R-PRIVATE` (complete scope; `not-run` in generic scope) finds entries in paths and blobs, case-insensitive
   per code point exactly as JavaScript's `/iu`: simple case folding, no Unicode normalization (a combining accent differs
   from a precomposed letter) and no one-to-many folding (`ß` is not `ss`). CRLF, a lone CR and a lone LF each end a line.
   A text blob is also read with its backslashes removed (line breaks kept, so the line is the blob's own), so an entry
   written with regex or string escapes is found.
+- **Reports (`R-REPORT`, both scopes).** Refuses a working-report file name (`build-rules.md` names three, any letter case, any depth), a
+  working-notes directory as any path segment (`.fix-tmp`, `.stack`) and a Markdown blob whose first 20 non-blank lines hold a heading, a
+  front-matter key or a bold label that is a frozen-input, canonical-snapshot or review-round marker (space, hyphen and underscore
+  equal; the marker alone, or followed by a colon, a parenthesis, a number or a commit id).
+- **Issue references (`R-ISSUE`, both scopes).** In every text blob, a bare number-sign reference (`PR`, `issue` and bare forms, also in fences,
+  comments and string literals), an `owner/repo` reference and every GitHub issue, pull-request or discussion address passes only for a
+  repository in `publicRepositories` (`owner`, `repositories`; whole segments, no case). Any address of the organisation's repositories,
+  in page, clone, raw, API or escaped form, must name a listed one. Colour values, link fragments, entities, `PKCS` names and
+  `<name#n>` placeholders are not references. The six upstream deprecation notices that npm copied into two lockfiles pass only through
+  `lockfileDispositions` (`path`, `blob`, `field`, `line`, `valueSha256`, `reason`): all five facts of the occurrence must match, and the
+  field is found by parsing the lockfile. An entry whose path the target holds only at another blob stops the run with
+  `stale-lockfile-disposition` (exit 2), so a later lockfile change needs a new review; a seventh link or a wildcard needs a new owner decision.
+- **Wording (`R-WORDING`, complete scope).** In every text blob that is not source code (the `R-EVAL` extensions and `.css` and `.sh`; a `.json`
+  manifest by every string in it, keys and repeated keys included, every other file, Markdown and HTML included, as text), paragraphs (runs of non-blank lines, wrapped lines joined,
+  emphasis marks and invisible characters removed, white space collapsed, the entries normalised the same way) are read in three views: as
+  written with only `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&nbsp;` decoded, with markup erased, and with each markup token one space.
+  Markup is HTML comments and tags (attributes included), Markdown link destinations, reference labels and definitions, link brackets, block-quote
+  marks, escaping backslashes and character references; any other character reference fails (write the character). A list entry fails unless it
+  lies wholly inside the approved clause or a disclaimer of the same view; the body of a closed fence whose language is a shell may hold entries.
+  In a status phrase, white space, a Unicode dash (`Pd`), invisible format characters and `_`, `*` or a backtick between the words count as a gap (a camelCase name has none).
+  A sentence about the review's status (in the erased and spaced views and in each markup token, read with the six references decoded and escaping backslashes dropped; a token is a comment, a tag with its attributes, a link destination, title or label, so a URL or file name holding the words fails as it does in plain text) passes only as the approved clause
+  (case-insensitive, no reason added; never inside a token) or a negative disclaimer; clauses end at sentence ends, semicolons and parentheses. In history mode the list is also matched, with no exemption and no status check, in commit
+  and tag messages and headers (continuation lines joined to their header) as written and in `--pr-text` in all three views (the first with the six references decoded; any other character reference there fails, as in a blob).
+- **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
+  file (`.d.ts`, `.d.mts` and `.d.cts` included), in a child
+  process (`rules-eval-child.mjs`) under `run-bounded`. Its rules are syntactic and track no value. **Names:** the name `eval` or `Function` fails wherever it is
+  written, on any object: a use, a property, method, member, key, binding, import or export name or a label, and a string or plain template literal with that text as a key,
+  a computed name or a bracket key. **Timers:** a call to `setTimeout` or `setInterval` (written plainly, held anywhere in the callee, or as a member of an expression naming
+  `globalThis`, `window`, `self` or `global`) fails unless its first argument is absent, a function, a name or a property access; a tagged template on one fails.
+  A callee that holds a timer but is not one (`.call`, `.apply`, `.bind`, a wrapper, a conditional) fails unless every argument is a function, a number, `this`, `null`, `undefined` or a global object.
+  **Computed keys:** a non-literal (or BigInt) bracket key on an expression that names one of those four objects anywhere in it, or a destructuring (declared, a parameter,
+  `=` or `for…of`) whose pattern has such a key, a rest element or a spread and whose value or defaults name one, makes the file unscannable (`eval-computed-member`).
+  Strings, comments, regular expressions, template text, types, interfaces, `implements` clauses and `declare` variable, function, class, enum and module declarations never count;
+  a `declare` export assignment, import alias or class field is still read, because the TypeScript emitter keeps it.
+  A symlink with one of these extensions or `.html`/`.htm` (any case) is unscannable (`eval-symlink`), never followed and never exempt; a blob that is not text but has a reviewed binary disposition is `eval-not-text`.
+  Inline code in `.html` and `.htm` files is read by the same child, with linear patterns, in exact forms only; anything else in the file is unscannable (`eval-html-unreadable`, and then no finding of that file is listed):
+  every `<script` must be `<script`, an optional ` type="module"` or ` type="text/javascript"` and optional ` src="…"` in either order (the value holds none of `"<>&`), `>`, a body without `<`, and `</script>`
+  (lower case, no other attribute or space, so `data-type`, JSON data blocks and single quotes are unreadable); a non-blank body is judged as a script, at its line of the file.
+  Every `on…=` not directly after an ASCII letter or digit must be ` on[a-z]+="…"` (a space first; the value holds none of `"&`) and is judged as the body of a function, at its line;
+  after an accepted value the search resumes behind it, and accepted script bodies are not searched. The file is unreadable too when a script body or handler value holds an `on…=`
+  that does not directly follow a `.` (it could be an attribute of a tag the reader does not see; `this.onerror=null` is read), or when a handler value overlaps a script body. A file holding `<svg` (any case) is unreadable too:
+  the browser decodes character references in an SVG script body, and entities are never decoded here. `javascript:` URLs, `srcdoc`, SVG `<set>` and `<animate>`, and XHTML are not read.
+  Other causes: `eval-parse-error` (the file, or a script or handler in an HTML file, has a syntax error), `eval-too-deep` (the file nests so deep that parsing it overflows the child's stack; the other files are still judged), `eval-parse-timeout` (the child passed `evalDeadlineMs` and was killed) and `limit:maxEvalUnitBytes`
+  (for an HTML file, the size of the whole file; an HTML file lists one cause, that of its first unit that has one);
+  units go to the child in batches of at most `maxEvalBatchBytes`, its output is capped at `maxEvalOutputBytes`, and a reply that breaks the
+  protocol stops the run with `eval-parser-failed` (exit 2). The only exceptions are the exact files of `evalGeneratedFiles` (`path`, `sha256`, `reason`):
+  the same bytes at another path are another occurrence and fail, and an entry whose path the target holds only at other bytes stops the run with `stale-eval-exception`.
+  Limits of the detection: a global object or timer held in a variable; a timer string held in a variable or property; a timer passed as an argument (`Reflect.apply(setTimeout, …)`, `list.forEach(setTimeout)`); a computed key on an expression naming none of the
+  four objects (`top`, `parent` and `frames` with a computed key included); functions that read a global's properties (`Reflect`, `Object.values`); `this` and `constructor` chains.
 - **Hosts (`R-HOST`, both scopes).** Every path and every text blob is read line by line, as written and with its
   escaped delimiters `\/`, `\@` and `\:` unescaped (`https:\/\/host\/x` is read as the URL it decodes to); a backslash ends a URL host.
   An escaped dot (`\.`) is not unescaped, because it is regex syntax in the code's own host patterns. A dotted name is a host when it is the
@@ -41,6 +95,10 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   host and needs its own entry. Reserved names pass with any subdomain: the top-level names `invalid`, `test`, `example` and
   `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label), a template placeholder
   and an IP literal are not read here; the private list covers labels, and IP literals belong to the IP rule.
+  A URL host is normalised the way a URL parser resolves it before it is matched: percent escapes decoded once (`host%2eexample%2ecom` is
+  `host.example.com`), lower-cased, and a trailing dot dropped. A URL host whose escapes are not valid UTF-8, or that decodes to anything
+  but a name or a bracketed IPv6 literal (`host%252eexample`, `host%2fx`), is a finding, not a pass. The IP rule and the commit-metadata
+  checks read the decoded host too, so `http://127%2e0%2e0%2e1/` is judged as `http://127.0.0.1/`.
 - **Accounts (`R-ACCOUNT`, both scopes).** An email address passes when its domain is a reserved name or it is the SSH form
   (`git@<host>:` or `git@<host>/`) of a host in `allowedHosts`. A domain of one label (`user@<label>`) is an email too, unless a `/`
   precedes the user (`actions/checkout@v4`) or the label starts with a digit (`name@1.2.3`); a reference that ends in a word
@@ -89,12 +147,13 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   zip signature (`PK` with `01 02`, `03 04`, `05 06` or `07 08`) anywhere; and text with a tar header in any 512-byte block (its
   checksum field holds the block's sum), with or without `ustar`. Refuses any path under a `vendor` directory, in any letter case.
   It does not find an archive written in an encoding, such as base64, or one a script builds.
-- **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
-  run exits 2 (cause `unexpected-root`) without a report.
+- **Root.** Both scopes read the history behind `--commit`, which must have exactly one root commit; a second root exits 2 (cause
+  `unexpected-root`) without a report. Complete scope also requires that root to be `--expected-root`. A shallow clone is refused
+  (cause `shallow-history`), because its cut-off history would hide a second root and part of the history.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`,
-  `scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`; complete scope adds `expectedRoot`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
+  `scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`; complete scope adds `expectedRoot` and `wordingListSha256`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
   `unscannable`), `unscannable` (`location`, `cause`) and sorted `findings` (`rule`, `kind`, `location`, `line`). It holds
-  only fixed words, object ids, digests and numbers; no field is derived from the list itself. Every location is
+  only fixed words, object ids, digests and numbers; no field is derived from the private list, and the one wording-list field is a digest. Every location is
   `<commit>:<position>`, the entry's 1-based position in the commit's listing. `--private-evidence` (mode `0600`, written
   only after the report) maps each location to its exact path, or `hex:<bytes>` for a name that is not UTF-8. The two
   writes are not atomic together: a crash between them leaves a report without evidence.
@@ -151,42 +210,54 @@ All output leaves through `scripts/public-gate/redact.mjs` on a route listed in 
   before the scanner starts. Scanner fingerprints are never exception keys.
 - **Identity.** `scannerPolicySha256` is the SHA-256 of `.gitleaks.toml`; `secretExceptionsSha256` is the SHA-256 of
   `JSON.stringify({ baseline: secretBaseline, exceptions: secretExceptions })` of the config.
-- **History mode** does not run the secret scan yet: it reports `R-SECRET` as `not-run`.
+- **History mode** runs the same scan over the whole history, see History mode below.
 
 ## Checking a saved report
 
 ```
-node scripts/public-gate/check-report.mjs --report <file> --head <full-sha> --context <file>
+node scripts/public-gate/check-report.mjs --report <file> --head <full-sha> --context <file> [--repo <dir> --refs <ref>[,<ref>...]]
 ```
 
-Exit 0 only when the report is a complete passing report for exactly this head under the current review context; a saved
+Exit 0 only when the report is a complete passing report for exactly this head under the current review context (or a
+passing history report, below); a saved
 report is never trusted for what it says about itself. Exit 1 refuses a report; exit 2 means a file or an argument is
 missing, over 1 MiB, or malformed (a report is malformed unless it has the report shape above, nested fields included). Nothing is written on exit 0; otherwise stderr holds one cause and its fixed text.
 
 - **Review context.** A JSON file in our records with exactly `gateRevision` and `configSha256` (the current reviewed
   gate's identity), `scannerVersion`, `scannerPolicySha256` and `secretExceptionsSha256` (the scanner pin, the SHA-256 of
-  `.gitleaks.toml` and the SHA-256 of the baseline and exception entries, see Secret scan) and `expectedRoot` (the root
-  commit). Every expected value comes from it, from `--head` or from this gate's registered rule ids, never from the
-  report. The report's `scanner` must equal the context's six fields exactly, so a field the context does not name
+  `.gitleaks.toml` and the SHA-256 of the baseline and exception entries, see Secret scan), `expectedRoot` (the root
+  commit) and `wordingListSha256` (the SHA-256 of the wording list). Every expected value comes from it, from `--head` or from this gate's registered rule ids, never from the
+  report. The report's `scanner` must equal the context's seven fields exactly, so a field the context does not name
   refuses the report until the context names it.
-- **Causes.** `report-not-complete` (scope is not `complete`), `report-other-head` (target commit is not `--head`),
-  `report-rules-differ` (the rule ids are not exactly the registered ones), `report-policy-differs` (the scanner identity
+- **History reports.** A report of scope `history` also needs `--repo` and `--refs`, the run being checked: the refs are
+  resolved now, as history mode resolves them, and the report must name exactly those refs (full ref names, object ids, tag
+  objects and peeled commits, see History mode), so a ref moved or an annotated tag made again since the scan refuses the
+  report. The report's `heads` must be exactly the distinct, sorted commits of those refs, and `--head` one of them; every rule including `R-IDENTITY` must be `passed` (so the scan ran with
+  `--allowed-identity`), and the report's `scanner` must equal the context's seven fields, so a report made with `--pr-text` is
+  refused. A tag ref whose name differs from its tag object's is refused with exit 2 as in history mode.
+- **Causes.** `report-not-complete` (scope is neither `complete` nor `history`), `report-other-head` (target commit is not `--head`; for a
+  history report, `--head` is not among its heads), `report-refs-differ` (a history report's refs or heads are not those of the run being
+  checked), `report-rules-differ` (the rule ids are not exactly the registered ones, `R-IDENTITY` added for a history report),
+  `report-policy-differs` (the scanner identity
   differs from the context), `report-not-passing` (a finding, an unscannable entry or a rule not `passed`). The exit 2
   causes are `report-unreadable`, `report-malformed`, `context-unreadable`, `context-malformed`, `limit:maxCheckFileBytes`
-  and `bad-arguments`.
-- **Not bound yet.** The report carries no digest of the private list (nothing in it derives from the list), so a
-  corrected list is not detected by this command.
+  `bad-arguments`, and, for a history report, `bad-ref` (a `--refs` item that is neither a ref name nor a full object id)
+  and the other causes of History mode.
+- **Not bound yet.** The report carries no digest of the private list (nothing in it derives from that list), so a
+  corrected private list is not detected by this command. A report made under another wording list is refused as `report-policy-differs`.
 
 ## History mode
 
 ```
-node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --private-list <file> --expected-root <full-sha> \
-  [--allowed-identity 'Name <email>'] [--pr-text <file.json>] [--out <file>]
+node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --private-list <file> --wording-list <file> --expected-root <full-sha> \
+  --gitleaks <file> --gitleaks-sha256 <hex> [--allowed-identity 'Name <email>'] [--pr-text <file.json>] [--out <file>]
 ```
 
-Walks every commit reachable from the refs (names or full object ids, comma-separated), parents first, and reports under
-scope `history`. Each commit's tree gets the same reading and the same seven rules as in complete scope (`R-ACCOUNT`,
-`R-ARCHIVE`, `R-ENV`, `R-HOST`, `R-HOSTING`, `R-IP` and `R-PRIVATE`), so a file, address or archive that an earlier commit
+Walks every commit reachable from the refs (names or full object ids, comma-separated; any other revision expression, such
+as `main^{commit}` or an abbreviated id, exits 2 as `bad-ref`), parents first, and reports under
+scope `history`. Each commit's tree gets the same reading and the same eleven rules as in complete scope (`R-ACCOUNT`,
+`R-ARCHIVE`, `R-ENV`, `R-EVAL`, `R-HOST`, `R-HOSTING`, `R-IP`, `R-ISSUE`, `R-PRIVATE`, `R-REPORT` and `R-WORDING`), each occurrence judged by its own path,
+and once over the union of its trees the stale checks for `lockfileDispositions` and `evalGeneratedFiles`, so a file, address or archive that an earlier commit
 held and a later one removed is found. Reading, limits, exit codes and output rules are those above; `--out` never
 overwrites a file, and there is no `--private-evidence`.
 
@@ -203,16 +274,36 @@ overwrites a file, and there is no `--private-evidence`.
   object: its tag name and other headers (kind `header`), tagger line (kind `tagger`) and message (kind `message`, with the line)
   are scanned by `R-PRIVATE`, `R-ACCOUNT`, `R-HOST` and `R-IP`, and the finding's location is `<tag object>:<field>`, the
   tag object's id in the place of a commit's. `target.commits` counts commits only.
+- **Ref names.** Every selected ref's name is public content: as written in `--refs` and in full (`refs/heads/...`, `refs/tags/...`),
+  it is read by `R-PRIVATE` with the matcher used for content, and a match is a finding of kind `ref` located at `ref-<n>`, the
+  ref's 1-based place in `target.refs`. A selected `refs/tags/<name>` that names an annotated tag whose own `tag` header is not
+  `<name>` exits 2 with `tag-name-mismatch`: the name under which the tag would be published must be the one that was read.
 - **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
-  identity (kind `author` or `committer`), every tagger line of a tag object that is not exactly that identity or is missing
-  (kind `tagger`), and every time zone other than `+0000` (kind `timezone`). Without the flag the rule is `not-run`.
+  identity or an exact `publicIdentities` entry (kind `author` or `committer`), every tagger line of a tag object that is not
+  one of them or is missing (kind `tagger`), every `Co-authored-by:` or `Signed-off-by:` trailer whose `Name <email>` is not one
+  of them (kind `message`, with the line) and every time zone other than `+0000` (kind `timezone`). A trailer is read the way git
+  and a code host read it: any case, blanks before the token and before the colon, and a CR, VT, FF, NEL, U+2028 or U+2029 ends
+  its identity as a line break does, so a CRLF message keeps its trailers checked. Without the flag the rule is
+  `not-run`. A contributor's identity is added to `publicIdentities` in their first pull request.
+- **Secret scan.** `R-SECRET` runs the pinned gitleaks as in Secret scan, once over the whole history, with `--gitleaks` and
+  `--gitleaks-sha256` as in the gate. Every distinct (path, mode, blob) of every commit's tree is one occurrence, written once under a
+  neutral name `o<number>` (the blob's bytes are stored once), so a file `entry` and a later `entry/child.txt` never share a path and no
+  occurrence is dropped or overwritten. Each commit object and tag object is one more neutral file. A finding in a tree is located at the
+  first commit that holds the occurrence, by its position in that commit's listing, with the line; a finding in an object is located
+  by `<commit>:<field>` (`author`, `committer`, `tagger`, `header` or `message`, the last with its line). Exceptions and the baseline
+  apply per occurrence, by path and blob as in Secret scan. `maxHistoryOccurrences` bounds the distinct occurrences and
+  `maxTotalBlobBytes` the bytes of the distinct blobs; past either the run exits 2 naming the limit.
 - **Pull-request text.** `--pr-text` is a JSON array of objects. `R-PRIVATE` scans every string in them, keys and values, at any
   depth, and every repeat of a key (kind `pr-text`, location `pr-<n>:<m>`: the n-th object, and the m-th string in it in
   the file's order, both from 1, with the line). Keys are never printed. Anything else in the file exits 2.
 - **Report.** The same closed schema as above: fixed words, object ids, digests and positive numbers, nothing derived from
-  the list. `target` is `heads` (the object ids the refs name, sorted) and `commits` (how many were read). Each finding and
+  the list. `target` is `heads` (the object ids of the commits the refs name, sorted), `refs` and `commits` (how many were read). `refs` has one
+  `{ ref, object, commit }` for each distinct selection, sorted: the full ref name (`null` when the item was an object id,
+  and `withheld` for a name that holds a list entry), the object id the ref points to (the tag object for an annotated tag, not
+  the commit) and the commit it peels to, so two tags on one commit give two different reports. Each finding and
   each `unscannable` item also holds its `commit`, except findings of `--pr-text`. `scanner` holds `gateRevision`,
-  `configSha256` and `expectedRoot`, and adds `prTextSha256` when the file is given.
+  `configSha256`, the scanner identity of Secret scan (`scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`) and
+  `expectedRoot`, and adds `prTextSha256` when the file is given.
 
 ## Bounded downloads, subprocesses and the gitleaks installer
 
