@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { REPO_ROOT } from '../lib/gate-fixtures.mjs';
+import { commandOf, directoryOf, inventoryRoots, makeJobCheckout, readWorkflow, runSteps, stepsOf, workflows } from '../lib/workflow-fixtures.mjs';
 
-const WORKFLOW_DIRECTORY = path.join(REPO_ROOT, '.github', 'workflows');
 const GATE_WORKFLOW = 'public-gate.yml';
+const HTTP_WORKFLOW = 'http-mcp-tests.yml';
+const SHARED_INPUT_PATHS = ['scripts/ci/**', 'package.json', 'package-lock.json'];
+const HTTP_VALIDATION = 'node ../scripts/ci/sdk-input.mjs --prepare http-mcp';
+const GATE_VALIDATION = 'node scripts/ci/sdk-input.mjs --prepare root';
+const NPM_COMMAND = /\bnpm\s+(?:ci|install|i|rebuild|run|test|exec)\b[^\n]*/g;
+const SKIPPED_FOLDERS = new Set(['node_modules', '.git']);
 const GATE_JOB = 'public-gate';
 const REPORT_ARTIFACT = 'public-gate-report';
 const HEAD_COMMIT_EXPRESSION = '${{ github.event.pull_request.head.sha || github.sha }}';
@@ -13,11 +19,6 @@ const REPORT_FILE_EXPRESSION = '${{ runner.temp }}/gate-report/report.json';
 const PINNED_ACTION = /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}\s+# v\d+\.\d+\.\d+$/;
 
 const literal = (text) => text.replaceAll(/[$.{|}]/g, '\\$&');
-const readWorkflow =(file) => readFileSync(path.join(WORKFLOW_DIRECTORY, file), 'utf8');
-const workflows = () => readdirSync(WORKFLOW_DIRECTORY).filter((file) => /\.ya?ml$/.test(file)).sort().map((file) => ({ file, text: readWorkflow(file) }));
-
-/** The text of each step of a workflow, split at the six-space `- ` that opens a step in this repo's workflow files. */
-const stepsOf = (text) => text.split(/^ {6}- /m).slice(1);
 
 const stepIndex = (steps, marker) => {
   const found = steps.map((step, index) => (step.includes(marker) ? index : -1)).filter((index) => index >= 0);
@@ -81,4 +82,94 @@ test('the gate job is named public-gate, runs on every pull request and push wit
     assert.doesNotMatch(step.replaceAll(/\$\{\{.*?\}\}/g, ''), /\|\||set \+e|;\s*true\b|\bexit 0\b/, 'a run line must not swallow a failure');
   }
   assert.doesNotMatch(upload, /continue-on-error/);
+});
+
+const indicesOf = (steps, matches) => steps.flatMap((step, index) => (matches(commandOf(step) ?? '') ? [index] : []));
+const pathFilter = (text, event) => [...(new RegExp(`^ {2}${event}:\\n((?: {4}.*\\n)+)`, 'm').exec(text)?.[1] ?? '').matchAll(/^ {6}- '(.+)'$/gm)].map((match) => match[1]);
+
+test('the http-mcp job runs sdk-input before both installs, http-mcp and wallet-build, and the public-gate job runs it before the root install; while the input is unavailable the http-mcp job reports unverifiable, not a test failure; both http-mcp push and pull-request filters contain scripts/ci/**, package.json and package-lock.json', async (t) => {
+  const http = readWorkflow(HTTP_WORKFLOW);
+  const httpSteps = stepsOf(http);
+  const validations = indicesOf(httpSteps, (command) => command === HTTP_VALIDATION);
+  const installs = indicesOf(httpSteps, (command) => command.startsWith('npm ci '));
+
+  await t.test('http-mcp validates before the http-mcp install and again before the wallet-build install', () => {
+    assert.equal(validations.length, 2);
+    assert.equal(installs.length, 2);
+    assert.deepEqual(installs.map((index) => directoryOf(http, httpSteps[index])), ['http-mcp', 'http-mcp/wallet-build']);
+    assert.deepEqual(validations.map((index) => directoryOf(http, httpSteps[index])), ['http-mcp', 'http-mcp']);
+    assert.ok(validations[0] < installs[0] && installs[0] < validations[1] && validations[1] < installs[1], 'each install follows its own validation');
+  });
+
+  await t.test('public-gate validates the root input after setting up Node and before the root install', () => {
+    const gate = stepsOf(readWorkflow(GATE_WORKFLOW));
+    const [validation, ...extra] = indicesOf(gate, (command) => command === GATE_VALIDATION);
+    assert.equal(extra.length, 0);
+    assert.ok(stepIndex(gate, 'actions/setup-node@') < validation && validation < stepIndex(gate, 'run: npm ci'));
+  });
+
+  await t.test('an unavailable input stops the http-mcp job at the validation step with its own exit status and cause, before any install or test', () => {
+    const [firstValidation] = validations;
+    const guarded = httpSteps.slice(firstValidation, validations[1] + 1);
+    for (const step of guarded) assert.doesNotMatch(step, /^\s*(?:if|continue-on-error):|\|\||set \+e/m, 'the validation is neither skipped nor tolerated');
+    assert.ok(indicesOf(httpSteps, (command) => command.includes('npm run test:ci')).every((index) => index > validations[1]));
+    const checkout = makeJobCheckout(({ editJson }) => editJson('http-mcp', 'package.json', (manifest) => { manifest.dependencies = { ...manifest.dependencies, '@kynesyslabs/demosdk': '^4.0.16' }; }));
+    const { runs, npmCalls } = runSteps(checkout, http, httpSteps.slice(firstValidation));
+    assert.equal(runs.length, 1, 'nothing runs after the validation');
+    assert.equal(runs[0].status, 2, 'unverifiable is exit 2, apart from refused (1) and a failed test');
+    assert.match(runs[0].stderr, /^sdk-input-unavailable: /);
+    assert.equal(npmCalls, '');
+  });
+
+  await t.test('both the pull-request and push filters hold the plugin folder, the workflow and the shared validation inputs', () => {
+    for (const event of ['pull_request', 'push']) {
+      const filter = pathFilter(http, event);
+      assert.deepEqual([...filter].sort(), ['.github/workflows/http-mcp-tests.yml', 'http-mcp/**', ...SHARED_INPUT_PATHS].sort(), event);
+    }
+  });
+});
+
+const npmDirectories = (text) => stepsOf(text).flatMap((step) => [...step.replaceAll(/^\s*#.*$/gm, '').matchAll(NPM_COMMAND)]
+  .map(([line]) => path.posix.normalize(/--prefix[ =](\S+)/.exec(line)?.[1] ?? directoryOf(text, step)).replace(/(?<=.)\/$/, '')));
+
+const manifestLockPairs = (relative = '.') => {
+  const entries = readdirSync(path.join(REPO_ROOT, relative), { withFileTypes: true });
+  const names = new Set(entries.map((entry) => entry.name));
+  const here = names.has('package.json') && (names.has('package-lock.json') || names.has('npm-shrinkwrap.json')) ? [relative] : [];
+  return [...here, ...entries.filter((entry) => entry.isDirectory() && !SKIPPED_FOLDERS.has(entry.name)).flatMap((entry) => manifestLockPairs(path.posix.join(relative, entry.name)))];
+};
+
+const unlistedRoots = (directories, roots) => [...new Set(directories)].filter((directory) => !roots.includes(directory));
+const unlistedPairs = (pairs, roots) => pairs.filter((directory) => !roots.includes(directory) && !directory.split('/').includes('fixtures'));
+
+const UNLISTED_JOB = [
+  'jobs:', '  build:', '    defaults:', '      run:', '        working-directory: tools/extra', '    steps:',
+  '      - run: npm ci', '      # npm run commented-out in packages/ignored', '      - run: npm run build --prefix packages/other', '',
+].join('\n');
+
+test('dependency roots: every directory any workflow job installs, builds or tests in is an inventoried root, and every committed manifest-and-lock pair is an inventoried root or fixture; a job installing in an unlisted root, or an unlisted pair, fails', async (t) => {
+  const roots = inventoryRoots();
+
+  await t.test('every directory the committed workflows run npm in is an inventoried root', () => {
+    for (const { file, text } of workflows()) {
+      const directories = npmDirectories(text);
+      assert.ok(directories.length > 0, `${file} runs npm somewhere`);
+      assert.deepEqual(unlistedRoots(directories, roots), [], file);
+    }
+  });
+
+  await t.test('every committed manifest-and-lock pair is an inventoried root or a fixture', () => {
+    const pairs = manifestLockPairs();
+    assert.ok(existsSync(path.join(REPO_ROOT, 'package-lock.json')) && pairs.includes('.'), 'the walk finds the root pair');
+    assert.deepEqual(unlistedPairs(pairs, roots), []);
+  });
+
+  await t.test('a job installing in an unlisted root fails, whether by working-directory or --prefix', () => {
+    assert.deepEqual(npmDirectories(UNLISTED_JOB), ['tools/extra', 'packages/other']);
+    assert.deepEqual(unlistedRoots(npmDirectories(UNLISTED_JOB), roots), ['tools/extra', 'packages/other']);
+  });
+
+  await t.test('an unlisted pair fails and a pair under a fixtures folder does not', () => {
+    assert.deepEqual(unlistedPairs(['http-mcp', 'packages/extra', 'test/fixtures/sample'], roots), ['packages/extra']);
+  });
 });
