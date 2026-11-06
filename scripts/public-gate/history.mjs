@@ -188,7 +188,7 @@ function buildHistoryReport({ heads, refs, commits, scanner, rules, unscannable,
     },
     scanner: {
       gateRevision: checked(scanner.gateRevision, SHA256_HEX), configSha256: checked(scanner.configSha256, SHA256_HEX), scannerVersion: checked(scanner.scannerVersion, SEMVER),
-      scannerPolicySha256: checked(scanner.scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(scanner.secretExceptionsSha256, SHA256_HEX),
+      scannerSha256: checked(scanner.scannerSha256, SHA256_HEX), scannerPolicySha256: checked(scanner.scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(scanner.secretExceptionsSha256, SHA256_HEX),
       expectedRoot: checked(scanner.expectedRoot, FULL_OBJECT_ID), wordingListSha256: checked(scanner.wordingListSha256, SHA256_HEX),
       ...(scanner.prTextSha256 === undefined ? {} : { prTextSha256: checked(scanner.prTextSha256, SHA256_HEX) }),
     },
@@ -290,7 +290,7 @@ async function runHistory(argv, signal) {
     { id: IDENTITY_RULE_ID, status: !options.identity ? 'not-run' : found(IDENTITY_RULE_ID) ? 'findings' : 'passed' },
     ...REGISTERED_RULE_IDS.map((id) => ({ id, status: scannedStatus(id) })),
   ].sort((first, second) => compareText(first.id, second.id));
-  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config), expectedRoot: options.expectedRoot, wordingListSha256: wordingList.sha256, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
+  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config, options.scanner), expectedRoot: options.expectedRoot, wordingListSha256: wordingList.sha256, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
   const reportedRefs = selectedRefs.map((record, index) => (listedRefs.has(index + 1) ? { ...record, ref: WITHHELD_REF } : record));
   const report = buildHistoryReport({ heads, refs: reportedRefs, commits: commits.length, scanner, rules, unscannable, findings });
   await publish({ report }, { out: options.out });

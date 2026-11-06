@@ -3,7 +3,9 @@
 **State of this repository.** The workflow described below, `deploy/` (including
 `deploy/test/`) and the frozen seller reference are not carried here, and many
 test files cannot load (see `PROVENANCE.md`, "Not carried"). `npm run test:ci`
-stops at once with an `ENOENT` for `deploy/test` and runs no test file. The
+runs every file under `test/`, browser files included; a file that cannot load
+because a module it imports is not carried fails, unless the baseline holds a
+`[carry-over]` entry for it (see "Carry-over entries" below). The
 description below is of the source repository's CI; the counts of baseline
 entries and runs it once gave are removed because they do not hold here.
 
@@ -33,10 +35,12 @@ unchanged. These `v4` actions target Node 20, which GitHub has deprecated: it
 runs them on Node 24 instead and warns. Moving to the next majors waits for a
 change whose new SHAs can be checked against the actions' repositories.
 
-`npm run test:ci` discovers non-browser `*.test.mjs` files under `test/` and
-`deploy/test/`, excluding `*.browser.test.mjs` and `browser/`, `fixtures/` and
-`helpers/` directories, and `test/dacs-loopback-fixture.test.mjs`, a shared
-fixture module that registers no tests. Each file runs sequentially in a separate
+`npm run test:ci` discovers `*.test.mjs` files under `test/`, the only root,
+excluding `fixtures/` and `helpers/` directories and
+`test/dacs-loopback-fixture.test.mjs`, a shared fixture module that registers
+no tests. It passes `--browser`, which adds `*.browser.test.mjs` files and
+`browser/` directories; without that flag the runner leaves them out. A run
+whose `test/` is missing fails at once. Each file runs sequentially in a separate
 Node process, with `NODE_ENV=test`, and a 600-second deadline. A deadline kills the
 entire process group; so does interrupting the run (Ctrl-C or `SIGTERM`), which
 also removes the run's own `TMPDIR`. Files are
@@ -204,16 +208,29 @@ In the source repository the baseline came from a full no-baseline run of every
 discovered file, checked against a GitHub run, and a full run had to match every
 entry with none stale. That is not the case in this repository (see "State of
 this repository" above). Count the discovered files with the runner's discovery
-rules; in this repository the expanded test inventory now brings discovery to 254 files: 254 under `test/`
-and 0 under `deploy/test/`, which is not carried:
+rules; in this repository discovery finds 281 files under `test/`, browser files included
+(254 without `--browser`):
 
 ```sh
-node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test').length + discover('.', 'deploy/test').length)"
+node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test', true).length)"
 ```
 
-Because `deploy/test/` is missing, this command and `npm run test:ci` stop at
-once with `ENOENT: no such file or directory, scandir 'deploy/test'`, and no
-test file is run.
+### Carry-over entries
+
+A file that cannot load because a module it imports is not carried ends with
+Node's fatal-error diagnostic and no test. The runner reports it as one
+`[carry-over]` failure naming the missing module, instead of `[process failure]`
+and `[incomplete results]`, only when all of this holds: the file did not time
+out or end on a signal, no test in it started, it has no other failure, and the
+reporter found exactly one missing module, with nothing else on the file's
+stderr, whose path inside `http-mcp/` equals the `expect` of the file's entry. Such an entry has `"test": "[carry-over]"` and
+`"class": "carry-over"`, and its `expect` is that path (for example
+`src/missing.mjs`), not a message. Nothing else is excused: another missing
+module, an `ENOENT` from reading a file while the module is evaluated, an
+assertion failure, a timeout, a second fatal error or any other line the file
+wrote to stderr all stay failures. When
+the file loads again its entry fails the run as a known failure that now
+passes, and is removed. The baseline holds no such entry yet.
 
 `test/known-failures.json` holds one entry: the seller-disposition payment-path
 case, recorded in the source repository as observing 7 CREATEs instead of 5.

@@ -30,7 +30,8 @@ This package does not install or start here, and about half of its tests fail.
   root, "Not carried"), so the server stops at startup with a module-not-found
   error. That code is planned to come from the published SDK instead.
 - The test files that import those modules fail when they load. `npm run
-  test:ci` stops at once, because `deploy/test/` is not carried.
+  test:ci` runs every file under `test/` and reports those as failures
+  (`docs/CI.md`, "Carry-over entries").
 - The "Local startup" and "Tests" steps below, and `docs/TESTING.md` and
   `docs/CI.md`, describe the source tree this package was imported from. They
   cannot be followed here until the switch to the published SDK is done.

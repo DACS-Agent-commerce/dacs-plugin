@@ -168,11 +168,12 @@ export function gateArgs(repo, scope, extra = []) {
   return ['--repo', repo.dir, '--commit', repo.commit, '--scope', scope, ...(extra.includes('--gitleaks') ? [] : cleanScannerArgs()), ...extra];
 }
 
-/** The scanner identity fields a report carries, computed from the shipped config and policy file. */
-export function expectedScanIdentity() {
+/** The scanner identity fields a report carries, computed from the shipped config and policy file; `scannerSha256` is the executable's (default: the clean stub's). */
+export function expectedScanIdentity(scannerSha256 = cleanScannerArgs()[3]) {
   const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
   return {
     scannerVersion: config.scanner.version,
+    scannerSha256,
     scannerPolicySha256: sha256(readFileSync(path.join(REPO_ROOT, '.gitleaks.toml'))),
     secretExceptionsSha256: sha256(JSON.stringify({ baseline: config.secretBaseline, exceptions: config.secretExceptions })),
   };

@@ -1,6 +1,6 @@
 # Offline test replay (source checkout)
 
-**State of this repository.** These steps describe the source tree this package was imported from. Here `npm ci` stops because the vendored SDK archive is not carried, `deploy/` (including the `deploy/test` and `deploy/scripts` commands below) is not carried, and about half of the test files fail when they load the modules that are not carried. See `PROVENANCE.md` at the repository root, "Not carried".
+**State of this repository.** These steps describe the source tree this package was imported from. Here `npm ci` stops because the vendored SDK archive is not carried, `deploy/` is not carried, and about half of the test files fail when they load the modules that are not carried. See `PROVENANCE.md` at the repository root, "Not carried".
 
 These instructions are for a **source checkout** of the plugin. The installed package does not include the `test/` or `deploy/` directories, so none of these commands can run from an installed tarball.
 
@@ -24,15 +24,11 @@ Run the suites with `TMPDIR` set to a fresh, short directory you own, for exampl
 
 ```sh
 npm test
-node --disable-warning=ExperimentalWarning --test --test-concurrency=1 deploy/test/*.test.mjs
 npm run check:package
-node deploy/scripts/validate-package.mjs --package-root .
 DACS_TEST_CHROME=/path/to/chrome npm run test:browser
-DACS_TEST_CHROME=/path/to/chrome DACS_PLUGIN_TEST_PACKAGE_ROOT="$PWD" \
-  node --disable-warning=ExperimentalWarning --test --test-concurrency=1 deploy/test/mcp-apps.browser.test.mjs
 ```
 
-The deploy glob above includes `mcp-apps.browser.test.mjs`. Without the browser variables it reports BLOCKED skips, so run it separately as shown.
+`npm run test:ci` runs the same files, browser files included, one process each ([CI.md](CI.md)). Without the browser variables the browser files report BLOCKED skips.
 
 `test/catalog-observed-at.test.mjs` checks directory observation freshness through projection and the SDK reader. Directory `catalogObservedAt` accepts non-negative safe-integer epoch milliseconds and legacy parseable date strings of at most 64 characters (including ISO-8601), normalized to numeric epoch milliseconds in projected summaries. Future observations and observations older than 24 hours fail freshness; malformed or missing values stay missing and fail closed as stale.
 
@@ -61,7 +57,6 @@ DACS_TEST_CHROME=/path/to/chrome node scripts/check-offline-tester-package.mjs [
 ## Fixture cleanup
 
 - **Harness data dirs:** `startHarness()` removes the data dir it created (SQLite files included) on `close()`. `restart()` keeps it, so durable state survives until that final close. A caller-supplied `DACS_DATA_DIR` is left to the caller.
-- **Deploy-test temp dirs:** `tempDir()` in `deploy/test/helpers.mjs` records the exact dirs it creates. A root-level `after` hook removes them.
 - **Failures are loud:** any removal failure fails the test file; nothing is swallowed.
 - **What may remain:** after a run, TMPDIR can still hold Node's `node-compile-cache` and Chromium's own `.config`/`.pki`. Neither is a test fixture.
 

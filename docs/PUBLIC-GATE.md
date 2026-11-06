@@ -68,7 +68,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   A callee that holds a timer but is not one (`.call`, `.apply`, `.bind`, a wrapper, a conditional) fails unless every argument is a function, a number, `this`, `null`, `undefined` or a global object.
   **Computed keys:** a non-literal (or BigInt) bracket key on an expression that names one of those four objects anywhere in it, or a destructuring (declared, a parameter,
   `=` or `for…of`) whose pattern has such a key, a rest element or a spread and whose value or defaults name one, makes the file unscannable (`eval-computed-member`).
-  Strings, comments, regular expressions, template text, types, interfaces, `implements` clauses and `declare` variable, function, class, enum and module declarations never count;
+  Strings, comments, regular expressions, template text, types, interfaces, `implements` clauses, type-only imports and exports and `declare` variable, function, class, enum and module declarations never count;
   a `declare` export assignment, import alias or class field is still read, because the TypeScript emitter keeps it.
   A symlink with one of these extensions or `.html`/`.htm` (any case) is unscannable (`eval-symlink`), never followed and never exempt; a blob that is not text but has a reviewed binary disposition is `eval-not-text`.
   Inline code in `.html` and `.htm` files is read by the same child, with linear patterns, in exact forms only; anything else in the file is unscannable (`eval-html-unreadable`, and then no finding of that file is listed):
@@ -151,7 +151,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `unexpected-root`) without a report. Complete scope also requires that root to be `--expected-root`. A shallow clone is refused
   (cause `shallow-history`), because its cut-off history would hide a second root and part of the history.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`,
-  `scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`; complete scope adds `expectedRoot` and `wordingListSha256`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
+  `scannerVersion`, `scannerSha256`, `scannerPolicySha256`, `secretExceptionsSha256`; complete scope adds `expectedRoot` and `wordingListSha256`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
   `unscannable`), `unscannable` (`location`, `cause`) and sorted `findings` (`rule`, `kind`, `location`, `line`). It holds
   only fixed words, object ids, digests and numbers; no field is derived from the private list, and the one wording-list field is a digest. Every location is
   `<commit>:<position>`, the entry's 1-based position in the commit's listing. `--private-evidence` (mode `0600`, written
@@ -174,7 +174,7 @@ All output leaves through `scripts/public-gate/redact.mjs` on a route listed in 
 - **The binary.** `--gitleaks` names it and `--gitleaks-sha256` the SHA-256 of its bytes, which the install step records
   after `install-gitleaks.mjs` (the pin holds only the archive's SHA-256). The gate copies the binary into a private
   folder, checks the copy's SHA-256 and that it reports the pinned version, and runs only that copy, so a replacement after the
-  check changes nothing. A missing file, another checksum or another version fails before anything is written
+  check changes nothing. The report's `scannerSha256` is that checked digest, so a saved report names the executable that scanned. A missing file, another checksum or another version fails before anything is written
   (`scanner-missing`, `scanner-checksum-mismatch`, `scanner-version-mismatch`; exit 2).
 - **Input.** The gate first lists, in memory, one neutral name for each entry whose bytes it read: `o<position>` (the
   entry's position in the listing), plus one suffix when its path matches one of the default rules that also test the
@@ -224,16 +224,19 @@ report is never trusted for what it says about itself. Exit 1 refuses a report; 
 missing, over 1 MiB, or malformed (a report is malformed unless it has the report shape above, nested fields included). Nothing is written on exit 0; otherwise stderr holds one cause and its fixed text.
 
 - **Review context.** A JSON file in our records with exactly `gateRevision` and `configSha256` (the current reviewed
-  gate's identity), `scannerVersion`, `scannerPolicySha256` and `secretExceptionsSha256` (the scanner pin, the SHA-256 of
-  `.gitleaks.toml` and the SHA-256 of the baseline and exception entries, see Secret scan), `expectedRoot` (the root
-  commit) and `wordingListSha256` (the SHA-256 of the wording list). Every expected value comes from it, from `--head` or from this gate's registered rule ids, never from the
-  report. The report's `scanner` must equal the context's seven fields exactly, so a field the context does not name
-  refuses the report until the context names it.
+  gate's identity), `scannerVersion`, `scannerSha256`, `scannerPolicySha256` and `secretExceptionsSha256` (the scanner pin, the
+  SHA-256 of the pinned gitleaks executable, the SHA-256 of `.gitleaks.toml` and the SHA-256 of the baseline and exception
+  entries, see Secret scan), `expectedRoot` (the root commit) and `wordingListSha256` (the SHA-256 of the wording list). Every
+  expected value comes from it, from `--head` or from this gate's registered rule ids, never from the
+  report. The report's `scanner` must equal the context's eight fields exactly, so a field the context does not name
+  refuses the report until the context names it. `scannerSha256` must be recorded from a source other than the checked
+  change (the install step and `GITLEAKS_PIN` ship with the change and are not part of `gateRevision`), so a report made by
+  a different executable that reports the same version is refused.
 - **History reports.** A report of scope `history` also needs `--repo` and `--refs`, the run being checked: the refs are
   resolved now, as history mode resolves them, and the report must name exactly those refs (full ref names, object ids, tag
   objects and peeled commits, see History mode), so a ref moved or an annotated tag made again since the scan refuses the
   report. The report's `heads` must be exactly the distinct, sorted commits of those refs, and `--head` one of them; every rule including `R-IDENTITY` must be `passed` (so the scan ran with
-  `--allowed-identity`), and the report's `scanner` must equal the context's seven fields, so a report made with `--pr-text` is
+  `--allowed-identity`), and the report's `scanner` must equal the context's eight fields, so a report made with `--pr-text` is
   refused. A tag ref whose name differs from its tag object's is refused with exit 2 as in history mode.
 - **Causes.** `report-not-complete` (scope is neither `complete` nor `history`), `report-other-head` (target commit is not `--head`; for a
   history report, `--head` is not among its heads), `report-refs-differ` (a history report's refs or heads are not those of the run being
@@ -302,7 +305,7 @@ overwrites a file, and there is no `--private-evidence`.
   and `withheld` for a name that holds a list entry), the object id the ref points to (the tag object for an annotated tag, not
   the commit) and the commit it peels to, so two tags on one commit give two different reports. Each finding and
   each `unscannable` item also holds its `commit`, except findings of `--pr-text`. `scanner` holds `gateRevision`,
-  `configSha256`, the scanner identity of Secret scan (`scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`) and
+  `configSha256`, the scanner identity of Secret scan (`scannerVersion`, `scannerSha256`, `scannerPolicySha256`, `secretExceptionsSha256`) and
   `expectedRoot`, and adds `prTextSha256` when the file is given.
 
 ## Bounded downloads, subprocesses and the gitleaks installer

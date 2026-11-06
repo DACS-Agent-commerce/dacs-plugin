@@ -95,9 +95,14 @@ test('TESTING and the docs required by retained tests are kept', () => {
 
 // Helpers and fixtures that no retained file names; each is reached by a computed directory, a spawned path or a fixed historical name.
 const COMPUTED_REACH_KEEPS = [
+  'http-mcp/test/fixtures/ci-runner/absent-after-output.mjs',
+  'http-mcp/test/fixtures/ci-runner/absent-helper-support.mjs', 'http-mcp/test/fixtures/ci-runner/absent-helper.mjs',
+  'http-mcp/test/fixtures/ci-runner/absent-read.mjs', 'http-mcp/test/fixtures/ci-runner/absent-static.mjs',
+  'http-mcp/test/fixtures/ci-runner/absent-then-fatal.mjs',
   'http-mcp/test/fixtures/ci-runner/collide.mjs', 'http-mcp/test/fixtures/ci-runner/crash.mjs',
   'http-mcp/test/fixtures/ci-runner/disposition.mjs', 'http-mcp/test/fixtures/ci-runner/empty-reason.mjs',
-  'http-mcp/test/fixtures/ci-runner/exit-code.mjs', 'http-mcp/test/fixtures/ci-runner/late.mjs',
+  'http-mcp/test/fixtures/ci-runner/exit-code.mjs', 'http-mcp/test/fixtures/ci-runner/feed-reporter.mjs',
+  'http-mcp/test/fixtures/ci-runner/late.mjs',
   'http-mcp/test/fixtures/ci-runner/linger.mjs', 'http-mcp/test/fixtures/ci-runner/mixed.mjs',
   'http-mcp/test/fixtures/ci-runner/root-hook.mjs', 'http-mcp/test/fixtures/ci-runner/suites.mjs',
   'http-mcp/test/fixtures/ci-runner/timeout.mjs', 'http-mcp/test/fixtures/ci-runner/tmpdir.mjs',
