@@ -86,7 +86,7 @@ jobs:
             echo "- expect: $(dpkg-query -W -f='${Version}' expect)"
           } > test-results.runner.txt
           { echo "## Runner"; echo; cat test-results.runner.txt; } >> "$GITHUB_STEP_SUMMARY"
-      # Root bypasses the file permissions that the suite checks. Keep setup
+      # Root ignores the file permissions that the suite checks. Keep setup
       # privileged, then give the checkout and npm HOME to the image's pwuser.
       - name: Prepare the test user
         run: |
