@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { DIAGNOSTIC_ROUTES } from '../../scripts/public-gate/redact.mjs';
@@ -47,11 +47,36 @@ function gitFailingWith(stderr) {
 }
 
 const INSTALLER = path.join(REPO_ROOT, 'scripts', 'ci', 'install-gitleaks.mjs');
+const SDK_INPUT = path.join(REPO_ROOT, 'scripts', 'ci', 'sdk-input.mjs');
 const EVAL_CHILD = path.join(REPO_ROOT, 'scripts', 'public-gate', 'rules-eval-child.mjs');
 const REGISTERED_CAUSE_SOURCES = ['scripts/lib/fetch-bounded.mjs', 'scripts/lib/run-bounded.mjs', 'scripts/ci/install-gitleaks.mjs'];
 const HELPER_CAUSE = /'((?:download|subprocess|install)-[a-z-]+|unsupported-platform)'/g;
 
+/** A checkout whose stdio manifest names the private value in an SDK spec, a refused local path. */
+function sdkInputCheckout() {
+  const dir = makeTempDir('sdk-input-leak');
+  for (const root of ['.', 'http-mcp', 'http-mcp/wallet-build', 'stdio-mcp']) {
+    mkdirSync(path.join(dir, root), { recursive: true });
+    const dependencies = root === 'stdio-mcp' ? { '@kynesyslabs/demosdk': `file:../${PRIVATE_VALUE}` } : {};
+    writeFileSync(path.join(dir, root, 'package.json'), JSON.stringify({ dependencies }));
+    writeFileSync(path.join(dir, root, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages: { '': { dependencies } } }));
+  }
+  return dir;
+}
+
 const scenarios = {
+  'sdk-input.stdout': () => {
+    const result = spawnSync(process.execPath, [SDK_INPUT, '--repo', sdkInputCheckout(), '--prepare', 'stdio'], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stdout).roots.find(({ root }) => root === 'stdio-mcp').cause, 'local-path-spec');
+    leaksNothing(result.stdout, result.stderr);
+  },
+  'sdk-input.stderr': () => {
+    const result = spawnSync(process.execPath, [SDK_INPUT, '--prepare', PRIVATE_VALUE], { encoding: 'utf8' });
+    assert.equal(result.status, 2);
+    assert.equal(result.stderr, 'invalid-choice: a choice is not one of its allowed values\n');
+    leaksNothing(result.stdout, result.stderr);
+  },
   'gate.stdout': () => {
     const repo = leakRepo();
     const result = runGate(completeArgs(repo, writeList([PRIVATE_VALUE])));
