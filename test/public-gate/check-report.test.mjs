@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { gateRevision } from '../../scripts/public-gate/gate.mjs';
 import {
-  CONFIG_FILE, completeArgs, createRepo, expectedScanIdentity, expectedWordingListSha256, gateArgs, makeTempDir, runCheckReport, runGate, sha256, writeList,
+  CONFIG_FILE, completeArgs, createRepo, expectedScanIdentity, gateArgs, makeTempDir, runCheckReport, runGate, sha256, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const PLANTED = ['quartz', 'lantern'].join('-');
@@ -23,7 +23,7 @@ function completeCase() {
   const repo = createRepo([{ path: 'a.txt', content: 'clean\n' }]);
   const run = runGate(completeArgs(repo, writeList([PLANTED])));
   assert.equal(run.status, 0, run.stderr);
-  const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), ...expectedScanIdentity(), expectedRoot: repo.commit, wordingListSha256: expectedWordingListSha256() };
+  const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), ...expectedScanIdentity(), expectedRoot: repo.commit };
   return { repo, report: JSON.parse(run.stdout), context };
 }
 
@@ -66,7 +66,7 @@ test('check-report refuses a generic report, a report for another head, a comple
   });
 
   await t.test('refuses a complete report made under another gate revision, configuration, scanner policy, exception entries, scanner version or expected root than the context\'s', () => {
-    for (const field of ['gateRevision', 'configSha256', 'scannerPolicySha256', 'secretExceptionsSha256', 'wordingListSha256']) {
+    for (const field of ['gateRevision', 'configSha256', 'scannerPolicySha256', 'secretExceptionsSha256']) {
       refused(check({ report, head, context: { ...context, [field]: OTHER_DIGEST } }), 1, 'report-policy-differs');
       refused(check({ report: { ...report, scanner: { ...report.scanner, [field]: OTHER_DIGEST } }, head, context }), 1, 'report-policy-differs');
     }

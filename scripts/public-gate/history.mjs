@@ -8,14 +8,14 @@ import { describeSelectedRefs, FULL_OBJECT_ID, GateInputError, readCommitObjects
 import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps } from './rules-address.mjs';
 import { createEvalScanner } from './rules-eval.mjs';
-import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, readWordingList, scanPrivate } from './rules-private.mjs';
-import { createWordingMatcher, requireNoStaleLockfileDisposition, scanWording, WORDING_RULE_ID, wordingEntryLines } from './rules-text.mjs';
+import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
+import { requireNoStaleLockfileDisposition } from './rules-text.mjs';
 import { SEMVER, scanSecrets, secretScanIdentity } from './secret-scan.mjs';
 
 /** Id of the identity rule in reports: every author, committer, tagger and trailer identity is an exact `publicIdentities` entry or the allowed identity, in UTC. */
 export const IDENTITY_RULE_ID = 'R-IDENTITY';
 
-const FLAGS = ['--repo', '--refs', '--private-list', '--wording-list', '--expected-root', '--allowed-identity', '--pr-text', '--out', '--gitleaks', '--gitleaks-sha256'];
+const FLAGS = ['--repo', '--refs', '--private-list', '--expected-root', '--allowed-identity', '--pr-text', '--out', '--gitleaks', '--gitleaks-sha256'];
 /**
  * A trailer that names a person: `Co-authored-by: Name <email>` or `Signed-off-by: Name <email>`, with blanks before the token and
  * before the colon as git and the code host read it; group 1 is the identity as written. It is matched against one piece of a line.
@@ -28,8 +28,8 @@ const PERSON_LINE = /^(author|committer|tagger) (.*) <([^>]*)> \d+ ([+-]\d{4})$/
 const COMMIT_PEOPLE = ['author', 'committer'];
 const TAG_PEOPLE = ['tagger'];
 const RULE_IDS = [IDENTITY_RULE_ID, ...REGISTERED_RULE_IDS];
-/** What reads each commit's tree: every rule of complete scope, the private-list and wording scans included. */
-const TREE_SCANS = [...TREE_RULES.map((rule) => rule.run), scanPrivate, scanWording];
+/** What reads each commit's tree: every rule of complete scope, the private-list scan included. */
+const TREE_SCANS = [...TREE_RULES.map((rule) => rule.run), scanPrivate];
 const KINDS = ['path', 'content', 'author', 'committer', 'tagger', 'header', 'message', 'timezone', 'pr-text', 'ref'];
 /** What a report's ref name may be: `HEAD`, `refs/...` (git refuses control characters in a name) or WITHHELD_REF, the stand-in for a name that holds a list entry. */
 const REF_NAME = /^(?:HEAD|withheld|refs\/\S{1,4000})$/;
@@ -112,23 +112,20 @@ function isUnapprovedTrailer(line, identities) {
 }
 
 /**
- * Findings in one raw commit or tag object: private and wording list entries and what the address rules (email, host, IP) refuse in its message and headers, and
+ * Findings in one raw commit or tag object: list entries and what the address rules (email, host, IP) refuse in its message and headers, and
  * (with `identities`, the set of exact `Name <email>` strings that pass) other identities, trailer identities or time zones. `people` are
  * the header kinds that name a person: with identities each must be there, and a line of any other kind is an ordinary header.
  */
-function metadataFindings({ sha, raw }, { matcher, wordingMatcher, identities, config, limits }, people) {
+function metadataFindings({ sha, raw }, { matcher, identities, config, limits }, people) {
   const split = raw.indexOf('\n\n');
   const headers = (split < 0 ? raw : raw.subarray(0, split)).toString('utf8').split('\n');
   const findings = [];
   const add = (rule, kind, field, line) => findings.push({ rule, kind, commit: sha, field, ...(line ? { line } : {}) });
   const seen = new Set();
-  const fields = [];
   for (const header of headers) {
     const matched = PERSON_LINE.exec(header);
     const person = matched && people.includes(matched[1]) ? matched : null;
     const kind = person ? person[1] : 'header';
-    if (header.startsWith(' ') && fields.length > 0) fields.at(-1).text += `\n${header}`;
-    else fields.push({ text: header, kind });
     if (matcher.hasEntry(header)) add(PRIVATE_RULE_ID, kind, kind);
     for (const { rule, refusedIn } of METADATA_ADDRESS_RULES) if (refusedIn(header, config).length > 0) add(rule, kind, kind);
     if (!person || !identities) continue;
@@ -137,10 +134,8 @@ function metadataFindings({ sha, raw }, { matcher, wordingMatcher, identities, c
     if (person[4] !== '+0000') add(IDENTITY_RULE_ID, 'timezone', kind);
   }
   if (identities) for (const kind of people) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, kind);
-  for (const { text, kind } of fields) if (wordingEntryLines(text, wordingMatcher, 1).length > 0) add(WORDING_RULE_ID, kind, kind);
   const message = split < 0 ? '' : raw.subarray(split + 2).toString('utf8');
   for (const line of matcher.entryLines(message, limits.maxReportEntries + 1)) add(PRIVATE_RULE_ID, 'message', 'message', line);
-  for (const line of wordingEntryLines(message, wordingMatcher, limits.maxReportEntries + 1)) add(WORDING_RULE_ID, 'message', 'message', line);
   for (const { rule, refusedIn } of METADATA_ADDRESS_RULES) {
     for (const line of linesWhere(message, (text) => refusedIn(text, config).length > 0, limits.maxReportEntries + 1)) add(rule, 'message', 'message', line);
   }
@@ -189,7 +184,7 @@ function buildHistoryReport({ heads, refs, commits, scanner, rules, unscannable,
     scanner: {
       gateRevision: checked(scanner.gateRevision, SHA256_HEX), configSha256: checked(scanner.configSha256, SHA256_HEX), scannerVersion: checked(scanner.scannerVersion, SEMVER),
       scannerPolicySha256: checked(scanner.scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(scanner.secretExceptionsSha256, SHA256_HEX),
-      expectedRoot: checked(scanner.expectedRoot, FULL_OBJECT_ID), wordingListSha256: checked(scanner.wordingListSha256, SHA256_HEX),
+      expectedRoot: checked(scanner.expectedRoot, FULL_OBJECT_ID),
       ...(scanner.prTextSha256 === undefined ? {} : { prTextSha256: checked(scanner.prTextSha256, SHA256_HEX) }),
     },
     rules: rules.map(({ id, status }) => ({ id: checked(id, RULE_IDS), status: checked(status, STATUSES) })),
@@ -209,7 +204,7 @@ function readOptions(argv) {
   const flags = parseFlags(argv, FLAGS);
   const refs = requireValue(flags, '--refs').split(',');
   return {
-    repo: requireValue(flags, '--repo'), refs, privateList: requireValue(flags, '--private-list'), wordingList: requireValue(flags, '--wording-list'),
+    repo: requireValue(flags, '--repo'), refs, privateList: requireValue(flags, '--private-list'),
     expectedRoot: requireValue(flags, '--expected-root', FULL_OBJECT_ID),
     identity: '--allowed-identity' in flags ? requireValue(flags, '--allowed-identity', /^[^<>]+ <[^<>]+>$/) : null,
     prText: '--pr-text' in flags ? requireValue(flags, '--pr-text') : null,
@@ -223,7 +218,6 @@ async function runHistory(argv, signal) {
   const config = loadConfig();
   const { limits } = config;
   const listEntries = readPrivateList(options.privateList, { repo: options.repo, limits });
-  const wordingList = readWordingList(options.wordingList, { repo: options.repo, limits });
   const prText = options.prText && readPrText(options.prText, limits);
   const { selected, heads, commits, tags } = await readHistory({ repo: options.repo, refs: options.refs, limits, signal });
   requireExpectedRoot(commits, options.expectedRoot);
@@ -237,9 +231,8 @@ async function runHistory(argv, signal) {
     }
   };
   const matcher = bounded(() => createPrivateMatcher(listEntries, () => checkpoint()));
-  const wordingMatcher = bounded(() => createWordingMatcher(wordingList.entries, () => checkpoint()));
   const identities = options.identity && new Set([...config.publicIdentities, options.identity]);
-  const metadataContext = { matcher, wordingMatcher, identities, config, limits };
+  const metadataContext = { matcher, identities, config, limits };
   const lockfilePaths = new Set(config.lockfileDispositions.map((row) => row.path));
   const heldLockfiles = new Map();
   const secrets = createSecretInput(limits);
@@ -260,7 +253,7 @@ async function runHistory(argv, signal) {
     for (const { path, oid } of entries) if (lockfilePaths.has(path)) heldLockfiles.set(`${oid}\0${path}`, { path, oid });
     secrets.addObject(commit, COMMIT_PEOPLE);
     findings.push(...bounded(() => [
-      ...TREE_SCANS.flatMap((scan) => scan({ entries, matcher, wordingMatcher, config, limits }).map((finding) => ({ ...finding, commit: commit.sha }))),
+      ...TREE_SCANS.flatMap((scan) => scan({ entries, matcher, config, limits }).map((finding) => ({ ...finding, commit: commit.sha }))),
       ...metadataFindings(commit, metadataContext, COMMIT_PEOPLE),
     ]));
     requireWithinLimit();
@@ -276,7 +269,6 @@ async function runHistory(argv, signal) {
   }
   for (const { item, string, value } of prText?.strings ?? []) {
     for (const line of bounded(() => matcher.entryLines(value, limits.maxReportEntries + 1))) findings.push({ rule: PRIVATE_RULE_ID, kind: 'pr-text', item, string, line });
-    for (const line of bounded(() => wordingEntryLines(value, wordingMatcher, limits.maxReportEntries + 1, { readMarkup: true }))) findings.push({ rule: WORDING_RULE_ID, kind: 'pr-text', item, string, line });
     requireWithinLimit();
   }
   requireNoStaleLockfileDisposition([...heldLockfiles.values()], config.lockfileDispositions);
@@ -290,7 +282,7 @@ async function runHistory(argv, signal) {
     { id: IDENTITY_RULE_ID, status: !options.identity ? 'not-run' : found(IDENTITY_RULE_ID) ? 'findings' : 'passed' },
     ...REGISTERED_RULE_IDS.map((id) => ({ id, status: scannedStatus(id) })),
   ].sort((first, second) => compareText(first.id, second.id));
-  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config), expectedRoot: options.expectedRoot, wordingListSha256: wordingList.sha256, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
+  const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config), expectedRoot: options.expectedRoot, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
   const reportedRefs = selectedRefs.map((record, index) => (listedRefs.has(index + 1) ? { ...record, ref: WITHHELD_REF } : record));
   const report = buildHistoryReport({ heads, refs: reportedRefs, commits: commits.length, scanner, rules, unscannable, findings });
   await publish({ report }, { out: options.out });

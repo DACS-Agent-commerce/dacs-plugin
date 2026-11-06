@@ -218,7 +218,7 @@ test('file rules: findings past the report limit fail with the limit cause', () 
 
 test('the gate registers the three file rules, reports each one, and refuses a binary even when it is unreviewed', () => {
   const clean = JSON.parse(runGate(gateArgs(createRepo([{ path: 'a.txt', content: 'clean\n' }]), 'generic')).stdout);
-  assert.deepEqual(clean.rules.map((rule) => rule.id), ['R-ACCOUNT', 'R-ARCHIVE', 'R-ENV', 'R-EVAL', 'R-HOST', 'R-HOSTING', 'R-IP', 'R-ISSUE', 'R-PRIVATE', 'R-REPORT', 'R-SECRET', 'R-WORDING']);
+  assert.deepEqual(clean.rules.map((rule) => rule.id), ['R-ACCOUNT', 'R-ARCHIVE', 'R-ENV', 'R-EVAL', 'R-HOST', 'R-HOSTING', 'R-IP', 'R-ISSUE', 'R-PRIVATE', 'R-REPORT', 'R-SECRET']);
   assert.deepEqual(clean.findings, []);
 
   const planted = createRepo([

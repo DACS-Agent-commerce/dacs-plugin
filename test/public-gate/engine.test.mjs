@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -6,7 +7,7 @@ import { classifyBlob } from '../../scripts/public-gate/classify.mjs';
 import { GateInputError, readCommitObjects } from '../../scripts/public-gate/objects.mjs';
 import {
   CONFIG_FILE, REPO_ROOT, cleanScannerArgs, completeArgs, createRepo, gateArgs, makeTempDir, runGate, sha256, snapshotTree,
-  walkFiles, writeList,
+  writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const LIMITS = JSON.parse(readFileSync(CONFIG_FILE, 'utf8')).limits;
@@ -203,3 +204,8 @@ test('git variables in the caller\'s environment cannot redirect the read to ano
     else process.env.GIT_DIR = originalGitDir;
   }
 });
+
+function walkFiles(entry) {
+  const listing = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-co', '--exclude-standard', '--', entry], { encoding: 'utf8' });
+  return listing.split('\n').filter(Boolean).map((file) => path.join(REPO_ROOT, file));
+}

@@ -6,7 +6,7 @@ import { gateRevision, loadConfig } from '../../scripts/public-gate/gate.mjs';
 import { createSecretInput } from '../../scripts/public-gate/history-secrets.mjs';
 import { readCommitObjects, readHistory } from '../../scripts/public-gate/objects.mjs';
 import {
-  cleanScannerArgs, createAnnotatedTag, createHistory, defaultWordingListFile, gateArgs, git, historyArgs, makeTempDir, runGate, runHistory, sha256, writeList,
+  cleanScannerArgs, createAnnotatedTag, createHistory, gateArgs, git, historyArgs, makeTempDir, runGate, runHistory, sha256, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const PLANTED = ['quartz', 'lantern'].join('-');
@@ -28,14 +28,14 @@ test('a clean history passes with every commit read; an entry that an early comm
   assert.equal(report.scope, 'history');
   assert.deepEqual(report.target, { heads: [clean.commits[2]], refs: [{ ref: 'refs/heads/main', object: clean.commits[2], commit: clean.commits[2] }], commits: 3 });
   assert.deepEqual(report.rules.map(({ id, status }) => `${id} ${status}`), [
-    'R-ACCOUNT passed', 'R-ARCHIVE passed', 'R-ENV passed', 'R-EVAL passed', 'R-HOST passed', 'R-HOSTING passed', 'R-IDENTITY not-run', 'R-IP passed', 'R-ISSUE passed', 'R-PRIVATE passed', 'R-REPORT passed', 'R-SECRET passed', 'R-WORDING passed',
+    'R-ACCOUNT passed', 'R-ARCHIVE passed', 'R-ENV passed', 'R-EVAL passed', 'R-HOST passed', 'R-HOSTING passed', 'R-IDENTITY not-run', 'R-IP passed', 'R-ISSUE passed', 'R-PRIVATE passed', 'R-REPORT passed', 'R-SECRET passed',
   ]);
   assert.equal(report.scanner.gateRevision, gateRevision());
   assert.equal(report.scanner.expectedRoot, clean.commits[0]);
 
   const history = createHistory([{}, { files: { 'a.txt': 'ok\n', 'leak.txt': `before\n${PLANTED}\n` } }, { files: { 'a.txt': 'ok\n' } }]);
   const listFile = writeList([PLANTED]);
-  const tip = runGate(gateArgs({ dir: history.dir, commit: history.commits[2] }, 'complete', ['--private-list', listFile, '--wording-list', defaultWordingListFile(), '--expected-root', history.commits[0]]));
+  const tip = runGate(gateArgs({ dir: history.dir, commit: history.commits[2] }, 'complete', ['--private-list', listFile, '--expected-root', history.commits[0]]));
   assert.equal(tip.status, 0, 'the tip tree alone holds nothing');
   const found = runHistory(historyArgs(history, listFile));
   assert.equal(found.status, 1);
@@ -74,14 +74,14 @@ test('the address, env, hosting and archive rules read every commit tree: what a
   };
   const history = createHistory([{}, { files: planted }, { files: { 'a.txt': 'ok\n' } }]);
   const listFile = writeList([PLANTED]);
-  const tip = runGate(gateArgs({ dir: history.dir, commit: history.commits[2] }, 'complete', ['--private-list', listFile, '--wording-list', defaultWordingListFile(), '--expected-root', history.commits[0]]));
+  const tip = runGate(gateArgs({ dir: history.dir, commit: history.commits[2] }, 'complete', ['--private-list', listFile, '--expected-root', history.commits[0]]));
   assert.equal(tip.status, 0, 'the tip tree alone holds nothing');
 
   const run = runHistory(historyArgs(history, listFile));
   assert.equal(run.status, 1, run.stderr);
   const report = JSON.parse(run.stdout);
-  assert.deepEqual(report.rules.map(({ id }) => id), ['R-ACCOUNT', 'R-ARCHIVE', 'R-ENV', 'R-EVAL', 'R-HOST', 'R-HOSTING', 'R-IDENTITY', 'R-IP', 'R-ISSUE', 'R-PRIVATE', 'R-REPORT', 'R-SECRET', 'R-WORDING']);
-  assert.deepEqual(report.rules.map(({ status }) => status), ['findings', 'findings', 'findings', 'passed', 'findings', 'findings', 'not-run', 'findings', 'passed', 'passed', 'passed', 'passed', 'passed']);
+  assert.deepEqual(report.rules.map(({ id }) => id), ['R-ACCOUNT', 'R-ARCHIVE', 'R-ENV', 'R-EVAL', 'R-HOST', 'R-HOSTING', 'R-IDENTITY', 'R-IP', 'R-ISSUE', 'R-PRIVATE', 'R-REPORT', 'R-SECRET']);
+  assert.deepEqual(report.rules.map(({ status }) => status), ['findings', 'findings', 'findings', 'passed', 'findings', 'findings', 'not-run', 'findings', 'passed', 'passed', 'passed', 'passed']);
   assert.deepEqual(brief(report), [
     'R-ACCOUNT content 5 3', 'R-ARCHIVE content 3 -', 'R-ENV content 1 1', 'R-HOST content 5 1', 'R-HOSTING path 4 -', 'R-IP content 5 2',
   ]);
@@ -305,7 +305,7 @@ test('the history report holds no pull-request key path and nothing derived from
     ['content', `${commit}:2`, 2], ['message', `${commit}:message`, 3], ['path', `${commit}:2`, undefined], ['pr-text', 'pr-1:5', 1], ['pr-text', 'pr-1:6', 1], ['pr-text', 'pr-1:7', 1],
   ]);
   const fixed = /^(?:[0-9a-f]{40}(?::(?:[1-9][0-9]*|author|committer|header|message))?|[0-9a-f]{64}|\d+\.\d+\.\d+|pr-[1-9][0-9]*:[1-9][0-9]*|ref-[1-9][0-9]*|refs\/heads\/main|history|R-[A-Z]+|path|content|message|pr-text|ref|passed|not-run|findings)$/;
-  const keys = new Set(['scope', 'target', 'heads', 'refs', 'ref', 'object', 'commits', 'scanner', 'gateRevision', 'configSha256', 'scannerVersion', 'scannerPolicySha256', 'secretExceptionsSha256', 'expectedRoot', 'wordingListSha256', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
+  const keys = new Set(['scope', 'target', 'heads', 'refs', 'ref', 'object', 'commits', 'scanner', 'gateRevision', 'configSha256', 'scannerVersion', 'scannerPolicySha256', 'secretExceptionsSha256', 'expectedRoot', 'prTextSha256', 'rules', 'id', 'status', 'unscannable', 'findings', 'rule', 'kind', 'commit', 'location', 'line']);
   const walk = (value) => {
     if (typeof value === 'string') assert.match(value, fixed);
     else if (typeof value === 'number') assert.ok(Number.isSafeInteger(value) && value > 0);
@@ -330,7 +330,7 @@ test('several refs are walked together and a commit reachable twice is read once
 test('the root, the refs and the arguments are checked before anything is reported', () => {
   const history = createHistory([{}, {}]);
   const listFile = writeList([PLANTED]);
-  const wrongRoot = runHistory(['--repo', history.dir, '--refs', 'main', '--private-list', listFile, '--wording-list', defaultWordingListFile(), '--expected-root', 'b'.repeat(40), ...cleanScannerArgs()]);
+  const wrongRoot = runHistory(['--repo', history.dir, '--refs', 'main', '--private-list', listFile, '--expected-root', 'b'.repeat(40), ...cleanScannerArgs()]);
   assert.equal(wrongRoot.status, 2);
   assert.match(wrongRoot.stderr, /unexpected-root/);
   assert.equal(wrongRoot.stdout, '');
@@ -345,9 +345,9 @@ test('the root, the refs and the arguments are checked before anything is report
     assert.equal(refused.stdout, '');
   }
   assert.equal(runHistory(historyArgs(history, listFile, ['--expected-root', history.commits[0]])).status, 2, 'a repeated flag');
-  assert.equal(runHistory(['--repo', history.dir, '--refs', 'main', '--private-list', listFile, '--wording-list', defaultWordingListFile(), '--expected-root', history.commits[0]]).status, 2, 'no scanner');
+  assert.equal(runHistory(['--repo', history.dir, '--refs', 'main', '--private-list', listFile, '--expected-root', history.commits[0]]).status, 2, 'no scanner');
   assert.equal(runHistory(['--repo', history.dir, '--refs', 'main', '--expected-root', history.commits[0], ...cleanScannerArgs()]).status, 2, 'no private list');
-  assert.equal(runHistory(['--repo', history.dir, '--refs', 'main', '--private-list', listFile, '--wording-list', defaultWordingListFile(), '--expected-root', 'abc', ...cleanScannerArgs()]).status, 2, 'an abbreviated root');
+  assert.equal(runHistory(['--repo', history.dir, '--refs', 'main', '--private-list', listFile, '--expected-root', 'abc', ...cleanScannerArgs()]).status, 2, 'an abbreviated root');
 });
 
 test('--out creates a new file, never replaces one, and leaves stdout empty', () => {
@@ -383,7 +383,7 @@ test('an unscannable blob in any commit exits 2 and the report says so instead o
 test('complete scope checks --expected-root against the history behind the commit: another root, or two roots, exit 2 with no report', () => {
   const history = createHistory([{}, {}, { files: { 'b.txt': 'second root\n' }, parents: [] }, { parents: [1, 2] }], { main: 3 });
   const listFile = writeList([PLANTED]);
-  const complete = (commit, root) => runGate(gateArgs({ dir: history.dir, commit }, 'complete', ['--private-list', listFile, '--wording-list', defaultWordingListFile(), '--expected-root', root]));
+  const complete = (commit, root) => runGate(gateArgs({ dir: history.dir, commit }, 'complete', ['--private-list', listFile, '--expected-root', root]));
   const own = complete(history.commits[1], history.commits[0]);
   assert.equal(own.status, 0, own.stderr);
   assert.equal(JSON.parse(own.stdout).scanner.expectedRoot, history.commits[0]);
@@ -461,7 +461,7 @@ test('root check: complete scope needs --expect-root and fails when the target r
   const twoRoots = createHistory([{}, {}, { files: { 'b.txt': 'second root\n' }, parents: [] }, { parents: [1, 2] }], { main: 3 });
   const listFile = writeList([PLANTED]);
   const [root, first, second, merged] = twoRoots.commits;
-  const complete = (commit, expectedRoot) => runGate(gateArgs({ dir: twoRoots.dir, commit }, 'complete', ['--private-list', listFile, '--wording-list', defaultWordingListFile(), ...(expectedRoot ? ['--expected-root', expectedRoot] : [])]));
+  const complete = (commit, expectedRoot) => runGate(gateArgs({ dir: twoRoots.dir, commit }, 'complete', ['--private-list', listFile, ...(expectedRoot ? ['--expected-root', expectedRoot] : [])]));
   const generic = (commit) => runGate(gateArgs({ dir: twoRoots.dir, commit }, 'generic'));
   assert.equal(complete(first).status, 2, 'complete scope without --expected-root');
   assert.equal(complete(first, root).status, 0);
@@ -489,7 +489,7 @@ test('a shallow clone is refused in generic, complete and history scope, so a cu
   await assert.rejects(readHistory({ repo: shallow, refs: ['main'], limits: CONFIG.limits }), (error) => error.name === 'GateInputError' && error.cause === 'shallow-history');
   const refusals = [
     runGate(gateArgs({ dir: shallow, commit: target }, 'generic')),
-    runGate(gateArgs({ dir: shallow, commit: target }, 'complete', ['--private-list', listFile, '--wording-list', defaultWordingListFile(), '--expected-root', target])),
+    runGate(gateArgs({ dir: shallow, commit: target }, 'complete', ['--private-list', listFile, '--expected-root', target])),
     runHistory(historyArgs(view, listFile)),
   ];
   for (const refused of refusals) {
