@@ -278,6 +278,18 @@ test('wording: only the six known character references are decoded; any other, n
   assert.deepEqual(findingLines('m.json', JSON.stringify({ description: 'a &#32; b' }, null, 2), ['unlisted-entry']), [2]);
 });
 
+test('wording: a line of a million character references is checked within a small heap, as a blob and as pull-request text', () => {
+  const module = new URL('../../scripts/public-gate/rules-text.mjs', import.meta.url).href;
+  const code = `import { createWordingMatcher, scanWording, wordingEntryLines } from ${JSON.stringify(module)};
+    const matcher = createWordingMatcher(['zzz entry'], () => {});
+    const limits = { maxReportEntries: 100 };
+    const read = (text) => [scanWording({ entries: [{ path: 'a.md', bytes: Buffer.from(text), oid: 'a'.repeat(40), position: 1 }], wordingMatcher: matcher, limits }).length,
+      wordingEntryLines(text, matcher, 100, { readMarkup: true }).length];
+    console.log(JSON.stringify([read('&a'.repeat(1 << 20)), read('&amp;'.repeat(1 << 20))]));`;
+  const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  assert.equal(output.trim(), '[[1,1],[0,0]]');
+});
+
 test('wording: a source file is not read in any source extension that R-EVAL parses, in any case; Markdown, HTML, SVG and text are', () => {
   for (const name of ['a.js', 'a.mjs', 'a.cjs', 'a.jsx', 'a.ts', 'a.mts', 'a.cts', 'a.tsx', 'a.d.ts', 'a.d.cts', 'a.d.mts', 'dir/A.JSX', 'dir/A.CTS', 'b.MJS', 'c.Ts', 'a.css', 'a.sh']) {
     assert.deepEqual(wordingFindings(name, `const a = '${TERM}';\n`), [], name);

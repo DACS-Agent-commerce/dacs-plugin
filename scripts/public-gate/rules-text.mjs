@@ -301,9 +301,15 @@ function hasUnapprovedStatus(paragraph) {
     : STATUS_TRIGGER.test(clause.text.replace(DISCLAIMER, ' '))));
 }
 
+/** Whether `line` holds a character reference other than the six known ones; the matches are read one at a time, so a line of many references costs no memory. */
+function hasUnknownReference(line) {
+  for (const [reference] of line.matchAll(CHARACTER_REFERENCE)) if (!KNOWN_REFERENCES.has(reference)) return true;
+  return false;
+}
+
 /** The lines of `text` holding a character reference other than the six known ones. */
 const unknownReferenceLines = (text) => (text.includes('&')
-  ? text.split(LINE_BREAK).flatMap((line, index) => ([...line.matchAll(CHARACTER_REFERENCE)].some(([reference]) => !KNOWN_REFERENCES.has(reference)) ? [index + 1] : [])) : []);
+  ? text.split(LINE_BREAK).flatMap((line, index) => (hasUnknownReference(line) ? [index + 1] : [])) : []);
 
 /** The lines of prose `text` holding a character reference other than the six known ones, or starting a paragraph one of whose views states a status other than the
  * approved clause or, outside a fenced shell command, holds a list entry not wholly inside an approved clause or a disclaimer of that view. */
