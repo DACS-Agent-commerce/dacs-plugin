@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSy
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { classify, discover, judge, matches, newState, readKnown, record, TIMEOUT, PROCESS, INCOMPLETE } from '../scripts/run-test-files.mjs';
+import { carryOver, classify, discover, judge, matches, newState, readKnown, record, CARRY_OVER, TIMEOUT, PROCESS, INCOMPLETE } from '../scripts/run-test-files.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const runner = join(root, 'scripts/run-test-files.mjs');
@@ -131,7 +131,7 @@ test('a baseline entry that matches no test in its file fails the gate as stale'
 
 test('a discovery run reports entries for files that no longer exist as stale', async (t) => {
   const dir = setup(t);
-  for (const folder of ['test', 'deploy/test']) mkdirSync(join(dir, folder), { recursive: true });
+  mkdirSync(join(dir, 'test'), { recursive: true });
   copyFileSync(join(root, fixture('pass')), join(dir, 'test/unit.test.mjs'));
   const result = await run(dir, [], { cwd: dir, known: [entry('test/removed.test.mjs', 'old failure')] });
   assert.equal(result.code, 1);
@@ -210,30 +210,54 @@ test('appends a GitHub summary and emits notices with file and exact test name',
   assert.match(content, /### Known failures now passing \(remove their entries\)[\s\S]*pass\.mjs: previous failure now passes/);
 });
 
-test('discovery includes nested and deploy tests and excludes browser, fixture and non-test files', async (t) => {
+// A directory shaped like a checkout: nested tests, browser files and files discovery never takes.
+function discoveryTree(t) {
   const dir = setup(t);
   for (const folder of ['test/browser', 'test/fixtures', 'test/helpers', 'test/sub/deeper', 'test/sub/fixtures', 'deploy/test']) mkdirSync(join(dir, folder), { recursive: true });
-  for (const file of ['test/unit.test.mjs', 'test/sub/nested.test.mjs', 'test/sub/deeper/leaf.test.mjs', 'deploy/test/unit.test.mjs']) copyFileSync(join(root, fixture('pass')), join(dir, file));
-  for (const file of ['test/dacs-loopback-fixture.test.mjs', 'test/top.browser.test.mjs', 'test/browser/other.test.mjs', 'test/fixtures/fail.test.mjs', 'test/helpers/fail.test.mjs',
+  for (const file of ['test/unit.test.mjs', 'test/sub/nested.test.mjs', 'test/sub/deeper/leaf.test.mjs', 'test/top.browser.test.mjs', 'test/browser/other.browser.test.mjs']) copyFileSync(join(root, fixture('pass')), join(dir, file));
+  for (const file of ['deploy/test/unit.test.mjs', 'test/dacs-loopback-fixture.test.mjs', 'test/fixtures/fail.test.mjs', 'test/helpers/fail.test.mjs',
     'test/sub/fixtures/fail.test.mjs', 'test/helper.mjs', 'test/old.test.js', 'test/unit.test.mjs.bak', 'test/sub/notes.test.mjs.txt']) copyFileSync(join(root, fixture('fail')), join(dir, file));
-  const result = await run(dir, [], { cwd: dir });
-  assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(result.rows.map((row) => row.file), ['deploy/test/unit.test.mjs', 'test/sub/deeper/leaf.test.mjs', 'test/sub/nested.test.mjs', 'test/unit.test.mjs']);
+  return dir;
+}
+
+test('discovery includes browser files only with the browser flag, and test:ci passes it', async (t) => {
+  const dir = discoveryTree(t), plain = ['test/sub/deeper/leaf.test.mjs', 'test/sub/nested.test.mjs', 'test/unit.test.mjs'];
+  assert.deepEqual(discover(dir, 'test').sort(), plain);
+  assert.deepEqual(discover(dir, 'test', true).sort(), [...plain, 'test/browser/other.browser.test.mjs', 'test/top.browser.test.mjs'].sort());
+  const without = await run(dir, [], { cwd: dir });
+  assert.equal(without.code, 0, without.stderr);
+  assert.deepEqual(without.rows.map((row) => row.file), plain);
+  const withFlag = await run(dir, ['--browser'], { cwd: dir });
+  assert.equal(withFlag.code, 0, withFlag.stderr);
+  assert.deepEqual(withFlag.rows.map((row) => row.file), ['test/browser/other.browser.test.mjs', 'test/sub/deeper/leaf.test.mjs', 'test/sub/nested.test.mjs', 'test/top.browser.test.mjs', 'test/unit.test.mjs']);
+  assert.match(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts['test:ci'], / --browser( |$)/);
 });
 
-test('the documented current discovery count includes both test roots', () => {
+test('discovery has one root, test/; a missing root fails', async (t) => {
+  const dir = discoveryTree(t);
+  const result = await run(dir, [], { cwd: dir });
+  assert.ok(!result.rows.some((row) => row.file.startsWith('deploy/')), 'deploy/test is no discovery root');
+  rmSync(join(dir, 'test'), { recursive: true });
+  rmSync(join(dir, 'results.jsonl'));
+  const missing = await run(dir, [], { cwd: dir });
+  assert.equal(missing.code, 1);
+  assert.equal(missing.rows.length, 0);
+  assert.match(missing.stderr, /Test root not found: test/);
+  assert.equal(existsSync(join(dir, 'deploy/test/unit.test.mjs')), true);
+});
+
+test('the documented discovery count equals the runner\'s discovery with browser files', () => {
   const docs = readFileSync(join(root, 'docs/CI.md'), 'utf8');
-  const counts = docs.match(/now brings discovery to (\d+) files: (\d+) under `test\/`\s+and (\d+) under `deploy\/test\/`/);
-  assert.ok(counts, 'document the current total and the count in each root');
-  const tests = discover(root, 'test'), deploy = discover(root, 'deploy/test');
-  assert.ok(tests.length > 0);
-  assert.ok(deploy.length > 0, 'deploy tests are part of CI discovery');
-  assert.deepEqual(counts.slice(1).map(Number), [tests.length + deploy.length, tests.length, deploy.length]);
+  const count = docs.match(/discovery finds (\d+) files under `test\/`, browser files included/);
+  assert.ok(count, 'document the current number of discovered files');
+  const withBrowser = discover(root, 'test', true), without = discover(root, 'test');
+  assert.ok(without.length > 0 && withBrowser.length > without.length);
+  assert.equal(Number(count[1]), withBrowser.length);
 });
 
 test('a discovery that finds no test file fails', async (t) => {
   const dir = setup(t);
-  for (const folder of ['test/fixtures', 'deploy/test']) mkdirSync(join(dir, folder), { recursive: true });
+  mkdirSync(join(dir, 'test/fixtures'), { recursive: true });
   copyFileSync(join(root, fixture('pass')), join(dir, 'test/fixtures/only.test.mjs'));
   const result = await run(dir, [], { cwd: dir });
   assert.equal(result.code, 1);
@@ -281,7 +305,7 @@ test('a run without TMPDIR gives all its files one fresh private TMPDIR under th
   const dir = setup(t), system = join(dir, 'system-tmp'), record = join(dir, 'tmpdirs.txt');
   mkdirSync(system);
   chmodSync(system, 0o1777);
-  for (const folder of ['test', 'deploy/test']) mkdirSync(join(dir, folder), { recursive: true });
+  mkdirSync(join(dir, 'test'), { recursive: true });
   for (const file of ['test/a.test.mjs', 'test/b.test.mjs']) copyFileSync(join(root, fixture('tmpdir')), join(dir, file));
   const given = [];
   // Discovery with TMPDIR unset, then empty; then explicit files as on GitHub.
@@ -623,5 +647,154 @@ test('an interrupted run kills the running file\'s process group and removes its
     }
     assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, signal);
     assert.deepEqual(readdirSync(system), [], signal);
+  }
+});
+
+// A module that no checkout carries, imported by the load-failure fixtures.
+const NOT_CARRIED = 'test/fixtures/ci-runner/not-carried.mjs';
+const BEHIND_HELPER = 'test/fixtures/ci-runner/not-carried-behind-helper.mjs';
+const carry = (file, path = NOT_CARRIED) => ({ file, test: CARRY_OVER, reason: 'Intentional fixture load failure.', class: 'carry-over', expect: path });
+const key = (file) => JSON.stringify([file, CARRY_OVER]);
+const LOAD_SENTINELS =[{ test: PROCESS, error: 'exit code 1' }, { test: INCOMPLETE, error: 'no per-file test summary' }];
+
+// The stderr lines Node prints when a static import does not resolve.
+const diagnostic = (missing, { importer = join(root, 'test/a.test.mjs'), subject = 'module' } = {}) => [
+  'node:internal/modules/esm/resolve:275\n', '    throw new ERR_MODULE_NOT_FOUND(\n', '          ^\n', '\n',
+  `Error [ERR_MODULE_NOT_FOUND]: Cannot find ${subject} '${missing}' imported from ${importer}\n`,
+  '    at finalizeResolution (node:internal/modules/esm/resolve:275:11) {\n',
+  "  code: 'ERR_MODULE_NOT_FOUND',\n", `  url: 'file://${missing}'\n`, '}\n', '\n', 'Node.js v22.23.3\n',
+];
+
+// The events the reporter gets for one file process that ended with these stderr lines.
+function fileEvents(lines, { file = 'test/a.test.mjs', started = false, passed = false } = {}) {
+  const details = passed ? { passed: true } : { passed: false, error: { message: 'test failed', exitCode: 1 } };
+  return [
+    ...(started ? [{ type: 'test:start', data: { nesting: 1, name: 'an inner test' } }] : []),
+    ...lines.map((message) => ({ type: 'test:stderr', data: { file, message } })),
+    { type: 'test:complete', data: { name: file, nesting: 0, file: join(root, file), details } },
+  ];
+}
+
+function reporterLines(events) {
+  return new Promise((done, fail) => {
+    const child = spawn(process.execPath, [join(root, fixture('feed-reporter'))], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (code) => code === 0 ? done(stdout.split('\n').filter(Boolean).map(JSON.parse)) : fail(new Error(stderr)));
+    child.stdin.end(JSON.stringify(events));
+  });
+}
+
+const loadFailuresOf = async (events) => (await reporterLines(events)).filter(({ type }) => type === 'test:load-failure');
+
+test('reporter: a pre-test module-load failure yields one structured load-failure record naming the missing module\'s path, read from test:stderr events', async () => {
+  const missing = join(root, NOT_CARRIED);
+  assert.deepEqual(await loadFailuresOf(fileEvents(diagnostic(missing))), [{ type: 'test:load-failure', path: NOT_CARRIED }]);
+  const enoent = ['node:internal/fs/utils:356\n', "Error: ENOENT: no such file or directory, open 'x'\n", '    at Object.openSync (node:fs:573:18) {\n', "  code: 'ENOENT',\n", '}\n', '\n', 'Node.js v22.23.3\n'];
+  const trailer = diagnostic(missing).slice(0, -1);
+  const refused = {
+    'a module outside the run directory': diagnostic(join(root, '../outside.mjs')),
+    'a package, not a file': diagnostic('left-pad', { subject: 'package' }),
+    'a missing file read, not a module': enoent,
+    'a second error after the diagnostic': [...diagnostic(missing), 'Error: another\n', 'Node.js v22.23.3\n'],
+    'a diagnostic without the closing version line': trailer,
+    'more than the diagnostic limit': [...trailer, '    at frame (file:1:1)\n'.repeat(5000), 'Node.js v22.23.3\n'],
+  };
+  for (const [name, lines] of Object.entries(refused)) assert.deepEqual(await loadFailuresOf(fileEvents(lines)), [], name);
+  assert.deepEqual(await loadFailuresOf(fileEvents(diagnostic(missing), { started: true })), [], 'a test had started');
+  assert.deepEqual(await loadFailuresOf(fileEvents(diagnostic(missing), { passed: true })), [], 'the file passed');
+});
+
+test('record keeps a load-failure path apart from results and refuses an unsafe one', () => {
+  const state = newState();
+  record(state, JSON.stringify({ type: 'test:load-failure', path: NOT_CARRIED }));
+  assert.deepEqual(state.loadFailures, [NOT_CARRIED]);
+  assert.deepEqual([state.failures, state.passing, state.seen, state.error], [[], [], [], undefined]);
+  for (const path of [undefined, 7, '', ' ', '/abs/m.mjs', '../m.mjs', '..', 'a/../m.mjs', 'a//m.mjs', 'a\nb.mjs']) {
+    const refused = newState();
+    record(refused, JSON.stringify({ type: 'test:load-failure', path }));
+    assert.equal(refused.error, 'Invalid reporter output', String(path));
+    assert.deepEqual(refused.loadFailures, [], String(path));
+  }
+});
+
+test('runner: an absent static import, and an absent import reached through a helper, become one carry-over outcome that the entry naming that path excuses', async (t) => {
+  const dir = setup(t);
+  for (const [file, path] of [[fixture('absent-static'), NOT_CARRIED], [fixture('absent-helper'), BEHIND_HELPER]]) {
+    const excused = await run(dir, [file], { known: [carry(file, path)] });
+    assert.equal(excused.code, 0, excused.stderr);
+    assert.deepEqual(excused.rows[0].failures, [{ test: CARRY_OVER, error: path }], file);
+    assert.deepEqual([excused.rows[0].knownFailures, excused.rows[0].newFailures], [[CARRY_OVER], []], file);
+    const unexcused = await run(dir, [file]);
+    assert.equal(unexcused.code, 1, file);
+    assert.deepEqual(unexcused.rows[0].newFailures, [PROCESS, INCOMPLETE], 'without an entry the cause stays visible');
+  }
+});
+
+test('runner: a different missing module, a matching diagnostic followed by another fatal error, an ordinary assertion failure and a malformed reporter event are not excused', async (t) => {
+  const dir = setup(t), file = fixture('absent-static');
+  const different = await run(dir, [file], { known: [carry(file, 'test/fixtures/ci-runner/other.mjs')] });
+  assert.equal(different.code, 1);
+  assert.deepEqual(different.rows[0].newFailures, [PROCESS, INCOMPLETE]);
+  const fatal = fixture('absent-then-fatal'), second = await run(dir, [fatal], { known: [carry(fatal)] });
+  assert.equal(second.code, 1);
+  assert.ok(!second.rows[0].failing.includes(CARRY_OVER));
+  const assertion = fixture('fail'), plain = await run(dir, [assertion], { known: [carry(assertion)] });
+  assert.equal(plain.code, 1);
+  assert.deepEqual(plain.rows[0].newFailures, [failure]);
+  const known = new Map([[key(file), carry(file)]]), input = { failures: LOAD_SENTINELS, loadFailures: [NOT_CARRIED], started: false };
+  assert.deepEqual(carryOver(file, input, known), [{ test: CARRY_OVER, error: NOT_CARRIED }]);
+  const unchanged = {
+    'no load-failure record': { loadFailures: [] },
+    'two records': { loadFailures: [NOT_CARRIED, NOT_CARRIED] },
+    'a test started': { started: true },
+    'another failure': { failures: [...LOAD_SENTINELS, { test: 'a test', error: 'boom' }] },
+    'another cause for the process failure': { failures: [{ test: PROCESS, error: 'exit code 3' }, LOAD_SENTINELS[1]] },
+    'a malformed reporter event': { failures: [{ test: PROCESS, error: 'Invalid reporter output' }, ...LOAD_SENTINELS] },
+  };
+  for (const [name, change] of Object.entries(unchanged)) assert.deepEqual(carryOver(file, { ...input, ...change }, known), (change.failures ?? LOAD_SENTINELS), name);
+  assert.deepEqual(carryOver(file, input, new Map()), LOAD_SENTINELS, 'no entry');
+});
+
+test('runner: a timeout and an interrupted run are not excused by a carry-over entry', async (t) => {
+  const dir = setup(t), hang = fixture('timeout'), crash = fixture('crash');
+  const timedOut = await run(dir, [hang], { known: [carry(hang)], timeout: 1 });
+  assert.equal(timedOut.code, 1);
+  assert.deepEqual(timedOut.rows[0].newFailures, [TIMEOUT]);
+  const killed = await run(dir, [crash], { known: [carry(crash)], env: { CI_RUNNER_CRASH: 'kill' } });
+  assert.equal(killed.code, 1);
+  assert.ok(killed.rows[0].newFailures.includes(PROCESS) && !killed.rows[0].failing.includes(CARRY_OVER));
+  const known = new Map([[key(hang), carry(hang)]]);
+  const withTimeout = [{ test: TIMEOUT, error: 'no exit within 1 s; process group killed' }];
+  assert.deepEqual(carryOver(hang, { failures: withTimeout, loadFailures: [NOT_CARRIED], started: false }, known), withTimeout);
+});
+
+test('a carry-over entry for a file that now loads fails as now-passing', async (t) => {
+  const file = fixture('pass'), result = await run(setup(t), [file], { known: [carry(file)] });
+  assert.equal(result.code, 1);
+  assert.deepEqual(result.rows[0].knownNowPassing, [CARRY_OVER]);
+  assert.match(result.stderr, /Known failure now passes; remove its entry: .*pass\.mjs: \[carry-over\]/);
+});
+
+test('a carry-over entry on a test other than [carry-over], or without a path in expect, fails closed', async (t) => {
+  const dir = setup(t), path = join(dir, 'known.json'), valid = carry('test/a.test.mjs');
+  const read = (value) => { writeFileSync(path, JSON.stringify([value])); return readKnown(path); };
+  assert.equal(read(valid).size, 1);
+  const malformed = [{ test: 'some test' }, { class: 'main-defect' }, { expect: '' }, { expect: ' ' }, { expect: '/abs/m.mjs' }, { expect: '..' }, { expect: '../m.mjs' },
+    { expect: 'a/./m.mjs' }, { expect: 'a//m.mjs' }, { expect: 'a\nb.mjs' }, { expect: unequal }];
+  for (const change of malformed) assert.throws(() => read({ ...valid, ...change }), /Invalid known failure entry/, JSON.stringify(change));
+  const file = fixture('absent-static'), result = await run(dir, [file], { known: [{ ...carry(file), test: 'some test' }] });
+  assert.equal(result.code, 1);
+  assert.equal(result.rows.length, 0, 'the run stops before any file starts');
+});
+
+test('runner: a test that fails reading an absent file at module evaluation (ENOENT), as the carried commit-on-signature doc test does, is not excused as carry-over', async (t) => {
+  const dir = setup(t), file = fixture('absent-read');
+  for (const path of ['test/fixtures/ci-runner/not-carried.txt', NOT_CARRIED]) {
+    const result = await run(dir, [file], { known: [carry(file, path)] });
+    assert.equal(result.code, 1, path);
+    assert.deepEqual(result.rows[0].newFailures, [PROCESS, INCOMPLETE], path);
+    assert.match(readFileSync(join(dir, 'results.jsonl.failures', `${file.replace(/[\\/]/g, '__')}.tap`), 'utf8'), /^# Error: ENOENT/m, 'the cause is kept in the TAP output');
   }
 });

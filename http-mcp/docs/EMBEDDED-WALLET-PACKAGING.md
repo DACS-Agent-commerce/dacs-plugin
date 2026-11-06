@@ -52,8 +52,8 @@ and any `node_modules` path that is not in npm's own `bundled` list. That list i
 vendored `@kynesyslabs/dacs` and its hoisted dependencies. The wallet-JSON rule matches the
 file name, not the directory. So `embedded-wallet/runtime-manifest.json`, a public
 non-secret file, is allowed, while for example `embedded-wallet/wallet.json` or
-`runtime-chunks/wallet-state.json` is still refused. `deploy/scripts/lib/rules.mjs`
-(image staging) also matches on the file name.
+`runtime-chunks/wallet-state.json` is still refused. The source repository's image
+staging, which this repository does not carry, also matches on the file name.
 
 The legacy `npm run check:package` release gate keeps its existing broader
 wallet-JSON path exclusion, with one exact exemption:
