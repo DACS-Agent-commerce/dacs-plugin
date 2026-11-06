@@ -4,7 +4,7 @@ import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID } from './rules-address.mjs';
 import { EVAL_RULE_ID } from './rules-eval.mjs';
 import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID } from './rules-files.mjs';
 import { PRIVATE_RULE_ID } from './rules-private.mjs';
-import { ISSUE_RULE_ID, REPORT_RULE_ID } from './rules-text.mjs';
+import { ISSUE_RULE_ID, REPORT_RULE_ID, WORDING_RULE_ID } from './rules-text.mjs';
 import { SECRET_RULE_ID, SEMVER } from './secret-scan.mjs';
 
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
@@ -15,7 +15,7 @@ export const SHA256_HEX = /^[0-9a-f]{64}$/;
 export const STATUSES = ['passed', 'findings', 'not-run', 'unscannable'];
 export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition', 'eval-symlink', 'eval-not-text', 'eval-parse-error', 'eval-computed-member', 'eval-too-deep', 'eval-html-unreadable', 'eval-parse-timeout', 'limit:maxEvalUnitBytes'];
 const SCOPES = ['generic', 'complete'];
-const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, EVAL_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, REPORT_RULE_ID, ISSUE_RULE_ID, PRIVATE_RULE_ID, SECRET_RULE_ID];
+const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, EVAL_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, REPORT_RULE_ID, ISSUE_RULE_ID, PRIVATE_RULE_ID, WORDING_RULE_ID, SECRET_RULE_ID];
 const KINDS = ['path', 'content'];
 
 /** The fixed text printed after each cause; nothing else ever reaches stderr. A `limit:<name>` cause has one shared text. */
@@ -25,6 +25,8 @@ const DIAGNOSTICS = {
   'invalid-config': 'public-gate.config.json is malformed', 'private-list-unreadable': 'the private list cannot be read as a regular file',
   'private-list-in-repo': 'the private list is inside the repository', 'private-list-empty': 'the private list holds no entry',
   'private-list-malformed': 'the private list is not UTF-8 or has a line with leading or trailing whitespace',
+  'wording-list-unreadable': 'the wording list cannot be read as a regular file', 'wording-list-in-repo': 'the wording list is inside the repository',
+  'wording-list-empty': 'the wording list holds no entry', 'wording-list-malformed': 'the wording list is not UTF-8, has a padded line, or has an entry that is empty or holds a tab',
   timeout: 'git did not finish before its deadline', interrupted: 'the run was interrupted', 'git-unavailable': 'git could not run',
   'git-refused': 'git refused the request', 'unknown-commit': 'the repository has no such commit',
   'not-a-commit': '--commit names an object that is not a commit', 'empty-tree': 'the commit has no files',
@@ -104,7 +106,7 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
     exactPaths.set(entry.position, [location, entry.path ?? `hex:${entry.pathBytes.toString('hex')}`]);
     return location;
   };
-  const { gateRevision, configSha256, expectedRoot, scannerVersion, scannerPolicySha256, secretExceptionsSha256 } = scanner;
+  const { gateRevision, configSha256, expectedRoot, wordingListSha256, scannerVersion, scannerPolicySha256, secretExceptionsSha256 } = scanner;
   const report = {
     scope: checked(scope, SCOPES),
     target: { commit, tree: checked(target.tree, FULL_OBJECT_ID) },
@@ -112,6 +114,7 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
       gateRevision: checked(gateRevision, SHA256_HEX), configSha256: checked(configSha256, SHA256_HEX), scannerVersion: checked(scannerVersion, SEMVER),
       scannerPolicySha256: checked(scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(secretExceptionsSha256, SHA256_HEX),
       ...(expectedRoot === undefined ? {} : { expectedRoot: checked(expectedRoot, FULL_OBJECT_ID) }),
+      ...(wordingListSha256 === undefined ? {} : { wordingListSha256: checked(wordingListSha256, SHA256_HEX) }),
     },
     rules: rules.map(({ id, status }) => ({ id: checked(id, RULE_IDS), status: checked(status, STATUSES) })),
     unscannable: unscannable.map(({ entry, cause }) => ({ location: locate(entry), cause: checked(cause, UNSCANNABLE_CAUSES) })),

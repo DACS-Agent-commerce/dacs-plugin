@@ -4,7 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { gateRevision } from '../../scripts/public-gate/gate.mjs';
 import {
-  CONFIG_FILE, createAnnotatedTag, createHistory, expectedScanIdentity, git, historyArgs, makeTempDir, runCheckReport, runHistory, sha256, writeList,
+  CONFIG_FILE, createAnnotatedTag, createHistory, expectedScanIdentity, expectedWordingListSha256, git, historyArgs, makeTempDir, runCheckReport, runHistory, sha256, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const LISTED = ['quartz', 'lantern'].join('-');
@@ -90,7 +90,7 @@ function savedReport({ steps = [{}, {}], branches } = {}) {
   createAnnotatedTag(history.dir, 'first', history.commits[1], { message: 'one' });
   createAnnotatedTag(history.dir, 'second', history.commits[1], { message: 'two' });
   const report = JSON.parse(runRefs(history, 'first', { status: 0, extra: ALLOWED }).stdout);
-  const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), ...expectedScanIdentity(), expectedRoot: history.commits[0] };
+  const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), ...expectedScanIdentity(), expectedRoot: history.commits[0], wordingListSha256: expectedWordingListSha256() };
   const check = ({ saved = report, refs = 'first', head = history.commits[1], selection = ['--repo', history.dir, '--refs', refs] } = {}) => runCheckReport([
     '--report', writeJson(saved), '--head', head, '--context', writeJson(context), ...selection,
   ]);
@@ -177,7 +177,7 @@ test('a --refs item that is neither a ref name nor a full object id, such as a r
 test('a saved history report made from an object id is not accepted for a revision expression that peels to the same commit, even when the private list holds the expression', () => {
   const history = createHistory([{}, {}]);
   const report = JSON.parse(runRefs(history, history.commits[1], { status: 0, extra: ALLOWED }).stdout);
-  const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), ...expectedScanIdentity(), expectedRoot: history.commits[0] };
+  const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), ...expectedScanIdentity(), expectedRoot: history.commits[0], wordingListSha256: expectedWordingListSha256() };
   const check = (refs) => runCheckReport(['--report', writeJson(report), '--head', history.commits[1], '--context', writeJson(context), '--repo', history.dir, '--refs', refs]);
   assert.equal(check(history.commits[1]).status, 0);
   refused(check('main^{commit}'), 2, 'bad-ref');

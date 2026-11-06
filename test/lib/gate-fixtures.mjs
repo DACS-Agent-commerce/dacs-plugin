@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -109,6 +109,17 @@ export function writeList(entries) {
   return file;
 }
 
+/** An invented entry that no fixture holds; the default wording list holds only this. */
+export const DEFAULT_WORDING_ENTRY = ['xyzzy', 'barred'].join('-');
+
+let defaultWordingList;
+
+/** The wording list that complete and history runs get unless they name their own: one invented entry, written once. */
+export function defaultWordingListFile() {
+  defaultWordingList ??= writeList([DEFAULT_WORDING_ENTRY]);
+  return defaultWordingList;
+}
+
 /** Runs the gate script with `args`, killed after `timeout` ms, and returns { status, stdout, stderr }. */
 export function runGate(args, { env, timeout = 120_000 } = {}) {
   const result = spawnSync(process.execPath, [GATE_SCRIPT, ...args], {
@@ -136,9 +147,12 @@ export function runCheckReport(args) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-/** History-mode arguments; unless `extra` names a scanner, they name the stub that finds nothing. */
+const withWordingList = (extra) => (extra.includes('--wording-list') ? [] : ['--wording-list', defaultWordingListFile()]);
+
+/** History-mode arguments; unless `extra` names a scanner or a wording list, they name the stub that finds nothing and the default wording list. */
 export function historyArgs(history, listFile, extra = [], refs = 'main') {
-  return ['--repo', history.dir, '--refs', refs, '--private-list', listFile, '--expected-root', history.commits[0], ...(extra.includes('--gitleaks') ? [] : cleanScannerArgs()), ...extra];
+  return ['--repo', history.dir, '--refs', refs, '--private-list', listFile, '--expected-root', history.commits[0], ...withWordingList(extra),
+    ...(extra.includes('--gitleaks') ? [] : cleanScannerArgs()), ...extra];
 }
 
 let cleanScanner;
@@ -164,8 +178,18 @@ export function expectedScanIdentity() {
   };
 }
 
+/** The `wordingListSha256` a complete-scope or history report carries for `wordingListFile` (default: the default wording list). */
+export const expectedWordingListSha256 = (wordingListFile = defaultWordingListFile()) => sha256(readFileSync(wordingListFile));
+
+/** Complete-scope gate arguments; unless `extra` names a wording list, they name the default one. */
 export function completeArgs(repo, listFile, extra = []) {
-  return gateArgs(repo, 'complete', ['--private-list', listFile, '--expected-root', repo.commit, ...extra]);
+  return gateArgs(repo, 'complete', ['--private-list', listFile, '--expected-root', repo.commit, ...withWordingList(extra), ...extra]);
+}
+
+/** The absolute paths of the files under `entry` (a path in this repo) that git tracks or would add, so a new file counts before it is committed. */
+export function walkFiles(entry) {
+  const listing = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-co', '--exclude-standard', '--', entry], { encoding: 'utf8' });
+  return listing.split('\n').filter(Boolean).map((file) => path.join(REPO_ROOT, file));
 }
 
 /** Hashes every file under `dir` (including .git) so a test can prove a run changed nothing. */
