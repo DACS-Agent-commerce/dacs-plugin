@@ -19,8 +19,9 @@
 // acknowledged ends the pass, so an unknown confirmation never advances to broadcast.
 // The inner signer's bytes are the only bytes persisted and the only bytes that can be sent; the sign and send steps
 // get an opaque handle, so the pass's byte snapshots (the resume bytes are copied at the start) stay private. A signing
-// pass needs an empty lane; a resume needs the newest record `signed`, `signed-held` or `<stage>-withheld` with the
-// same bytes, and its first stage must be the held or withheld one. Nothing here touches a network, IndexedDB or
+// pass needs an empty lane; a resume needs the newest record `signed`, `signed-held`, `<stage>-withheld` or
+// `confirm-acknowledged` with the same bytes, and its first stage must be the held or withheld one (`broadcast`
+// after an acknowledged confirmation). Nothing here touches a network, IndexedDB or
 // navigator: the Web Locks manager, the clock, the checks and the record store (`head(lane)` -> `{ revision,
 // lastKind, lastStage, signedBytes }`, `append(lane, expectedRevision, record)`) are injected. No page loads this yet.
 
@@ -33,7 +34,7 @@ const FENCE_LOCK_PREFIX = 'dacs-wallet-effects:';
 const CONNECTION_REPLACEMENT_OPERATION = 'connection-replacement';
 const STAGE_NAMES = new Set(['dispatch', 'confirm', 'broadcast']);
 const MAX_CAUSE_MESSAGE_LENGTH = 200;
-const RESUMABLE_KINDS = new Set(['signed', 'signed-held', ...[...STAGE_NAMES].map((name) => `${name}-withheld`)]);
+const RESUMABLE_KINDS = new Set(['signed', 'signed-held', 'confirm-acknowledged', ...[...STAGE_NAMES].map((name) => `${name}-withheld`)]);
 const sameBytes = (a, b) => a instanceof Uint8Array && b instanceof Uint8Array && a.length === b.length && a.every((byte, index) => byte === b[index]);
 
 const SYSTEM_CLOCK = Object.freeze({
@@ -301,7 +302,8 @@ function createLaneCursor(records, lane, identity) {
 async function obtainSignedBytes(pass, cursor, { sign, retained, stages }) {
   const { revision, lastKind, lastStage, signedBytes } = await cursor.head();
   if (retained !== undefined) {
-    if (!RESUMABLE_KINDS.has(lastKind) || (lastStage !== undefined && stages?.[0]?.name !== lastStage) || !sameBytes(retained.bytes, signedBytes)) throw refuse('eb_resume_not_allowed', lastKind);
+    const resumeStage = lastKind === 'confirm-acknowledged' ? 'broadcast' : lastStage;
+    if (!RESUMABLE_KINDS.has(lastKind) || (resumeStage !== undefined && stages?.[0]?.name !== resumeStage) || !sameBytes(retained.bytes, signedBytes)) throw refuse('eb_resume_not_allowed', lastKind);
     await pass.finalStop();
     pass.recheckBeforeEffect();
     return retained.bytes;

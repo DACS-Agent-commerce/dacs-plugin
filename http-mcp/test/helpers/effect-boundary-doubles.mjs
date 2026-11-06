@@ -142,7 +142,7 @@ export function createWorld({ clock = createFakeClock(), locks = createFakeLocks
   const send = (armed, bytes) => ebTransmit(innerSend, armed)(bytes);
 
   const world = {
-    clock, locks, records, events, fence, boundary, state, counts, sent, behavior, background, lane, operationId, sign, send, SIGNED_BYTES,
+    clock, locks, records, events, fence, boundary, checks, state, counts, sent, behavior, background, lane, operationId, sign, send, SIGNED_BYTES,
     on: (kind, call, hook) => hooks[kind].set(call, hook),
     request: (overrides) => ({ operationId, lane, pinVersion: 'pin-1', approvalRevision: 'approval-1', sign, stages: [{ name: 'dispatch', send }], ...overrides }),
     runPass: (overrides) => boundary.runPass(world.request(overrides)),
