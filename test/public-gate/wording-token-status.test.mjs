@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createWordingMatcher, scanWording } from '../../scripts/public-gate/rules-text.mjs';
@@ -18,7 +19,10 @@ const tokens = [
   ['link title', (phrase) => `[label](u "${phrase}")`],
   ['reference title', (phrase) => `[label]: u "${phrase}"`],
 ];
-const gaps = [['space', ' '], ['underscore', '_'], ['emphasis', '**'], ['backtick', '`'], ['soft hyphen', '\u00ad'], ['zero-width space', '\u200b']];
+const gaps = [
+  ['space', ' '], ['underscore', '_'], ['emphasis', '**'], ['backtick', '`'], ['soft hyphen', '\u00ad'], ['zero-width space', '\u200b'],
+  ['no-break space reference', '&nbsp;'], ['escaped underscore', '\\_'], ['escaped emphasis', '\\*'], ['escaped hyphen', '\\-'],
+];
 
 for (const [name, token] of tokens) {
   for (const [label, gap] of gaps) {
@@ -54,6 +58,25 @@ test('wording token status: multiline comments and quoted attributes keep the fi
 test('wording token status: tokens in decoded JSON strings are checked at the literal line', () => {
   const text = JSON.stringify({ description: `<img alt="${EXTERNAL}_${REVIEW}: complete">` }, null, 2);
   assert.deepEqual(findingLines(text, 'manifest.json'), [2]);
+});
+
+test('wording token status: a link destination, reference definition, src or href value, autolink or reference label holding the words is found, as in plain text', () => {
+  for (const name of [`${SECURITY}-${REVIEW}.md`, `${EXTERNAL}_${REVIEW}.png`]) {
+    for (const text of [`[doc](docs/${name})`, `[doc]: docs/${name}`, `<img src="${name}">`, `<a href="https://example.com/${name}">x</a>`, `<https://example.com/${name}>`, `[${name}]: https://example.com`]) {
+      assert.deepEqual(findingLines(text), [1], text);
+    }
+    assert.deepEqual(findingLines(`See docs/${name}.`), [1]);
+  }
+});
+
+test('wording token status: a paragraph of a million short markup tokens is read within a small heap and still finds a status after them', () => {
+  const module = new URL('../../scripts/public-gate/rules-text.mjs', import.meta.url).href;
+  const code = `import { createWordingMatcher, scanWording } from ${JSON.stringify(module)};
+    const matcher = createWordingMatcher(['zzz entry'], () => {});
+    const read = (text) => scanWording({ entries: [{ path: 'a.md', bytes: Buffer.from(text), oid: 'a'.repeat(40), position: 1 }], wordingMatcher: matcher, limits: { maxReportEntries: 100 } }).length;
+    console.log(JSON.stringify([read(']'.repeat(1 << 21)), read('<!-- a -->'.repeat(1 << 18)), read(']'.repeat(1 << 20) + '<!-- ${EXTERNAL}_${REVIEW}: complete -->')]));`;
+  const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  assert.equal(output.trim(), '[0,0,1]');
 });
 
 test('wording token status: rendered approved prose, negative disclaimers, camelCase names and source files still pass', () => {

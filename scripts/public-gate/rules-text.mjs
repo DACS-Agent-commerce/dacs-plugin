@@ -311,16 +311,32 @@ function hasUnknownReference(line) {
 const unknownReferenceLines = (text) => (text.includes('&')
   ? text.split(LINE_BREAK).flatMap((line, index) => (hasUnknownReference(line) ? [index + 1] : [])) : []);
 
+/** The shortest text that can hold a status phrase: two words and a gap of one character. */
+const MIN_STATUS_LENGTH = 'security review'.length;
+/** A backslash that escapes the punctuation character after it, which a Markdown link or reference title does not show. */
+const ESCAPING_BACKSLASH = /\\(?=[!-/:-@[-`{-~])/g;
+
+/** Whether a markup token of `source`, read on its own, states a status other than the approved clause. The token is read with the six known references decoded and
+ * escaping backslashes dropped, then with invisible characters and emphasis removed and as a space. Tokens are read one at a time, and one too short to hold a status
+ * phrase is skipped before it is normalised, so a paragraph of many tokens costs no memory. */
+function hasUnapprovedStatusInToken(source) {
+  for (const [token] of source.matchAll(MARKUP_TOKEN)) {
+    const text = decodeReferences(token).replace(ESCAPING_BACKSLASH, '');
+    if (text.length >= MIN_STATUS_LENGTH && [normalizeProse(text), normalizeProse(text, ' ')].some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view))) return true;
+  }
+  return false;
+}
+
 /** The lines of prose `text` holding a character reference other than the six known ones, or starting a paragraph one of whose views states a status other than the
  * approved clause or, outside a fenced shell command, holds a list entry not wholly inside an approved clause or a disclaimer of that view. */
 function proseFindingLines(text, wordingMatcher) {
   const lines = unknownReferenceLines(text);
   for (const { line, source, isCommand } of paragraphsOf(text)) {
     const [asWritten, ...rendered] = viewsThrough(source, BLOB_READINGS);
-    const statusViews = rendered.length === 0 ? [asWritten] : [...rendered, ...[...source.matchAll(MARKUP_TOKEN)].flatMap(([token]) => [normalizeProse(token), normalizeProse(token, ' ')])];
+    const statusViews = rendered.length === 0 ? [asWritten] : rendered;
     // The same readings with invisible characters and emphasis as a space, so `external_review` and `external**review` still read as two words.
     statusViews.push(...(rendered.length === 0 ? [source] : BLOB_READINGS.slice(1).map((read) => read(source))).map((view) => normalizeProse(view, ' ')));
-    if (statusViews.some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view))
+    if (statusViews.some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view)) || (rendered.length > 0 && hasUnapprovedStatusInToken(source))
       || (!isCommand && [...new Set([asWritten, ...rendered])].some((view) => hasEntryOutside(view, wordingMatcher, exemptSpansOf(view))))) lines.push(line);
   }
   return new Set(lines);
@@ -350,7 +366,8 @@ function manifestFindingLines(text, wordingMatcher) {
 /**
  * R-WORDING: in every text blob that is not source code, read as prose (a `.json` manifest by string literal, keys included), refuses a wording-list entry, a sentence about the
  * review's status other than the approved clause, and a character reference other than `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&nbsp;`. Paragraphs are read
- * with wrapped lines joined, in three views: as written (the six decoded), with markup erased and with each markup token one space. Returns findings { rule, kind: 'content', entry, line }.
+ * with wrapped lines joined, in three views: as written (the six decoded), with markup erased and with each markup token one space; the status check also reads each markup
+ * token on its own. Returns findings { rule, kind: 'content', entry, line }.
  */
 export function scanWording({ entries, wordingMatcher, limits }) {
   const { findings, add } = collectFindings(WORDING_RULE_ID, limits);
