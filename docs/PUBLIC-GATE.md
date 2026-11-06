@@ -55,6 +55,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   Markup is HTML comments and tags (attributes included), Markdown link destinations, reference labels and definitions, link brackets, block-quote
   marks, escaping backslashes and character references; any other character reference fails (write the character). A list entry fails unless it
   lies wholly inside the approved clause or a disclaimer of the same view; the body of a closed fence whose language is a shell may hold entries.
+  In a status phrase, white space, any dash and `_`, `*` or a backtick between the words count as a gap (a camelCase name has none).
   A sentence about the review's status (in the erased and spaced views and in each markup token) passes only as the approved clause
   (case-insensitive, no reason added; never inside a token) or a negative disclaimer; clauses end at sentence ends, semicolons and parentheses. In history mode the list is also matched, with no exemption and no status check, in commit
   and tag messages and headers (continuation lines joined to their header) as written and in `--pr-text` in all three views.

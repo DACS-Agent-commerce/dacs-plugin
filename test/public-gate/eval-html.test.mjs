@@ -84,7 +84,7 @@ test('eval HTML :: every non-exact row fails closed in generic, complete and his
   ];
   // R-WORDING (complete scope and history) refuses the rows holding a character reference other than the six it reads; `&quot;` is one of those six.
   // A complete-scope report gives every rule the status `findings` once any rule finds something; history gives each rule its own.
-  const referenceLabels = ['named parentheses entities', 'named whitespace entity', 'numeric entity', 'hexadecimal entity'];
+  const referenceLabels = ['named parentheses entities', 'named whitespace entity', 'numeric entity', 'hexadecimal entity', 'numeric entities in an svg script'];
   const statusOf = (report, id) => report.rules.find((rule) => rule.id === id).status;
   for (const [mode, run, commit] of cases) await t.test(mode, () => {
     const result = run();
