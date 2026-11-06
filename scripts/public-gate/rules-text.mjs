@@ -221,9 +221,11 @@ const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)$/;
 /** Source files, which R-WORDING does not read: the files the address rule reads as code, and the two source extensions it leaves out that R-EVAL parses. */
 const SOURCE_EXTENSIONS = new Set([...CODE_EXTENSIONS, '.jsx', '.cts']);
 const markupAs = (filler) => (text) => text.replace(MARKUP_TOKEN, (token) => (token === '\\' ? '' : filler));
-/** How metadata is read (as written) and, with markup, pull-request text and blobs; a blob as written has the six known references decoded. */
-const [METADATA_READINGS, MARKUP_READINGS] = [[(text) => text], [(text) => text, markupAs(''), markupAs(' ')]];
-const BLOB_READINGS = [(text) => text.replace(CHARACTER_REFERENCE, (reference) => KNOWN_REFERENCES.get(reference) ?? reference), markupAs(''), markupAs(' ')];
+const decodeReferences = (text) => text.replace(CHARACTER_REFERENCE, (reference) => KNOWN_REFERENCES.get(reference) ?? reference);
+/** How metadata is read (as written) and, with markup, pull-request text and blobs; text with markup as written has the six known references decoded. */
+const METADATA_READINGS = [(text) => text];
+const BLOB_READINGS = [decodeReferences, markupAs(''), markupAs(' ')];
+const MARKUP_READINGS = BLOB_READINGS;
 
 /** Text as the wording rule reads it: invisible characters and emphasis replaced by `filler` (nothing for the list, a space for the status words), each run of Unicode white space one space. */
 const normalizeProse = (text, filler = '') => text.replace(IGNORED_CHARACTERS, filler).replace(/\p{White_Space}+/gu, ' ').trim();
@@ -299,10 +301,14 @@ function hasUnapprovedStatus(paragraph) {
     : STATUS_TRIGGER.test(clause.text.replace(DISCLAIMER, ' '))));
 }
 
+/** The lines of `text` holding a character reference other than the six known ones. */
+const unknownReferenceLines = (text) => (text.includes('&')
+  ? text.split(LINE_BREAK).flatMap((line, index) => ([...line.matchAll(CHARACTER_REFERENCE)].some(([reference]) => !KNOWN_REFERENCES.has(reference)) ? [index + 1] : [])) : []);
+
 /** The lines of prose `text` holding a character reference other than the six known ones, or starting a paragraph one of whose views states a status other than the
  * approved clause or, outside a fenced shell command, holds a list entry not wholly inside an approved clause or a disclaimer of that view. */
 function proseFindingLines(text, wordingMatcher) {
-  const lines = text.includes('&') ? text.split(LINE_BREAK).flatMap((line, index) => ([...line.matchAll(CHARACTER_REFERENCE)].some(([reference]) => !KNOWN_REFERENCES.has(reference)) ? [index + 1] : [])) : [];
+  const lines = unknownReferenceLines(text);
   for (const { line, source, isCommand } of paragraphsOf(text)) {
     const [asWritten, ...rendered] = viewsThrough(source, BLOB_READINGS);
     const statusViews = rendered.length === 0 ? [asWritten] : [...rendered];
@@ -352,6 +358,9 @@ export function scanWording({ entries, wordingMatcher, limits }) {
 }
 
 /** The 1-based lines of the first `maxLines` paragraphs of commit or tag text, a header or (with `readMarkup`) pull-request text that hold a list entry, read as
- * written with wrapped lines joined and, with `readMarkup`, also with markup erased and spaced. No span is exempt and no status is checked. */
-export const wordingEntryLines = (text, wordingMatcher, maxLines, { readMarkup = false } = {}) => paragraphsOf(text)
-  .filter(({ source }) => viewsThrough(source, readMarkup ? MARKUP_READINGS : METADATA_READINGS).some((view) => wordingMatcher.hasEntry(view))).map(({ line }) => line).slice(0, maxLines);
+ * written with wrapped lines joined and, with `readMarkup`, also with the six known character references decoded and markup erased and spaced; with `readMarkup`
+ * also the lines holding any other character reference, as for a blob. No span is exempt and no status is checked. */
+export const wordingEntryLines = (text, wordingMatcher, maxLines, { readMarkup = false } = {}) => [...new Set([
+  ...(readMarkup ? unknownReferenceLines(text) : []),
+  ...paragraphsOf(text).filter(({ source }) => viewsThrough(source, readMarkup ? MARKUP_READINGS : METADATA_READINGS).some((view) => wordingMatcher.hasEntry(view))).map(({ line }) => line),
+])].sort((first, second) => first - second).slice(0, maxLines);
