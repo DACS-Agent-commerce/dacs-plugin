@@ -175,8 +175,10 @@ path reads key material into a tool result in the first place.
    because approval links carry a bearer token. Make that address reachable only
    from your own devices, for example over a private tailnet.
 7. **Purchase-only marker timing.** A `<keystore>.purchase-only` marker is
-   checked at each onboarding step and before every signature, so one created
-   while the server runs takes effect. The check is not atomic with another
+   checked at each onboarding step, immediately before the SDK loads the key,
+   again once the wallet has finished opening, and before every signature, so
+   one created while the server runs takes effect, including during a wallet
+   open already in progress. The check is not atomic with another
    process: a marker written while a wallet is being created may let that
    creation finish (its phrase is shown once, then the fence refuses any later
    reveal) or may undo it. A marker present at start-up keeps the write and
