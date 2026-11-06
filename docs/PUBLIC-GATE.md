@@ -56,7 +56,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   marks, escaping backslashes and character references; any other character reference fails (write the character). A list entry fails unless it
   lies wholly inside the approved clause or a disclaimer of the same view; the body of a closed fence whose language is a shell may hold entries.
   In a status phrase, white space, a Unicode dash (`Pd`), invisible format characters and `_`, `*` or a backtick between the words count as a gap (a camelCase name has none).
-  A sentence about the review's status (in the erased and spaced views and in each markup token) passes only as the approved clause
+  A sentence about the review's status (in the erased and spaced views and in each markup token, read with the six references decoded and escaping backslashes dropped; a token is a comment, a tag with its attributes, a link destination, title or label, so a URL or file name holding the words fails as it does in plain text) passes only as the approved clause
   (case-insensitive, no reason added; never inside a token) or a negative disclaimer; clauses end at sentence ends, semicolons and parentheses. In history mode the list is also matched, with no exemption and no status check, in commit
   and tag messages and headers (continuation lines joined to their header) as written and in `--pr-text` in all three views (the first with the six references decoded; any other character reference there fails, as in a blob).
 - **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
