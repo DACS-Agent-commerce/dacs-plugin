@@ -1,0 +1,117 @@
+name: http-mcp tests
+
+on:
+  pull_request:
+    paths:
+      - 'http-mcp/**'
+      - '.github/workflows/http-mcp-tests.yml'
+      - 'scripts/ci/**'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
+    branches: [main]
+    paths:
+      - 'http-mcp/**'
+      - '.github/workflows/http-mcp-tests.yml'
+      - 'scripts/ci/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push to a pull request cancels its running test. Each push to main gets
+  # its own group, so a later push neither cancels nor replaces a pending run.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    # Pin the job's userland and browser bytes; the hosted runner only supplies Docker.
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble@sha256:f1e7e01021efd65dd1a2c56064be399f3e4de00fd021ac561325f2bfbb2b837a
+      options: --init --ipc=host
+    # Files must exit on their own (no --test-force-exit); some keep handles open for
+    # minutes after their last test. A full run took 64 minutes on GitHub.
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: http-mcp
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.23.3'
+          cache: npm
+          cache-dependency-path: |
+            http-mcp/package-lock.json
+            http-mcp/wallet-build/package-lock.json
+      # An SDK input that cannot be verified stops the job here, as unverifiable and not as a test failure,
+      # before any install; a forbidden input is refused. Nothing in this job skips or tolerates this step.
+      - name: Validate the SDK input before the http-mcp install
+        run: node ../scripts/ci/sdk-input.mjs --prepare http-mcp
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate the SDK input before the wallet-build install
+        run: node ../scripts/ci/sdk-input.mjs --prepare http-mcp
+      # The embedded wallet's payment and broadcast tests need the pinned Demos SDK.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: http-mcp/wallet-build
+      # The CLI payment and recovery tests exercise programmatic purchase recovery on a terminal with /usr/bin/expect.
+      - name: Install the pinned terminal driver
+        run: |
+          # Resolve every additional package against one signed, immutable Ubuntu snapshot.
+          apt_root=$(mktemp -d)
+          trap 'rm -rf "$apt_root"' EXIT
+          mkdir -p "$apt_root/lists/partial"
+          echo 'deb [check-valid-until=no signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://snapshot.ubuntu.com/ubuntu/20251020T000000Z noble main universe' > "$apt_root/sources.list"
+          apt_options=(-o "Dir::Etc::sourcelist=$apt_root/sources.list" -o 'Dir::Etc::sourceparts=-' -o "Dir::State::lists=$apt_root/lists")
+          apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
+          apt-get "${apt_options[@]}" install -y --no-install-recommends expect=5.45.4-3 tcl-expect=5.45.4-3
+      # The image contains the browsers for the locked playwright-core version.
+      - name: Select the pinned Chromium
+        run: |
+          echo "DACS_TEST_CHROME=$(node -p "require('playwright-core').chromium.executablePath()")" >> "$GITHUB_ENV"
+      # Record the container pin and host image separately.
+      - name: Record the runner image
+        run: |
+          {
+            echo "- container: mcr.microsoft.com/playwright:v1.56.1-noble@sha256:f1e7e01021efd65dd1a2c56064be399f3e4de00fd021ac561325f2bfbb2b837a"
+            echo "- host image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+            echo "- chromium: $("$DACS_TEST_CHROME" --version 2>/dev/null || echo unavailable) ($DACS_TEST_CHROME)"
+            echo "- expect: $(dpkg-query -W -f='${Version}' expect)"
+          } > test-results.runner.txt
+          { echo "## Runner"; echo; cat test-results.runner.txt; } >> "$GITHUB_STEP_SUMMARY"
+      # Root bypasses the file permissions that the suite checks. Keep setup
+      # privileged, then give the checkout and npm HOME to the image's pwuser.
+      - name: Prepare the test user
+        run: |
+          test "$(id -u pwuser)" = 1001
+          test "$(id -g pwuser)" = 1001
+          command -v setpriv
+          chown -R 1001:1001 "$GITHUB_WORKSPACE" "$HOME"
+      - name: Run tests as pwuser
+        run: |
+          setpriv --reuid=1001 --regid=1001 --clear-groups bash -c '
+            umask 0022
+            {
+              echo "- test uid: $(id -u)"
+              echo "- test gid: $(id -g)"
+              echo "- test umask: $(umask)"
+            } | tee -a test-results.runner.txt >> "$GITHUB_STEP_SUMMARY"
+            exec npm run test:ci
+          '
+      - name: Upload per-file results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: http-mcp-test-results
+          path: |
+            http-mcp/test-results.runner.txt
+            http-mcp/test-results.jsonl
+            http-mcp/test-results.jsonl.failures/*.tap
+          if-no-files-found: warn

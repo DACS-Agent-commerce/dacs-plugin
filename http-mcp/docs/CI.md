@@ -1,8 +1,9 @@
 # Plugin test CI
 
-**State of this repository.** The workflow described below, `deploy/` (including
-`deploy/test/`) and the frozen seller reference are not carried here, and many
-test files cannot load (see `PROVENANCE.md`, "Not carried"). `npm run test:ci`
+**State of this repository.** The workflow described below is
+`.github/workflows/http-mcp-tests.yml`. `deploy/` (including `deploy/test/`) is
+not carried here, and many test files cannot load (see `PROVENANCE.md`, "Not
+carried"). `npm run test:ci`
 runs every file under `test/`, browser files included; a file that cannot load
 because a module it imports is not carried fails, unless the baseline holds a
 `[carry-over]` entry for it (see "Carry-over entries" below). The
@@ -10,12 +11,22 @@ description below is of the source repository's CI; the counts of baseline
 entries and runs it once gave are removed because they do not hold here.
 
 The `http-mcp tests` GitHub Actions workflow runs on every pull request and push
-to `main` that changes `http-mcp/**` or the workflow itself. It runs on the
+to `main` that changes `http-mcp/**`, the workflow itself, `scripts/ci/**` or the
+root `package.json` and `package-lock.json` (the shared validation tool and its
+inputs). It runs on the
 `ubuntu-24.04` host, with tests inside the digest-pinned Playwright 1.56.1 Noble
 container declared in the workflow, Node `22.23.3` and
 `npm ci --ignore-scripts --no-audit --no-fund`, in `http-mcp/` and in
 `http-mcp/wallet-build/` (the pinned Demos SDK the embedded wallet's payment and
-broadcast tests need), plus the frozen seller reference described below. It
+broadcast tests need). Before each of those two installs the job runs
+`node ../scripts/ci/sdk-input.mjs --prepare http-mcp`, and the `public-gate`
+workflow runs `node scripts/ci/sdk-input.mjs --prepare root` before its root
+install. A forbidden SDK input (a path, `file:`, `link:` or vendored spec or
+resolution) fails that step with status 1 (`sdk-input-refused`); an input that
+is unavailable or cannot be verified fails it with status 2
+(`sdk-input-unavailable`). Either way no install and no test runs, and the job's
+failure is the validation step's, not a test failure. Until the SDK input is
+published the `http-mcp` job is red at this step by design. It
 installs `expect` and `tcl-expect` at `5.45.4-3`,
 resolving their dependencies only from Ubuntu's signed `20251020T000000Z`
 snapshot with isolated apt sources and lists. The CLI payment and recovery tests
@@ -28,7 +39,7 @@ digest, host image version, Chromium version and `expect` version to the summary
 and the artifact (`test-results.runner.txt`), together with the test uid, gid and
 umask. The checkout, setup-node and
 upload-artifact actions are pinned by commit SHA (the `v4` commits the first
-runs resolved), with the exact tag in a comment. The seller checkout uses the
+runs resolved), with the exact tag in a comment. The checkout uses the
 default read-only `GITHUB_TOKEN` with `persist-credentials: false`; no additional
 secret is needed. No server is deployed. Runtime configuration and write protections are
 unchanged. These `v4` actions target Node 20, which GitHub has deprecated: it
@@ -238,34 +249,6 @@ It does not describe this repository. The test file needs modules that are not
 carried, so it fails at load here and the entry excuses nothing. It stays
 because `test/run-test-files.test.mjs` reads it. It is not a list of the
 failures in this tree, which are far more numerous.
-
-### Frozen seller reference
-
-17 cases use the unchanged Demo seller reference: 10 in
-`agreement-context-integration`, 6 in `agreement-context-interactions` and 1 in
-`dacs-current-broker-interactions`. CI fetches `seller-reference-dbe07f9c` from
-`${{ github.repository }}` with a second `actions/checkout`, into
-`$GITHUB_WORKSPACE/seller-reference`. The approved tag points to the
-frozen reference commit. Its root contains `v2/` and
-`vendor/`. CI installs its locked dependencies with
-`npm ci --ignore-scripts --no-audit --no-fund` in
-`seller-reference/v2/seller/`, and sets the job's
-`DACS_SELLER_INTEROP_REFERENCE` to the absolute checkout path.
-
-Before importing any reference code, both loaders require exactly 17 files,
-manifest SHA-256
-`dbe07f9c9cff45fa2a4af106b80614ce59c5ac19b9acf5c147aa315c78a298bf`
-and the pinned SDK archive hash. The manifest maps sorted relative paths to
-file SHA-256 values and hashes its JSON serialization. Checkout metadata
-(`.git`, `.DS_Store`) and installed `node_modules` are excluded. The digest is
-the trust anchor: moving the tag to different artifact bytes fails the tests.
-Missing references and changed digests have no baseline allowance; all 17 cases
-must reach their substantive assertions for CI to pass.
-
-For a local checkout of that tag, install its dependencies as above, then set
-`DACS_SELLER_INTEROP_REFERENCE` to its absolute root before running the tests.
-The `ci-environment` regressions check the workflow wiring and verify that both
-loaders reject an absent directory and changed bytes in a 17-file git checkout.
 
 ## Rebuild the baseline after each main merge
 
