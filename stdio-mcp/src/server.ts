@@ -181,6 +181,8 @@ export function createServer(deps: Deps): McpServer {
   const policyFacts = (args: any) => ({category: args?.deliverable?.deliverableType ?? args?.offering?.category,
     private_data: args?.contains_private_data === true, minimal: args?.minimal_private_data === true});
   const requireDecision = (r: any) => { if (r.decision === 'stop' || r.decision === 'refuse') throw new Error(`alignment ${r.decision}: ${r.rules.join(',')} (${r.outcome})`); };
+  /** A staged tool's own failure result must fail the approved action, not be reported inside a `signed` receipt. */
+  const throwIfToolFailed = (result: any) => { if (result?.isError) throw new Error(String(result.content?.[0]?.text ?? 'tool failed').replace(/^Error: /, '')); return result; };
   // Installed before keyless/onboarding registration. All transports inherit this wrapper.
   const registerTool = server.registerTool.bind(server) as any;
   (server as any).registerTool = (name: string, spec: any, handler: any) => registerTool(name,
@@ -197,7 +199,7 @@ export function createServer(deps: Deps): McpServer {
           // Effectful onboarding also uses the existing off-chat exact-action channel.
           return ok(await requestContext.run({name, args}, () => stage(name,
             {headline: name, rows: [['action', name]], digest: ''}, [], {args}, 0n,
-            async () => ({output: {result: await handler(args, extra)}, actualSpendOs: 0n}), {args})));
+            async () => ({output: {result: throwIfToolFailed(await handler(args, extra))}, actualSpendOs: 0n}), {args})));
         }
         return await requestContext.run({name, args}, () => handler(args, extra));
       } catch(e) { return fail(e); }
@@ -234,16 +236,21 @@ export function createServer(deps: Deps): McpServer {
     }
   };
 
-  const getWallet = async (): Promise<Wallet> => {
-    // rechecked on every use: a keystore fenced after startup blocks an already-open wallet
+  const assertNotFenced = (): void => {
     const current = writeBlocker(config);
     if (current) throw new Error(current);
+  };
+  const getWallet = async (): Promise<Wallet> => {
+    // rechecked on every use: a keystore fenced after startup blocks an already-open wallet
+    assertNotFenced();
     if (!wallet) {
       walletPromise ??= deps.openWallet().catch((e) => {
         walletPromise = null;
         throw e;
       });
       wallet = await walletPromise;
+      // the open was awaited: a marker added meanwhile must stop the handler before it signs
+      assertNotFenced();
     }
     return wallet;
   };

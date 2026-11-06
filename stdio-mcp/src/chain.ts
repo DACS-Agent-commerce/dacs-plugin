@@ -310,11 +310,16 @@ export class DemosChain implements ChainReader {
     }
   }
 
-  /** Create the signing wallet. Called only after a write is requested and policy allows it. */
-  async openWallet(mnemonic: string): Promise<Wallet> {
+  /**
+   * Create the signing wallet. Called only after a write is requested and policy allows it.
+   * `beforeKeyLoad` runs after the node connection and immediately before the SDK loads the key;
+   * if it throws, no key is loaded and the error is rethrown.
+   */
+  async openWallet(mnemonic: string, beforeKeyLoad?: () => void): Promise<Wallet> {
     try {
       const d = new Demos();
       await d.connect(this.rpcUrl);
+      beforeKeyLoad?.();
       await d.connectWallet(mnemonic);
       // register derived key material so it can never leave through an output (required, not best effort)
       const kp = (await (d as any).crypto?.getIdentity?.('ed25519').catch(() => null)) as { privateKey?: Uint8Array } | null;

@@ -6,10 +6,14 @@ import type { SecretGuard } from './secrets.js';
 import type { DemosChain } from './chain.js';
 
 export function createLegacyWalletOpener(config: Config, guard: SecretGuard, chain: Pick<DemosChain, 'openWallet'>) {
-  return async () => {
+  /** Throws when writes are stopped or the wallet is fenced; evaluated at each call, never cached. */
+  const assertWalletMayOpen = (): void => {
     if (['KILL', 'STOP'].some((marker) => markerPresent(join(config.stateDir, marker)))) throw new Error('Writes are stopped');
     const blocker = writeBlocker(config);
     if (blocker) throw new Error(blocker);
-    return chain.openWallet(loadMnemonic(config, guard));
+  };
+  return async () => {
+    assertWalletMayOpen();
+    return chain.openWallet(loadMnemonic(config, guard), assertWalletMayOpen);
   };
 }
