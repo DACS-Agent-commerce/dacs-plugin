@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { REPO_ROOT, makeTempDir, snapshotTree } from '../lib/gate-fixtures.mjs';
@@ -283,4 +283,89 @@ test('on the real carried manifest-and-lock pairs, http-mcp is legacy-unavailabl
       assert.ok(result.report.roots.some((entry) => entry.state === 'refused' && entry.cause === 'local-path-spec'));
     });
   }
+});
+
+const manifestOf = (c, root) => c.files[root]['package.json'];
+const lockRootOf = (c, root) => c.files[root]['package-lock.json'].packages[''];
+
+const LOCK_DISAGREEMENTS = [
+  ['a manifest version newer than the lock root entry and the lock record', (c, root) => { addPublished(c, root); manifestOf(c, root).dependencies[DEMOSDK] = '4.0.18'; }],
+  ['a manifest and lock root entry newer than the lock record', (c, root) => { addPublished(c, root); manifestOf(c, root).dependencies[DEMOSDK] = '4.0.18'; lockRootOf(c, root).dependencies[DEMOSDK] = '4.0.18'; }],
+  ['a lock root entry that differs from the manifest and the lock record', (c, root) => { addPublished(c, root); lockRootOf(c, root).dependencies[DEMOSDK] = '4.0.18'; }],
+  ['a manifest devDependencies entry the lock root lists under dependencies', (c, root) => {
+    addPublished(c, root);
+    delete manifestOf(c, root).dependencies[DEMOSDK];
+    manifestOf(c, root).devDependencies = { [DEMOSDK]: '4.0.16' };
+  }],
+  ['a lock root SDK entry the manifest lacks', (c, root) => { addPublished(c, root); delete manifestOf(c, root).dependencies[DEMOSDK]; }],
+  ['one SDK dependency at two exact versions in two manifest sections', (c, root) => {
+    addPublished(c, root);
+    manifestOf(c, root).devDependencies = { [DEMOSDK]: '4.0.17' };
+    lockRootOf(c, root).devDependencies = { [DEMOSDK]: '4.0.17' };
+  }],
+  ['a lock without a root entry', (c, root) => { addPublished(c, root); delete c.files[root]['package-lock.json'].packages['']; }],
+];
+
+test('a manifest SDK pin that the lock root entry or the lock record does not repeat is unverifiable, not published', async (t) => {
+  for (const root of ROOTS) {
+    for (const [label, plant] of LOCK_DISAGREEMENTS) {
+      await t.test(`${label} in ${root} is unverifiable with lock-version-mismatch before any npm call`, () => {
+        const checkout = makeCheckout();
+        plant(checkout, root);
+        const result = runSdkInput(['--prepare', 'root'], writeCheckout(checkout));
+        assert.equal(result.status, 2, result.stderr);
+        assert.deepEqual(stateOf(result, root), { root, state: 'unverifiable', cause: 'lock-version-mismatch' });
+        assert.equal(result.npmCalls, '');
+      });
+    }
+  }
+
+  await t.test('the recorded legacy entry with a lock root entry of another spec is unverifiable', () => {
+    const checkout = makeCheckout();
+    lockRootOf(checkout, 'http-mcp').dependencies[`${SDK_SCOPE}/dacs`] = '0.1.0-alpha.0';
+    const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+    assert.equal(result.status, 2, result.stderr);
+    assert.deepEqual(stateOf(result, 'http-mcp'), { root: 'http-mcp', state: 'unverifiable', cause: 'lock-version-mismatch' });
+  });
+});
+
+/** Writes a sparse file of `size` bytes of zeros. */
+function writeSparse(file, size) {
+  const descriptor = openSync(file, 'w');
+  ftruncateSync(descriptor, size);
+  closeSync(descriptor);
+}
+
+/** The sha512 pin of `size` zero bytes. */
+function zerosIntegrity(size) {
+  const hash = createHash('sha512');
+  const chunk = Buffer.alloc(1024 * 1024);
+  for (let left = size; left > 0; left -= chunk.length) hash.update(chunk.subarray(0, Math.min(left, chunk.length)));
+  return `sha512-${hash.digest('base64')}`;
+}
+
+test('a candidate archive over the size cap is unverifiable even when its pin matches the bytes before the cap, and one at the cap is hashed whole', async (t) => {
+  const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
+  const stage = (size, pinnedBytes) => {
+    const checkout = makeCheckout();
+    const candidates = makeTempDir('candidates');
+    sdkRecord(checkout, 'stdio-mcp').integrity = zerosIntegrity(pinnedBytes);
+    writeSparse(path.join(candidates, 'kynesyslabs-demosdk-4.0.17.tgz'), size);
+    return runSdkInput(['--prepare', 'stdio', '--candidate-dir', candidates], writeCheckout(checkout));
+  };
+
+  await t.test('an archive one byte over the cap is unverifiable with its size cause, though its pin matches the first cap-plus-one bytes', () => {
+    const result = stage(MAX_ARCHIVE_BYTES + 1, MAX_ARCHIVE_BYTES + 1);
+    assert.equal(result.status, 2, result.stderr);
+    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'unverifiable', cause: 'candidate-archive-too-large' });
+  });
+
+  await t.test('an archive at the cap is accepted only when the pin matches all of its bytes', () => {
+    const result = stage(MAX_ARCHIVE_BYTES, MAX_ARCHIVE_BYTES);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(stateOf(result, 'stdio-mcp').state, 'candidate');
+    const wrong = stage(MAX_ARCHIVE_BYTES, MAX_ARCHIVE_BYTES - 1);
+    assert.equal(wrong.status, 2);
+    assert.equal(stateOf(wrong, 'stdio-mcp').cause, 'candidate-archive-sha512-mismatch');
+  });
 });

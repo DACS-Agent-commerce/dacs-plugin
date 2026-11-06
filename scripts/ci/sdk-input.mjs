@@ -80,14 +80,14 @@ function classifyConstraint(spec) {
   return isLocalSpec(spec) ? LOCAL_SPEC : null;
 }
 
-function classifyDirectSpec(rootPath, name, spec) {
+function classifyDirectSpec(rootPath, section, name, spec) {
   const constraint = classifyConstraint(spec);
-  if (constraint) return isRecordedLegacy(rootPath, name, spec) ? { ...LEGACY, name } : constraint;
-  return EXACT_VERSION.test(spec) ? { state: 'published', cause: 'registry-exact-version-with-integrity', name } : UNCLASSIFIABLE;
+  if (constraint) return isRecordedLegacy(rootPath, name, spec) ? { ...LEGACY, name, section, spec } : constraint;
+  return EXACT_VERSION.test(spec) ? { state: 'published', cause: 'registry-exact-version-with-integrity', name, section, spec } : UNCLASSIFIABLE;
 }
 
 function classifyManifest(rootPath, manifest) {
-  const direct = DIRECT_SECTIONS.flatMap((section) => sdkEntries(manifest[section], 'manifest').map(([name, spec]) => classifyDirectSpec(rootPath, name, spec)));
+  const direct = DIRECT_SECTIONS.flatMap((section) => sdkEntries(manifest[section], 'manifest').map(([name, spec]) => classifyDirectSpec(rootPath, section, name, spec)));
   const constraints = ['peerDependencies', 'overrides'].flatMap((section) => sdkEntries(manifest[section], 'manifest').map(([, spec]) => classifyConstraint(spec)));
   return [...direct, ...constraints].filter(Boolean);
 }
@@ -120,6 +120,16 @@ function classifyLock(rootPath, lock) {
   }).filter(Boolean);
 }
 
+/** True when the lock pins an SDK dependency differently from the manifest: a lock root entry that differs or is missing in either direction, or a registry record of another version. */
+function lockDisagrees(manifest, lock, manifestFindings) {
+  const lockRoot = lock.packages[''] ?? {};
+  const rootDiffers = DIRECT_SECTIONS.some((section) => {
+    const names = new Set([...sdkEntries(manifest[section], 'manifest'), ...sdkEntries(lockRoot[section], 'lock')].map(([name]) => name));
+    return [...names].some((name) => manifest[section]?.[name] !== lockRoot[section]?.[name]);
+  });
+  return rootDiffers || manifestFindings.some(({ state, name, spec }) => state === 'published' && lock.packages[`node_modules/${name}`]?.version !== spec);
+}
+
 /** A committed SDK archive: any archive file at the root's top level or in its `vendor` folder. */
 async function findCommittedArchive(dir) {
   for (const folder of [dir, path.join(dir, 'vendor')]) {
@@ -139,10 +149,13 @@ async function checkRootPolicy(repo, { path: rootPath, optional }) {
   if (!present) return { root: rootPath, ...(optional ? { state: 'absent', cause: 'optional-root-absent' } : unverifiable('root-absent')), records: [] };
   const findings = await findCommittedArchive(dir).catch((error) => [unverifiable(error.cause)]);
   try {
-    const manifestFindings = classifyManifest(rootPath, await readJsonObject(path.join(dir, 'package.json'), 'manifest'));
+    const manifest = await readJsonObject(path.join(dir, 'package.json'), 'manifest');
+    const manifestFindings = classifyManifest(rootPath, manifest);
     const lock = await readJsonObject(path.join(dir, 'package-lock.json'), 'lock');
     const missing = manifestFindings.some(({ name }) => name !== undefined && !isPlainObject(lock.packages?.[`node_modules/${name}`]));
-    findings.push(...manifestFindings, ...classifyLock(rootPath, lock), ...(missing ? [unverifiable('lock-record-missing')] : []));
+    const lockFindings = classifyLock(rootPath, lock);
+    findings.push(...manifestFindings, ...lockFindings, ...(missing ? [unverifiable('lock-record-missing')] : []),
+      ...(lockDisagrees(manifest, lock, manifestFindings) ? [unverifiable('lock-version-mismatch')] : []));
   } catch (error) {
     if (!(error instanceof GateInputError)) throw error;
     findings.push(unverifiable(error.cause));
@@ -153,16 +166,17 @@ async function checkRootPolicy(repo, { path: rootPath, optional }) {
 
 async function sha512Integrity(file) {
   const hash = createHash('sha512');
-  for await (const chunk of createReadStream(file, { end: MAX_ARCHIVE_BYTES })) hash.update(chunk);
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
   return `sha512-${hash.digest('base64')}`;
 }
 
-/** Returns the finding for a root's registry records against the archives in `candidateDir`: each archive must exist and match its lock sha512. */
+/** Returns the finding for a root's registry records against the archives in `candidateDir`: each archive must exist, be at most MAX_ARCHIVE_BYTES and match its lock sha512 over every byte. */
 async function checkCandidateArchives(candidateDir, records) {
   for (const record of records) {
     const file = path.join(candidateDir, candidateArchiveName(record));
     const found = await lstat(file).catch(() => null);
     if (!found?.isFile()) return unverifiable('candidate-archive-missing');
+    if (found.size > MAX_ARCHIVE_BYTES) return unverifiable('candidate-archive-too-large');
     if (await sha512Integrity(file) !== record.integrity) return unverifiable('candidate-archive-sha512-mismatch');
   }
   return { state: 'candidate', cause: 'candidate-archive-sha512-match' };
