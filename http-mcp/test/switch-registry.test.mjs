@@ -8,10 +8,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ConfigError, SWITCHES, loadConfig } from '../src/config.mjs';
-import { envContract, readSwitchRegistry, switchContractEntry } from '../deploy/scripts/lib/rules.mjs';
-import { contractView, runtimeNames } from './helpers/env-contract-view.mjs';
+import { envContract, readSwitchRegistry } from './helpers/env-contract-view.mjs';
 
 const base = { DACS_PUBLIC_ORIGIN: 'https://plugin.example', DACS_OAUTH_COOKIE_KEYS: 'k'.repeat(32) };
+const PACKAGE_ROOT = fileURLToPath(new URL('../', import.meta.url));
+// The contract view of the switch files alone, without static entries.
+const switchView = () => envContract({ contractVersion: 2, derivedFrom: {}, variables: {} }, PACKAGE_ROOT).variables;
 const SRC = new URL('../src/', import.meta.url);
 // Only the switches that existed when the files were introduced are named
 // here, so adding a switch never edits this test.
@@ -19,13 +21,16 @@ const ENUMS = ['DACS_SHOWCASE_RECEIPT', 'DACS_SELLER_WRITE_BATCHES', 'DACS_DELIV
 const SEVEN = [...ENUMS, 'DACS_SHOWCASE_LEDGER', 'DACS_SHOWCASE_PUBLICATION_VIEW', 'DACS_WALLET_EXTENSION_PROBE'];
 const among = (switches, names) => switches.map((s) => s.env).filter((env) => names.includes(env));
 
-test('every switch file is in the contract view, and its entry matches its runtime parsing', () => {
-  const contract = contractView();
-  assert.deepEqual(Object.keys(contract.variables).sort(), runtimeNames());
+test('every switch is parsed by config and documented in SWITCHES.md', () => {
+  const docs = readFileSync(new URL('../docs/SWITCHES.md', import.meta.url), 'utf8');
+  const view = switchView();
+  assert.deepEqual(Object.keys(view).sort(), SWITCHES.map((s) => s.env).sort());
   assert.ok(SWITCHES.length >= 7);
   for (const s of SWITCHES) {
-    const entry = contract.variables[s.env];
-    assert.deepEqual(entry, switchContractEntry(s), s.env);
+    // The operator documentation is the file's operatorNote, and every field of the file is described in the schema table.
+    assert.ok(s.operatorNote, `${s.env} has an operatorNote`);
+    for (const field of Object.keys(s)) assert.ok(docs.includes(`| \`${field}\` |`), `${s.env}: SWITCHES.md describes ${field}`);
+    const entry = view[s.env];
     assert.equal(entry.operator, true, s.env);
     const parse = (value) => loadConfig({ ...base, [s.env]: value })[s.configKey];
     if (s.kind === 'flag') {
@@ -48,7 +53,7 @@ test('every switch file is in the contract view, and its entry matches its runti
 });
 
 test('today\'s seven switches keep their exact contract entries and config keys', () => {
-  const v = contractView().variables;
+  const v = switchView();
   const offOn = { kind: 'enum', values: ['off', 'on'], default: 'off', deployValue: 'off', operator: true };
   assert.deepEqual(v.DACS_SHOWCASE_RECEIPT, offOn);
   assert.deepEqual(v.DACS_DELIVERY_DEADLINE_WATCH, offOn);
@@ -221,13 +226,13 @@ test('a flag may hold 1: exactly 1 is refused with its message, anything else is
 test('a switch file named like a static env-contract.json entry is refused by the contract view', (t) => {
   const box = sandbox(t);
   box.write('DACS_TRUST_PROXY.switch', { env: 'DACS_TRUST_PROXY', configKey: 'trustProxyShadow', kind: 'flag', default: '0', deployValue: null, operatorNote: 'Fixture shadow.' });
-  const contract = JSON.parse(readFileSync(new URL('../deploy/env-contract.json', import.meta.url), 'utf8'));
+  const contract = { contractVersion: 2, derivedFrom: {}, variables: { DACS_TRUST_PROXY: { kind: 'flag', default: '0', operator: true } } };
   assert.throws(() => envContract(contract, box.dir), { message: 'src/switches/DACS_TRUST_PROXY.switch: DACS_TRUST_PROXY is also a static env-contract.json entry; a switch cannot replace it' });
 });
 
 test('switch file names never trip the wallet-material packaging rules', () => {
   // Both rules refuse wallet-named *.json paths; switch files are <env>.switch.
-  const { entries, errors } = readSwitchRegistry(fileURLToPath(new URL('../', import.meta.url)));
+  const { entries, errors } = readSwitchRegistry(PACKAGE_ROOT);
   assert.deepEqual(errors, []);
   for (const name of Object.keys(entries)) {
     const path = `src/switches/${name}.switch`;
