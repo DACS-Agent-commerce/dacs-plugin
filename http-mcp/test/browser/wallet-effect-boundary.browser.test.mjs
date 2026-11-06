@@ -632,3 +632,122 @@ test('K0-F8 a lane\'s records decide whether a pass may sign or resume its retai
     });
   }
 });
+
+test('the handle given to sign and send steps carries no pass state: bytes, call counts and liveness cannot be changed through it', async (t) => {
+  const forged = new Uint8Array([66, 66]);
+
+  await t.test('the handle is frozen and shows only the fence capability', async () => {
+    const world = createWorld();
+    const seen = [];
+    await world.runPass({ sign: (armed) => { seen.push(armed); return world.sign(armed); } });
+    assert.ok(Object.isFrozen(seen[0]));
+    assert.deepEqual(Object.keys(seen[0]), ['capability']);
+  });
+
+  await t.test('a sign step overwriting the handle\'s byte fields after the EB signer ran changes neither the persisted nor the sent bytes', async () => {
+    const world = createWorld();
+    const { error } = await world.settled(world.runPass({ sign: async (armed) => {
+      await world.sign(armed);
+      for (const field of ['signedBytes', 'signed', 'bytes']) Reflect.set(armed, field, forged);
+    } }));
+    assert.equal(error, undefined);
+    assert.deepEqual([...world.records.records('lane-1')[0].bytes], world.SIGNED_BYTES);
+    assert.deepEqual(world.sent.map((bytes) => [...bytes]), [world.SIGNED_BYTES]);
+  });
+
+  await t.test('a send step overwriting the handle\'s bytes then sending them is refused eb_bytes_mismatch with transport 0', async () => {
+    const world = createWorld();
+    const { error } = await world.settled(world.runPass({ stages: [{ name: 'dispatch', send: (armed) => {
+      Reflect.set(armed, 'bytes', forged);
+      return world.send(armed, forged);
+    } }] }));
+    assertRefusal(error, 'eb_bytes_mismatch');
+    assert.equal(world.counts.transport, 0);
+    assert.deepEqual(world.records.kinds('lane-1'), ['signed', 'dispatch-started', 'dispatch-withheld']);
+  });
+
+  await t.test('a send step resetting the handle\'s call count cannot transmit a second time', async () => {
+    const world = createWorld();
+    const attempts = [];
+    const { value } = await world.settled(world.runPass({ stages: [{ name: 'dispatch', send: async (armed, bytes) => {
+      const first = await world.send(armed, bytes);
+      Reflect.set(armed, 'sendCalls', 0);
+      attempts.push(await world.settled(world.send(armed, bytes)));
+      return first;
+    } }] }));
+    assertRefusal(attempts[0].error, 'eb_transmission_repeated');
+    assert.equal(world.counts.transport, 1);
+    assert.equal(value.outcomes[0].state, 'acknowledged');
+  });
+
+  await t.test('a copy of a handle is not a handle: the EB signer and EB transmitter refuse it tp1_fence_not_owned', async () => {
+    const world = createWorld();
+    const copies = [];
+    await world.runPass({ sign: (armed) => { copies.push({ ...armed }); return world.sign(armed); } });
+    let innerCalls = 0;
+    for (const copy of [...copies, {}, undefined]) {
+      assertRefusal((await world.settled(ebSign(async () => { innerCalls += 1; }, copy)())).error, 'tp1_fence_not_owned');
+      assertRefusal((await world.settled(ebTransmit(async () => { innerCalls += 1; }, copy)())).error, 'tp1_fence_not_owned');
+    }
+    assert.equal(innerCalls, 0);
+  });
+});
+
+test('resume bytes are copied when the pass starts: changing the caller\'s array inside any stop read changes neither the comparison nor the transmission', async (t) => {
+  for (const call of [1, 2, 3, 4, 5]) {
+    await t.test(`the caller's array changed inside stop read ${call}`, async () => {
+      const first = createWorld();
+      first.records.beforeCommit.set('dispatch-started', () => { first.state.killed = true; });
+      await first.settled(first.runPass());
+      first.records.beforeCommit.clear();
+      const retained = { bytes: new Uint8Array(first.SIGNED_BYTES) };
+      const resumed = createWorld({ records: first.records });
+      resumed.on('stop', call, () => { retained.bytes[0] = 99; });
+      const { error } = await resumed.settled(resumed.runPass({ retained, sign: undefined }));
+      assert.equal(error, undefined);
+      assert.deepEqual(resumed.sent.map((bytes) => [...bytes]), [first.SIGNED_BYTES]);
+      assert.equal(first.records.kinds('lane-1').at(-1), 'dispatch-acknowledged');
+    });
+  }
+});
+
+// Each row leaves a two-stage lane at a stage that was held or withheld, then a second pass resumes it.
+const heldStageLanes = [
+  { name: 'confirm-acknowledged and broadcast-withheld', stages: ['confirm', 'broadcast'], held: 'broadcast', prepare: (w) => w.records.beforeCommit.set('broadcast-started', () => { w.state.killed = true; }) },
+  { name: 'confirm-acknowledged and signed-held for broadcast', stages: ['confirm', 'broadcast'], held: 'broadcast', prepare: (w) => w.records.beforeCommit.set('confirm-acknowledged', () => { w.state.admission = 'profile_not_admitted'; }) },
+  { name: 'confirm-withheld', stages: ['confirm', 'broadcast'], held: 'confirm', prepare: (w) => w.records.beforeCommit.set('confirm-started', () => { w.state.killed = true; }) },
+  { name: 'dispatch-withheld', stages: ['dispatch'], held: 'dispatch', prepare: (w) => w.records.beforeCommit.set('dispatch-started', () => { w.state.killed = true; }) },
+];
+
+test('K0-F8 a resume starts at the stage the lane held or withheld and never re-sends a stage the lane shows as sent', async (t) => {
+  for (const row of heldStageLanes) {
+    const resume = async (names, check) => {
+      const first = createWorld();
+      row.prepare(first);
+      await first.settled(first.runPass({ stages: row.stages.map((name) => ({ name, send: first.send })) }));
+      first.records.beforeCommit.clear();
+      const before = first.records.kinds('lane-1').length;
+      const resumed = createWorld({ records: first.records });
+      const { error } = await resumed.settled(resumed.runPass({
+        retained: { bytes: new Uint8Array(first.SIGNED_BYTES) }, sign: undefined, stages: names.map((name) => ({ name, send: resumed.send })),
+      }));
+      await check({ error, resumed, records: first.records, before });
+    };
+
+    await t.test(`a lane holding ${row.name} transmits ${row.held} once when the resume starts there`, () => resume([row.held], ({ error, resumed, records }) => {
+      assert.equal(error, undefined);
+      assert.equal(resumed.counts.transport, 1);
+      assert.equal(records.kinds('lane-1').at(-1), `${row.held}-acknowledged`);
+    }));
+
+    const others = ['dispatch', 'confirm', 'broadcast'].filter((name) => name !== row.held).map((name) => [name]);
+    if (row.held === 'broadcast') others.push(['confirm', 'broadcast']);
+    for (const names of others) {
+      await t.test(`a lane holding ${row.name} refuses a resume of ${names.join(', ')} eb_resume_not_allowed with transport 0`, () => resume(names, ({ error, resumed, records, before }) => {
+        assertRefusal(error, 'eb_resume_not_allowed');
+        assert.deepEqual([resumed.counts.signer, resumed.counts.transport], [0, 0]);
+        assert.equal(records.kinds('lane-1').length, before, 'nothing was appended');
+      }));
+    }
+  }
+});
