@@ -79,6 +79,19 @@ test('wording token status: a paragraph of a million short markup tokens is read
   assert.equal(output.trim(), '[0,0,1]');
 });
 
+test('wording token status: a multi-word list entry is not matched across an underscore, emphasis or backtick in a paragraph that holds markup', () => {
+  const entryMatcher = createWordingMatcher(['listed entry'], () => {});
+  const listLines = (text, name) => scanWording({
+    entries: [{ path: name, bytes: Buffer.from(text), oid: 'b'.repeat(40), position: 1 }], wordingMatcher: entryMatcher, limits,
+  }).map(({ line }) => line);
+  for (const markup of ['<b>x</b>', '[a](u)', '&amp;', '\\.']) {
+    for (const gap of ['_', '*', '`']) assert.deepEqual(listLines(`listed${gap}entry ${markup}`, 'a.md'), [], `${gap} ${markup}`);
+    assert.deepEqual(listLines(`listed entry ${markup}`, 'a.md'), [1], markup);
+  }
+  assert.deepEqual(listLines(JSON.stringify({ note: 'listed_entry <b>x</b>' }), 'manifest.json'), []);
+  assert.deepEqual(listLines(JSON.stringify({ note: 'listed entry <b>x</b>' }), 'manifest.json'), [1]);
+});
+
 test('wording token status: rendered approved prose, negative disclaimers, camelCase names and source files still pass', () => {
   for (const text of [`<p>${HOLD}.</p>`, `<!-- Not a ${SECURITY} ${REVIEW}. -->`, `<img alt="Not a ${SECURITY} ${REVIEW}.">`, `<img alt="${EXTERNAL}Review: false">`]) {
     assert.deepEqual(findingLines(text), [], text);
