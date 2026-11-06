@@ -19,20 +19,19 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 const ASYNC_AFTER_END = /generated asynchronous activity after the test ended/;
 const FATAL_TRAILER = /^Node\.js v\d+\.\d+\.\d+$/m;
-const ERROR_HEADER = /^(?:[A-Za-z]+)?Error(?: \[[A-Za-z0-9_]+\])?: /;
-const MODULE_NOT_FOUND = /^Error \[ERR_MODULE_NOT_FOUND\]: Cannot find module '([^'\n]+)' imported from /;
-const MODULE_NOT_FOUND_CODE = /^ {2}code: 'ERR_MODULE_NOT_FOUND',?$/;
+// Node's diagnostic for a missing import, line by line: the throw site (`node:internal/...:N`, the source line,
+// a caret), the error and its frames, the property block and the version line. Any other line, anywhere, is no match.
+const MODULE_NOT_FOUND = new RegExp(String.raw`^(?:node:internal/[\w./-]+:\d+\n[^\n]+\n *\^+\n)?\n*` +
+  String.raw`Error \[ERR_MODULE_NOT_FOUND\]: Cannot find module '([^'\n]+)' imported from [^\n]+\n(?: {4}at [^\n]+\n)*` +
+  String.raw` {2}code: 'ERR_MODULE_NOT_FOUND',\n(?: {2}url: '[^'\n]*'\n)?\}\n\nNode\.js v\d+\.\d+\.\d+\n?$`);
 // Node's diagnostic for a missing import is well under 2 KiB; more is some other output.
 const MAX_DIAGNOSTIC_BYTES = 16384;
 
 // The path, relative to the run directory, of the file a diagnostic says is missing; undefined when the text is anything else.
 function missingModulePath(stderr) {
-  const lines = stderr.split('\n');
-  const found = lines.filter((line) => ERROR_HEADER.test(line)).map((line) => MODULE_NOT_FOUND.exec(line));
-  const last = lines.filter((line) => line !== '').at(-1);
-  if (found.length !== 1 || !found[0] || !isAbsolute(found[0][1]) || last === undefined || !FATAL_TRAILER.test(last) ||
-    lines.filter((line) => FATAL_TRAILER.test(line)).length !== 1 || lines.filter((line) => MODULE_NOT_FOUND_CODE.test(line)).length !== 1) return undefined;
-  const path = relative(process.cwd(), found[0][1]);
+  const found = MODULE_NOT_FOUND.exec(stderr);
+  if (!found || !isAbsolute(found[1])) return undefined;
+  const path = relative(process.cwd(), found[1]);
   return path === '' || path.startsWith('..') || isAbsolute(path) ? undefined : path.split(sep).join('/');
 }
 

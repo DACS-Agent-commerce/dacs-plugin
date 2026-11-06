@@ -693,7 +693,14 @@ test('reporter: a pre-test module-load failure yields one structured load-failur
   assert.deepEqual(await loadFailuresOf(fileEvents(diagnostic(missing))), [{ type: 'test:load-failure', path: NOT_CARRIED }]);
   const enoent = ['node:internal/fs/utils:356\n', "Error: ENOENT: no such file or directory, open 'x'\n", '    at Object.openSync (node:fs:573:18) {\n', "  code: 'ENOENT',\n", '}\n', '\n', 'Node.js v22.23.3\n'];
   const trailer = diagnostic(missing).slice(0, -1);
+  const whole = diagnostic(missing), stray = 'database initialization failed\n';
   const refused = {
+    'a line of its own before the diagnostic': [stray, ...whole],
+    'a line of its own between the preamble and the error': [...whole.slice(0, 4), stray, ...whole.slice(4)],
+    'a line of its own between the frames and the code': [...whole.slice(0, 6), stray, ...whole.slice(6)],
+    'a line of its own between the code and the closing brace': [...whole.slice(0, 8), stray, ...whole.slice(8)],
+    'a warning before the diagnostic': ['(node:1) Warning: something\n', ...whole],
+    'a throw site that is not Node\'s': ['./app.mjs:1\n', ...whole.slice(1)],
     'a module outside the run directory': diagnostic(join(root, '../outside.mjs')),
     'a package, not a file': diagnostic('left-pad', { subject: 'package' }),
     'a missing file read, not a module': enoent,
@@ -740,6 +747,9 @@ test('runner: a different missing module, a matching diagnostic followed by anot
   const fatal = fixture('absent-then-fatal'), second = await run(dir, [fatal], { known: [carry(fatal)] });
   assert.equal(second.code, 1);
   assert.ok(!second.rows[0].failing.includes(CARRY_OVER));
+  const output = fixture('absent-after-output'), printed = await run(dir, [output], { known: [carry(output)] });
+  assert.equal(printed.code, 1, printed.stderr);
+  assert.deepEqual(printed.rows[0].newFailures, [PROCESS, INCOMPLETE], 'a line the file printed before the absent import stays visible');
   const assertion = fixture('fail'), plain = await run(dir, [assertion], { known: [carry(assertion)] });
   assert.equal(plain.code, 1);
   assert.deepEqual(plain.rows[0].newFailures, [failure]);
