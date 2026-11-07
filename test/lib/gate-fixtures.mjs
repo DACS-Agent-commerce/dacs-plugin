@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,16 +65,18 @@ const PROJECT = { name: 'Project', email: 'project@example.invalid' };
 /**
  * Builds a repository whose commits are `steps`, oldest first, using plumbing only. A step is { files, message, parents
  * (indexes of earlier steps, default the one before), author, committer ({ name, email }), tz }; `refs` maps a branch name
- * to a step index. Returns { dir, commits } with the object ids in step order.
+ * to a step index. A file's value is its content, or { content, mode } for another mode (120000 for a symlink).
+ * Returns { dir, commits } with the object ids in step order.
  */
 export function createHistory(steps, refs = { main: steps.length - 1 }) {
   const dir = makeTempDir('history');
   git(dir, ['init', '-q']);
   const commits = [];
   steps.forEach((step, index) => {
-    const records = Object.entries(step.files ?? { 'a.txt': `step ${index}\n` }).map(([file, content]) => {
+    const records = Object.entries(step.files ?? { 'a.txt': `step ${index}\n` }).map(([file, value]) => {
+      const { content, mode } = value?.mode ? value : { content: value, mode: '100644' };
       const oid = git(dir, ['hash-object', '-w', '--stdin'], { input: Buffer.from(content) });
-      return Buffer.from(`100644 ${oid}\t${file}\0`);
+      return Buffer.from(`${mode} ${oid}\t${file}\0`);
     });
     const env = { GIT_INDEX_FILE: path.join(dir, `fixture-index-${index}`) };
     git(dir, ['update-index', '--add', '-z', '--index-info'], { input: Buffer.concat(records), env });
@@ -107,6 +109,17 @@ export function writeList(entries) {
   return file;
 }
 
+/** An invented entry that no fixture holds; the default wording list holds only this. */
+export const DEFAULT_WORDING_ENTRY = ['xyzzy', 'barred'].join('-');
+
+let defaultWordingList;
+
+/** The wording list that complete and history runs get unless they name their own: one invented entry, written once. */
+export function defaultWordingListFile() {
+  defaultWordingList ??= writeList([DEFAULT_WORDING_ENTRY]);
+  return defaultWordingList;
+}
+
 /** Runs the gate script with `args`, killed after `timeout` ms, and returns { status, stdout, stderr }. */
 export function runGate(args, { env, timeout = 120_000 } = {}) {
   const result = spawnSync(process.execPath, [GATE_SCRIPT, ...args], {
@@ -134,8 +147,12 @@ export function runCheckReport(args) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
+const withWordingList = (extra) => (extra.includes('--wording-list') ? [] : ['--wording-list', defaultWordingListFile()]);
+
+/** History-mode arguments; unless `extra` names a scanner or a wording list, they name the stub that finds nothing and the default wording list. */
 export function historyArgs(history, listFile, extra = [], refs = 'main') {
-  return ['--repo', history.dir, '--refs', refs, '--private-list', listFile, '--expected-root', history.commits[0], ...extra];
+  return ['--repo', history.dir, '--refs', refs, '--private-list', listFile, '--expected-root', history.commits[0], ...withWordingList(extra),
+    ...(extra.includes('--gitleaks') ? [] : cleanScannerArgs()), ...extra];
 }
 
 let cleanScanner;
@@ -161,8 +178,18 @@ export function expectedScanIdentity() {
   };
 }
 
+/** The `wordingListSha256` a complete-scope or history report carries for `wordingListFile` (default: the default wording list). */
+export const expectedWordingListSha256 = (wordingListFile = defaultWordingListFile()) => sha256(readFileSync(wordingListFile));
+
+/** Complete-scope gate arguments; unless `extra` names a wording list, they name the default one. */
 export function completeArgs(repo, listFile, extra = []) {
-  return gateArgs(repo, 'complete', ['--private-list', listFile, '--expected-root', repo.commit, ...extra]);
+  return gateArgs(repo, 'complete', ['--private-list', listFile, '--expected-root', repo.commit, ...withWordingList(extra), ...extra]);
+}
+
+/** The absolute paths of the files under `entry` (a path in this repo) that git tracks or would add, so a new file counts before it is committed. */
+export function walkFiles(entry) {
+  const listing = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-co', '--exclude-standard', '--', entry], { encoding: 'utf8' });
+  return listing.split('\n').filter(Boolean).map((file) => path.join(REPO_ROOT, file));
 }
 
 /** Hashes every file under `dir` (including .git) so a test can prove a run changed nothing. */

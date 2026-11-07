@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { closeSync, constants, existsSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { decodeUtf8Strict, GateInputError, gitEnvironment } from './objects.mjs';
@@ -36,29 +37,51 @@ function repositoryRoots(repo, limits) {
   return [...roots].filter((root) => existsSync(root)).map((root) => realpathSync.native(root));
 }
 
+/** The lists read the same way: the flag that names each, its limits and the words its messages use. */
+const LIST_SUBJECTS = {
+  'private-list': { bytesLimit: 'maxPrivateListBytes', entriesLimit: 'maxPrivateEntries', label: 'private list' },
+  'wording-list': { bytesLimit: 'maxWordingListBytes', entriesLimit: 'maxWordingEntries', label: 'wording list' },
+};
+
 /**
- * Reads at most `maxBytes` of a regular file outside the repository `repo` names; a FIFO or device is refused without
+ * Reads at most the byte limit of a regular file outside the repository `repo` names; a FIFO or device is refused without
  * waiting on it. A `repo` that does not exist is not compared: git then refuses the run with its own cause.
  */
-function readListBytes(file, repo, limits) {
-  const maxBytes = limits.maxPrivateListBytes;
+function readListBytes(file, repo, limits, subject) {
+  const { bytesLimit, label } = LIST_SUBJECTS[subject];
+  const maxBytes = limits[bytesLimit];
   let descriptor;
   try {
     const listPath = realpathSync.native(file);
     const inside = (root) => { const relative = path.relative(root, listPath); return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative); };
-    if (repositoryRoots(repo, limits).some(inside)) throw new GateInputError('private-list-in-repo', 'the private list is inside the repository');
+    if (repositoryRoots(repo, limits).some(inside)) throw new GateInputError(`${subject}-in-repo`, `the ${label} is inside the repository`);
     descriptor = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
-    if (!fstatSync(descriptor).isFile()) throw new GateInputError('private-list-unreadable', '--private-list is not a regular file');
+    if (!fstatSync(descriptor).isFile()) throw new GateInputError(`${subject}-unreadable`, `--${subject} is not a regular file`);
     const bytes = Buffer.alloc(maxBytes + 1);
     let length = 0;
     for (let read = 1; read > 0 && length < bytes.length; length += read) read = readSync(descriptor, bytes, length, bytes.length - length, null);
-    if (length > maxBytes) throw new GateInputError('limit:maxPrivateListBytes', `the private list is over ${maxBytes} bytes`);
+    if (length > maxBytes) throw new GateInputError(`limit:${bytesLimit}`, `the ${label} is over ${maxBytes} bytes`);
     return bytes.subarray(0, length);
   } catch (error) {
-    throw error instanceof GateInputError ? error : new GateInputError('private-list-unreadable', `--private-list cannot be read (${error.code ?? error.name})`);
+    throw error instanceof GateInputError ? error : new GateInputError(`${subject}-unreadable`, `--${subject} cannot be read (${error.code ?? error.name})`);
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
+}
+
+/** Reads and checks the list `file` as the `subject` list; returns its entries and the SHA-256 of the bytes it read. */
+function readList(file, { repo, limits, subject }) {
+  const { entriesLimit, label } = LIST_SUBJECTS[subject];
+  const bytes = readListBytes(file, repo, limits, subject);
+  const text = decodeUtf8Strict(bytes);
+  if (text === null) throw new GateInputError(`${subject}-malformed`, `the ${label} is not valid UTF-8`);
+  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
+  const padded = lines.findIndex((line) => line !== line.trim() && !line.startsWith('#'));
+  if (padded >= 0) throw new GateInputError(`${subject}-malformed`, `line ${padded + 1} of the ${label} has leading or trailing whitespace`);
+  const entries = lines.filter((line) => line !== '' && !line.startsWith('#'));
+  if (entries.length === 0) throw new GateInputError(`${subject}-empty`, `the ${label} holds no entry`);
+  if (entries.length > limits[entriesLimit]) throw new GateInputError(`limit:${entriesLimit}`, `the ${label} holds more than ${limits[entriesLimit]} entries`);
+  return { entries, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
 /**
@@ -67,17 +90,13 @@ function readListBytes(file, repo, limits) {
  * worktrees and git dirs included, not only the `repo` folder), not a regular file,
  * unreadable, over a limit, not UTF-8, empty, or has an entry with leading or trailing whitespace.
  */
-export function readPrivateList(file, { repo, limits }) {
-  const text = decodeUtf8Strict(readListBytes(file, repo, limits));
-  if (text === null) throw new GateInputError('private-list-malformed', 'the private list is not valid UTF-8');
-  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
-  const padded = lines.findIndex((line) => line !== line.trim() && !line.startsWith('#'));
-  if (padded >= 0) throw new GateInputError('private-list-malformed', `line ${padded + 1} of the private list has leading or trailing whitespace`);
-  const entries = lines.filter((line) => line !== '' && !line.startsWith('#'));
-  if (entries.length === 0) throw new GateInputError('private-list-empty', 'the private list holds no entry');
-  if (entries.length > limits.maxPrivateEntries) throw new GateInputError('limit:maxPrivateEntries', `the private list holds more than ${limits.maxPrivateEntries} entries`);
-  return entries;
-}
+export const readPrivateList = (file, { repo, limits }) => readList(file, { repo, limits, subject: 'private-list' }).entries;
+
+/**
+ * Reads the wording list the way the private list is read, with its own limits (`maxWordingListBytes`, `maxWordingEntries`) and
+ * causes (`wording-list-in-repo`, `-unreadable`, `-malformed`, `-empty`). Returns `{ entries, sha256 }`, the digest being of the bytes read.
+ */
+export const readWordingList = (file, { repo, limits }) => readList(file, { repo, limits, subject: 'wording-list' });
 
 const isOneCodePoint = (text) => text.length === (text.codePointAt(0) > 0xffff ? 2 : 1);
 const equalIgnoringCase = (first, second) => new RegExp(`^\\u{${first.toString(16)}}$`, 'iu').test(String.fromCodePoint(second));
@@ -113,6 +132,8 @@ let foldTable = null;
  * - `hasEntry(text)`: whether an entry occurs in `text`.
  * - `entryLines(text, maxLines)`: the first `maxLines` distinct 1-based lines where an entry occurs; CRLF, a lone CR and
  *   a lone LF each end a line, and an entry never holds one, so it starts on the line where it ends.
+ * - `eachEntry(text, onEntry)`: calls `onEntry(start, end)` with the UTF-16 bounds of the longest entry ending at each index
+ *   where one ends, in order, until it returns true.
  * `checkpoint()` runs every CHECKPOINT_STEPS steps while building and matching; what it throws (the deadline) propagates.
  */
 export function createPrivateMatcher(entries, checkpoint) {
@@ -133,17 +154,20 @@ export function createPrivateMatcher(entries, checkpoint) {
   const failure = new Int32Array(next.length);
   const ends = new Uint8Array(next.length);
   for (const state of terminals) ends[state] = 1;
-  const queue = [...next[0].values()];
+  /** The UTF-16 length of each state's path, and of the longest entry ending in it (0 for none); case folding never changes a length. */
+  const [widths, longest] = [new Int32Array(next.length), new Int32Array(next.length)];
+  const queue = [0];
   for (const state of queue) {
     for (const [code, child] of next[state]) {
       let link = failure[state];
       for (; link !== 0 && !next[link].has(code); link = failure[link]) step();
-      failure[child] = next[link].get(code) ?? 0;
-      ends[child] |= ends[failure[child]];
+      failure[child] = state === 0 ? 0 : next[link].get(code) ?? 0;
+      widths[child] = widths[state] + (code > 0xffff ? 2 : 1);
+      longest[child] = ends[child] ? widths[child] : longest[failure[child]];
       queue.push(child);
     }
   }
-  /** Reads `text` once, calling `onEntry(line)` where an entry ends, and stops when it returns true. */
+  /** Reads `text` once, calling `onEntry(line, end, length)` where an entry ends, and stops when it returns true. */
   function walk(text, onEntry) {
     let [state, line] = [0, 1];
     for (let index = 0; index < text.length; index += 1) {
@@ -158,7 +182,7 @@ export function createPrivateMatcher(entries, checkpoint) {
       }
       state = target ?? 0;
       step();
-      if (ends[state] && onEntry(line)) return;
+      if (longest[state] && onEntry(line, index + 1, longest[state])) return;
     }
   }
   const entryLines = (text, maxLines) => {
@@ -166,7 +190,8 @@ export function createPrivateMatcher(entries, checkpoint) {
     walk(text, (line) => (lines.at(-1) === line ? false : lines.push(line) >= maxLines));
     return lines;
   };
-  return { hasEntry: (text) => entryLines(text, 1).length > 0, entryLines };
+  const eachEntry = (text, onEntry) => walk(text, (line, end, length) => onEntry(end - length, end));
+  return { hasEntry: (text) => entryLines(text, 1).length > 0, entryLines, eachEntry };
 }
 
 /**

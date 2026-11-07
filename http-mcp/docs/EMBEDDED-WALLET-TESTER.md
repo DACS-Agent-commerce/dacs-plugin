@@ -99,4 +99,4 @@ pattern) and record the change. Do not weaken assertions.
 
 Use real wallets, real seeds or funded accounts; point anything at live RPC,
 testnet, faucets or ChatGPT; print a phrase or password (the secret scans
-report only a label and an index); or call these results a security review.
+report only a label and an index); or present these results as a review.

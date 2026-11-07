@@ -31,5 +31,5 @@ Limits: this is ordinary SOURCE/owned-loopback evidence. The test restarts the
 application and seller services and creates a fresh seller-agent instance in
 the same Node test process. A distinct-OS-process seller-state reconstruction
 was not executed. Public Node2, faucet, real wallets/DEM,
-TLS effects, independent finality, security review, live E2E and the separate
-issued-fee-approval limitation remain outside this result.
+TLS effects, independent finality, live E2E and the separate
+issued-fee-approval limitation remain outside this result, and it is not a security review.

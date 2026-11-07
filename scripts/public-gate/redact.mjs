@@ -1,19 +1,21 @@
 import { writeFileSync } from 'node:fs';
 import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID } from './rules-address.mjs';
+import { EVAL_RULE_ID } from './rules-eval.mjs';
 import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID } from './rules-files.mjs';
 import { PRIVATE_RULE_ID } from './rules-private.mjs';
+import { ISSUE_RULE_ID, REPORT_RULE_ID, WORDING_RULE_ID } from './rules-text.mjs';
 import { SECRET_RULE_ID, SEMVER } from './secret-scan.mjs';
 
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
-export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr' });
+export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr', 'rules-eval-child.stderr': 'stderr' });
 
 /** Schema values shared by every report: a SHA-256 digest, a rule status and an unscannable entry's cause. */
 export const SHA256_HEX = /^[0-9a-f]{64}$/;
 export const STATUSES = ['passed', 'findings', 'not-run', 'unscannable'];
-export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition'];
+export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition', 'eval-symlink', 'eval-not-text', 'eval-parse-error', 'eval-computed-member', 'eval-too-deep', 'eval-html-unreadable', 'eval-parse-timeout', 'limit:maxEvalUnitBytes'];
 const SCOPES = ['generic', 'complete'];
-const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, PRIVATE_RULE_ID, SECRET_RULE_ID];
+const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, EVAL_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, REPORT_RULE_ID, ISSUE_RULE_ID, PRIVATE_RULE_ID, WORDING_RULE_ID, SECRET_RULE_ID];
 const KINDS = ['path', 'content'];
 
 /** The fixed text printed after each cause; nothing else ever reaches stderr. A `limit:<name>` cause has one shared text. */
@@ -23,13 +25,17 @@ const DIAGNOSTICS = {
   'invalid-config': 'public-gate.config.json is malformed', 'private-list-unreadable': 'the private list cannot be read as a regular file',
   'private-list-in-repo': 'the private list is inside the repository', 'private-list-empty': 'the private list holds no entry',
   'private-list-malformed': 'the private list is not UTF-8 or has a line with leading or trailing whitespace',
+  'wording-list-unreadable': 'the wording list cannot be read as a regular file', 'wording-list-in-repo': 'the wording list is inside the repository',
+  'wording-list-empty': 'the wording list holds no entry', 'wording-list-malformed': 'the wording list is not UTF-8, has a padded line, or has an entry that is empty or holds a tab',
   timeout: 'git did not finish before its deadline', interrupted: 'the run was interrupted', 'git-unavailable': 'git could not run',
   'git-refused': 'git refused the request', 'unknown-commit': 'the repository has no such commit',
   'not-a-commit': '--commit names an object that is not a commit', 'empty-tree': 'the commit has no files',
   'malformed-listing': 'git ls-tree returned a record this gate cannot parse', 'malformed-batch': 'git cat-file returned an unexpected record',
   'missing-object': 'the repository is missing a blob its tree names', 'output-limit': 'git produced more output than allowed',
   'bad-ref': 'a ref is empty or starts with a dash', 'unknown-ref': 'the repository has no commit for one of the refs',
+  'tag-name-mismatch': 'a selected tag ref is not named as its tag object names itself',
   'unexpected-root': 'the history does not have the expected single root commit',
+  'shallow-history': 'the repository is a shallow clone, so its history is cut off',
   'pr-text-unreadable': 'the --pr-text file cannot be read', 'pr-text-malformed': 'the --pr-text file is not a JSON array of objects',
   'output-exists': 'the --out file already exists', 'output-unwritable': 'the --out file cannot be written',
   'evidence-exists': 'the --private-evidence file already exists', 'evidence-unwritable': 'the --private-evidence file cannot be written',
@@ -37,6 +43,7 @@ const DIAGNOSTICS = {
   'context-unreadable': 'the --context file cannot be read as a regular file', 'context-malformed': 'the --context file is not a review context',
   'report-not-complete': 'the report is not a complete-scope report', 'report-other-head': 'the report is for another commit than --head',
   'report-rules-differ': 'the report lists other rules than this gate registers', 'report-policy-differs': 'the report was made under another gate revision, configuration or root than the review context names',
+  'report-refs-differ': 'the history report names other refs, or other objects for them, than the run being checked selects',
   'report-not-passing': 'the report has a finding, an unscannable entry or a rule that did not pass',
   'download-too-large': 'a download is larger than allowed', 'download-timeout': 'a download did not finish before its deadline',
   'download-http-failure': 'the download server did not answer with success', 'download-truncated': 'a download ended before its announced length',
@@ -50,6 +57,9 @@ const DIAGNOSTICS = {
   'scanner-missing': 'the gitleaks binary cannot be copied for the scan', 'scanner-checksum-mismatch': 'the gitleaks binary does not match its SHA-256',
   'scanner-version-mismatch': 'the gitleaks binary does not report the pinned version', 'scanner-failed': 'the scanner stopped with an error status',
   'scanner-report-malformed': 'the scanner report is missing, malformed or disagrees with its status', 'stale-secret-exception': 'a secretExceptions entry names a path and blob the target does not hold',
+  'stale-lockfile-disposition': 'a lockfileDispositions entry names a path the target holds only at another blob',
+  'stale-eval-exception': 'an evalGeneratedFiles entry names a path the target holds only at other bytes',
+  'eval-parser-failed': 'the eval parser stopped with an error status or wrote an unexpected result',
   'internal-error': 'the gate failed unexpectedly', limit: 'a configured limit was reached',
 };
 
@@ -96,7 +106,7 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
     exactPaths.set(entry.position, [location, entry.path ?? `hex:${entry.pathBytes.toString('hex')}`]);
     return location;
   };
-  const { gateRevision, configSha256, expectedRoot, scannerVersion, scannerPolicySha256, secretExceptionsSha256 } = scanner;
+  const { gateRevision, configSha256, expectedRoot, wordingListSha256, scannerVersion, scannerPolicySha256, secretExceptionsSha256 } = scanner;
   const report = {
     scope: checked(scope, SCOPES),
     target: { commit, tree: checked(target.tree, FULL_OBJECT_ID) },
@@ -104,6 +114,7 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
       gateRevision: checked(gateRevision, SHA256_HEX), configSha256: checked(configSha256, SHA256_HEX), scannerVersion: checked(scannerVersion, SEMVER),
       scannerPolicySha256: checked(scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(secretExceptionsSha256, SHA256_HEX),
       ...(expectedRoot === undefined ? {} : { expectedRoot: checked(expectedRoot, FULL_OBJECT_ID) }),
+      ...(wordingListSha256 === undefined ? {} : { wordingListSha256: checked(wordingListSha256, SHA256_HEX) }),
     },
     rules: rules.map(({ id, status }) => ({ id: checked(id, RULE_IDS), status: checked(status, STATUSES) })),
     unscannable: unscannable.map(({ entry, cause }) => ({ location: locate(entry), cause: checked(cause, UNSCANNABLE_CAUSES) })),

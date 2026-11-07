@@ -321,5 +321,5 @@ provides a minimal browser-global fixture (`window`, `document.baseURI`,
 recorded and must be empty. If `wallet-build` is not installed or the runtime not
 built, the affected tests are skipped with a `BLOCKED:` reason, never passed.
 
-These are source-aware functional tests, not source-blind validation, security
-review or real-browser proof.
+These are source-aware functional tests, not source-blind validation, not a security
+review and not real-browser proof.
