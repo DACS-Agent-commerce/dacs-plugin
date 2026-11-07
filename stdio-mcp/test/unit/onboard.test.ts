@@ -331,6 +331,24 @@ test('an interrupted backup is finished with the passphrase on the page', async 
   await h.approval!.stop();
 });
 
+test('an interactive approval that returns an error is recorded as failed, and the later success as signed', async () => {
+  const h = await harness(NO_KEY, { approval: true, walletFactory: factory() });
+  await h.call('demos_onboard_create_wallet');
+  const url = h.channel.last().approveUrl!;
+  await http(url + '/approve', 'POST', { passphrase: PASS, confirm: PASS, remember: 'on' });
+  await h.call('demos_onboard_create_wallet'); // backup was not acknowledged: offers the reveal page
+  const reveal = h.channel.last().approveUrl!;
+  const conductOutcomes = () => (JSON.parse(readFileSync(join(h.config.stateDir, 'alignment', 'conduct.json'), 'utf8')).receipts as Array<{ outcome: string }>).map((r) => r.outcome);
+  const before = conductOutcomes().length;
+  assert.match((await http(reveal + '/approve', 'POST', { passphrase: 'wrong passphrase!!' })).body, /does not unlock/);
+  const afterWrong = conductOutcomes().slice(before);
+  assert.ok(afterWrong.includes('failed'), `outcomes after a wrong passphrase: ${afterWrong.join(',')}`);
+  assert.ok(!afterWrong.includes('signed'), `outcomes after a wrong passphrase: ${afterWrong.join(',')}`);
+  await http(reveal + '/approve', 'POST', { passphrase: PASS });
+  assert.equal(conductOutcomes().at(-1), 'signed');
+  await h.approval!.stop();
+});
+
 test('a crash before onboard.json is written still leads to backup recovery; keystore verified on disk', async () => {
   const { unlinkSync } = await import('node:fs');
   const wf = factory();
