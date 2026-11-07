@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { DIAGNOSTIC_ROUTES } from '../../scripts/public-gate/redact.mjs';
 import {
-  REPO_ROOT, ROOT_COMMIT, completeArgs, createRepo, makeTempDir, runGate, writeList,
+  REPO_ROOT, ROOT_COMMIT, completeArgs, createRepo, makeTempDir, runCheckReport, runGate, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const PRIVATE_VALUE = ['onyx', 'meridian'].join('-');
@@ -27,6 +27,12 @@ function sourceFiles(dir) {
 }
 
 const leaksNothing = (...texts) => texts.forEach((text) => assert.ok(!text.toLowerCase().includes(PRIVATE_VALUE), 'private value leaked'));
+/** Writes `value` as JSON to a new file whose name holds the private value, so a leaked path would show. */
+function writeJsonFile(value) {
+  const file = path.join(makeTempDir('check-input'), `${PRIVATE_VALUE}.json`);
+  writeFileSync(file, JSON.stringify(value));
+  return file;
+}
 const leakRepo = () => createRepo([{ path: AWKWARD_PATH, content: `line one\n${PRIVATE_VALUE}\n` }]);
 
 /** A PATH folder whose git writes `stderr` and exits 128 for `rev-parse`, and runs the real git otherwise. */
@@ -61,6 +67,26 @@ const scenarios = {
     assert.match(result.stderr, /^git-refused: git refused the request$/m);
     leaksNothing(result.stdout, result.stderr);
     assert.ok(!result.stderr.includes(PRIVATE_VALUE.slice(0, 4)) && !result.stderr.includes('fatal'));
+  },
+  'check-report.stderr': () => {
+    const repo = leakRepo();
+    const report = JSON.parse(runGate(completeArgs(repo, writeList([PRIVATE_VALUE]))).stdout);
+    const context = { gateRevision: report.scanner.gateRevision, configSha256: report.scanner.configSha256, expectedRoot: repo.commit };
+    const inputs = [
+      [{ ...report, rules: [{ id: PRIVATE_VALUE, status: 'passed' }] }, 'report-rules-differ', 1],
+      [{ ...report, rules: [{ id: PRIVATE_VALUE, status: PRIVATE_VALUE }] }, 'report-malformed', 2],
+      [{ ...report, [PRIVATE_VALUE]: PRIVATE_VALUE }, 'report-malformed', 2],
+      [report, 'report-not-passing', 1],
+    ];
+    for (const [input, cause, status] of inputs) {
+      const result = runCheckReport(['--report', writeJsonFile(input), '--head', repo.commit, '--context', writeJsonFile(context)]);
+      assert.equal(result.status, status);
+      assert.match(result.stderr, new RegExp(`^${cause}: [^\\n]+\\n$`));
+      leaksNothing(result.stdout, result.stderr);
+    }
+    const unreadable = runCheckReport(['--report', path.join(makeTempDir('check-input'), PRIVATE_VALUE), '--head', repo.commit, '--context', writeJsonFile(context)]);
+    assert.match(unreadable.stderr, /^report-unreadable: /);
+    leaksNothing(unreadable.stdout, unreadable.stderr);
   },
 };
 

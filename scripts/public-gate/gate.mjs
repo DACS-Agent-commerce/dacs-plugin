@@ -9,7 +9,7 @@ import { buildOutputs, publish, writeDiagnostic } from './redact.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const GATE_SOURCES = ['scripts/lib/choice.mjs', ...['classify', 'gate', 'history', 'objects', 'redact', 'rules-private'].map((name) => `scripts/public-gate/${name}.mjs`)];
+const GATE_SOURCES = ['scripts/lib/choice.mjs', ...['check-report', 'classify', 'gate', 'history', 'objects', 'redact', 'rules-private'].map((name) => `scripts/public-gate/${name}.mjs`)];
 const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'gitDeadlineMs', 'scanDeadlineMs'];
 const SCOPES = ['generic', 'complete'];
 const FLAGS = ['--repo', '--commit', '--scope', '--private-list', '--private-evidence', '--expected-root', '--out'];
@@ -18,6 +18,9 @@ export const EXIT = { pass: 0, findings: 1, unusable: 2 };
 
 /** The rules this gate runs; a `completeOnly` rule needs the private list and reports `not-run` in generic scope. */
 const RULES = [{ id: PRIVATE_RULE_ID, completeOnly: true, run: scanPrivate }];
+
+/** The ids of the registered rules; a report only counts as complete when it lists exactly these. */
+export const REGISTERED_RULE_IDS = Object.freeze(RULES.map(({ id }) => id));
 
 /** SHA-256 over the gate's own source files, named by path: the identity of this gate's code. */
 export function gateRevision() {
