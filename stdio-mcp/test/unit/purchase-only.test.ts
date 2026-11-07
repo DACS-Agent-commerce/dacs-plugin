@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { createHash } from 'node:crypto';
-import { harness, ADDR_B } from '../helpers.js';
+import { harness, ADDR_B, MNEMONIC } from '../helpers.js';
 import { loadConfig, writeBlocker } from '../../src/config.js';
 import { createLegacyWalletOpener } from '../../src/wallet-policy.js';
 import { SecretGuard } from '../../src/secrets.js';
@@ -78,6 +78,28 @@ test('the production opener rechecks stop markers and policy each time, before l
   assert.deepEqual(calls, []);
 });
 
+test('the production opener hands the chain a recheck that refuses a marker added after the node connection', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'purchase-only-'));
+  const keystore = join(dir, 'wallet.keystore.json');
+  const config = loadConfig({ DEMOS_MCP_ENABLE_WRITES: '1', DEMOS_STATE_DIR: dir, DEMOS_MNEMONIC_FILE: join(dir, 'mnemonic') });
+  config.rpcIsKnownTestnet = true;
+  writeFileSync(join(dir, 'mnemonic'), MNEMONIC, { mode: 0o600 });
+  let keyLoads = 0;
+  const chain = {
+    openWallet: async (_mnemonic: string, beforeKeyLoad?: () => void) => {
+      assert.ok(beforeKeyLoad, 'the opener passes a recheck');
+      config.keystorePath = keystore;
+      writeFileSync(`${keystore}.purchase-only`, ''); // the marker appears during the node connection
+      beforeKeyLoad();
+      keyLoads++; // the SDK key load
+      return {} as any;
+    },
+  };
+  await assert.rejects(createLegacyWalletOpener(config, new SecretGuard(), chain)(), FENCED);
+  assert.equal(keyLoads, 0);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test('every registered legacy write tool refuses before key loading', async () => {
   let opens = 0;
   const h = await harness({}, { openWallet: async () => (opens++, h.wallet) });
@@ -92,6 +114,31 @@ test('every registered legacy write tool refuses before key loading', async () =
   assert.match(r.text, FENCED);
   assert.equal(opens, 0);
   assert.equal(h.wallet.prepares, 0);
+});
+
+test('a marker added while the wallet is being opened refuses the signing and never reaches the wallet', async (t) => {
+  let marker = '';
+  const h = await harness({}, {
+    openWallet: async () => {
+      writeFileSync(marker, '');
+      return h.wallet;
+    },
+  });
+  t.after(() => rmSync(h.config.stateDir, { recursive: true, force: true }));
+  h.config.keystorePath = join(h.config.stateDir, 'wallet.keystore.json');
+  marker = `${h.config.keystorePath}.purchase-only`;
+  let proofs = 0;
+  h.wallet.proofPayload = async () => {
+    proofs++;
+    return 'synthetic proof payload';
+  };
+  const staged = await h.call('demos_identity_proof_payload', { context: 'github', subject: 'example-user' });
+  assert.equal(staged.isError, false, staged.text);
+  const r = await h.call('demos_tx_submit', { prepared_id: staged.json.prepared_id, confirmation_code: h.channel.last().code });
+  assert.equal(r.isError, true, r.text);
+  assert.match(r.text, FENCED);
+  assert.doesNotMatch(r.text, /"status": "signed"/);
+  assert.equal(proofs, 0);
 });
 
 test('a marker beside a symlinked keystore path, or beside its target, fences the wallet', () => {
