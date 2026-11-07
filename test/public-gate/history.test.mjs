@@ -4,7 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { gateRevision } from '../../scripts/public-gate/gate.mjs';
 import {
-  createHistory, gateArgs, git, historyArgs, makeTempDir, runGate, runHistory, sha256, writeList,
+  createAnnotatedTag, createHistory, gateArgs, git, historyArgs, makeTempDir, runGate, runHistory, sha256, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const PLANTED = ['quartz', 'lantern'].join('-');
@@ -162,6 +162,68 @@ test('the identity rule finds any other identity and any time zone but +0000, an
   const clean = createHistory([{}, {}]);
   assert.equal(runHistory(historyArgs(clean, listFile, ['--allowed-identity', ALLOWED])).status, 0);
   assert.equal(runHistory(historyArgs(clean, listFile, ['--allowed-identity', 'no angle brackets'])).status, 2);
+});
+
+test('an annotated tag among the refs has its name, tagger line and message scanned by the private, account, host and IP rules and is located by tag and field', () => {
+  const history = createHistory([{}, {}]);
+  const message = `subject\n\n${PLANTED}\nReach https://${UNLISTED_HOST}\nat ${PUBLIC_V4}\nwrite to ${INTERNAL_EMAIL}`;
+  const tag = createAnnotatedTag(history.dir, THIRD, history.commits[1], { message, tagger: { name: OTHER, email: 'project@example.invalid' } });
+  const run = runHistory(historyArgs(history, writeList([PLANTED, OTHER, THIRD]), [], THIRD));
+  assert.equal(run.status, 1, run.stderr);
+  const report = JSON.parse(run.stdout);
+  assert.deepEqual(brief(report), [
+    'R-ACCOUNT message message 6', 'R-HOST message message 4', 'R-IP message message 5', 'R-PRIVATE header header -', 'R-PRIVATE message message 3', 'R-PRIVATE tagger tagger -',
+  ]);
+  assert.ok(report.findings.every((finding) => finding.commit === tag));
+  assert.deepEqual(report.target, { heads: [history.commits[1]], commits: 2 });
+  for (const value of [PLANTED, OTHER, THIRD, UNLISTED_HOST, PUBLIC_V4, INTERNAL_EMAIL]) assert.ok(!outputOf(run).includes(value), value);
+});
+
+test('with an allowed identity, an annotated tag by another identity or in another time zone is refused as the tagger and a tag by the allowed identity passes', () => {
+  const history = createHistory([{}, {}]);
+  const listFile = writeList([PLANTED]);
+  const [head] = history.commits.slice(-1);
+  createAnnotatedTag(history.dir, 'by-other', head, { tagger: { name: 'Someone', email: 'someone@example.invalid' } });
+  createAnnotatedTag(history.dir, 'in-zone', head, { tz: '+0100' });
+  createAnnotatedTag(history.dir, 'by-allowed', head);
+  const runWithIdentity = (name) => runHistory(historyArgs(history, listFile, ['--allowed-identity', ALLOWED], name));
+  const other = runWithIdentity('by-other');
+  assert.equal(other.status, 1, other.stderr);
+  assert.deepEqual(brief(JSON.parse(other.stdout)), ['R-IDENTITY tagger tagger -']);
+  assert.ok(!outputOf(other).includes('someone@'));
+  assert.deepEqual(brief(JSON.parse(runWithIdentity('in-zone').stdout)), ['R-IDENTITY timezone tagger -']);
+  const allowed = runWithIdentity('by-allowed');
+  assert.equal(allowed.status, 0, allowed.stderr);
+});
+
+test('an annotated tag with no tagger line is refused when an allowed identity is given', () => {
+  const history = createHistory([{}, {}]);
+  const raw = `object ${history.commits[1]}\ntype commit\ntag unsigned\n\nno tagger here\n`;
+  const tag = git(history.dir, ['hash-object', '-t', 'tag', '-w', '--literally', '--stdin'], { input: Buffer.from(raw) });
+  const run = runHistory(historyArgs(history, writeList([PLANTED]), ['--allowed-identity', ALLOWED], tag));
+  assert.equal(run.status, 1, run.stderr);
+  assert.deepEqual(brief(JSON.parse(run.stdout)), ['R-IDENTITY tagger tagger -']);
+});
+
+test('a tag of a tag is read through: every tag object in the chain is scanned, and a ref that is a full tag object id is read too', () => {
+  const history = createHistory([{}, {}]);
+  const inner = createAnnotatedTag(history.dir, 'inner', history.commits[1], { message: `subject\n\n${PLANTED}` });
+  const outer = createAnnotatedTag(history.dir, 'outer', inner, { tagger: { name: OTHER, email: 'project@example.invalid' } });
+  assert.notEqual(inner, outer);
+  const run = runHistory(historyArgs(history, writeList([PLANTED, OTHER]), [], outer));
+  assert.equal(run.status, 1, run.stderr);
+  const report = JSON.parse(run.stdout);
+  assert.deepEqual(report.findings.map(({ kind, commit }) => [kind, commit]), [['message', inner], ['tagger', outer]]);
+  assert.deepEqual(report.target.heads, [history.commits[1]]);
+});
+
+test('a chain of tags longer than the limit exits 2 instead of being read without end', () => {
+  const history = createHistory([{}, {}]);
+  let target = history.commits[1];
+  for (let depth = 0; depth < 20; depth += 1) target = createAnnotatedTag(history.dir, `link-${depth}`, target);
+  const run = runHistory(historyArgs(history, writeList([PLANTED]), [], target));
+  assert.equal(run.status, 2);
+  assert.equal(run.stdout, '');
 });
 
 test('pull-request text is scanned in every string at any depth and located by object and string number; a file that is not an array of objects exits 2', () => {
