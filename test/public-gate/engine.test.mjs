@@ -165,7 +165,7 @@ test('two runs give byte-identical reports, and the checkout is unchanged after 
 });
 
 test('the gate passes on its own sources and tests', () => {
-  const own = ['scripts/public-gate', 'scripts/lib', 'test/public-gate', 'test/lib', 'public-gate.config.json', 'docs/PUBLIC-GATE.md']
+  const own = ['scripts/public-gate', 'scripts/lib', 'scripts/ci', 'test/public-gate', 'test/lib', 'test/ci', 'public-gate.config.json', 'docs/PUBLIC-GATE.md']
     .flatMap((entry) => walkFiles(path.join(REPO_ROOT, entry)));
   assert.ok(own.length > 8);
   const repo = createRepo(own.map((file) => ({ path: path.relative(REPO_ROOT, file), content: readFileSync(file) })));
