@@ -185,6 +185,44 @@ test('hosts: the name after a placeholder is read with any last label, as a URL 
   assert.deepEqual(scanned(scanHosts, files), [1, 2, 3, 4].map((line) => `R-HOST content src/punycode.mjs ${line}`).concat('R-HOST content docs/punycode.md 1', 'R-HOST content docs/punycode.md 2'));
 });
 
+test('hosts: a URL host written with an ideographic, full-width or half-width full stop, or with a `\\u002e`, `\\u{2e}` or `\\x2e` escape in a string, fails as the host it resolves to; a listed or reserved one passes, and `\\.` stays regex syntax', () => {
+  const dots = ['\u3002', '\uFF0E', '\uFF61'];
+  const files = {
+    'docs/dots.md': [...dots.map((dot) => urlOf(ATTACKER.replace('.', dot))), dots.map((dot) => urlOf(`github${dot}com`)).join(' ')].join('\n') + '\n',
+    'src/dots.mjs': `const a = '${urlOf(ATTACKER.replace('.', '\uFF0E'))}';\n`,
+    'conf/escaped.json': `{ "u": "${urlOf(ATTACKER.replace('.', '\\u002e'))}" }\n`,
+    'src/escaped.mjs': [`const b = "${urlOf(ATTACKER.replace('.', '\\x2e'))}";`, `const c = "${urlOf(ATTACKER.replace('.', '\\u{2e}'))}";`,
+      `const re = /^https:\\/\\/${ATTACKER.replace('.', '\\.')}\\//;`, `const d = "${urlOf(name('cdn', 'example\\u002enet'))}";`].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), ['R-HOST content docs/dots.md 1', 'R-HOST content docs/dots.md 2', 'R-HOST content docs/dots.md 3',
+    'R-HOST content src/dots.mjs 1', 'R-HOST content conf/escaped.json 1', 'R-HOST content src/escaped.mjs 1', 'R-HOST content src/escaped.mjs 2']);
+  assert.deepEqual(refusedMetadataHosts(`subject\n\nsee ${urlOf(ATTACKER.replace('.', '\u3002'))} and ${urlOf('github\uFF0Ecom')}`, CONFIG), [ATTACKER]);
+});
+
+test('hosts: a placeholder followed by a full stop that a URL parser maps to a dot reads as its literal suffix, in scheme and protocol-relative URLs, and a percent-encoded full stop is mapped too; a listed or reserved suffix passes', () => {
+  const files = {
+    'docs/unicode-placeholder.md': [`see https://<tenant>\u3002${OTHER.replaceAll('.', '\u3002')}/x`, 'see https://${t}\uFF61github\uFF61com/x and https://<t>\u3002cdn\u3002example\u3002net/x',
+      `see https://${OTHER.replaceAll('.', '%e3%80%82')}/x`, 'see https://github%E3%80%82com/x'].join('\n') + '\n',
+    'src/unicode-placeholder.mjs': [`const a = "https://<tenant>\uFF0E${OTHER}/x";`, `const b = "//%s\uFF0E${OTHER}/x";`, "const c = '//%s\uFF0Egithub.com/x';"].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), ['R-HOST content docs/unicode-placeholder.md 1', 'R-HOST content docs/unicode-placeholder.md 3',
+    'R-HOST content src/unicode-placeholder.mjs 1', 'R-HOST content src/unicode-placeholder.mjs 2']);
+});
+
+test('hosts: a string escape of a full stop a URL parser maps to a dot reads as that full stop, a percent-encoded one ends an angle placeholder label, and an internationalised name after a placeholder reads as its A-label form; listed names still pass', () => {
+  const stops = ['3002', 'FF0E', 'ff61'];
+  const escaped = (host, code) => host.replaceAll('.', `\\u${code}`);
+  const files = {
+    'src/escaped-stop.mjs': [...stops.map((code) => `const a = "https://${escaped(OTHER, code)}/x";`), ...stops.map((code) => `const b = "https://${escaped('github.com', code)}/x";`),
+      `const c = "https://${OTHER.replaceAll('.', '\\u{ff0e}')}/x";`, `const d = "https://<tenant>%E3%80%82${OTHER}/x";`, `const e = "//<tenant>%EF%BC%8E${OTHER}/x";`,
+      'const f = "https://<tenant>%ef%bd%a1github.com/x";'].join('\n') + '\n',
+    'conf/escaped-stop.json': stops.map((code) => `{ "u": "https://${escaped(OTHER, code)}/x" }`).join('\n') + '\n',
+    'docs/idn.md': [`see https://\${tenant}.${name('real-host', '\u0440\u0444')}/x`, `see https://\${tenant}.${name('github', 'com')}/x`].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), [1, 2, 3, 7, 8, 9].map((line) => `R-HOST content src/escaped-stop.mjs ${line}`)
+    .concat([1, 2, 3].map((line) => `R-HOST content conf/escaped-stop.json ${line}`), 'R-HOST content docs/idn.md 1'));
+});
+
 test('hosts: a percent-encoded dot, an upper-case encoding or a trailing dot in a URL host does not hide an unlisted host', () => {
   const files = {
     'docs/encoded.md': [ATTACKER_ENCODED, `${ATTACKER.toUpperCase()}.`, ATTACKER_ENCODED.replace('%2e', '%2E'), `${ATTACKER}%2e`].map((host) => urlOf(host)).join('\n') + '\n',
@@ -433,6 +471,124 @@ test('addresses: seven written groups with `::` at either end, and a `::`-leadin
   const afterLabelLeading = [`ip:${MAPPED_PUBLIC_HEX}`, `addr:${ipv6('', '', 'ffff', '0808', '0404')}`, `tcp6:${ipv6('', '', 2)}`, `add-host name:${MAPPED_PUBLIC}`, `ip\\:${MAPPED_PUBLIC_HEX}`, `ip:${ipv6('', '', 1, 2, 3, 4, 5, 6, 7)}`];
   assert.deepEqual(refusedLines(...afterLabelLeading), afterLabelLeading.map((_, index) => index + 1), 'a `::`-leading literal after `label:`');
   assert.deepEqual(refusedLines('host:::1', 'ip::: and ip:::', 'std::vector and Node::dead', ipv6(1, 2, 3, 4, 5, 6, 7, 8, 9)), [], 'permitted loopback after a label, a bare scope, a nine-group run');
+});
+
+/** The spellings a URL parser reads as the same IPv4 address: decimal, hex, two and three parts, octal parts and a hex first part. */
+function ipv4Spellings(a, b, c, d) {
+  const value = a * 2 ** 24 + b * 2 ** 16 + c * 2 ** 8 + d;
+  return [String(value), `0x${value.toString(16)}`, `${a}.${b * 2 ** 16 + c * 2 ** 8 + d}`, `${a}.${b}.${c * 2 ** 8 + d}`,
+    [a, b, c, d].map((octet) => `0${octet.toString(8)}`).join('.'), `0x${a.toString(16)}.${b}.${c}.${d}`];
+}
+
+test('addresses: a URL host in numbers and dots fails or passes as the IPv4 address a URL parser reads it as, in prose, code and commit metadata; a bare number, a regex and a host the parser refuses are no address', () => {
+  const privateSpellings = ipv4Spellings(10, 0, 0, 7);
+  const files = {
+    'docs/private.md': privateSpellings.map((host) => `http://${host}/`).join('\n') + '\n',
+    'src/private.mjs': privateSpellings.map((host) => `const u = "http://${host}:8080/x";`).join('\n') + '\n',
+    'docs/permitted.md': [...ipv4Spellings(192, 0, 2, 1), ...ipv4Spellings(127, 0, 0, 1)].map((host) => `http://${host}/`).join('\n') + '\n',
+    'docs/not-addresses.md': [`port ${privateSpellings[0]} and ${privateSpellings[1]}`, `http://${2 ** 32}/ and http://${privateSpellings[0]}00/`,
+      `const re = /^http:\\/\\/${PRIVATE_V4.replaceAll('.', '\\.')}:/;`].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanIps, files, NO_DISPOSITIONS), [
+    ...privateSpellings.map((_, index) => `R-IP content docs/private.md ${index + 1}`), ...privateSpellings.map((_, index) => `R-IP content src/private.mjs ${index + 1}`),
+  ]);
+  assert.deepEqual(scanned(scanHosts, files), []);
+  assert.deepEqual(refusedMetadataIps(`subject\n\nsee http://${privateSpellings[0]}/ and http://${ipv4Spellings(127, 0, 0, 1)[0]}/`), [PRIVATE_V4]);
+});
+
+test('addresses: for every host in a table of numbers and dots, the IP rule gives a URL with that host the result it gives the dotted quad a URL parser reads, and none when the parser refuses it; a four-part decimal literal is also read as written, as it is outside a URL', () => {
+  const values = [0, 1, 255, 256, 65535, 65536, 2 ** 24 - 1, 2 ** 24, 2 ** 32 - 1, 2 ** 32];
+  const hosts = [...values.flatMap((value) => [String(value), `0x${value.toString(16)}`, `0${value.toString(8)}`]),
+    ...ipv4Spellings(8, 8, 4, 4), ...ipv4Spellings(172, 16, 0, 1), ...ipv4Spellings(0, 0, 0, 0), '1.2.3.4.5', '0x', '08', `0x${'f'.repeat(9)}`];
+  for (const host of hosts) {
+    let dotted = null;
+    try { dotted = new URL(`http://${host}/`).hostname; } catch { /* the parser refuses it: no address */ }
+    const asWritten = scanned(scanIps, { 'docs/t.md': `http://${host}/\n` }, NO_DISPOSITIONS);
+    const asParsed = dotted === null ? [] : scanned(scanIps, { 'docs/t.md': `http://${dotted}/\n` }, NO_DISPOSITIONS);
+    const message = `http://${host}/ (the URL parser reads ${dotted ?? 'no address'})`;
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) assert.ok(asWritten.length >= asParsed.length, message);
+    else assert.deepEqual(asWritten, asParsed, message);
+  }
+});
+
+test('addresses: an exact disposition for a dotted literal does not pass another spelling of that address on another line', () => {
+  const files = { 'docs/disposed.md': `http://${PRIVATE_V4}/\nhttp://${ipv4Spellings(10, 0, 0, 7)[0]}/\n` };
+  const disposition = { path: 'docs/disposed.md', blob: PLANTED_BLOB, line: 1, context: '://<ip>/', sha256: sha256(PRIVATE_V4), reason: 'reviewed in this test' };
+  assert.deepEqual(scanned(scanIps, files, { ...NO_DISPOSITIONS, ipDispositions: [disposition] }), ['R-IP content docs/disposed.md 2']);
+});
+
+test('addresses: a protocol-relative URL host in numbers and dots, percent escapes or Unicode full stops fails as the IPv4 address it resolves to, in prose, a quoted string in code and commit metadata; a `//` comment in code is no address', () => {
+  const [decimal, hex] = ipv4Spellings(10, 0, 0, 7);
+  const files = {
+    'docs/relative-ip.md': [`see //${decimal}/x`, `<img src=//${hex}/a.png>`, `see //${PRIVATE_V4.replaceAll('.', '%2e')}/x`, `see //${PRIVATE_V4.replaceAll('.', '\u3002')}/x`,
+      `see //${ipv4Spellings(127, 0, 0, 1)[0]}/x and //${ipv4Spellings(192, 0, 2, 1)[0]}/y`].join('\n') + '\n',
+    'src/relative-ip.mjs': [`const a = "//${decimal}/x";`, `// ${decimal} and //${decimal} and //0x1f in comments`].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanIps, files, NO_DISPOSITIONS), [1, 2, 3, 4].map((line) => `R-IP content docs/relative-ip.md ${line}`).concat('R-IP content src/relative-ip.mjs 1'));
+  assert.deepEqual(scanned(scanHosts, files), []);
+  assert.deepEqual(refusedMetadataIps(`subject\n\nsee //${decimal}/x and //${ipv4Spellings(127, 0, 0, 1)[0]}/y`), [PRIVATE_V4]);
+});
+
+test('addresses: a host in numbers and escaped full stops, and an unquoted CSS `url(//...)` host in numbers, fail or pass as the address a URL parser reads', () => {
+  const [decimal] = ipv4Spellings(10, 0, 0, 7);
+  const [loopbackDecimal] = ipv4Spellings(127, 0, 0, 1);
+  const files = {
+    'src/escaped-ip.mjs': [`const a = "http://${PRIVATE_V4.replaceAll('.', '\\u3002')}/x";`, `const b = "http://${'127.0.0.1'.replaceAll('.', '\\uFF0E')}/x";`].join('\n') + '\n',
+    'web/ip.css': [`.a { background: url(//${decimal}/i.png); }`, `.b { background: url(//${loopbackDecimal}/i.png); }`].join('\n') + '\n',
+  };
+  const config = { ...NO_DISPOSITIONS, textExtensions: [...NO_DISPOSITIONS.textExtensions, '.css'] };
+  assert.deepEqual(scanned(scanIps, files, config), ['R-IP content src/escaped-ip.mjs 1', 'R-IP content web/ip.css 1']);
+});
+
+test('addresses: on the line of an exact disposition for a dotted literal, another spelling of that address in another context still fails', () => {
+  const files = { 'docs/disposed.md': `http://${PRIVATE_V4}/ and http://${ipv4Spellings(10, 0, 0, 7)[0]}:8080/\n` };
+  const disposition = { path: 'docs/disposed.md', blob: PLANTED_BLOB, line: 1, context: '://<ip>/ a', sha256: sha256(PRIVATE_V4), reason: 'reviewed in this test' };
+  assert.deepEqual(scanned(scanIps, files, { ...NO_DISPOSITIONS, ipDispositions: [disposition] }), ['R-IP content docs/disposed.md 1']);
+  assert.deepEqual(scanned(scanIps, { 'docs/disposed.md': `http://${PRIVATE_V4}/ and more\n` }, { ...NO_DISPOSITIONS, ipDispositions: [disposition] }), []);
+});
+
+test('addresses: an exact disposition is pinned to its blob, so another spelling of the address on the reviewed line, in the same context, shares it only within that blob', () => {
+  const [decimal] = ipv4Spellings(10, 0, 0, 7);
+  const files = { 'docs/shared.md': `http://${PRIVATE_V4}/x and http://${decimal}/x and\n` };
+  const disposition = { path: 'docs/shared.md', blob: PLANTED_BLOB, line: 1, context: '://<ip>/x ', sha256: sha256(PRIVATE_V4), reason: 'reviewed in this test' };
+  const config = { ...NO_DISPOSITIONS, ipDispositions: [disposition] };
+  assert.deepEqual(scanned(scanIps, files, config), []);
+  assert.deepEqual(scanned(scanIps, files, config, 'c'.repeat(40)), ['R-IP content docs/shared.md 1']);
+  assert.deepEqual(scanned(scanIps, { 'docs/shared.md': `http://${PRIVATE_V4}/x and http://${ipv4Spellings(10, 0, 0, 8)[0]}/x and\n` }, config), ['R-IP content docs/shared.md 1']);
+});
+
+test('hosts and addresses: across URL forms, file kinds, dot spellings and placeholders, a URL host gives the result its literal name or address gives (a cross-feature table)', () => {
+  const unicodeDots = ['\u3002', '\uFF0E', '\uFF61'];
+  const encodedStops = ['%E3%80%82', '%ef%bc%8e', '%EF%BD%A1'];
+  const escapedStops = ['\\u3002', '\\uFF0E', '\\u{ff61}'];
+  const dots = ['.', ...unicodeDots, '%2e', '%2E', ...encodedStops];
+  const stringDots = ['\\u002e', '\\u{2e}', '\\x2e', ...escapedStops];
+  const mapped = [...unicodeDots, ...encodedStops, ...escapedStops];
+  const placeholders = ['', '${t}', '%s', '%(t)s', '{t}', '{{t}}', '$T', '%{t}', '$(t)', '<t>', '*'];
+  const names = [[ATTACKER, 'R-HOST'], [name('attacker', 'xn--p1ai'), 'R-HOST'], ['github.com', ''], [name('cdn', 'example', 'net'), '']];
+  const forms = [(host) => `https://${host}/x`, (host) => `//${host}/x`];
+  const files = [['docs/t.md', (url) => `see ${url} here`, dots], ['conf/t.json', (url) => `{ "u": "${url}" }`, [...dots, '\\u002e', ...escapedStops]],
+    ['src/t.mjs', (url) => `const u = "${url}";`, [...dots, ...stringDots]], ['src/t.ts', (url) => `const u = \`${url}\`;`, [...dots, ...stringDots]],
+    ['web/t.css', (url) => `.a { background: url(${url}); }`, [...dots, ...stringDots]]];
+  const config = { ...CONFIG, textExtensions: [...CONFIG.textExtensions, '.css'] };
+  const ipConfig = { ...NO_DISPOSITIONS, textExtensions: config.textExtensions };
+  const results = (path, text) => [scanned(scanHosts, { [path]: text }, config).length ? 'R-HOST' : '', scanned(scanIps, { [path]: text }, ipConfig).length ? 'R-IP' : ''].filter(Boolean).join('+');
+  const mismatches = [];
+  const check = (path, text, want) => { const got = results(path, text); if (got !== want) mismatches.push(`${text} in ${path}: ${got || 'none'}, wanted ${want || 'none'}`); };
+  for (const [path, wrap, fileDots] of files) for (const form of forms) {
+    for (const [host, want] of names) for (const dot of fileDots) for (const placeholder of placeholders) {
+      const written = (placeholder ? `${placeholder}${dot}` : '') + host.replaceAll('.', dot);
+      // In prose and data the bare-name form reads a placeholder's last letters as a label (`s.<name>` after `%s`), as it did before: a listed
+      // name then fails as that subdomain. After a full stop a URL parser maps, only `$T` survives the mapping (`$` is a host character to it).
+      const prose = path.startsWith('docs/') || path.startsWith('conf/');
+      const bareSubdomain = /\w$/.test(placeholder) && host === 'github.com' && prose && (!mapped.includes(dot) || placeholder === '$T');
+      check(path, wrap(form(written)), bareSubdomain ? 'R-HOST' : want);
+    }
+    for (const [octets, want] of [[[10, 0, 0, 7], 'R-IP'], [[127, 0, 0, 1], ''], [[192, 0, 2, 1], '']]) for (const spelling of ipv4Spellings(...octets)) for (const dot of ['.', '\u3002', '%2e', '%E3%80%82', ...(path.startsWith('docs/') ? [] : ['\\uff0e'])]) {
+      if (dot === '.' || spelling.includes('.')) check(path, wrap(form(spelling.replaceAll('.', dot))), want);
+    }
+  }
+  assert.deepEqual(mismatches.slice(0, 20), [], `${mismatches.length} mismatches`);
 });
 
 test('a malformed IP disposition is invalid configuration', () => {

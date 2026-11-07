@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { domainToASCII } from 'node:url';
 import { decodeUtf8Strict, FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 
 /** Id of the host rule in reports. */
@@ -29,8 +30,11 @@ const HOST_TOP_LEVEL_NAMES = new Set(['com', 'org', 'net', 'io', 'dev', 'ai', 'x
 const LINE_BREAK = /\r\n|\r|\n/;
 /** A dotted name within DNS limits (labels of at most 63 characters, at most 127 of them): bounded so a long dotted line cannot exhaust the regex stack. */
 const NAME_LABELS = String.raw`(?:[a-z0-9_-]{1,63}\.){1,127}[a-z]{2,63}`;
-/** A dot in a URL host as written: `.` or its percent escape `%2e`. */
-const DOT = String.raw`\.|%2e`;
+/**
+ * A dot in a URL host as written: `.`, its percent escape `%2e`, or one of the full stops a URL parser maps to a dot
+ * (U+3002, U+FF0E, U+FF61), written as the character or percent-encoded in UTF-8.
+ */
+const DOT = String.raw`\.|%2e|[\u3002\uff0e\uff61]|%e3%80%82|%ef%bc%8e|%ef%bd%a1`;
 /** A host label written as an angle-bracket placeholder (`<tenant>`) and followed by a dot (`DOT`): part of a URL host (`https://<tenant>.example.org`). An HTML tag after a host (`host.org<br>`) is not followed by a dot, so it still ends the host. */
 const ANGLE_LABEL = String.raw`<[a-z0-9_-]{1,63}>(?=${DOT})`;
 /** A placeholder with its name in parentheses (`%(host)s`, `$(hostname)`): part of a URL host, though a `)` otherwise ends one (`[a link](https://example.org)`). */
@@ -63,6 +67,9 @@ const PERCENT_ESCAPES = /(?:%[0-9a-f]{2})+/gi;
 /** What a host holds once its escapes are decoded: a name in letters, digits, `_`, `-` and dots, or a bracketed IPv6 literal. Anything else (a decoded `/`, `%`, control or non-ASCII character) is no host a URL parser accepts. */
 const DECODED_HOST = /^(?:[a-z0-9_.-]+|\[[0-9a-f:.]*\])$/;
 const IDENTITY = /^[^<>]+ <[^<>\s]+>$/;
+const NON_ASCII = /[^\x00-\x7f]/;
+/** A host in numbers and dots only, which a URL parser reads as an IPv4 address: one to four parts, each decimal, octal (led by `0`) or hex (`0x`). */
+const IPV4_NUMBERS = /^(?:0x[0-9a-f]*|\d+)(?:\.(?:0x[0-9a-f]*|\d+)){0,3}$/i;
 
 const isText = (value) => typeof value === 'string' && value !== '';
 const isLowerText = (value) => isText(value) && value === value.toLowerCase();
@@ -93,14 +100,34 @@ function withEscapesDecoded(host) {
 }
 
 /**
- * A URL host as a URL parser resolves it: percent escapes decoded once, lower case, no trailing dot. Returns null when an escape
- * is not valid UTF-8 or the decoded host is not a name or an IPv6 literal (`evil%252ecom` decodes to `evil%2ecom`, `a.com%2fx` to `a.com/x`).
- * A host with no escape is only lower-cased and stripped of its trailing dot, so a template placeholder stays one.
+ * A host with the URL parser's domain mapping (UTS 46) applied when it is not ASCII: the full stops U+3002, U+FF0E and U+FF61 read as dots, full-width
+ * letters as ASCII and an internationalised name as its `xn--` form; null when the parser refuses the name. An ASCII host is returned as it is.
+ */
+const mappedHost = (host) => (NON_ASCII.test(host) ? domainToASCII(host) || null : host);
+
+/** The dotted quad a URL parser reads a host in numbers and dots as (`3221225985`, `192.0.513`, `0xc0000201` and `0300.0.2.1` give the documentation address `192.0.2.1`), or null when the host is not one or the parser refuses it (`4294967296`). */
+function urlIpv4(host) {
+  if (!IPV4_NUMBERS.test(host)) return null;
+  try {
+    return new URL(`http://${host}/`).hostname;
+  } catch (error) {
+    if (error instanceof TypeError) return null;
+    throw error;
+  }
+}
+
+/**
+ * A URL host as a URL parser resolves it: percent escapes decoded once, lower case, mapped to ASCII (`mappedHost`), no trailing dot,
+ * and a host in numbers and dots read as the IPv4 address it stands for (`urlIpv4`). Returns null when an escape is not valid UTF-8,
+ * the parser refuses the name, or the result is not a name or an IPv6 literal (`evil%252ecom` decodes to `evil%2ecom`, `a.com%2fx` to `a.com/x`).
+ * An ASCII host with no escape is only lower-cased and stripped of its trailing dot, so a template placeholder stays one.
  */
 function normalisedHost(host) {
   const decoded = withEscapesDecoded(host)?.toLowerCase();
-  if (decoded === undefined || (decoded !== host.toLowerCase() && !DECODED_HOST.test(decoded))) return null;
-  return decoded.replace(/\.+$/, '');
+  const mapped = decoded === undefined ? null : mappedHost(decoded);
+  if (mapped === null || (mapped !== host.toLowerCase() && !DECODED_HOST.test(mapped))) return null;
+  const name = mapped.replace(/\.+$/, '');
+  return urlIpv4(name) ?? name;
 }
 
 /** A template placeholder character in a host as written: `$`, `{`, `}`, `<`, `>`, `*`, or a `%` that starts no percent escape (`%s`, `%(host)s`, `%{host}`; `%2e` is an escape). */
@@ -114,10 +141,10 @@ const LABEL_END = new RegExp(DOT, 'i');
 const LITERAL_SUFFIX = /^\.((?:[a-z0-9_-]{1,63}\.){1,127}[a-z0-9_-]{1,63})$/i;
 
 /**
- * What a run of percent escapes in a URL host may decode to: name characters (letters, digits, `_`, `-`) and dots, so `%2e` may and
- * `%ff` (not UTF-8), `%2f`, `%00` and `%252e` (to `%2e`) may not.
+ * What a run of percent escapes in a URL host may decode to: name characters (letters, digits, `_`, `-`), dots, and non-ASCII
+ * characters, which the URL parser maps (`%e3%80%82`, `%c3%a9`); so `%2e` may and `%ff` (not UTF-8), `%2f`, `%00` and `%252e` (to `%2e`) may not.
  */
-const HOST_ESCAPE_TEXT = /^[a-z0-9_.-]+$/i;
+const HOST_ESCAPE_TEXT = /^(?:[a-z0-9_.-]|[^\x00-\x7f])+$/i;
 
 /** True when every run of percent escapes in `host` decodes to `HOST_ESCAPE_TEXT`. */
 const hasHostEscapes = (host) => [...host.matchAll(PERCENT_ESCAPES)].every(([run]) => HOST_ESCAPE_TEXT.test(withEscapesDecoded(run) ?? '%'));
@@ -208,21 +235,57 @@ export const textOf = (entry) => (entry.bytes && !entry.bytes.includes(0) ? deco
 
 /** A backslash escaping a URL or email delimiter (`\/`, `\@`, `\:`), as JSON and JavaScript strings write them. `\n`, `\t` and `\.` stay: they are control characters and regex syntax. */
 const ESCAPED_DELIMITER = /\\([/@:])/g;
+/** A `\uXXXX`, `\u{X}` or `\xXX` escape of a JSON or JavaScript string (`\u002e`, `\x2e`). */
+const ESCAPED_CHARACTER = /\\u([0-9a-f]{4})|\\u\{([0-9a-f]{1,6})\}|\\x([0-9a-f]{2})/gi;
 
-/** A line as written, and with its escaped delimiters unescaped when it has any, so `https:\/\/host\/x` reads as the URL it decodes to. */
+/** The code points of the full stops a URL parser maps to a dot (U+3002, U+FF0E, U+FF61). */
+const FULL_STOPS = new Set([0x3002, 0xff0e, 0xff61]);
+
+/** An escape decoded when it stands for a printable ASCII character other than a backslash, or for one of `FULL_STOPS`; any other escape stays as written. */
+function decodedEscape(escape, four, braced, two) {
+  const code = parseInt(four ?? braced ?? two, 16);
+  return (code > 0x20 && code < 0x7f && code !== 0x5c) || FULL_STOPS.has(code) ? String.fromCharCode(code) : escape;
+}
+
+/**
+ * A line as written, and with its escaped delimiters and its `\uXXXX`, `\u{X}` and `\xXX` escapes of printable ASCII characters and of the
+ * three full stops (`decodedEscape`) decoded when it has any, so `https:\/\/host\/x` and `https://example\u002eorg/x` read as the URLs they decode to; `\.` stays regex syntax.
+ */
 export function viewsOf(line) {
-  const unescaped = line.replace(ESCAPED_DELIMITER, '$1');
+  const unescaped = line.replace(ESCAPED_DELIMITER, '$1').replace(ESCAPED_CHARACTER, decodedEscape);
   return unescaped === line ? [line] : [line, unescaped];
 }
 
-/** A line with the percent escapes of every URL host decoded, so `http://127%2e0%2e0%2e1/` reads as the literal it resolves to; a host that cannot be decoded stays as written. */
-const withUrlHostsDecoded = (line) => line.replace(URL_HOST, (match, ...args) => {
-  const { host } = args.at(-1);
-  return match.slice(0, -host.length) + (withEscapesDecoded(host) ?? host);
-});
+/** What may follow a whole URL host: the end of the line, a delimiter, a quote or a closing bracket. A backslash does not (`http:\/\/127\.0\.0\.1` in a regex ends its host match at `127`). */
+const AFTER_URL_HOST = /^(?:$|[/?#:\s'"`)\]>,;])/;
 
-/** `viewsOf(line)` and the same views with URL host escapes decoded: what the address rules read for a line. */
-const addressViewsOf = (line) => [...new Set(viewsOf(line).flatMap((view) => [view, withUrlHostsDecoded(view)]))];
+/**
+ * A URL host as the address rules read it in a line: its percent escapes decoded, mapped to ASCII (`mappedHost`) and, when it is
+ * in numbers and dots and the whole host (`whole`), the IPv4 address a URL parser reads it as (`urlIpv4`). A step that fails leaves the host as the step before had it.
+ */
+function resolvedUrlHost(host, whole) {
+  const decoded = withEscapesDecoded(host) ?? host;
+  const mapped = mappedHost(decoded) ?? decoded;
+  return (whole ? urlIpv4(mapped.replace(/\.+$/, '')) : null) ?? mapped;
+}
+
+/** `match` with its URL host resolved (`resolvedUrlHost`), the host counting as whole when `AFTER_URL_HOST` allows what follows it in `string`. */
+function withHostResolved(match, ...args) {
+  const { host } = args.at(-1);
+  const string = args.at(-2);
+  const end = args.at(-3) + match.length;
+  return match.slice(0, -host.length) + resolvedUrlHost(host, AFTER_URL_HOST.test(string.slice(end, end + 1)));
+}
+
+/**
+ * A line with every URL host resolved (`resolvedUrlHost`), so `http://127%2e0%2e0%2e1/`, `http://2130706433/` and `http://127.0.0.1/`
+ * written with U+3002 full stops read as the literal they resolve to; a protocol-relative host is resolved too, in the form `unlistedHostsIn`
+ * reads for the file (`//host` in prose and data, a quoted `"//host` or `url(//host` in code), so a protocol-relative host in numbers and dots reads as its dotted quad and a `//` comment in code is left alone.
+ */
+const withUrlHostsDecoded = (line, code) => line.replace(URL_HOST, withHostResolved).replace(code ? CODE_PROTOCOL_RELATIVE_HOST : PROTOCOL_RELATIVE_HOST, withHostResolved);
+
+/** `viewsOf(line)` and the same views with URL hosts resolved: what the address rules read for a line of a code file (`code`) or of other text. */
+const addressViewsOf = (line, code = false) => [...new Set(viewsOf(line).flatMap((view) => [view, withUrlHostsDecoded(view, code)]))];
 
 /**
  * The test of `scopedAllowances` for a rule: an occurrence passes when an entry holds this exact path, rule, value and
@@ -245,7 +308,7 @@ function createAddressRule(ruleId, occurrencesIn, allowanceCheck = scopedAllowan
     const listedHosts = new Set(config.allowedHosts.map(({ value }) => value));
     const isAllowed = allowanceCheck(config, ruleId);
     const findings = [];
-    const refusedLines = (lines, entry, code, lineOf = (index) => index + 1) => lines.flatMap((text, index) => (addressViewsOf(text)
+    const refusedLines = (lines, entry, code, lineOf = (index) => index + 1) => lines.flatMap((text, index) => (addressViewsOf(text, code)
       .some((view) => occurrencesIn(view, { code, listedHosts }).some((occurrence) => !isAllowed(entry, occurrence, lineOf(index)))) ? [index + 1] : []));
     const add = (finding) => {
       findings.push({ rule: ruleId, ...finding });
@@ -367,7 +430,9 @@ function dispositionCheck(config) {
 
 /**
  * Whether `config.ipDispositions` is well formed: a list of { path, blob (a full object id), line (a positive integer), context
- * (text around the address holding `<ip>`), sha256 (of the address as written, lower case), reason }.
+ * (text around the address holding `<ip>`), sha256 (of the address as the rule reads it: as written, lower case, or for a URL host the
+ * literal it resolves to), reason }. An entry is pinned to the reviewed blob, so it covers only the line its reviewer saw; on that line,
+ * another spelling of the same address in the same context reads as the same value and shares the entry.
  */
 export function hasValidIpDispositions(config) {
   return Array.isArray(config.ipDispositions) && config.ipDispositions.every((entry) => entry !== null && typeof entry === 'object'
