@@ -102,7 +102,7 @@ export function refusedMetadataEmails(text, config) {
 }
 
 /** A file's text, or null for a blob that is not valid UTF-8 text (a reviewed binary is not read as text). */
-const textOf = (entry) => (entry.bytes && !entry.bytes.includes(0) ? decodeUtf8Strict(entry.bytes) : null);
+export const textOf = (entry) => (entry.bytes && !entry.bytes.includes(0) ? decodeUtf8Strict(entry.bytes) : null);
 
 /** A backslash escaping a URL or email delimiter (`\/`, `\@`, `\:`), as JSON and JavaScript strings write them. `\n`, `\t` and `\.` stay: they are control characters and regex syntax. */
 const ESCAPED_DELIMITER = /\\([/@:])/g;

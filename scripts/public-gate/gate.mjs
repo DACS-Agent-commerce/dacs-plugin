@@ -7,10 +7,11 @@ import { classifyBlob } from './classify.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { buildOutputs, publish, writeDiagnostic } from './redact.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, hasValidAddressConfig, hasValidIpDispositions, IP_RULE_ID, scanAccounts, scanHosts, scanIps } from './rules-address.mjs';
+import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, scanArchives, scanEnvTemplates, scanHostingFiles } from './rules-files.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const GATE_SOURCES = ['scripts/lib/choice.mjs', ...['check-report', 'classify', 'gate', 'history', 'objects', 'redact', 'rules-address', 'rules-private'].map((name) => `scripts/public-gate/${name}.mjs`)];
+const GATE_SOURCES = ['scripts/lib/choice.mjs', ...['check-report', 'classify', 'gate', 'history', 'objects', 'redact', 'rules-address', 'rules-files', 'rules-private'].map((name) => `scripts/public-gate/${name}.mjs`)];
 const LIMIT_NAMES = ['maxTreeObjects', 'maxBlobBytes', 'maxTotalBlobBytes', 'maxListingBytes', 'maxPrivateListBytes', 'maxPrivateEntries', 'maxReportEntries', 'maxHistoryCommits', 'gitDeadlineMs', 'scanDeadlineMs'];
 const SCOPES = ['generic', 'complete'];
 const FLAGS = ['--repo', '--commit', '--scope', '--private-list', '--private-evidence', '--expected-root', '--out'];
@@ -22,6 +23,9 @@ const RULES = [
   { id: ACCOUNT_RULE_ID, run: scanAccounts },
   { id: HOST_RULE_ID, run: scanHosts },
   { id: IP_RULE_ID, run: scanIps },
+  { id: ENV_RULE_ID, run: scanEnvTemplates },
+  { id: HOSTING_RULE_ID, run: scanHostingFiles },
+  { id: ARCHIVE_RULE_ID, run: scanArchives },
   { id: PRIVATE_RULE_ID, completeOnly: true, run: scanPrivate },
 ];
 
