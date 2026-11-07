@@ -84,7 +84,9 @@
     { "path": "stdio-mcp/package-lock.json", "rule": "R-ACCOUNT", "value": "uuid@latest", "context": "email", "reason": "package tag in a dependency's deprecation notice, not an email address" },
     { "path": "http-mcp/wallet-build/package-lock.json", "rule": "R-ACCOUNT", "value": "uuid@latest", "context": "email", "reason": "package tag in a dependency's deprecation notice, not an email address" },
     { "path": "http-mcp/test/fixtures/mcp-seller-content-baseline.json", "rule": "R-ACCOUNT", "value": "test@v1", "context": "email", "reason": "version tag in recorded tool output, not an email address" },
-    { "path": "stdio-mcp/README.md", "rule": "R-ACCOUNT", "value": "demos@demos-mcp", "context": "email", "reason": "plugin and marketplace name in the install command, not an email address" }
+    { "path": "stdio-mcp/README.md", "rule": "R-ACCOUNT", "value": "demos@demos-mcp", "context": "email", "reason": "plugin and marketplace name in the install command, not an email address" },
+    { "path": ".github/workflows/http-mcp-tests.yml", "rule": "R-HOST", "value": "mcr.microsoft.com", "context": "bare", "reason": "registry host of the digest-pinned test container image" },
+    { "path": ".github/workflows/http-mcp-tests.yml", "rule": "R-ACCOUNT", "value": "v1.56.1-noble@sha256", "context": "email", "reason": "image tag and digest separator of the pinned test container, not an email address" }
   ],
   "ipDispositions": [
     { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs", "blob": "c420e04e0b82c351d8726241668da69301690713", "line": 5, "context": "O(\"<ip>\",\"", "sha256": "e9ec165c059f1c8d01edb61146307e0f2483cedc96eb8677c7280a16fa5a02f9", "reason": "ASN.1 object identifier in the generated wallet bundle, not an address" },

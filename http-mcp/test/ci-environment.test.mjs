@@ -1,9 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 const workflow = readFileSync(new URL('../../.github/workflows/http-mcp-tests.yml', import.meta.url), 'utf8');
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -41,49 +38,29 @@ test('CI gives the checkout and HOME to pwuser before running tests without root
   assert.equal((workflow.match(/npm run test:ci/g) ?? []).length, 1, 'the suite must only run after dropping privileges');
 });
 
-test('CI supplies the frozen seller checkout and its locked dependencies to the tests', () => {
-  const checkout = workflow.slice(workflow.indexOf('- name: Fetch the frozen seller reference'), workflow.indexOf('- uses: actions/setup-node@'));
-  assert.match(checkout, /uses: actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/);
-  assert.match(checkout, /repository: \$\{\{ github\.repository \}\}/);
-  assert.match(checkout, /ref: seller-reference-dbe07f9c\n/);
-  assert.match(checkout, /path: seller-reference\n/);
-  assert.match(checkout, /persist-credentials: false/);
-  assert.doesNotMatch(checkout, /\btoken:/, 'use the default read-only GITHUB_TOKEN');
-  assert.match(workflow, /env:\n\s+DACS_SELLER_INTEROP_REFERENCE: \$\{\{ github\.workspace \}\}\/seller-reference\n/);
-  assert.match(workflow, /cache-dependency-path: \|[\s\S]*seller-reference\/v2\/seller\/package-lock\.json/);
-  const install = workflow.indexOf('- name: Install the frozen seller reference dependencies');
-  assert.ok(install > workflow.indexOf('- uses: actions/setup-node@'));
-  assert.ok(install < workflow.indexOf('- name: Run tests as pwuser'));
-  assert.match(workflow.slice(install), /run: npm ci --ignore-scripts --no-audit --no-fund\n\s+working-directory: seller-reference\/v2\/seller\n/);
-});
+test('CI runs the whole suite, browser files included, in the digest-pinned container with no seller-reference checkout, and uploads results even on failure', () => {
+  assert.match(pkg.scripts['test:ci'], /^node scripts\/run-test-files\.mjs \. test-results\.jsonl \d+ --browser /, 'test:ci adds the browser files');
+  assert.equal((workflow.match(/\bnpm run test:ci\b/g) ?? []).length, 1);
+  const container = workflow.match(/^ {6}image: (\S+)$/m);
+  assert.ok(container, 'the job runs in one container');
+  const [repository, digest] = container[1].split('@');
+  assert.match(repository, /^mcr\.microsoft\.com\/playwright:v\d+\.\d+\.\d+-noble$/);
+  assert.match(digest, /^sha256:[a-f0-9]{64}$/, 'the container is pinned by digest');
+  assert.ok(workflow.includes(`echo "- container: ${container[1]}"`), 'the runner record names the same container');
 
-test('both seller loaders reject missing artifacts and changed bytes in a 17-file git checkout', (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'seller-reference-checkout-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const reference = join(dir, 'reference');
-  mkdirSync(join(reference, '.git'), { recursive: true });
-  writeFileSync(join(reference, '.git/HEAD'), 'ref: refs/heads/moved-tag\n');
-  mkdirSync(join(reference, 'v2/seller'), { recursive: true });
-  writeFileSync(join(reference, 'v2/seller/agreement-context.mjs'), "throw new Error('unverified reference imported');\n");
-  for (let i = 1; i < 17; i++) writeFileSync(join(reference, `file-${i}`), `changed artifact ${i}\n`);
-  for (const [helper, entry] of [['agreement-context-integration', 'sellerReference'], ['current-broker-interactions-interop', 'startInteropSeller']]) {
-    for (const [path, expected] of [[reference, { message: 'unchanged seller reference digest' }], [join(dir, 'absent'), { code: 'ENOENT' }]]) {
-      const source = `import assert from 'node:assert/strict';
-        const api = await import(${JSON.stringify(new URL(`./helpers/${helper}.mjs`, import.meta.url).href)});
-        const expected = ${JSON.stringify(expected)};
-        await assert.rejects(() => api[${JSON.stringify(entry)}](), (error) => {
-          if (expected.message) assert.equal(error.message.split('\\n')[0], expected.message);
-          if (expected.code) assert.equal(error.code, expected.code);
-          return true;
-        });`;
-      const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
-        env: { ...process.env, DACS_SELLER_INTEROP_REFERENCE: path }, encoding: 'utf8', timeout: 15000,
-      });
-      assert.equal(result.error, undefined, `${helper}: ${result.error}`);
-      assert.equal(result.signal, null, `${helper}: ${result.stderr}`);
-      assert.equal(result.status, 0, `${helper}: ${result.stdout}\n${result.stderr}`);
-    }
-  }
+  assert.doesNotMatch(workflow, /seller|DACS_SELLER_INTEROP_REFERENCE/i, 'no seller-reference env, checkout, cache path or install');
+  assert.equal((workflow.match(/uses: actions\/checkout@/g) ?? []).length, 1, 'one checkout, of this repository');
+  assert.match(workflow, /cache-dependency-path: \|\n {12}http-mcp\/package-lock\.json\n {12}http-mcp\/wallet-build\/package-lock\.json\n/);
+
+  const upload = workflow.slice(workflow.indexOf('- name: Upload per-file results'));
+  assert.match(upload, /^ {8}if: always\(\)$/m);
+  assert.match(upload, /^ {10}name: http-mcp-test-results$/m);
+  assert.match(upload, /^ {12}http-mcp\/test-results\.jsonl$/m);
+  assert.doesNotMatch(upload, /continue-on-error/);
+
+  const docs = readFileSync(new URL('../docs/CI.md', import.meta.url), 'utf8');
+  assert.doesNotMatch(docs, /seller-reference|DACS_SELLER_INTEROP_REFERENCE|Frozen seller reference/, 'the docs drop the seller reference with the job');
+  assert.match(docs, /node \.\.\/scripts\/ci\/sdk-input\.mjs --prepare http-mcp/, 'the docs name the validation step');
 });
 
 test('the suite does not run as root on GitHub Actions', { skip: !process.env.GITHUB_ACTIONS }, () => {
