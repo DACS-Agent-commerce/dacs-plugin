@@ -16,7 +16,7 @@ const HISTORY_SCOPE = 'history';
 const REPORT_KEYS = ['findings', 'rules', 'scanner', 'scope', 'target', 'unscannable'];
 /** The review context: exactly these fields, each matching its pattern. Later checks add theirs with the report fields they bind. */
 const CONTEXT_FIELDS = {
-  gateRevision: SHA256_HEX, configSha256: SHA256_HEX, scannerVersion: SEMVER, scannerPolicySha256: SHA256_HEX, secretExceptionsSha256: SHA256_HEX, expectedRoot: FULL_OBJECT_ID, wordingListSha256: SHA256_HEX,
+  gateRevision: SHA256_HEX, configSha256: SHA256_HEX, scannerVersion: SEMVER, scannerSha256: SHA256_HEX, scannerPolicySha256: SHA256_HEX, secretExceptionsSha256: SHA256_HEX, expectedRoot: FULL_OBJECT_ID, wordingListSha256: SHA256_HEX,
 };
 const ROUTE = 'check-report.stderr';
 

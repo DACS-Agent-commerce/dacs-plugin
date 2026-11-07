@@ -7,6 +7,7 @@ import { gateRevision } from '../../scripts/public-gate/gate.mjs';
 import {
   CONFIG_FILE, completeArgs, createRepo, expectedScanIdentity, expectedWordingListSha256, gateArgs, makeTempDir, runCheckReport, runGate, sha256, writeList,
 } from '../lib/gate-fixtures.mjs';
+import { writeStubGitleaks } from '../lib/stub-gitleaks.mjs';
 
 const PLANTED = ['quartz', 'lantern'].join('-');
 const OTHER_DIGEST = sha256('another policy');
@@ -26,6 +27,8 @@ function completeCase() {
   const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), ...expectedScanIdentity(), expectedRoot: repo.commit, wordingListSha256: expectedWordingListSha256() };
   return { repo, report: JSON.parse(run.stdout), context };
 }
+
+const withoutField = (object, name) => Object.fromEntries(Object.entries(object).filter(([key]) => key !== name));
 
 const check = ({ report, head, context }) => runCheckReport(['--report', writeJson(report), '--head', head, '--context', writeJson(context)]);
 
@@ -73,6 +76,25 @@ test('check-report refuses a generic report, a report for another head, a comple
     refused(check({ report, head, context: { ...context, scannerVersion: '9.9.9' } }), 1, 'report-policy-differs');
     refused(check({ report, head, context: { ...context, expectedRoot: OTHER_COMMIT } }), 1, 'report-policy-differs');
     refused(check({ report: { ...report, scanner: { ...report.scanner, expectedRoot: OTHER_COMMIT } }, head, context }), 1, 'report-policy-differs');
+  });
+
+  await t.test('the report names the scanner executable, and a context pinning another executable refuses it', () => {
+    assert.equal(report.scanner.scannerSha256, expectedScanIdentity().scannerSha256);
+    refused(check({ report, head, context: { ...context, scannerSha256: OTHER_DIGEST } }), 1, 'report-policy-differs');
+    refused(check({ report: { ...report, scanner: { ...report.scanner, scannerSha256: OTHER_DIGEST } }, head, context }), 1, 'report-policy-differs');
+    const { scannerSha256, ...withoutExecutable } = report.scanner;
+    assert.match(scannerSha256, /^[0-9a-f]{64}$/);
+    refused(check({ report: { ...report, scanner: withoutExecutable }, head, context }), 1, 'report-policy-differs');
+  });
+
+  await t.test('refuses the clean complete report of a stub scanner that reports the pinned version but is not the pinned executable', () => {
+    const stub = writeStubGitleaks();
+    const stubbed = runGate(completeArgs(repo, writeList([PLANTED]), ['--gitleaks', stub.binary, '--gitleaks-sha256', stub.sha256]));
+    assert.equal(stubbed.status, 0, stubbed.stderr);
+    const stubbedReport = JSON.parse(stubbed.stdout);
+    assert.notEqual(stub.sha256, context.scannerSha256);
+    refused(check({ report: stubbedReport, head, context }), 1, 'report-policy-differs');
+    assert.equal(check({ report: stubbedReport, head, context: { ...context, scannerSha256: stub.sha256 } }).status, 0, 'only a context that pins the stub accepts it');
   });
 
   await t.test('refuses a report whose scanner holds a field the context does not name, or lacks one it does', () => {
@@ -153,6 +175,8 @@ test('an unusable report or context, or a malformed command line, exits 2 with i
     [['--report', report0, '--head', head, '--context', writeJson({ ...context, extra: OTHER_DIGEST })], 'context-malformed'],
     [['--report', report0, '--head', head, '--context', writeJson({ gateRevision: context.gateRevision, configSha256: context.configSha256 })], 'context-malformed'],
     [['--report', report0, '--head', head, '--context', writeJson({ ...context, configSha256: 'ABC' })], 'context-malformed'],
+    [['--report', report0, '--head', head, '--context', writeJson(withoutField(context, 'scannerSha256'))], 'context-malformed'],
+    [['--report', report0, '--head', head, '--context', writeJson({ ...context, scannerSha256: 'ABC' })], 'context-malformed'],
     [['--report', report0, '--head', head, '--context', writeJson({ ...context, expectedRoot: 'main' })], 'context-malformed'],
     [['--report', report0, '--head', 'HEAD', '--context', context0], 'bad-arguments'],
     [['--report', report0, '--head', head.toUpperCase(), '--context', context0], 'bad-arguments'],

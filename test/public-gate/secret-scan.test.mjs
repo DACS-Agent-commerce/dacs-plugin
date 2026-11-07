@@ -56,7 +56,8 @@ test('the wrapper writes each distinct blob of the target tree once from Git obj
     const report = JSON.parse(result.stdout);
     assert.equal(report.rules.find(({ id }) => id === SECRET_RULE_ID).status, 'findings');
     assert.ok(!result.stdout.includes('a-again'));
-    assert.deepEqual(Object.keys(report.scanner).sort(), ['configSha256', 'gateRevision', 'scannerPolicySha256', 'scannerVersion', 'secretExceptionsSha256']);
+    assert.deepEqual(Object.keys(report.scanner).sort(), ['configSha256', 'gateRevision', 'scannerPolicySha256', 'scannerSha256', 'scannerVersion', 'secretExceptionsSha256']);
+    assert.equal(report.scanner.scannerSha256, stub.sha256, 'the report names the executable that scanned');
   });
 });
 
