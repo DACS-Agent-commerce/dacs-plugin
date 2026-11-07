@@ -197,6 +197,20 @@ test('onboard faucet: down (HTTP 500), unreachable, refused, success, rate limit
   for (const h of [down, unreachable, refused, ok, unlisted]) await h.approval!.stop();
 });
 
+test('onboard faucet: a successful JSON reply with a leading UTF-8 BOM is accepted', async (t) => {
+  const body = '\uFEFF' + JSON.stringify({ status: 200, body: { txHash: 'ab'.repeat(32), message: 'sent' } });
+  const h = await harness(NO_KEY, {
+    approval: true,
+    walletFactory: factory(),
+    fetchImpl: async () => new Response(body, { status: 200 }),
+  });
+  t.after(() => h.approval?.stop());
+  await createWallet(h);
+  const r = await approvedFund(h);
+  assert.equal(r.json.ok, true, r.text);
+  assert.equal(r.json.tx_hash, 'ab'.repeat(32));
+});
+
 test('onboard faucet: a reply over 16 KiB is treated as unreachable', async () => {
   const big = JSON.stringify({ status: 200, body: { txHash: 'ab'.repeat(32), pad: 'x'.repeat(17 * 1024) } });
   const h = await harness({ ...NO_KEY }, { approval: true, walletFactory: factory(), fetchImpl: (async () => new Response(big, { status: 200 })) as unknown as typeof fetch });
