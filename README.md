@@ -31,8 +31,8 @@ nothing in it has been run against a live wallet, node or ChatGPT.
   so the server stops at startup with a module-not-found error. That code is
   planned to come from the published SDK instead.
 - **About half of `http-mcp/`'s tests fail.** Their files import the modules
-  that are not carried. `npm run test:ci` also stops at once, because
-  `deploy/test/` is not carried.
+  that are not carried. `npm run test:ci` runs every file under
+  `http-mcp/test/` and reports those as failures.
 - **`stdio-mcp/` is the part that has been checked.** Its unit tests pass. Its
   integration tests, type check, build and Claude Code plugin validation have
   not been run for this import.

@@ -20,8 +20,7 @@ test('report view flag defaults off, enables only with 1, and is a static contra
   for (const value of ['', '0', 'true', 'yes', '2']) assert.equal(loadConfig({ ...base, DACS_SHOWCASE_REPORT_VIEW: value }).showcaseReportView, false);
   assert.equal(loadConfig({ ...base, DACS_SHOWCASE_REPORT_VIEW: '1' }).showcaseReportView, true);
   const { readFileSync } = await import('node:fs');
-  const { contractView, runtimeNames } = await import('./helpers/env-contract-view.mjs');
-  const { envNamesFromSource, readSwitchRegistry } = await import('../deploy/scripts/lib/rules.mjs');
+  const { contractView, runtimeNames, envNamesFromSource, readSwitchRegistry } = await import('./helpers/env-contract-view.mjs');
   // Static (docs/SWITCHES.md): its rule involves DACS_SHOWCASE_LEDGER, so it is
   // listed in env-contract.json and has no switch file.
   const contract = JSON.parse(readFileSync(new URL('../deploy/env-contract.json', import.meta.url)));

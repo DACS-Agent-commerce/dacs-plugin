@@ -1,8 +1,8 @@
 // The one parser for feature switch files, src/switches/<env>.switch
 // (docs/SWITCHES.md). src/config.mjs reads its switches with it when it is
-// imported. The deploy checks (deploy/scripts/lib/rules.mjs) load this file
-// from the package root they check, so a file the runtime refuses is refused
-// at build time with the same message. No dependencies and no side effects.
+// imported. A check of a package loads this file from the package root it
+// checks, so a file the runtime refuses is refused at build time with the same
+// message. No dependencies and no side effects.
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -87,6 +87,19 @@ export function parseSwitch(file, text) {
   // A deploy that does not list the switch runs its default, so the two must agree.
   if (entry.deployValue !== null && entry.deployValue !== entry.default) throw fail('deployValue must equal default when it is set (a deploy that does not list the switch runs the default)');
   return Object.freeze({ ...entry, held: Object.freeze({ ...held }), ...(entry.values ? { values: Object.freeze([...values]) } : {}) });
+}
+
+// The env contract entry of a parsed switch: what the contract says about it,
+// derived from its file alone. A deploy value is listed only when the file sets one.
+export function switchContractEntry(s) {
+  return {
+    kind: s.kind,
+    ...(s.kind === 'enum' ? { values: [...s.values] } : {}),
+    default: s.default,
+    ...(s.deployValue !== null && s.deployValue !== undefined ? { deployValue: s.deployValue } : {}),
+    ...(s.contractNote ? { note: s.contractNote } : {}),
+    operator: true,
+  };
 }
 
 // Reads every switch file in dir (a path or file URL). Returns { switches,
