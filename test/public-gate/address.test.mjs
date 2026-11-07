@@ -117,6 +117,74 @@ test('hosts: in a CSS file an unquoted protocol-relative URL in `url(...)` fails
   assert.deepEqual(scanned(scanHosts, files, config), [1, 2, 3, 4].map((line) => `R-HOST content web/site.css ${line}`).concat('R-HOST content src/style.mjs 1'));
 });
 
+test('hosts: a URL host with a template placeholder fails when a literal dotted suffix follows the placeholder, unless the suffix is listed or reserved; a host that is only a placeholder, or an expression the host does not close, passes', () => {
+  const reserved = name('cdn', 'example', 'net');
+  const files = {
+    'src/tenant.mjs': [`const a = \`https://\${tenant}.${OTHER}/x\`;`, `const b = "https://%s.${OTHER}/x";`, `const c = \`https://\${tenant}.${reserved}/x\`;`,
+      'const d = `https://${host}/x`;', 'const e = "https://%(host)s.github.com/x";', 'const f = `https://api.${env}/x`;', 'const g = `https://${name}.com/x`;',
+      "const h = `http://${this.host.includes(':') ? 'a' : 'b'}:${this.port}`;", `const i = \`https://\${x}-cdn.${OTHER}/x\`;`].join('\n') + '\n',
+    'docs/tenant.md': [`see https://\${tenant}.${OTHER}/x`, `see https://%s.${OTHER}/x`, 'see https://${host}/x'].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), ['R-HOST content src/tenant.mjs 1', 'R-HOST content src/tenant.mjs 2', 'R-HOST content src/tenant.mjs 9', 'R-HOST content docs/tenant.md 1', 'R-HOST content docs/tenant.md 2']);
+  assert.deepEqual(refusedMetadataHosts(`subject\n\nsee https://\${tenant}.${ATTACKER}/x and https://\${host}/y`, CONFIG), [ATTACKER]);
+});
+
+test('hosts: an angle-bracket placeholder label in a URL host is read like the other placeholders, so a literal dotted suffix after it fails unless listed or reserved; `<host>` alone and an HTML tag after a host do not hide or invent one', () => {
+  const files = {
+    'docs/angle.md': [`see https://<tenant>.${OTHER}/x`, `see https://%s.<tenant>.${OTHER}/x`, 'see https://<tenant>.github.com/x and https://<tenant>.example.net/x',
+      'see https://<host>/x', `<p>https://${OTHER}<br>text</p>`].join('\n') + '\n',
+    'src/angle.mjs': [`const a = \`https://\${tenant}.<zone>.${OTHER}/x\`;`, `const b = "//<tenant>.${OTHER}/x";`].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), ['R-HOST content docs/angle.md 1', 'R-HOST content docs/angle.md 2', 'R-HOST content docs/angle.md 5',
+    'R-HOST content src/angle.mjs 1', 'R-HOST content src/angle.mjs 2']);
+});
+
+test('hosts: a placeholder is found before a URL host is decoded, so `${tenant}%2e<domain>` and `<tenant>%2e<domain>` read as `<domain>`; a listed or reserved one passes, a percent escape is not a printf placeholder, and an escape that cannot be decoded in the placeholder\'s label does not hide the name after it', () => {
+  const encoded = (host) => host.replaceAll('.', '%2e');
+  const undecodable = UNDECODABLE_HOSTS[0].split('.')[0];
+  const files = {
+    'docs/escaped-placeholder.md': [`see https://\${tenant}%2e${encoded(OTHER)}/x`, `see https://<tenant>%2e${OTHER}/x`, `see https://\${tenant}%2e${encoded(name('cdn', 'example', 'net'))}/x`,
+      `see https://${undecodable}\${tenant}%2e${encoded(OTHER)}/x`, `see https://${undecodable}\${tenant}%2egithub%2ecom/x`].join('\n') + '\n',
+    'src/escaped-placeholder.mjs': ['const a = "https://%s%2egithub%2ecom/x";', `const b = "https://%(host)s%2E${OTHER}/x";`, `const c = "//<tenant>%2e${encoded(OTHER)}/x";`].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), ['R-HOST content docs/escaped-placeholder.md 1', 'R-HOST content docs/escaped-placeholder.md 2', 'R-HOST content docs/escaped-placeholder.md 4', 'R-HOST content docs/escaped-placeholder.md 5',
+    'R-HOST content src/escaped-placeholder.mjs 2', 'R-HOST content src/escaped-placeholder.mjs 3']);
+});
+
+test('hosts: a URL host with a placeholder fails, as at base, when one of its escapes does not decode to host characters; `%2e` still reads as a dot', () => {
+  const [undecodable] = UNDECODABLE_HOSTS[0].split('.');
+  const [slash, nul, doubled] = [['%', '2f'], ['%', '00'], ['%', '252e']].map((parts) => parts.join(''));
+  const files = {
+    'docs/escape-placeholder.md': [`see https://${undecodable}\${tenant}/x`, `see https://\${tenant}${slash}/x`, `see https://%s${nul}/x`, `see https://\${tenant}${doubled}github.com/x`,
+      'see https://${tenant}%2egithub%2ecom/x', 'see https://${tenant}/x'].join('\n') + '\n',
+    'src/escape-placeholder.mjs': [`const a = \`https://\${tenant}${slash}github.com/x\`;`, 'const b = `https://${tenant}%2ecdn%2eexample%2enet/x`;'].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), [1, 2, 3, 4].map((line) => `R-HOST content docs/escape-placeholder.md ${line}`).concat('R-HOST content src/escape-placeholder.mjs 1'));
+});
+
+test('hosts: a URL host is read through every placeholder character the host rule used to drop it for (`$ { } % < > *`): `{tenant}`, `{{tenant}}`, `$TENANT`, `%{tenant}`, `%(host)s` and `$(hostname)` before a dotted name read as that name', () => {
+  const syntaxes = ['{tenant}', '{{tenant}}', '$TENANT', '%{tenant}', '%(host)s', '$(hostname)'];
+  const inCode = (domain) => syntaxes.map((placeholder) => `const u = "https://${placeholder}.${domain}/x";`);
+  const reserved = name('cdn', 'example', 'net');
+  const files = {
+    'src/syntax-other.mjs': inCode(OTHER).join('\n') + '\n',
+    'src/syntax-allowed.mjs': [...inCode('github.com'), ...inCode(reserved), ...syntaxes.map((placeholder) => `const u = "//${placeholder}/x";`)].join('\n') + '\n',
+    'docs/syntax.md': [...syntaxes.map((placeholder) => `see https://${placeholder}.${OTHER}/x`), ...syntaxes.map((placeholder) => `see https://${placeholder}.${reserved}/x`)].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), [...syntaxes.map((_, index) => `R-HOST content src/syntax-other.mjs ${index + 1}`),
+    ...syntaxes.map((_, index) => `R-HOST content docs/syntax.md ${index + 1}`)]);
+});
+
+test('hosts: the name after a placeholder is read with any last label, as a URL host is (`<domain>.xn--p1ai`); a single label after a placeholder still names no host', () => {
+  const punycode = name('real-host', 'xn--p1ai');
+  const files = {
+    'src/punycode.mjs': [`const a = \`https://\${tenant}.${punycode}/x\`;`, `const b = "https://<tenant>.${punycode}/x";`, `const c = "https://*.${punycode}/x";`, `const d = "//%s.${punycode}/x";`,
+      'const e = `https://${name}.com/x`;', 'const f = `https://${tenant}.github.com/x`;'].join('\n') + '\n',
+    'docs/punycode.md': [`see https://\${tenant}.${punycode}/x`, `see https://${punycode}/x`].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), [1, 2, 3, 4].map((line) => `R-HOST content src/punycode.mjs ${line}`).concat('R-HOST content docs/punycode.md 1', 'R-HOST content docs/punycode.md 2'));
+});
+
 test('hosts: a percent-encoded dot, an upper-case encoding or a trailing dot in a URL host does not hide an unlisted host', () => {
   const files = {
     'docs/encoded.md': [ATTACKER_ENCODED, `${ATTACKER.toUpperCase()}.`, ATTACKER_ENCODED.replace('%2e', '%2E'), `${ATTACKER}%2e`].map((host) => urlOf(host)).join('\n') + '\n',

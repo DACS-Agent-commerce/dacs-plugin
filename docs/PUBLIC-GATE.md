@@ -97,8 +97,13 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   exact, lower-case match with an
   `allowedHosts` entry (`value`, `reason`): a subdomain, or a listed name used as a label prefix of another domain, is another
   host and needs its own entry. Reserved names pass with any subdomain: the top-level names `invalid`, `test`, `example` and
-  `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label), a template placeholder
-  and an IP literal are not read here; the private list covers labels, and IP literals belong to the IP rule.
+  `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label) and an IP literal are not
+  read here; the private list covers labels, and IP literals belong to the IP rule. A URL host with a template placeholder (`$ { } < > *`,
+  or a `%` that starts no percent escape: `${tenant}`, `%s`, `%(host)s`, `{tenant}`, `$TENANT`, `<tenant>`, `*`) is read through its
+  last placeholder character: the dotted name after the label that holds it, of two labels or more with any last label, is matched
+  like any URL host (`https://${tenant}.host.example.com/` as `host.example.com`), and a host with no such name after its last
+  placeholder (`${host}`, `api.${env}`, `${name}.com`) is not read. A placeholder host whose escapes do not all decode to host
+  characters is a finding, as below.
   A URL host is normalised the way a URL parser resolves it before it is matched: percent escapes decoded once (`host%2eexample%2ecom` is
   `host.example.com`), lower-cased, and a trailing dot dropped. A URL host whose escapes are not valid UTF-8, or that decodes to anything
   but a name or a bracketed IPv6 literal (`host%252eexample`, `host%2fx`), is a finding, not a pass. The IP rule and the commit-metadata

@@ -29,15 +29,23 @@ const HOST_TOP_LEVEL_NAMES = new Set(['com', 'org', 'net', 'io', 'dev', 'ai', 'x
 const LINE_BREAK = /\r\n|\r|\n/;
 /** A dotted name within DNS limits (labels of at most 63 characters, at most 127 of them): bounded so a long dotted line cannot exhaust the regex stack. */
 const NAME_LABELS = String.raw`(?:[a-z0-9_-]{1,63}\.){1,127}[a-z]{2,63}`;
-const URL_HOST = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/(?:[^\s/\\?#@]*@)?(?<host>\[[^\]\s]*\]|[^\s/?#:@"'<>)\]\\,;`]+)/gi;
+/** A dot in a URL host as written: `.` or its percent escape `%2e`. */
+const DOT = String.raw`\.|%2e`;
+/** A host label written as an angle-bracket placeholder (`<tenant>`) and followed by a dot (`DOT`): part of a URL host (`https://<tenant>.example.org`). An HTML tag after a host (`host.org<br>`) is not followed by a dot, so it still ends the host. */
+const ANGLE_LABEL = String.raw`<[a-z0-9_-]{1,63}>(?=${DOT})`;
+/** A placeholder with its name in parentheses (`%(host)s`, `$(hostname)`): part of a URL host, though a `)` otherwise ends one (`[a link](https://example.org)`). */
+const PARENTHESISED_PLACEHOLDER = String.raw`[$%]\([a-z0-9_-]{1,63}\)`;
+/** The host of a URL: a bracketed IPv6 literal, or a run of characters up to a delimiter, quote or bracket, with whole `<name>.` labels (`ANGLE_LABEL`) and parenthesised placeholders allowed. */
+const URL_HOST_PART = String.raw`(?<host>\[[^\]\s]*\]|(?:${ANGLE_LABEL}|${PARENTHESISED_PLACEHOLDER}|[^\s/?#:@"'<>)\]\\,;\`])+)`;
+const URL_HOST = new RegExp(String.raw`(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/(?:[^\s/\\?#@]*@)?${URL_HOST_PART}`, 'gi');
 /**
  * A protocol-relative URL (`//host/x`), which a browser resolves against the page's scheme: in prose and data, `//` at the start of a
  * token (not after `:`, `/`, `\\` or a word character); in code, `//` right after a quote or after CSS `url(` (an unquoted url
  * token), so a `//` comment is not read as one. The host is
  * read as in `URL_HOST`.
  */
-const PROTOCOL_RELATIVE_HOST = /(?<![\w:/\\])\/\/(?:[^\s/\\?#@]*@)?(?<host>\[[^\]\s]*\]|[^\s/?#:@"'<>)\]\\,;`]+)/gi;
-const CODE_PROTOCOL_RELATIVE_HOST = /(?<=['"`]|\burl\(\s*)\/\/(?:[^\s/\\?#@'"`]*@)?(?<host>\[[^\]\s]*\]|[^\s/?#:@"'<>)\]\\,;`]+)/gi;
+const PROTOCOL_RELATIVE_HOST = new RegExp(String.raw`(?<![\w:/\\])\/\/(?:[^\s/\\?#@]*@)?${URL_HOST_PART}`, 'gi');
+const CODE_PROTOCOL_RELATIVE_HOST = new RegExp(String.raw`(?<=['"\`]|\burl\(\s*)\/\/(?:[^\s/\\?#@'"\`]*@)?${URL_HOST_PART}`, 'gi');
 const HOST_PORT = new RegExp(String.raw`(?<![\w.@/:-])(?<host>${NAME_LABELS}):\d{1,5}(?!\w)`, 'gi');
 const BARE_NAME = new RegExp(String.raw`(?<![\w.@/:-])(?<host>${NAME_LABELS})(?![\w-]|\.[a-z0-9_-]|@)`, 'gi');
 const QUOTED_NAME = new RegExp(String.raw`(?<quote>['"\`])(?<host>${NAME_LABELS})\k<quote>`, 'gi');
@@ -95,6 +103,45 @@ function normalisedHost(host) {
   return decoded.replace(/\.+$/, '');
 }
 
+/** A template placeholder character in a host as written: `$`, `{`, `}`, `<`, `>`, `*`, or a `%` that starts no percent escape (`%s`, `%(host)s`, `%{host}`; `%2e` is an escape). */
+const PLACEHOLDER_CHARACTER = /[${}<>*]|%(?![0-9a-f]{2})/gi;
+/** The dot that ends a label (`DOT`). */
+const LABEL_END = new RegExp(DOT, 'i');
+/**
+ * A dot and a dotted name as a URL host may hold it, of two labels or more and with any last label (`example.xn--p1ai`): what follows the
+ * label of the last placeholder when it names a host. A single label (`${name}.com`) names no host.
+ */
+const LITERAL_SUFFIX = /^\.((?:[a-z0-9_-]{1,63}\.){1,127}[a-z0-9_-]{1,63})$/i;
+
+/**
+ * What a run of percent escapes in a URL host may decode to: name characters (letters, digits, `_`, `-`) and dots, so `%2e` may and
+ * `%ff` (not UTF-8), `%2f`, `%00` and `%252e` (to `%2e`) may not.
+ */
+const HOST_ESCAPE_TEXT = /^[a-z0-9_.-]+$/i;
+
+/** True when every run of percent escapes in `host` decodes to `HOST_ESCAPE_TEXT`. */
+const hasHostEscapes = (host) => [...host.matchAll(PERCENT_ESCAPES)].every(([run]) => HOST_ESCAPE_TEXT.test(withEscapesDecoded(run) ?? '%'));
+
+/**
+ * A URL host as the host rule reads it, through its template placeholders. The last placeholder character is found in the host as written,
+ * before an escape is decoded or a dot mapped, and only what follows the label that holds it is normalised (`normalisedHost`): the dotted
+ * name after that label (`${tenant}.example.org`, `%s.example.org`, `%(host)s.example.org`, `{tenant}.example.org`, `{{tenant}}.example.org`,
+ * `$TENANT.example.org`, `<tenant>.example.org`, `*.example.org`, `${x}-cdn.example.org` and `${tenant}%2eexample.org` give `example.org`),
+ * or '' when no dotted name follows it (`${host}`, `api.${env}`, `${name}.com`, `${this.host.includes(`): a placeholder with no literal
+ * dotted suffix names no host. A host with no placeholder character is `normalisedHost`'s result. Returns null when what is normalised cannot be,
+ * and for a host with a placeholder whose escapes do not all decode to host characters (`hasHostEscapes`), which any URL host is refused for.
+ */
+function urlHostValue(host) {
+  const last = [...host.matchAll(PLACEHOLDER_CHARACTER)].at(-1);
+  if (last === undefined) return normalisedHost(host);
+  if (!hasHostEscapes(host)) return null;
+  const after = host.slice(last.index + 1);
+  const end = after.search(LABEL_END);
+  if (end === -1) return '';
+  const rest = normalisedHost(after.slice(end));
+  return rest === null ? null : (rest.match(LITERAL_SUFFIX)?.[1] ?? '');
+}
+
 /** Whether `host`, as `normalisedHost` returned it (a normalised host normalises to itself) or as written when that was null, is one that could not be normalised. */
 const isUnnormalisable = (host) => normalisedHost(host) === null;
 
@@ -112,13 +159,17 @@ function matchesOf(pattern, context, text, valueOf) {
 /**
  * Every dotted name in one line that reads as a host and is neither reserved nor listed, as { value, context }: the forms
  * read depend on whether the file is code. A URL host is normalised first (`normalisedHost`), and one that cannot be is
- * refused as written. A name with no dot is no public host; the private list covers machine labels.
+ * refused as written; a URL host with a template placeholder is read as its literal dotted suffix (`urlHostValue`), if any. A name with no dot is no public host; the private list covers machine labels.
  */
 function unlistedHostsIn(line, { code, listedHosts }) {
   const asWritten = ({ host }) => host;
   /** Without a scheme, `//` may not start a URL at all (a regex, a path), so a protocol-relative host counts only when it normalises to a host a URL parser accepts. */
-  const asHost = ({ host }) => { const normalised = normalisedHost(host); return normalised !== null && DECODED_HOST.test(normalised) ? normalised : ''; };
-  const forms = [['url', URL_HOST, ({ host }) => normalisedHost(host) ?? host], ['url', code ? CODE_PROTOCOL_RELATIVE_HOST : PROTOCOL_RELATIVE_HOST, asHost],
+  const asHost = ({ host }) => {
+    const value = urlHostValue(host);
+    return value !== null && DECODED_HOST.test(value) ? value : '';
+  };
+  const asUrlHost = ({ host }) => urlHostValue(host) ?? host;
+  const forms = [['url', URL_HOST, asUrlHost], ['url', code ? CODE_PROTOCOL_RELATIVE_HOST : PROTOCOL_RELATIVE_HOST, asHost],
     ['host-port', HOST_PORT, asWritten], code ? ['quoted', QUOTED_NAME, asWritten] : ['bare', BARE_NAME, asWritten]];
   return forms.flatMap(([context, pattern, valueOf]) => matchesOf(pattern, context, line, valueOf))
     .filter(({ value, context }) => (context === 'url' && isUnnormalisable(value)) || (value.includes('.') && !NOT_A_NAME.test(value)
