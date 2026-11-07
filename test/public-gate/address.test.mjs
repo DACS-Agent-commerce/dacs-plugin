@@ -355,6 +355,14 @@ test('a long unbroken line of letters, dots or hyphens scans in linear time and 
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('the shipped configuration allows the funding links in the lint tool\'s lockfile at that path only', () => {
+  const funding = (host) => `{ "funding": "https://${host}/donate" }`;
+  const lockfile = `${funding(['opencollective', 'com'].join('.'))}\n${funding(['eslint', 'org'].join('.'))}\n`;
+  const hostFindings = (file) => JSON.parse(runGate(gateArgs(createRepo([{ path: file, content: lockfile }]), 'generic')).stdout).findings.filter(({ rule }) => rule === 'R-HOST');
+  assert.deepEqual(hostFindings('tools/lint/package-lock.json'), []);
+  assert.equal(hostFindings('tools/other/package-lock.json').length, 2);
+});
+
 test('the shipped configuration passes this repository\'s own files under both rules', () => {
   const listed = spawnSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--cached'], { encoding: 'utf8', maxBuffer: 1 << 26 });
   assert.equal(listed.status, 0, listed.stderr);

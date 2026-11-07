@@ -148,9 +148,14 @@ overwrites a file, and there is no `--private-evidence`.
   `R-IP` for an IP literal that `refusedMetadataIps` refuses (kinds `author`, `committer`, `header` and `message`, the last with
   the line). Metadata has no path or blob, so only `allowedHosts` and the permitted address classes pass there: no
   `scopedAllowances` or `ipDispositions` entry applies.
+- **Tags.** A ref that names an annotated tag is read through its tag object, and through the tag objects it names in turn (at
+  most 16 in a chain, then exit 2 with `limit:maxTagChain`), down to the commit. Each tag object gets the checks of a commit
+  object: its tag name and other headers (kind `header`), tagger line (kind `tagger`) and message (kind `message`, with the line)
+  are scanned by `R-PRIVATE`, `R-ACCOUNT`, `R-HOST` and `R-IP`, and the finding's location is `<tag object>:<field>`, the
+  tag object's id in the place of a commit's. `target.commits` counts commits only.
 - **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
-  identity (kind `author` or `committer`) and every time zone other than `+0000` (kind `timezone`). Without the flag the rule
-  is `not-run`.
+  identity (kind `author` or `committer`), every tagger line of a tag object that is not exactly that identity or is missing
+  (kind `tagger`), and every time zone other than `+0000` (kind `timezone`). Without the flag the rule is `not-run`.
 - **Pull-request text.** `--pr-text` is a JSON array of objects. `R-PRIVATE` scans every string in them, keys and values, at any
   depth, and every repeat of a key (kind `pr-text`, location `pr-<n>:<m>`: the n-th object, and the m-th string in it in
   the file's order, both from 1, with the line). Keys are never printed. Anything else in the file exits 2.

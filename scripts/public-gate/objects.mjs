@@ -7,6 +7,8 @@ const LISTING_HEADER = /^(\d{6}) (blob|commit) ([0-9a-f]{40,64}) +(\d+|-)$/;
 const KIND_BY_MODE = { 120000: 'symlink', 160000: 'submodule' };
 const BATCH_RECORD_SLACK_BYTES = 130;
 const SMALL_REPLY_BYTES = 256;
+const MAX_TAG_CHAIN = 16;
+const TAG_OBJECT_LINE = /^object ([0-9a-f]{40,64})\n/;
 const STDERR_CAPTURE_CHARS = 1024;
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
@@ -141,14 +143,38 @@ function parseCommits(output, rows, limits) {
 }
 
 /**
- * Reads every commit reachable from `refs` (ref names or full object ids), parents before children. Returns
- * { heads, commits }: `heads` are the object ids the refs name, `commits` are { sha, parents, raw } with `raw` the commit
- * object (headers, blank line, message). Throws GateInputError for an unusable ref, a limit, a timeout, an interrupt or a
+ * Reads the annotated tags that `object` (a ref name or object id) names, outermost first, through tags of tags down to the
+ * first object that is not a tag. Returns [{ sha, raw }] with `raw` the tag object (headers, blank line, message); empty when
+ * `object` is not a tag. Throws GateInputError for a chain over MAX_TAG_CHAIN tags, a tag without an object line, a limit, a
+ * timeout, an interrupt or a git failure.
+ */
+async function readTagChain(base, object) {
+  const tags = [];
+  let named = object;
+  for (;;) {
+    const type = (await git({ ...base, maxBytes: SMALL_REPLY_BYTES, args: ['cat-file', '-t', named] })).toString().trim();
+    if (type !== 'tag') return tags;
+    if (tags.length === MAX_TAG_CHAIN) throw new GateInputError('limit:maxTagChain', `a tag names more than ${MAX_TAG_CHAIN} tags in a chain`);
+    const sha = (await git({ ...base, maxBytes: SMALL_REPLY_BYTES, args: ['rev-parse', '--verify', named] })).toString().trim();
+    const raw = await git({ ...base, maxBytes: base.limits.maxBlobBytes, args: ['cat-file', 'tag', sha] });
+    const next = TAG_OBJECT_LINE.exec(raw.toString('latin1'));
+    if (!next) throw new GateInputError('malformed-batch', 'git cat-file returned a tag without an object line');
+    tags.push({ sha, raw });
+    named = next[1];
+  }
+}
+
+/**
+ * Reads every commit reachable from `refs` (ref names or full object ids), parents before children, and every annotated tag
+ * among the refs, through tags of tags. Returns { heads, commits, tags }: `heads` are the object ids of the commits the refs
+ * name, `commits` are { sha, parents, raw } with `raw` the commit object (headers, blank line, message), `tags` are { sha, raw }
+ * with `raw` the tag object in the same form. Throws GateInputError for an unusable ref, a limit, a timeout, an interrupt or a
  * malformed git reply.
  */
 export async function readHistory({ repo, refs, limits, signal = new AbortController().signal }) {
   const base = { repo, limits, signal, maxBytes: SMALL_REPLY_BYTES };
   const heads = [];
+  const tags = new Map();
   for (const ref of refs) {
     if (ref === '' || ref.startsWith('-')) throw new GateInputError('bad-ref', 'a ref must not be empty or start with a dash');
     const options = { ...base, args: ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`] };
@@ -156,13 +182,14 @@ export async function readHistory({ repo, refs, limits, signal = new AbortContro
     if (found.status === 1) throw new GateInputError('unknown-ref', 'the repository has no commit for one of the refs');
     if (found.status !== 0) throw refused(options, found);
     heads.push(found.stdout.toString().trim());
+    for (const tag of await readTagChain(base, ref)) tags.set(tag.sha, tag);
   }
   const listing = await git({ ...base, maxBytes: limits.maxListingBytes, args: ['rev-list', '--topo-order', '--reverse', '--parents', ...new Set(heads), '--'] });
   const rows = listing.toString('latin1').split('\n').filter(Boolean).map((line) => line.split(' '));
   if (rows.length > limits.maxHistoryCommits) throw new GateInputError('limit:maxHistoryCommits', `the history holds more than ${limits.maxHistoryCommits} commits`);
   const input = `${rows.map(([sha]) => sha).join('\n')}\n`;
   const output = await git({ ...base, maxBytes: limits.maxTotalBlobBytes, args: ['cat-file', '--batch'], input });
-  return { heads: [...new Set(heads)].sort(), commits: parseCommits(output, rows, limits) };
+  return { heads: [...new Set(heads)].sort(), commits: parseCommits(output, rows, limits), tags: [...tags.values()] };
 }
 
 /** Throws GateInputError('unexpected-root') unless `commits` have exactly one root commit and it is `expectedRoot`. */

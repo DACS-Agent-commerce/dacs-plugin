@@ -12,13 +12,16 @@ import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } f
 export const IDENTITY_RULE_ID = 'R-IDENTITY';
 
 const FLAGS = ['--repo', '--refs', '--private-list', '--expected-root', '--allowed-identity', '--pr-text', '--out'];
-const PERSON_LINE = /^(author|committer) (.*) <([^>]*)> \d+ ([+-]\d{4})$/;
+const PERSON_LINE = /^(author|committer|tagger) (.*) <([^>]*)> \d+ ([+-]\d{4})$/;
+/** The header kinds that name a person in a commit object and in a tag object. */
+const COMMIT_PEOPLE = ['author', 'committer'];
+const TAG_PEOPLE = ['tagger'];
 const RULE_IDS = [IDENTITY_RULE_ID, ...REGISTERED_RULE_IDS];
 /** What reads each commit's tree: every rule of complete scope, the private-list scan included. */
 const TREE_SCANS = [...TREE_RULES.map((rule) => rule.run), scanPrivate];
-const KINDS = ['path', 'content', 'author', 'committer', 'header', 'message', 'timezone', 'pr-text'];
-/** The part of a commit object a commit finding is in; its location is `<commit>:<field>`. */
-const COMMIT_FIELDS = ['author', 'committer', 'header', 'message'];
+const KINDS = ['path', 'content', 'author', 'committer', 'tagger', 'header', 'message', 'timezone', 'pr-text'];
+/** The part of a commit or tag object a finding is in; its location is `<object>:<field>`. */
+const COMMIT_FIELDS = ['author', 'committer', 'tagger', 'header', 'message'];
 
 /** A string token or a bracket of JSON text: in valid JSON nothing else holds a quote or a bracket. */
 const JSON_TOKEN = /"[^"\\]*(?:\\.[^"\\]*)*"|[[\]{}]/gs;
@@ -87,17 +90,19 @@ function refusedLines(message, refusedIn, config, maxLines) {
 }
 
 /**
- * Findings in one raw commit object: list entries and what the address rules (email, host, IP) refuse in its message and headers, and
- * (with an allowed identity) other identities or time zones.
+ * Findings in one raw commit or tag object: list entries and what the address rules (email, host, IP) refuse in its message and headers, and
+ * (with an allowed identity) other identities or time zones. `people` are the header kinds that name a person: with an identity each must
+ * be there, and a line of any other kind is an ordinary header.
  */
-function commitFindings({ sha, raw }, { matcher, identity, config, limits }) {
+function metadataFindings({ sha, raw }, { matcher, identity, config, limits }, people) {
   const split = raw.indexOf('\n\n');
   const headers = (split < 0 ? raw : raw.subarray(0, split)).toString('utf8').split('\n');
   const findings = [];
   const add = (rule, kind, field, line) => findings.push({ rule, kind, commit: sha, field, ...(line ? { line } : {}) });
   const seen = new Set();
   for (const header of headers) {
-    const person = PERSON_LINE.exec(header);
+    const matched = PERSON_LINE.exec(header);
+    const person = matched && people.includes(matched[1]) ? matched : null;
     const kind = person ? person[1] : 'header';
     if (matcher.hasEntry(header)) add(PRIVATE_RULE_ID, kind, kind);
     for (const { rule, refusedIn } of METADATA_ADDRESS_RULES) if (refusedIn(header, config).length > 0) add(rule, kind, kind);
@@ -106,7 +111,7 @@ function commitFindings({ sha, raw }, { matcher, identity, config, limits }) {
     if (`${person[2]} <${person[3]}>` !== identity) add(IDENTITY_RULE_ID, kind, kind);
     if (person[4] !== '+0000') add(IDENTITY_RULE_ID, 'timezone', kind);
   }
-  if (identity) for (const kind of ['author', 'committer']) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, kind);
+  if (identity) for (const kind of people) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, kind);
   const message = split < 0 ? '' : raw.subarray(split + 2).toString('utf8');
   for (const line of matcher.entryLines(message, limits.maxReportEntries + 1)) add(PRIVATE_RULE_ID, 'message', 'message', line);
   for (const { rule, refusedIn } of METADATA_ADDRESS_RULES) {
@@ -172,7 +177,7 @@ async function runHistory(argv, signal) {
   const { limits } = config;
   const listEntries = readPrivateList(options.privateList, { repo: options.repo, limits });
   const prText = options.prText && readPrText(options.prText, limits);
-  const { heads, commits } = await readHistory({ repo: options.repo, refs: options.refs, limits, signal });
+  const { heads, commits, tags } = await readHistory({ repo: options.repo, refs: options.refs, limits, signal });
   requireExpectedRoot(commits, options.expectedRoot);
   let checkpoint = () => {};
   const bounded = (scan) => {
@@ -184,6 +189,7 @@ async function runHistory(argv, signal) {
     }
   };
   const matcher = bounded(() => createPrivateMatcher(listEntries, () => checkpoint()));
+  const metadataContext = { matcher, identity: options.identity, config, limits };
   const findings = [];
   const unscannable = [];
   const requireWithinLimit = () => {
@@ -196,8 +202,12 @@ async function runHistory(argv, signal) {
     unscannable.push(...unscannableEntries(entries, config).map((problem) => ({ commit: commit.sha, ...problem })));
     findings.push(...bounded(() => [
       ...TREE_SCANS.flatMap((scan) => scan({ entries, matcher, config, limits }).map((finding) => ({ ...finding, commit: commit.sha }))),
-      ...commitFindings(commit, { matcher, identity: options.identity, config, limits }),
+      ...metadataFindings(commit, metadataContext, COMMIT_PEOPLE),
     ]));
+    requireWithinLimit();
+  }
+  for (const tag of tags) {
+    findings.push(...bounded(() => metadataFindings(tag, metadataContext, TAG_PEOPLE)));
     requireWithinLimit();
   }
   for (const { item, string, value } of prText?.strings ?? []) {
