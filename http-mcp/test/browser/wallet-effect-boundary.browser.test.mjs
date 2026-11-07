@@ -1761,6 +1761,32 @@ test('confirmation and broadcast are separate stages, an unknown confirmation in
     await store.append(LANE, 2, laneRecord('dispatch-withheld', 'pass-a', { stage: 'dispatch' }));
     assert.equal(deriveDispatchHistory(await store.history(LANE)).neverDispatched, true);
   });
+
+  // A pass id that starts a second intent for a stage must not let that attempt's withheld outcome erase the first.
+  for (const [first, stage] of [['acknowledged', 'dispatch'], ['unknown', 'dispatch'], ['acknowledged', 'broadcast'], ['unknown', 'broadcast']]) {
+    await t.test(`a reused pass id's ${stage}-withheld does not erase its earlier ${stage}-${first}`, async () => {
+      const store = storeOver(createFakeIndexedDb());
+      await store.append(LANE, 0, signedRecord('pass-a'));
+      await store.append(LANE, 1, laneRecord(`${stage}-started`, 'pass-a', { stage }));
+      await store.append(LANE, 2, laneRecord(`${stage}-${first}`, 'pass-a', { stage }));
+      await store.append(LANE, 3, laneRecord(`${stage}-started`, 'pass-a', { stage }));
+      await store.append(LANE, 4, laneRecord(`${stage}-withheld`, 'pass-a', { stage }));
+      const history = deriveDispatchHistory(await store.history(LANE));
+      assert.deepEqual([history.neverDispatched, history.mayBroadcast], [false, false]);
+    });
+  }
+
+  for (const first of ['acknowledged', 'unknown']) {
+    await t.test(`a reused pass id's confirm-withheld does not erase its earlier confirm-${first}`, async () => {
+      const store = storeOver(createFakeIndexedDb());
+      await store.append(LANE, 0, signedRecord('pass-a'));
+      await store.append(LANE, 1, laneRecord('confirm-started', 'pass-a', { stage: 'confirm' }));
+      await store.append(LANE, 2, laneRecord(`confirm-${first}`, 'pass-a', { stage: 'confirm' }));
+      await store.append(LANE, 3, laneRecord('confirm-started', 'pass-a', { stage: 'confirm' }));
+      await store.append(LANE, 4, laneRecord('confirm-withheld', 'pass-a', { stage: 'confirm' }));
+      assert.equal(deriveDispatchHistory(await store.history(LANE)).confirmation, first);
+    });
+  }
 });
 
 test('with Web Locks or IndexedDB unavailable every effect refuses with a named error before any signer call', async (t) => {

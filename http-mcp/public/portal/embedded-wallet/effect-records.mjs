@@ -170,16 +170,21 @@ const toLaneHead = (laneRecords) => ({
  * record is the signed bytes), `neverDispatched` (no transmission-stage intent without its own pass's `-withheld`,
  * and no `observed`), `confirmation` (`none`, `acknowledged`, or `unknown` for any confirm intent without its own
  * `-acknowledged` or `-withheld`, or any `confirm-unknown`) and `mayBroadcast` (signed, confirmation acknowledged,
- * and no possible broadcast yet). An unknown confirmation is never cleared by a later acknowledgement.
+ * and no possible broadcast yet). Each intent is its own attempt, even under a reused pass id, and an outcome answers
+ * only the intent before it. An unknown confirmation is never cleared by a later acknowledgement.
  */
 export function deriveDispatchHistory(laneRecords) {
-  const latestPhase = new Map();
+  // One entry per intent, so a pass id that starts a stage again cannot overwrite what its earlier intent left.
+  const attempts = [];
   let observed = false;
   for (const record of laneRecords) {
     if (record.kind === 'observed') observed = true;
-    else if (STAGE_KINDS.has(record.kind)) latestPhase.set(`${record.passId}/${record.stage}`, { stage: record.stage, phase: phaseOf(record) });
+    else if (STAGE_KINDS.has(record.kind) && phaseOf(record) === 'started') attempts.push({ passId: record.passId, stage: record.stage, phase: 'started' });
+    else if (STAGE_KINDS.has(record.kind)) {
+      const answered = attempts.findLast((attempt) => attempt.passId === record.passId && attempt.stage === record.stage && attempt.phase === 'started');
+      if (answered !== undefined) answered.phase = phaseOf(record);
+    }
   }
-  const attempts = [...latestPhase.values()];
   const possiblySent = (stage) => attempts.some((attempt) => attempt.stage === stage && attempt.phase !== 'withheld');
   const confirmations = attempts.filter((attempt) => attempt.stage === 'confirm');
   const signed = laneRecords[0]?.kind === 'signed';
