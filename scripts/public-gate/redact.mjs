@@ -5,7 +5,7 @@ import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID } from './rules-files.mjs
 import { PRIVATE_RULE_ID } from './rules-private.mjs';
 
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
-export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr' });
+export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr' });
 
 /** Schema values shared by every report: a SHA-256 digest, a rule status and an unscannable entry's cause. */
 export const SHA256_HEX = /^[0-9a-f]{64}$/;
@@ -37,6 +37,15 @@ const DIAGNOSTICS = {
   'report-not-complete': 'the report is not a complete-scope report', 'report-other-head': 'the report is for another commit than --head',
   'report-rules-differ': 'the report lists other rules than this gate registers', 'report-policy-differs': 'the report was made under another gate revision, configuration or root than the review context names',
   'report-not-passing': 'the report has a finding, an unscannable entry or a rule that did not pass',
+  'download-too-large': 'a download is larger than allowed', 'download-timeout': 'a download did not finish before its deadline',
+  'download-http-failure': 'the download server did not answer with success', 'download-truncated': 'a download ended before its announced length',
+  'download-checksum-mismatch': 'a download does not match its pinned SHA-256', 'download-redirect-refused': 'a download address or redirect is not an https URL',
+  'download-too-many-redirects': 'a download was redirected too many times', 'download-destination-exists': 'the download file already exists',
+  'download-failed': 'a download failed before it finished', 'subprocess-timeout': 'a subprocess did not finish before its deadline',
+  'subprocess-output-limit': 'a subprocess wrote more output than allowed', 'subprocess-spawn-failed': 'a subprocess could not start',
+  'unsupported-platform': 'the pinned gitleaks archive is not for this platform', 'install-exists': 'the gitleaks binary already exists in the folder',
+  'install-dir-unwritable': 'the install folder cannot be prepared', 'install-extract-failed': 'the gitleaks archive could not be extracted',
+  'install-binary-invalid': 'the archive does not hold gitleaks as a regular file', 'install-version-mismatch': 'the binary does not report the pinned version',
   'internal-error': 'the gate failed unexpectedly', limit: 'a configured limit was reached',
 };
 

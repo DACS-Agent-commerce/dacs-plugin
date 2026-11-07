@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -44,6 +44,10 @@ function gitFailingWith(stderr) {
   return { PATH: `${binDir}:${process.env.PATH}` };
 }
 
+const INSTALLER = path.join(REPO_ROOT, 'scripts', 'ci', 'install-gitleaks.mjs');
+const REGISTERED_CAUSE_SOURCES = ['scripts/lib/fetch-bounded.mjs', 'scripts/lib/run-bounded.mjs', 'scripts/ci/install-gitleaks.mjs'];
+const HELPER_CAUSE = /'((?:download|subprocess|install)-[a-z-]+|unsupported-platform)'/g;
+
 const scenarios = {
   'gate.stdout': () => {
     const repo = leakRepo();
@@ -67,6 +71,14 @@ const scenarios = {
     assert.match(result.stderr, /^git-refused: git refused the request$/m);
     leaksNothing(result.stdout, result.stderr);
     assert.ok(!result.stderr.includes(PRIVATE_VALUE.slice(0, 4)) && !result.stderr.includes('fatal'));
+  },
+  'install-gitleaks.stderr': () => {
+    const blocker = path.join(makeTempDir('install-blocker'), PRIVATE_VALUE);
+    writeFileSync(blocker, 'a file where a folder is needed\n');
+    const result = spawnSync(process.execPath, [INSTALLER, '--dir', path.join(blocker, 'bin')], { encoding: 'utf8' });
+    assert.equal(result.status, 2);
+    assert.equal(result.stderr, 'install-dir-unwritable: the install folder cannot be prepared\n');
+    leaksNothing(result.stdout, result.stderr);
   },
   'check-report.stderr': () => {
     const repo = leakRepo();
@@ -98,6 +110,13 @@ test('at this PR: gate `--scope` and the gate\'s own routes; later owners add th
   for (const [route, scenario] of Object.entries(scenarios)) {
     await t.test(`a runtime-built list value does not reach ${route}`, scenario);
   }
+
+  await t.test('every cause the download, subprocess and installer code can raise has a fixed diagnostic text', () => {
+    const emitter = readFileSync(path.join(REPO_ROOT, EMITTER_FILE), 'utf8');
+    const causes = REGISTERED_CAUSE_SOURCES.flatMap((file) => [...readFileSync(path.join(REPO_ROOT, file), 'utf8').matchAll(HELPER_CAUSE)].map(([, cause]) => cause));
+    assert.ok(causes.length >= 15, `found only ${causes.length} causes`);
+    for (const cause of causes) assert.ok(emitter.includes(`'${cause}':`), `${cause} has no diagnostic text`);
+  });
 
   await t.test('no diagnostic sink exists outside the emitter', () => {
     const sinks = DIAGNOSTIC_DIRS.flatMap(sourceFiles)
