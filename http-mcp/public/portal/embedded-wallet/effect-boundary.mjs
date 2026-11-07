@@ -9,8 +9,8 @@
 // Normal execution advances with the same transition rule. Started, unknown and final records close lanes.
 // records.head(lane) -> {revision, signed, last}, with raw signed/newest records (absent on empty lanes).
 // records.append(lane, expectedRevision, record) -> {revision}; persistence is P53b1b's responsibility.
-// Authority/stop reads share 10,000 ms. Sign, send and record waits have no imposed deadline; a hung
-// callback holds the fence until page closure. A returning callback can leave an inner send in flight.
+// Authority/stop reads share 10,000 ms. Sign, send and record waits have no imposed deadline. The fence is
+// held until every invoked inner signer and send settles; a hung inner call holds it until page closure.
 import { EffectBoundaryRefusal, SYSTEM_CLOCK, refuse, requireFunctions } from './wallet-fence.mjs';
 
 /** Aggregate time one pass may spend inside authority and stop reads. */
@@ -100,8 +100,12 @@ function createPass({ fence, checks, clock, stoppedCode }, { operationId, approv
   const binding = { digest: runCheck(checks, 'connectionDigest'), generation: fence.connectionGeneration };
   const readWithinBudget = createReadBudget(clock, PASS_READ_DEADLINE_MS);
   let live = true, current = null;
+  const effects = [];
   const pass = {
     capability: null, bytes: undefined,
+    // Inner signer and send calls are owned by the pass: it waits for each one before the fence is released.
+    track(effect) { effects.push(effect.then(() => {}, () => {})); return effect; },
+    drain: () => Promise.all(effects),
     owner() { if (!live || !fence.owns(pass.capability, operationId)) throw refuse('tp1_fence_not_owned'); },
     admission: () => enforce(runCheck(checks, 'admission')),
     approval: () => enforce(runCheck(checks, 'approval', approvalRevision)),
@@ -158,7 +162,7 @@ export function ebSign(innerSign, handle) {
     const step = claimStep(handle, 'sign', 'eb_signer_repeated');
     step.pass.verifyNow(STEP_CHECKS.signerTail);
     step.state = 'consumed';
-    const signed = await innerSign(...args);
+    const signed = await step.pass.track((async () => innerSign(...args))());
     if (step.pass.isLive(step) && signed instanceof Uint8Array) step.signed = Uint8Array.from(signed);
     return signed;
   };
@@ -174,7 +178,7 @@ export function ebTransmit(innerSend, handle) {
     step.pass.verifyNow(STEP_CHECKS.sendTail);
     step.state = 'consumed';
     step.transmission = { status: 'pending' };
-    const sending = (async () => innerSend(step.pass.copyBytes(), ...rest))();
+    const sending = step.pass.track((async () => innerSend(step.pass.copyBytes(), ...rest))());
     sending.then(() => { step.transmission = { status: 'fulfilled' }; }, (error) => { step.transmission = { status: 'failed', error }; });
     return sending;
   };
@@ -272,8 +276,12 @@ export function createEffectBoundary({ fence, checks, records, clock = SYSTEM_CL
   requireFunctions('fence', fence, ['run', 'owns']);
   requireFunctions('checks', checks, ['admission', 'approval', 'connectionDigest', 'stopped', 'readAuthority']);
   requireFunctions('records', records, ['head', 'append']);
+  // The fence callback ends only after every inner signer and send the pass let start has settled.
   async function runUnderFence(pass, capability, own) {
     pass.capability = capability;
+    try { return await runSteps(pass, own); } finally { pass.end(); await pass.drain(); }
+  }
+  async function runSteps(pass, own) {
     const { operationId } = own.identity;
     const passId = newPassId();
     const cursor = createLaneCursor(records, own.lane, { ...own.identity, lane: own.lane, passId });

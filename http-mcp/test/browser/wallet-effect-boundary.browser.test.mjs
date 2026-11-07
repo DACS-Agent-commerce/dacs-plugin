@@ -29,7 +29,29 @@ async function runWithStalledRead(world, kind, call, { answerLate }) {
   return pending;
 }
 
-const isPending = async (promise) => (await Promise.race([promise.then(() => 'settled'), Promise.resolve('pending')])) === 'pending';
+const isPending = async (promise) => (await Promise.race([promise.then(() => 'settled'), settle().then(() => 'pending')])) === 'pending';
+
+// Two tabs of one wallet sharing the lock manager, the clock and the record store.
+function twoTabs() {
+  const first = createWorld({ operationId: 'op-a', lane: 'lane-a' });
+  const second = createWorld({ operationId: 'op-b', lane: 'lane-b', clock: first.clock, locks: first.locks, records: first.records, events: first.events });
+  return [first, second];
+}
+
+// Makes the tab's inner transport answer only when the returned handle is resolved or rejected.
+function pendingTransport(world) {
+  const transmission = {};
+  world.behavior.transport = () => new Promise((resolve, reject) => { Object.assign(transmission, { resolve, reject }); });
+  return transmission;
+}
+
+// A send stage that starts the wrapped transmission and returns (or throws) without waiting for it.
+const earlySend = (world, { thenThrow } = {}) => async (armed, bytes) => {
+  world.send(armed, bytes).catch(() => undefined);
+  await settle();
+  if (thenThrow) throw thenThrow;
+  return { queued: true };
+};
 
 test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a late fence grant, nested reuse, a non-owner release, overlapping purchases and reply bounds', async (t) => {
   await t.test('K0-B1 an authority reader rejecting with E refuses with E as the cause; signer 0, transport 0', async () => {
@@ -465,23 +487,29 @@ test('the EB signer and EB transmitter run the EB5r and EB8f tails immediately b
     assert.deepEqual(world.records.kinds('lane-1'), ['signed', 'dispatch-started', 'dispatch-unknown']);
   });
 
-  await t.test('hostile: a first stage that returns while its transmission is still pending ends confirm-unknown and broadcast never runs', async () => {
-    const world = createWorld();
-    let failTransmission;
-    world.behavior.transport = () => (world.counts.transport === 1 ? new Promise((resolve, reject) => { failTransmission = reject; }) : { accepted: true });
-    const { value } = await world.settled(world.runPass({
-      sign: (armed) => world.sign(armed),
+  await t.test('hostile: a first stage that returns while its transmission is still pending ends confirm-unknown, broadcast never runs, and the fence is held until the send settles', async () => {
+    const [world, other] = twoTabs();
+    const transmission = pendingTransport(world);
+    const running = world.settled(world.runPass({
       stages: [
         { name: 'confirm', send: async (armed, bytes) => { world.send(armed, bytes).catch(() => undefined); await settle(); return { queued: true }; } },
         { name: 'broadcast', send: world.send },
       ],
     }));
+    await settle();
+    assert.ok(await isPending(running), 'the pass waits for the send it let start');
+    assert.equal(await world.fenceIsFree(), false);
+    const second = other.settled(other.runPass());
+    await settle();
+    assert.deepEqual([other.counts.signer, other.counts.transport], [0, 0], 'a second operation does not sign or send during the first send');
+    transmission.reject(new Error('confirmation rejected after the callback returned'));
+    const { value } = await running;
     assert.deepEqual(value.outcomes.map(({ stage, state }) => [stage, state]), [['confirm', 'unknown']]);
     assert.equal(value.outcomes[0].cause.code, 'eb_transmission_unfinished');
     assert.equal(world.counts.transport, 1);
-    failTransmission(new Error('confirmation rejected after the callback returned'));
-    await settle();
-    assert.deepEqual(world.records.kinds('lane-1'), ['signed', 'confirm-started', 'confirm-unknown']);
+    assert.deepEqual(world.records.kinds(world.lane), ['signed', 'confirm-started', 'confirm-unknown']);
+    assert.equal((await second).error, undefined);
+    assert.deepEqual([other.counts.signer, other.counts.transport], [1, 1], 'the second operation runs once the first send settled');
   });
 
   await t.test('hostile: a stage whose transmission failed but whose callback resolves ends dispatch-unknown with the transport error as cause', async () => {
@@ -1096,12 +1124,19 @@ test('the five stage outcome rows use actual transmission settlement and late su
       if (mode === 'invoked-error') throw failure;
       return 'callback ok';
     };
-    const { error, value } = await w.settled(w.runPass({ stages: [{ name: 'confirm', send: callback }, { name: 'broadcast', send: w.send }] }));
+    const running = w.settled(w.runPass({ stages: [{ name: 'confirm', send: callback }, { name: 'broadcast', send: w.send }] }));
+    if (mode.startsWith('pending')) {
+      await settle();
+      assert.ok(await isPending(running), 'the pass holds the fence until the send it let start settles');
+      settleTransport(mode === 'pending-error' ? failure : 'late ok');
+    }
+    const { error, value } = await running;
     if (mode === 'not-invoked-error') assert.equal(error, failure);
     else assert.equal(value.outcomes[0].state, mode === 'fulfilled' ? 'acknowledged' : 'unknown');
     assert.equal(w.counts.transport, mode === 'fulfilled' ? 2 : mode.startsWith('not-invoked') ? 0 : 1);
+    if (mode.startsWith('pending')) assert.deepEqual(w.records.kinds(w.lane), ['signed', 'confirm-started', 'confirm-unknown']);
     const before = w.records.kinds(w.lane);
-    if (settleTransport) { settleTransport(mode === 'pending-error' ? failure : 'late ok'); await settle(); }
+    await settle();
     assert.deepEqual(w.records.kinds(w.lane), before);
   });
 });
@@ -1148,4 +1183,91 @@ test('authority failures retain readable codes and the original cause when prope
     assert.equal(error.cause, failure);
     assert.deepEqual([w.counts.signer, w.counts.transport], [0, 0]);
   }
+});
+
+test('the pass holds the wallet fence until every inner signer and send it let start has settled', async (t) => {
+  // After `release()` the pass may finish; before it, a second tab must neither sign nor send.
+  const assertHeldUntil = async (first, second, release) => {
+    await settle();
+    assert.ok(await isPending(first), 'the first pass is still running');
+    assert.deepEqual([second.counts.signer, second.counts.transport], [0, 0], 'the second tab has not signed or sent');
+    release();
+    const finished = await first;
+    assert.equal((await second.settled(second.runPass())).error, undefined);
+    return finished;
+  };
+
+  await t.test('a stage callback that starts the send and then throws leaves dispatch-unknown only after the send settled', async () => {
+    const [first, second] = twoTabs();
+    const transmission = pendingTransport(first);
+    const running = first.settled(first.runPass({ stages: [{ name: 'dispatch', send: earlySend(first, { thenThrow: new Error('callback failed') }) }] }));
+    const { value } = await assertHeldUntil(running, second, () => transmission.resolve({ accepted: true }));
+    assert.equal(value.outcomes[0].state, 'unknown');
+    assert.deepEqual(first.records.kinds(first.lane), ['signed', 'dispatch-started', 'dispatch-unknown']);
+  });
+
+  await t.test('a failed dispatch-unknown append rejects eb_persist_failed only after the pending send settled', async () => {
+    const [first, second] = twoTabs();
+    const transmission = pendingTransport(first);
+    first.records.failures.set('dispatch-unknown', new Error('disk full'));
+    const running = first.settled(first.runPass({ stages: [{ name: 'dispatch', send: earlySend(first) }] }));
+    const { error } = await assertHeldUntil(running, second, () => transmission.resolve({ accepted: true }));
+    assertRefusal(error, 'eb_persist_failed');
+    assert.deepEqual(first.records.kinds(first.lane), ['signed', 'dispatch-started']);
+  });
+
+  await t.test('a sign callback that starts the EB signer and returns refuses eb_signed_bytes_invalid only after the inner signer settled', async () => {
+    const [first, second] = twoTabs();
+    const signing = createGate();
+    const slowSigner = async () => { first.counts.signer += 1; await signing.promise; return new Uint8Array([1, 2]); };
+    const sign = async (armed) => { ebSign(slowSigner, armed)().catch(() => undefined); await settle(); };
+    const running = first.settled(first.runPass({ sign }));
+    const { error } = await assertHeldUntil(running, second, signing.open);
+    assertRefusal(error, 'eb_signed_bytes_invalid');
+    assert.deepEqual([first.counts.signer, first.counts.transport], [1, 0]);
+    assert.deepEqual(first.records.kinds(first.lane), []);
+  });
+
+  await t.test('a nested pass under a caller-held capability keeps the outer holder waiting for the pending send', async () => {
+    const [first] = twoTabs();
+    const transmission = pendingTransport(first);
+    const outer = first.settled(first.fence.run(first.operationId, (capability) => first.boundary.runPass(first.request({ capability, stages: [{ name: 'dispatch', send: earlySend(first) }] }))));
+    await settle();
+    assert.ok(await isPending(outer), 'the outer holder is still inside the fence');
+    transmission.resolve({ accepted: true });
+    assert.equal((await outer).value.outcomes[0].state, 'unknown');
+  });
+
+  await t.test('a connection replacement requested during a pending send keeps connectionGeneration until the send settled', async () => {
+    const [first] = twoTabs();
+    const transmission = pendingTransport(first);
+    const running = first.settled(first.runPass({ stages: [{ name: 'dispatch', send: earlySend(first) }] }));
+    await settle();
+    const replacement = first.fence.replaceConnection(async () => {});
+    await settle();
+    assert.equal(first.fence.connectionGeneration, 0, 'the replacement waits for the send');
+    transmission.resolve({ accepted: true });
+    await running;
+    await replacement;
+    assert.equal(first.fence.connectionGeneration, 1);
+  });
+
+  await t.test('an inner send that never settles keeps the pass pending and the fence held past the read deadline', async () => {
+    const [first, second] = twoTabs();
+    pendingTransport(first);
+    const running = first.settled(first.runPass({ stages: [{ name: 'dispatch', send: earlySend(first) }] }));
+    await settle();
+    first.clock.advance(READ_DEADLINE_MS + 1);
+    await settle();
+    assert.ok(await isPending(running), 'the read budget does not refuse the pending send');
+    assert.equal(await first.fenceIsFree(), false);
+    assert.deepEqual([second.counts.signer, second.counts.transport], [0, 0]);
+  });
+
+  await t.test('a send that settles as the callback returns still ends acknowledged with no extra wait', async () => {
+    const [first] = twoTabs();
+    const { value } = await first.settled(first.runPass());
+    assert.equal(value.outcomes[0].state, 'acknowledged');
+    assert.ok(await first.fenceIsFree());
+  });
 });
