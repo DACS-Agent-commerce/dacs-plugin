@@ -123,34 +123,27 @@ test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a l
   await t.test('K0-B6 a request carrying the live capability of its own operation is refused tp1_fence_not_owned; the owner is unaffected', async () => {
     const world = createWorld();
     const nested = [];
-    const { error } = await world.settled(world.runPass({
-      sign: async (armed) => {
-        const bytes = await world.sign(armed);
-        const before = { counts: { ...world.counts }, events: world.events.length };
-        nested.push(await world.settled(world.boundary.runPass(world.request({ lane: 'lane-nested', capability: armed.capability }))));
-        nested.push({ counts: { ...world.counts }, events: world.events.length }, before);
-        return bytes;
-      },
+    const { error } = await world.settled(world.fence.run(world.operationId, async (capability) => {
+      const before = { counts: { ...world.counts }, events: world.events.length };
+      nested.push(await world.settled(world.boundary.runPass(world.request({ lane: 'lane-nested', capability }))));
+      nested.push({ counts: { ...world.counts }, events: world.events.length }, before);
     }));
     assert.equal(error, undefined);
     assertRefusal(nested[0].error, 'tp1_fence_not_owned');
     assert.deepEqual(nested[1], nested[2], 'the refused child made no read, lock request, signer call or send');
     assert.deepEqual(world.records.kinds('lane-nested'), []);
     assert.equal(world.counts.lockRequests, 1);
-    assert.equal(world.counts.signer, 1);
+    assert.equal(world.counts.signer, 0);
   });
 
   await t.test('K0-B7 another operation presenting the capability is refused tp1_fence_not_owned; signer 0', async () => {
     const world = createWorld();
     const foreign = [];
-    await world.runPass({
-      sign: async (armed) => {
-        foreign.push(await world.settled(world.boundary.runPass(world.request({ operationId: 'op-2', capability: armed.capability }))));
-        return world.sign(armed);
-      },
+    await world.fence.run(world.operationId, async (capability) => {
+      foreign.push(await world.settled(world.boundary.runPass(world.request({ operationId: 'op-2', capability }))));
     });
     assertRefusal(foreign[0].error, 'tp1_fence_not_owned');
-    assert.equal(world.counts.signer, 1, 'only the owner signed');
+    assert.equal(world.counts.signer, 0, 'nothing signed for the refused request');
   });
 
   await t.test('K0-B9 two overlapping purchases on one actor never interleave sign-to-dispatch sections', async () => {
@@ -597,12 +590,19 @@ test('the bytes the wrapped signer returned are the bytes persisted and the only
 test('the handle given to sign and send steps carries no pass state: bytes, call counts and liveness cannot be changed through it', async (t) => {
   const forged = new Uint8Array([66, 66]);
 
-  await t.test('the handle is frozen and shows only the fence capability', async () => {
+  await t.test('every sign and send handle is frozen and has no own property, so it exposes no fence capability', async () => {
     const world = createWorld();
     const seen = [];
-    await world.runPass({ sign: (armed) => { seen.push(armed); return world.sign(armed); } });
-    assert.ok(Object.isFrozen(seen[0]));
-    assert.deepEqual(Object.keys(seen[0]), ['capability']);
+    await world.runPass({
+      sign: (armed) => { seen.push(armed); return world.sign(armed); },
+      stages: ['confirm', 'broadcast'].map((name) => ({ name, send: (armed, bytes) => { seen.push(armed); return world.send(armed, bytes); } })),
+    });
+    assert.equal(seen.length, 3);
+    for (const handle of seen) {
+      assert.ok(Object.isFrozen(handle));
+      assert.deepEqual(Reflect.ownKeys(handle), []);
+      assert.equal(handle.capability, undefined);
+    }
   });
 
   await t.test('a sign step overwriting the handle\'s byte fields after the EB signer ran changes neither the persisted nor the sent bytes', async () => {
@@ -1336,4 +1336,159 @@ test('a request that carries a capability is refused tp1_fence_not_owned before 
     assert.deepEqual(calls, []);
     assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
   });
+});
+
+// Tries everything a callback can read off its handles (and the handles themselves) as the fence capability.
+const releaseAttempts = (world, handles) => handles
+  .flatMap((handle) => [handle, handle.capability, ...Reflect.ownKeys(handle).map((key) => handle[key])])
+  .map((candidate) => world.fence.release(candidate, world.operationId));
+
+test('a callback cannot release the wallet fence through a step handle while its inner call is pending', async (t) => {
+  const contenders = ['a second tab', 'a connection replacement'];
+  for (const step of ['sign', 'dispatch', 'confirm', 'broadcast']) {
+    for (const contender of contenders) {
+      await t.test(`${step} step, with ${contender} waiting; earlier handles included`, async () => {
+        const [first, second] = twoTabs();
+        const gate = createGate();
+        const saved = [];
+        const attempts = [];
+        let running;
+        if (step === 'sign') {
+          const slowSigner = async () => { first.counts.signer += 1; await gate.promise; return new Uint8Array(first.SIGNED_BYTES); };
+          running = first.settled(first.runPass({ sign: async (armed) => { attempts.push(...releaseAttempts(first, [armed])); return ebSign(slowSigner, armed)(); } }));
+        } else {
+          const names = step === 'dispatch' ? ['dispatch'] : ['confirm', 'broadcast'];
+          first.behavior.transport = () => (first.counts.transport === names.indexOf(step) + 1 ? gate.promise : Promise.resolve({ accepted: true }));
+          const stages = names.map((name) => ({ name, send: async (armed, bytes) => {
+            if (name === step) attempts.push(...releaseAttempts(first, [armed, ...saved]));
+            saved.push(armed);
+            return first.send(armed, bytes);
+          } }));
+          running = first.settled(first.runPass({ stages, sign: async (armed) => { saved.push(armed); return first.sign(armed); } }));
+        }
+        await settle();
+        let replaced = false;
+        const waiting = contender === 'a second tab'
+          ? second.settled(second.runPass())
+          : first.fence.replaceConnection(async () => { replaced = true; });
+        await settle();
+        assert.ok(attempts.length > 0 && attempts.every((released) => released === false), 'no value on any handle releases the fence');
+        assert.deepEqual([second.counts.signer, second.counts.transport], [0, 0], 'the second tab has not signed or sent');
+        assert.equal(replaced, false);
+        assert.equal(first.fence.connectionGeneration, 0);
+        gate.open();
+        assert.equal((await running).error, undefined);
+        const finished = await waiting;
+        if (contender === 'a second tab') assert.equal(finished.error, undefined);
+        else { assert.equal(replaced, true); assert.equal(first.fence.connectionGeneration, 1); }
+      });
+    }
+  }
+
+  await t.test('a resumed dispatch-withheld lane gives its send callback no way to release the fence', async () => {
+    const dead = createWorld();
+    dead.records.beforeCommit.set('dispatch-started', () => { dead.state.killed = true; });
+    await dead.settled(dead.runPass());
+    dead.records.beforeCommit.clear();
+    assert.deepEqual(dead.records.kinds('lane-1'), ['signed', 'dispatch-started', 'dispatch-withheld']);
+    const first = createWorld({ records: dead.records });
+    const second = createWorld({ operationId: 'op-b', lane: 'lane-b', clock: first.clock, locks: first.locks, records: dead.records });
+    const transmission = pendingTransport(first);
+    const attempts = [];
+    const stages = [{ name: 'dispatch', send: async (armed, bytes) => { attempts.push(...releaseAttempts(first, [armed])); return first.send(armed, bytes); } }];
+    const running = first.settled(first.runPass({ sign: undefined, retained: { bytes: new Uint8Array(dead.SIGNED_BYTES) }, stages }));
+    await settle();
+    const other = second.settled(second.runPass());
+    await settle();
+    assert.deepEqual(attempts, [false, false]);
+    assert.deepEqual([first.counts.signer, first.counts.transport, second.counts.signer, second.counts.transport], [0, 1, 0, 0]);
+    transmission.resolve({ accepted: true });
+    assert.equal((await running).error, undefined);
+    assert.equal((await other).error, undefined);
+  });
+});
+
+// The connection digest is the pass's binding: it must be a nonempty string, on the first read and every later one.
+const invalidDigests = [
+  ['undefined', undefined], ['an empty string', ''], ['null', null], ['0', 0], ['true', true], ['1', 1], ['an object', {}], ['an array', []],
+  ['a Promise', Promise.resolve('digest-1')], ['a boxed string', Object('digest-1')], ['a symbol', Symbol('digest')],
+];
+const noEffects = (world) => [world.counts.lockRequests, world.counts.authority, world.counts.stop, world.counts.signer, world.counts.transport];
+
+test('a connection digest that is not a nonempty string refuses tp1_local_binding_invalid before any lock, read, record or effect', async (t) => {
+  for (const [name, digest] of invalidDigests) {
+    await t.test(`${name} on the first read`, async () => {
+      const world = createWorld();
+      world.state.digest = digest;
+      const { error } = await world.settled(world.runPass());
+      assertRefusal(error, 'tp1_local_binding_invalid');
+      assert.deepEqual(noEffects(world), [0, 0, 0, 0, 0]);
+      assert.deepEqual(world.records.kinds(world.lane), []);
+    });
+  }
+
+  await t.test('one-character and two-character strings are valid; correcting an empty digest permits a retry on the same empty lane', async () => {
+    for (const digest of ['d', 'dd']) {
+      const world = createWorld();
+      world.state.digest = digest;
+      assert.equal((await world.settled(world.runPass())).error, undefined);
+    }
+    const world = createWorld();
+    world.state.digest = '';
+    assertRefusal((await world.settled(world.runPass())).error, 'tp1_local_binding_invalid');
+    world.state.digest = 'd';
+    assert.equal((await world.settled(world.runPass())).error, undefined);
+    assert.deepEqual(world.records.kinds(world.lane), ['signed', 'dispatch-started', 'dispatch-acknowledged']);
+  });
+
+  await t.test('two invalid passes on one wallet both refuse before either asks for the fence', async () => {
+    const [first, second] = twoTabs();
+    first.state.digest = undefined;
+    second.state.digest = undefined;
+    const [a, b] = await Promise.all([first.settled(first.runPass()), second.settled(second.runPass())]);
+    assertRefusal(a.error, 'tp1_local_binding_invalid');
+    assertRefusal(b.error, 'tp1_local_binding_invalid');
+    assert.deepEqual([...noEffects(first), ...noEffects(second)], new Array(10).fill(0));
+  });
+
+  const turnsInvalid = (w) => { w.state.digest = undefined; };
+  const laterReads = [
+    { name: 'while waiting for the fence', waiting: turnsInvalid, signer: 0, kinds: [] },
+    { name: 'inside EB5r\'s authority read', arrange: (w) => w.on('authority', 2, () => turnsInvalid(w)), signer: 0, kinds: [] },
+    { name: 'inside the final stop read before the signer', arrange: (w) => w.on('stop', 3, () => turnsInvalid(w)), signer: 0, kinds: [] },
+    { name: 'inside EB7\'s authority read', arrange: (w) => w.on('authority', 3, () => turnsInvalid(w)), signer: 1, kinds: ['signed', 'signed-held'], lastCause: 'tp1_local_binding_invalid' },
+    { name: 'inside the dispatch-intent persistence', arrange: (w) => w.records.beforeCommit.set('dispatch-started', () => turnsInvalid(w)), signer: 1, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'], lastCause: 'tp1_local_binding_invalid' },
+  ];
+  for (const row of laterReads) {
+    await t.test(`a digest that turns invalid ${row.name} refuses tp1_local_binding_invalid`, () => runBarrierRow({ ...row, code: 'tp1_local_binding_invalid' }));
+  }
+
+  for (const [name, prepare] of [
+    ['a dispatch-withheld lane', async () => {
+      const dead = createWorld();
+      dead.records.beforeCommit.set('dispatch-started', () => { dead.state.killed = true; });
+      await dead.settled(dead.runPass());
+      dead.records.beforeCommit.clear();
+      return { records: dead.records, request: { sign: undefined, retained: { bytes: new Uint8Array(dead.SIGNED_BYTES) } } };
+    }],
+    ['a confirm-acknowledged lane', async () => {
+      const dead = createWorld();
+      dead.records.failures.set('broadcast-started', new Error('disk full'));
+      await dead.settled(dead.runPass({ stages: stagesOf(dead, ['confirm', 'broadcast']) }));
+      dead.records.failures.clear();
+      return { records: dead.records, request: { sign: undefined, retained: { bytes: new Uint8Array(dead.SIGNED_BYTES) }, stages: stagesOf(dead, ['broadcast']) } };
+    }],
+  ]) {
+    await t.test(`a restart on ${name} with an absent digest refuses and neither signs, sends nor appends`, async () => {
+      const { records, request } = await prepare();
+      const world = createWorld({ records });
+      world.state.digest = undefined;
+      const before = records.kinds(world.lane);
+      const { stages, ...rest } = request;
+      const { error } = await world.settled(world.runPass({ ...rest, ...(stages && { stages: stagesOf(world, ['broadcast']) }) }));
+      assertRefusal(error, 'tp1_local_binding_invalid');
+      assert.deepEqual(noEffects(world), [0, 0, 0, 0, 0]);
+      assert.deepEqual(records.kinds(world.lane), before);
+    });
+  }
 });

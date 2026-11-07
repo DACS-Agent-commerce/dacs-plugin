@@ -97,7 +97,13 @@ const STEP_CHECKS = Object.freeze({
 });
 const STEPS = new WeakMap();
 function createPass({ fence, checks, clock, stoppedCode }, { operationId, approvalRevision }) {
-  const binding = { digest: runCheck(checks, 'connectionDigest'), generation: fence.connectionGeneration };
+  // The digest is the connection binding: only a nonempty string can name one, so any other answer fails closed.
+  const readDigest = () => {
+    const value = runCheck(checks, 'connectionDigest');
+    if (!nonemptyString(value)) throw refuse('tp1_local_binding_invalid', value);
+    return value;
+  };
+  const binding = { digest: readDigest(), generation: fence.connectionGeneration };
   const readWithinBudget = createReadBudget(clock, PASS_READ_DEADLINE_MS);
   let live = true, current = null;
   const effects = [];
@@ -110,7 +116,7 @@ function createPass({ fence, checks, clock, stoppedCode }, { operationId, approv
     admission: () => enforce(runCheck(checks, 'admission')),
     approval: () => enforce(runCheck(checks, 'approval', approvalRevision)),
     binding() {
-      if (runCheck(checks, 'connectionDigest') !== binding.digest || fence.connectionGeneration !== binding.generation) throw refuse('tp1_local_binding_changed');
+      if (readDigest() !== binding.digest || fence.connectionGeneration !== binding.generation) throw refuse('tp1_local_binding_changed');
     },
     async stop() {
       let stopped;
@@ -131,7 +137,8 @@ function createPass({ fence, checks, clock, stoppedCode }, { operationId, approv
     async verify(names) { for (const name of names) await pass[name](); },
     verifyNow(names) { for (const name of names) pass[name](); },
     openStep(kind) {
-      const handle = Object.freeze({ get capability() { return pass.capability; } });
+      // An empty token: the fence capability stays in the pass, so a callback cannot release or reuse the hold.
+      const handle = Object.freeze({});
       current = { pass, kind, handle, state: 'open', signed: undefined, transmission: undefined };
       STEPS.set(handle, current);
       return current;
@@ -269,8 +276,9 @@ function snapshotRequest(request) {
 }
 
 /**
- * Creates an unwired wallet pass runner with injected fence, checks and record store. Check methods return true
- * or a refusal code; stopped returns boolean, readAuthority resolves for a current binding. Approval receives the
+ * Creates an unwired wallet pass runner with injected fence, checks and record store. admission and approval return
+ * true or a refusal code; stopped returns boolean, readAuthority resolves for a current binding. connectionDigest
+ * synchronously returns a nonempty string; any other answer refuses tp1_local_binding_invalid. Approval receives the
  * captured revision. runPass requires nonempty string operationId/pinVersion/approvalRevision/lane and either
  * sign or retained.bytes plus closed stages; resolves {operationId, passId, outcomes}. Invalid requests throw
  * TypeError before adapter calls; refusal/persistence failures reject with EffectBoundaryRefusal and causes.
