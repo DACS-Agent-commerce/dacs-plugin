@@ -90,7 +90,11 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   An escaped dot (`\.`) is not unescaped, because it is regex syntax in the code's own host patterns. A dotted name is a host when it is the
   host of a URL (any top-level name), a `host:port` pair, a quoted name in code (`.cjs .css .js .mjs .mts .sh .ts .tsx`), or a
   bare name in any other text and in path names; the last three count only under a top-level name listed in
-  `HOST_TOP_LEVEL_NAMES`, so file names and property chains are not hosts. A host passes only on an exact, lower-case match with an
+  `HOST_TOP_LEVEL_NAMES`, so file names and property chains are not hosts. A URL may be protocol-relative (`//host.example.com/x`):
+  in prose and data `//` counts where it starts a token (not after `:`, `/`, a backslash or a word character), and in code only right
+  after a quote or after `url(`, so a `//` that starts a comment is not read as one (`url(` is matched as text, so `url(//host)` in a
+  comment is read); without a scheme, the host counts only when it normalises to a host a URL parser accepts. A host passes only on an
+  exact, lower-case match with an
   `allowedHosts` entry (`value`, `reason`): a subdomain, or a listed name used as a label prefix of another domain, is another
   host and needs its own entry. Reserved names pass with any subdomain: the top-level names `invalid`, `test`, `example` and
   `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label), a template placeholder

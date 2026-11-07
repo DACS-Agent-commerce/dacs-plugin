@@ -95,6 +95,28 @@ test('hosts: a name with a template placeholder or an IP literal is left to othe
   assert.deepEqual(scanned(scanHosts, files), ['R-HOST content src/a.mjs 3']);
 });
 
+test('hosts: a protocol-relative URL host fails in prose and data and in a quoted string in code; a `//` comment, a regex, a listed and a reserved host do not', () => {
+  const files = {
+    'docs/relative.md': [`load //${OTHER}/path`, `<img src=//${ATTACKER_ENCODED}/a.png>`, `//github.com/x and //${name('cdn', 'example', 'net')}/y`, `https://${OTHER}/x`].join('\n') + '\n',
+    'conf/relative.json': `{ "cdn": "//${OTHER}/lib.js" }\n`,
+    'src/relative.mjs': [`const a = "//${OTHER}/x";`, `const b = '//user@${OTHER}:8443/x';`, `// ${OTHER} in a comment`, `//${OTHER}/x in a comment`,
+      'const re = /^([a-z][a-z\\d+\\-.]*:)?\\/\\//i;', "const c = '//github.com/x';"].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), ['R-HOST content docs/relative.md 1', 'R-HOST content docs/relative.md 2', 'R-HOST content docs/relative.md 4',
+    'R-HOST content conf/relative.json 1', 'R-HOST content src/relative.mjs 1', 'R-HOST content src/relative.mjs 2']);
+  assert.deepEqual(refusedMetadataHosts(`subject\n\nsee //${ATTACKER}/x and //github.com/y`, CONFIG), [ATTACKER]);
+});
+
+test('hosts: in a CSS file an unquoted protocol-relative URL in `url(...)` fails like a quoted one, in any letter case and with spaces; a listed host passes, and a `//` after anything else is not read', () => {
+  const files = {
+    'web/site.css': [`.a { background-image: url(//${OTHER}/i.png); }`, `@import url(//${OTHER}/base.css);`, `.b { background: url( //${OTHER}/i.png ); }`, `.c { background: URL(//${OTHER}/i.png); }`,
+      '.d { background: url(//github.com/i.png); }', `/* see //${OTHER} */`].join('\n') + '\n',
+    'src/style.mjs': [`const css = \`background: url(//${OTHER}/i.png)\`;`, `foo(url(// ${OTHER} note`].join('\n') + '\n',
+  };
+  const config = { ...CONFIG, textExtensions: [...CONFIG.textExtensions, '.css'] };
+  assert.deepEqual(scanned(scanHosts, files, config), [1, 2, 3, 4].map((line) => `R-HOST content web/site.css ${line}`).concat('R-HOST content src/style.mjs 1'));
+});
+
 test('hosts: a percent-encoded dot, an upper-case encoding or a trailing dot in a URL host does not hide an unlisted host', () => {
   const files = {
     'docs/encoded.md': [ATTACKER_ENCODED, `${ATTACKER.toUpperCase()}.`, ATTACKER_ENCODED.replace('%2e', '%2E'), `${ATTACKER}%2e`].map((host) => urlOf(host)).join('\n') + '\n',

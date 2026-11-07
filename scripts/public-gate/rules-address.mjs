@@ -30,6 +30,14 @@ const LINE_BREAK = /\r\n|\r|\n/;
 /** A dotted name within DNS limits (labels of at most 63 characters, at most 127 of them): bounded so a long dotted line cannot exhaust the regex stack. */
 const NAME_LABELS = String.raw`(?:[a-z0-9_-]{1,63}\.){1,127}[a-z]{2,63}`;
 const URL_HOST = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/(?:[^\s/\\?#@]*@)?(?<host>\[[^\]\s]*\]|[^\s/?#:@"'<>)\]\\,;`]+)/gi;
+/**
+ * A protocol-relative URL (`//host/x`), which a browser resolves against the page's scheme: in prose and data, `//` at the start of a
+ * token (not after `:`, `/`, `\\` or a word character); in code, `//` right after a quote or after CSS `url(` (an unquoted url
+ * token), so a `//` comment is not read as one. The host is
+ * read as in `URL_HOST`.
+ */
+const PROTOCOL_RELATIVE_HOST = /(?<![\w:/\\])\/\/(?:[^\s/\\?#@]*@)?(?<host>\[[^\]\s]*\]|[^\s/?#:@"'<>)\]\\,;`]+)/gi;
+const CODE_PROTOCOL_RELATIVE_HOST = /(?<=['"`]|\burl\(\s*)\/\/(?:[^\s/\\?#@'"`]*@)?(?<host>\[[^\]\s]*\]|[^\s/?#:@"'<>)\]\\,;`]+)/gi;
 const HOST_PORT = new RegExp(String.raw`(?<![\w.@/:-])(?<host>${NAME_LABELS}):\d{1,5}(?!\w)`, 'gi');
 const BARE_NAME = new RegExp(String.raw`(?<![\w.@/:-])(?<host>${NAME_LABELS})(?![\w-]|\.[a-z0-9_-]|@)`, 'gi');
 const QUOTED_NAME = new RegExp(String.raw`(?<quote>['"\`])(?<host>${NAME_LABELS})\k<quote>`, 'gi');
@@ -108,7 +116,10 @@ function matchesOf(pattern, context, text, valueOf) {
  */
 function unlistedHostsIn(line, { code, listedHosts }) {
   const asWritten = ({ host }) => host;
-  const forms = [['url', URL_HOST, ({ host }) => normalisedHost(host) ?? host], ['host-port', HOST_PORT, asWritten], code ? ['quoted', QUOTED_NAME, asWritten] : ['bare', BARE_NAME, asWritten]];
+  /** Without a scheme, `//` may not start a URL at all (a regex, a path), so a protocol-relative host counts only when it normalises to a host a URL parser accepts. */
+  const asHost = ({ host }) => { const normalised = normalisedHost(host); return normalised !== null && DECODED_HOST.test(normalised) ? normalised : ''; };
+  const forms = [['url', URL_HOST, ({ host }) => normalisedHost(host) ?? host], ['url', code ? CODE_PROTOCOL_RELATIVE_HOST : PROTOCOL_RELATIVE_HOST, asHost],
+    ['host-port', HOST_PORT, asWritten], code ? ['quoted', QUOTED_NAME, asWritten] : ['bare', BARE_NAME, asWritten]];
   return forms.flatMap(([context, pattern, valueOf]) => matchesOf(pattern, context, line, valueOf))
     .filter(({ value, context }) => (context === 'url' && isUnnormalisable(value)) || (value.includes('.') && !NOT_A_NAME.test(value)
       && (context === 'url' || HOST_TOP_LEVEL_NAMES.has(topLevelName(value))) && !isReservedName(value) && !listedHosts.has(value)));
