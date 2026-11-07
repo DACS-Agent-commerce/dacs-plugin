@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { gateRevision } from '../../scripts/public-gate/gate.mjs';
 import {
-  CONFIG_FILE, completeArgs, createRepo, gateArgs, makeTempDir, runCheckReport, runGate, sha256, writeList,
+  CONFIG_FILE, completeArgs, createRepo, expectedScanIdentity, gateArgs, makeTempDir, runCheckReport, runGate, sha256, writeList,
 } from '../lib/gate-fixtures.mjs';
 
 const PLANTED = ['quartz', 'lantern'].join('-');
@@ -23,7 +23,7 @@ function completeCase() {
   const repo = createRepo([{ path: 'a.txt', content: 'clean\n' }]);
   const run = runGate(completeArgs(repo, writeList([PLANTED])));
   assert.equal(run.status, 0, run.stderr);
-  const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), expectedRoot: repo.commit };
+  const context = { gateRevision: gateRevision(), configSha256: sha256(readFileSync(CONFIG_FILE)), ...expectedScanIdentity(), expectedRoot: repo.commit };
   return { repo, report: JSON.parse(run.stdout), context };
 }
 
@@ -65,24 +65,25 @@ test('check-report refuses a generic report, a report for another head, a comple
     for (const changed of rules) refused(check({ report: { ...report, rules: changed }, head, context }), 1, 'report-rules-differ');
   });
 
-  await t.test('refuses a complete report made under another gate revision, configuration or expected root than the context\'s', () => {
-    for (const field of ['gateRevision', 'configSha256']) {
+  await t.test('refuses a complete report made under another gate revision, configuration, scanner policy, exception entries, scanner version or expected root than the context\'s', () => {
+    for (const field of ['gateRevision', 'configSha256', 'scannerPolicySha256', 'secretExceptionsSha256']) {
       refused(check({ report, head, context: { ...context, [field]: OTHER_DIGEST } }), 1, 'report-policy-differs');
       refused(check({ report: { ...report, scanner: { ...report.scanner, [field]: OTHER_DIGEST } }, head, context }), 1, 'report-policy-differs');
     }
+    refused(check({ report, head, context: { ...context, scannerVersion: '9.9.9' } }), 1, 'report-policy-differs');
     refused(check({ report, head, context: { ...context, expectedRoot: OTHER_COMMIT } }), 1, 'report-policy-differs');
     refused(check({ report: { ...report, scanner: { ...report.scanner, expectedRoot: OTHER_COMMIT } }, head, context }), 1, 'report-policy-differs');
   });
 
   await t.test('refuses a report whose scanner holds a field the context does not name, or lacks one it does', () => {
-    refused(check({ report: { ...report, scanner: { ...report.scanner, scannerPolicySha256: OTHER_DIGEST } }, head, context }), 1, 'report-policy-differs');
+    refused(check({ report: { ...report, scanner: { ...report.scanner, unnamedField: OTHER_DIGEST } }, head, context }), 1, 'report-policy-differs');
     const { expectedRoot, ...withoutRoot } = report.scanner;
     assert.equal(expectedRoot, head);
     refused(check({ report: { ...report, scanner: withoutRoot }, head, context }), 1, 'report-policy-differs');
   });
 
   await t.test('takes the expected values from the context: a report that agrees only with itself is refused', () => {
-    const selfConsistent = { ...report, scanner: { gateRevision: OTHER_DIGEST, configSha256: OTHER_DIGEST, expectedRoot: OTHER_COMMIT } };
+    const selfConsistent = { ...report, scanner: { ...report.scanner, gateRevision: OTHER_DIGEST, configSha256: OTHER_DIGEST, expectedRoot: OTHER_COMMIT } };
     refused(check({ report: selfConsistent, head, context }), 1, 'report-policy-differs');
     assert.equal(check({ report: selfConsistent, head, context: selfConsistent.scanner }).status, 0);
   });

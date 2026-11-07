@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { classifyBlob } from '../../scripts/public-gate/classify.mjs';
 import { GateInputError, readCommitObjects } from '../../scripts/public-gate/objects.mjs';
 import {
-  CONFIG_FILE, REPO_ROOT, completeArgs, createRepo, gateArgs, makeTempDir, runGate, sha256, snapshotTree,
+  CONFIG_FILE, REPO_ROOT, cleanScannerArgs, completeArgs, createRepo, gateArgs, makeTempDir, runGate, sha256, snapshotTree,
   writeList,
 } from '../lib/gate-fixtures.mjs';
 
@@ -147,7 +147,7 @@ test('an empty tree or an unknown commit fails closed', () => {
   assert.equal(emptyRun.status, 2);
   assert.match(emptyRun.stderr, /empty-tree/);
   const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
-  const unknown = runGate(['--repo', repo.dir, '--commit', 'c'.repeat(40), '--scope', 'generic']);
+  const unknown = runGate(['--repo', repo.dir, '--commit', 'c'.repeat(40), '--scope', 'generic', ...cleanScannerArgs()]);
   assert.equal(unknown.status, 2);
   assert.match(unknown.stderr, /unknown-commit/);
   assert.equal(unknown.stdout, '');

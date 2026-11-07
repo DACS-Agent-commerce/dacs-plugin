@@ -7,6 +7,7 @@ import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, require
 import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps } from './rules-address.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
+import { SECRET_RULE_ID } from './secret-scan.mjs';
 
 /** Id of the identity rule in reports: every author and committer is the allowed identity, in UTC. */
 export const IDENTITY_RULE_ID = 'R-IDENTITY';
@@ -219,7 +220,7 @@ async function runHistory(argv, signal) {
   const scannedStatus = (id) => (found(id) ? 'findings' : unscannable.length > 0 ? 'unscannable' : 'passed');
   const rules = [
     { id: IDENTITY_RULE_ID, status: !options.identity ? 'not-run' : found(IDENTITY_RULE_ID) ? 'findings' : 'passed' },
-    ...REGISTERED_RULE_IDS.map((id) => ({ id, status: scannedStatus(id) })),
+    ...REGISTERED_RULE_IDS.map((id) => ({ id, status: id === SECRET_RULE_ID ? 'not-run' : scannedStatus(id) })),
   ].sort((first, second) => compareText(first.id, second.id));
   const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, expectedRoot: options.expectedRoot, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
   const report = buildHistoryReport({ heads, commits: commits.length, scanner, rules, unscannable, findings });

@@ -1,8 +1,23 @@
 {
   "limits": {
     "maxTreeObjects": 20000, "maxBlobBytes": 8388608, "maxTotalBlobBytes": 268435456, "maxListingBytes": 33554432,
-    "maxPrivateListBytes": 65536, "maxPrivateEntries": 2000, "maxReportEntries": 1000, "maxHistoryCommits": 20000, "gitDeadlineMs": 120000, "scanDeadlineMs": 30000
+    "maxPrivateListBytes": 65536, "maxPrivateEntries": 2000, "maxReportEntries": 1000, "maxHistoryCommits": 20000, "gitDeadlineMs": 120000, "scanDeadlineMs": 30000,
+    "secretScanDeadlineMs": 300000, "secretScanOutputBytes": 65536, "maxScanReportBytes": 8388608
   },
+  "scanner": { "version": "8.30.1" },
+  "secretBaseline": [
+    { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs", "blob": "c420e04e0b82c351d8726241668da69301690713", "rule": "generic-api-key", "line": 15, "reason": "field names such as pre_master_secret and getPrivateKey in generated node-forge TLS code, not credentials" },
+    { "path": "stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json", "blob": "6e64f1110858e005b52b2fe8559810bd41514943", "rule": "generic-api-key", "line": 28, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" },
+    { "path": "stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json", "blob": "6e64f1110858e005b52b2fe8559810bd41514943", "rule": "generic-api-key", "line": 42, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" },
+    { "path": "stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json", "blob": "6e64f1110858e005b52b2fe8559810bd41514943", "rule": "generic-api-key", "line": 46, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" },
+    { "path": "stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json", "blob": "6e64f1110858e005b52b2fe8559810bd41514943", "rule": "generic-api-key", "line": 53, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" },
+    { "path": "stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json", "blob": "6e64f1110858e005b52b2fe8559810bd41514943", "rule": "generic-api-key", "line": 113, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" },
+    { "path": "stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json", "blob": "6e64f1110858e005b52b2fe8559810bd41514943", "rule": "generic-api-key", "line": 127, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" },
+    { "path": "stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json", "blob": "6e64f1110858e005b52b2fe8559810bd41514943", "rule": "generic-api-key", "line": 131, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" },
+    { "path": "stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json", "blob": "6e64f1110858e005b52b2fe8559810bd41514943", "rule": "generic-api-key", "line": 138, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" },
+    { "path": "stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json", "blob": "6e64f1110858e005b52b2fe8559810bd41514943", "rule": "generic-api-key", "line": 194, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" }
+  ],
+  "secretExceptions": [],
   "textExtensions": [".cjs", ".css", ".html", ".js", ".json", ".md", ".mjs", ".mts", ".sh", ".svg", ".toml", ".ts", ".tsx", ".txt", ".yaml", ".yml"],
   "binaryDispositions": [],
   "allowedHosts": [
