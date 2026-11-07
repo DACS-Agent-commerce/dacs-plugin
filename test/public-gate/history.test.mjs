@@ -14,6 +14,7 @@ const ALLOWED = 'Project <project@example.invalid>';
 const INTERNAL_HOST = ['node7', 'harbor', 'dev'].join('.');
 const INTERNAL_EMAIL = ['ops', ['harbor', 'dev'].join('.')].join('@');
 const PUBLIC_V4 = [8, 8, 4, 4].join('.');
+const UNLISTED_HOST = ['unlisted-real-host', 'io'].join('.');
 const outputOf = (run) => `${run.stdout}${run.stderr}`;
 const brief = (report) => report.findings.map((finding) => `${finding.rule} ${finding.kind} ${finding.location.replace(/^[0-9a-f]{40}:/, '')} ${finding.line ?? '-'}`);
 
@@ -102,6 +103,39 @@ test('an email in an earlier commit message, author or committer line is refused
   ]);
   assert.deepEqual(brief(report), ['R-ACCOUNT author author -', 'R-ACCOUNT committer committer -', 'R-ACCOUNT message message 3']);
   assert.ok(!outputOf(run).includes(INTERNAL_EMAIL));
+});
+
+test('an unlisted host or a public IP in a commit message is refused by the host and IP rules and located by commit, field and line; the rules report findings, not passed', () => {
+  const history = createHistory([{}, { message: `subject\n\nReach https://${UNLISTED_HOST} at ${PUBLIC_V4}` }]);
+  const run = runHistory(historyArgs(history, writeList([PLANTED])));
+  assert.equal(run.status, 1, run.stderr);
+  const report = JSON.parse(run.stdout);
+  assert.deepEqual(brief(report), ['R-HOST message message 3', 'R-IP message message 3']);
+  assert.deepEqual(report.findings.map(({ commit }) => history.commits.indexOf(commit)), [1, 1]);
+  assert.deepEqual(report.rules.filter(({ id }) => ['R-HOST', 'R-IP'].includes(id)).map(({ id, status }) => `${id} ${status}`), ['R-HOST findings', 'R-IP findings']);
+  for (const value of [UNLISTED_HOST, PUBLIC_V4]) assert.ok(!outputOf(run).includes(value), value);
+});
+
+test('an unlisted host or a public IP in an author, committer or other header line is refused by the host and IP rules and located by field', () => {
+  const history = createHistory([
+    {},
+    { author: { name: INTERNAL_HOST, email: 'project@example.invalid' } },
+    { committer: { name: PUBLIC_V4, email: 'project@example.invalid' } },
+  ]);
+  const run = runHistory(historyArgs(history, writeList([PLANTED])));
+  assert.equal(run.status, 1, run.stderr);
+  const report = JSON.parse(run.stdout);
+  assert.deepEqual(brief(report), ['R-HOST author author -', 'R-IP committer committer -']);
+  assert.deepEqual(report.findings.map(({ commit }) => history.commits.indexOf(commit)), [1, 2]);
+});
+
+test('a listed host, a reserved name, a loopback address and a documentation address in a commit message pass the host and IP rules', () => {
+  const history = createHistory([{}, { message: 'subject\n\nSee https://github.com/x, https://www.example.com/y, 127.0.0.1 and 192.0.2.7' }]);
+  const run = runHistory(historyArgs(history, writeList([PLANTED])));
+  assert.equal(run.status, 0, run.stderr);
+  const report = JSON.parse(run.stdout);
+  assert.deepEqual(report.findings, []);
+  assert.deepEqual(report.rules.filter(({ id }) => ['R-HOST', 'R-IP'].includes(id)).map(({ status }) => status), ['passed', 'passed']);
 });
 
 test('the identity rule finds any other identity and any time zone but +0000, and is not-run without the flag', () => {
