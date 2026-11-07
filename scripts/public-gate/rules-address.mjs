@@ -1,10 +1,13 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { decodeUtf8Strict, GateInputError } from './objects.mjs';
+import { decodeUtf8Strict, FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 
 /** Id of the host rule in reports. */
 export const HOST_RULE_ID = 'R-HOST';
 /** Id of the account rule in reports. */
 export const ACCOUNT_RULE_ID = 'R-ACCOUNT';
+/** Id of the IP-literal rule in reports. */
+export const IP_RULE_ID = 'R-IP';
 
 /** How an address occurs: in a URL, as host:port, as a quoted name in code, as a bare name in prose or data, or as an email. */
 const CONTEXTS = ['url', 'host-port', 'quoted', 'bare', 'email'];
@@ -111,21 +114,28 @@ function viewsOf(line) {
 }
 
 /**
- * Builds a rule that reads the address occurrences `occurrencesIn(view, { code, listedHosts })` of every path and text blob, each line as written
- * and with its escaped delimiters unescaped, and returns findings { rule, kind: 'path' | 'content', entry, line? }, one per line. An occurrence passes when `config.scopedAllowances`
- * holds an entry for this exact path, rule, value and context; in the configuration file itself, also when the value is one
- * that an entry names. Throws GateInputError(limit:maxReportEntries) past that many findings.
+ * The test of `scopedAllowances` for a rule: an occurrence passes when an entry holds this exact path, rule, value and
+ * context; in the configuration file itself, also when the value is one that an entry names.
  */
-function createAddressRule(ruleId, occurrencesIn) {
+function scopedAllowanceCheck(config, ruleId) {
+  const allowances = new Set(config.scopedAllowances.map((entry) => [entry.path, entry.rule, entry.value, entry.context].join('\0')));
+  const reviewedValues = new Set(config.scopedAllowances.map((entry) => entry.value));
+  return (entry, { value, context }) => allowances.has([entry.path, ruleId, value, context].join('\0')) || (entry.path === CONFIG_PATH && reviewedValues.has(value));
+}
+
+/**
+ * Builds a rule that reads the address occurrences `occurrencesIn(view, { code, listedHosts })` of every path and text blob, each line as written
+ * and with its escaped delimiters unescaped, and returns findings { rule, kind: 'path' | 'content', entry, line? }, one per line. An occurrence passes when
+ * `allowanceCheck(config, ruleId)(entry, occurrence, line)` says so (`line` is null in a path name); by default that is `scopedAllowanceCheck`.
+ * Throws GateInputError(limit:maxReportEntries) past that many findings.
+ */
+function createAddressRule(ruleId, occurrencesIn, allowanceCheck = scopedAllowanceCheck) {
   return function scan({ entries, config, limits }) {
     const listedHosts = new Set(config.allowedHosts.map(({ value }) => value));
-    const allowances = new Set(config.scopedAllowances.map((entry) => [entry.path, entry.rule, entry.value, entry.context].join('\0')));
-    const reviewedValues = new Set(config.scopedAllowances.map((entry) => entry.value));
-    const isAllowed = (entry, { value, context }) => allowances.has([entry.path, ruleId, value, context].join('\0'))
-      || (entry.path === CONFIG_PATH && reviewedValues.has(value));
+    const isAllowed = allowanceCheck(config, ruleId);
     const findings = [];
-    const refusedLines = (lines, entry, code) => lines.flatMap((text, index) => (viewsOf(text)
-      .some((view) => occurrencesIn(view, { code, listedHosts }).some((occurrence) => !isAllowed(entry, occurrence))) ? [index + 1] : []));
+    const refusedLines = (lines, entry, code, lineOf = (index) => index + 1) => lines.flatMap((text, index) => (viewsOf(text)
+      .some((view) => occurrencesIn(view, { code, listedHosts }).some((occurrence) => !isAllowed(entry, occurrence, lineOf(index)))) ? [index + 1] : []));
     const add = (finding) => {
       findings.push({ rule: ruleId, ...finding });
       if (findings.length > limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${limits.maxReportEntries} findings`);
@@ -134,7 +144,7 @@ function createAddressRule(ruleId, occurrencesIn) {
       const extension = path.posix.extname(entry.path).toLowerCase();
       const code = CODE_EXTENSIONS.includes(extension);
       const pathName = config.textExtensions.includes(extension) ? entry.path.slice(0, -extension.length) : entry.path;
-      if (pathName.split('/').some((segment) => refusedLines([segment], entry, false).length > 0)) add({ kind: 'path', entry });
+      if (pathName.split('/').some((segment) => refusedLines([segment], entry, false, () => null).length > 0)) add({ kind: 'path', entry });
       const text = textOf(entry);
       if (text !== null) for (const line of refusedLines(text.split(LINE_BREAK), entry, code)) add({ kind: 'content', entry, line });
     }
@@ -151,3 +161,112 @@ export const scanHosts = createAddressRule(HOST_RULE_ID, unlistedHostsIn);
 
 /** R-ACCOUNT: refuses an email outside reserved domains in every path and text blob; the SSH form of a listed host passes. */
 export const scanAccounts = createAddressRule(ACCOUNT_RULE_ID, accountsIn);
+
+/** How many characters on each side of an address belong to the context of a disposition (fewer at the edge of a line). */
+const DISPOSITION_CONTEXT_WIDTH = 3;
+/** Stands for the address in a disposition's context: `O("<ip>","` is an address between `O("` and `","`. */
+const ADDRESS_MARKER = '<ip>';
+const IPV6_GROUP_COUNT = 8;
+const HEX_GROUP = /^[0-9a-f]{1,4}$/i;
+const IPV4_DOCUMENTATION_PREFIXES = ['192.0.2.', '198.51.100.', '203.0.113.'];
+/** Four dotted numbers, not inside a longer dotted number and not after a letter or digit (`v1.2.3.4`); an underscore, or a dot after a name, bounds one on the left, and an underscore or a letter on the right. */
+const IPV4_LITERAL = /(?<![A-Za-z\d])(?<!\d\.)\d{1,3}(?:\.\d{1,3}){3}(?!\d|\.\d)/g;
+/**
+ * Up to eight groups of hex digits between colons, the last perhaps a dotted IPv4 tail (the colon units are counted to eight so `::` may
+ * stand for one group at either end, after seven written groups); a colon before a letter, digit or colon does not end an address. An underscore bounds it on the left.
+ */
+const IPV6_LITERAL = /(?<![A-Za-z\d:.])(?:[0-9a-f]{0,4}:){2,8}(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-f]{0,4})(?!\w|:[\w:]|\.\d)/gi;
+/**
+ * A `label:` (a name that starts with a letter or `_`) directly before a hex group and colon, or before `::` and a hex group, as in
+ * `ip:<IPv6 literal>` (the literal may start with `::`), and the `\n`, `\r` and `\t` escapes of a string. A bare `::` after a label is a scope (`std::vector`), not blanked.
+ */
+const LABEL_COLON_OR_ESCAPE = /(?<![\w.:-])([A-Za-z_][\w.-]*):(?=[0-9a-f]{1,4}:|::[0-9a-f]{1,4}\b)|\\[nrt]/gi;
+
+/** The four octets of a dotted IPv4 literal, or null when one is above 255. */
+function parseIpv4(literal) {
+  const octets = literal.split('.').map(Number);
+  return octets.every((octet) => octet <= 255) ? octets : null;
+}
+
+/** The eight 16-bit groups of an IPv6 literal (`::` expanded, a dotted tail read as two groups), or null when it is not one. */
+function parseIpv6(literal) {
+  const halves = literal.split('::');
+  if (halves.length > 2) return null;
+  const [head, tail = []] = halves.map((half) => (half === '' ? [] : half.split(':')));
+  const trailing = halves.length === 2 ? tail : head;
+  if (trailing.at(-1)?.includes('.')) {
+    const octets = parseIpv4(trailing.pop());
+    if (octets === null) return null;
+    trailing.push(((octets[0] << 8) | octets[1]).toString(16), ((octets[2] << 8) | octets[3]).toString(16));
+  }
+  const gap = IPV6_GROUP_COUNT - head.length - tail.length;
+  if (![...head, ...tail].every((group) => HEX_GROUP.test(group)) || (halves.length === 2 ? gap < 1 : gap !== 0)) return null;
+  return [...head, ...Array(halves.length === 2 ? gap : 0).fill('0'), ...tail].map((group) => parseInt(group, 16));
+}
+
+/** Loopback (`127.` as written), the unspecified address and the documentation ranges of RFC 5737. */
+const isPermittedIpv4 = (literal) => literal.startsWith('127.') || literal === '0.0.0.0' || IPV4_DOCUMENTATION_PREFIXES.some((prefix) => literal.startsWith(prefix));
+
+/** Loopback and unspecified as written (`::1`, `::`: the expanded and mapped forms are not these classes) and the documentation range `2001:db8::/32`. */
+const isPermittedIpv6 = (literal, groups) => literal === '::1' || literal === '::' || (groups[0] === 0x2001 && groups[1] === 0xdb8);
+
+/** A literal that ends in a single colon (`::1:` in prose) without that colon. */
+const withoutTrailingColon = (literal) => (literal.endsWith(':') && !literal.endsWith('::') ? literal.slice(0, -1) : literal);
+
+/** The literal at `index` of length `length` as the text around it: `DISPOSITION_CONTEXT_WIDTH` characters, the marker, and as many after. */
+const contextAround = (line, index, length) => line.slice(Math.max(0, index - DISPOSITION_CONTEXT_WIDTH), index) + ADDRESS_MARKER
+  + line.slice(index + length, index + length + DISPOSITION_CONTEXT_WIDTH);
+
+/** The line with each label colon and each `\n`, `\r` or `\t` escape in it blanked out, same length, so an address after them is bounded by a space. */
+const withBoundariesBlanked = (line) => line.replace(LABEL_COLON_OR_ESCAPE, (match, label) => (label === undefined ? '  ' : `${label} `));
+
+/** Every IP literal in one view of a line, as { index, value, permitted }; the IPv4 tail of an IPv6 literal belongs to it and is not read again. */
+function addressesInView(line) {
+  const sixes = [];
+  for (const match of line.matchAll(IPV6_LITERAL)) {
+    const value = withoutTrailingColon(match[0]).toLowerCase();
+    const groups = parseIpv6(value);
+    if (groups !== null) sixes.push({ index: match.index, value, permitted: isPermittedIpv6(value, groups) });
+  }
+  let outsideSixes = '';
+  let end = 0;
+  for (const { index, value } of sixes) {
+    outsideSixes += line.slice(end, index) + ' '.repeat(value.length);
+    end = index + value.length;
+  }
+  outsideSixes += line.slice(end);
+  const fours = [...outsideSixes.matchAll(IPV4_LITERAL)].filter((match) => parseIpv4(match[0]) !== null)
+    .map((match) => ({ index: match.index, value: match[0], permitted: isPermittedIpv4(match[0]) }));
+  return [...sixes, ...fours];
+}
+
+/** Every IP literal in one line outside the permitted classes, as { value, context }, found in the line and in the line with its label colons and escapes blanked out. */
+function unpermittedAddressesIn(line) {
+  const blanked = withBoundariesBlanked(line);
+  const found = new Map([...addressesInView(line), ...(blanked === line ? [] : addressesInView(blanked))].filter(({ permitted }) => !permitted)
+    .map(({ index, value }) => [`${index}:${value}`, { value, context: contextAround(line, index, value.length) }]));
+  return [...found.values()];
+}
+
+/** The test of `ipDispositions`: an occurrence in file content passes only when its path, blob id, line, context and the value's SHA-256 all match one entry. */
+function dispositionCheck(config) {
+  const reviewed = new Set(config.ipDispositions.map((entry) => [entry.path, entry.blob, entry.line, entry.context, entry.sha256].join('\0')));
+  return (entry, { value, context }, line) => line !== null && reviewed.has([entry.path, entry.oid, line, context, createHash('sha256').update(value).digest('hex')].join('\0'));
+}
+
+/**
+ * Whether `config.ipDispositions` is well formed: a list of { path, blob (a full object id), line (a positive integer), context
+ * (text around the address holding `<ip>`), sha256 (of the address as written, lower case), reason }.
+ */
+export function hasValidIpDispositions(config) {
+  return Array.isArray(config.ipDispositions) && config.ipDispositions.every((entry) => entry !== null && typeof entry === 'object'
+    && isText(entry.path) && FULL_OBJECT_ID.test(entry.blob) && Number.isSafeInteger(entry.line) && entry.line > 0
+    && isText(entry.context) && entry.context.includes(ADDRESS_MARKER) && /^[0-9a-f]{64}$/.test(entry.sha256) && isText(entry.reason));
+}
+
+/**
+ * R-IP: refuses every IPv4 and IPv6 literal in every path and text blob except loopback (`127.0.0.0/8`, `::1`), unspecified
+ * (`0.0.0.0`, `::`) and documentation addresses; any other literal, a mapped or expanded form included, passes only through
+ * an exact `ipDispositions` entry for its own path, blob, line, context and value. Needs `config.ipDispositions`.
+ */
+export const scanIps = createAddressRule(IP_RULE_ID, unpermittedAddressesIn, dispositionCheck);
