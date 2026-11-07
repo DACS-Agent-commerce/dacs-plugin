@@ -154,6 +154,23 @@ export function createModuleScanner(context) {
         || (ts.isVariableDeclaration(p) && p.initializer === o && plainPattern(p.name));
     };
     const memberRef = n => { n = unparen(n); if (!n) return null; if (ts.isPropertyAccessExpression(n) && refNames.has(n.name.text)) return n.name.text; if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression) && refNames.has(n.argumentExpression.text)) return n.argumentExpression.text; return null; };
+    // A module-level binding of a readback member (including nested object/array patterns) can be
+    // exported, so until the module is settled it cannot vouch for itself, like a waived helper.
+    const bindsReadbackMember = (name, initializer) => ts.isIdentifier(name) ? !!memberRef(initializer)
+      : name.elements.some(e => {
+        if (ts.isOmittedExpression(e)) return false;
+        const key = e.propertyName ?? e.name;
+        return (ts.isObjectBindingPattern(name) && (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) && refNames.has(key.text)) || bindsReadbackMember(e.name);
+      });
+    result.readbackWaivers ||= ast.statements.some(s => ts.isVariableStatement(s) && s.declarationList.declarations.some(d => bindsReadbackMember(d.name, d.initializer)));
+    // Plain destructures of local namespaces can forward readback aliases too. Mark them before
+    // scanning dependencies: in a cycle, the namespace's waivers may not be available yet.
+    result.forwardsLocal ||= ast.statements.some(s => ts.isVariableStatement(s) && s.declarationList.declarations.some(d => {
+      const init = unparen(d.initializer);
+      if (!init || !ts.isIdentifier(init) || !plainPattern(d.name) || !d.name.elements.length) return false;
+      const b = resolveBinding(init);
+      return !!b && (ts.isNamespaceImport(b.parent) || ts.isImportEqualsDeclaration(b.parent)) && fromLocalImport(init);
+    }));
     const isDeclName = id => { const p = id.parent; return !!p && (((ts.isVariableDeclaration(p) || ts.isBindingElement(p) || ts.isParameter(p) || ts.isFunctionDeclaration(p) || ts.isFunctionExpression(p) || ts.isClassDeclaration(p) || ts.isImportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p) || ts.isImportEqualsDeclaration(p) || ts.isExportSpecifier(p) || ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isPropertySignature(p) || ts.isMethodSignature(p) || ts.isPropertyAccessExpression(p)) && p.name === id) || (ts.isBindingElement(p) && p.propertyName === id) || (ts.isExportSpecifier(p) && p.propertyName === id)); };
     const refOf = n => {
       let name = null;
@@ -232,9 +249,11 @@ export function createModuleScanner(context) {
           }
         }
       }
-      // Local re-exports of a readback binding (export {show as view}, export default show).
+      // Local re-exports of a readback binding (export {show as view}, export default show, export const read = x.m).
+      // A type-only export carries no runtime value, so it neither forwards a readback binding nor lets a namespace escape.
       for (const s of ast.statements) {
-        if (ts.isExportDeclaration(s) && !s.moduleSpecifier && s.exportClause && ts.isNamedExports(s.exportClause)) for (const e of s.exportClause.elements) { const b = resolveBinding(e.propertyName ?? e.name); if (b && aliasOf.has(b)) result.waivedReadback.set(e.name.text, aliasOf.get(b)); if (b && namespaceOf.has(b)) flag('unverifiable', 'namespace-escape', file, lineOf(e), b.text); }
+        if (ts.isVariableStatement(s) && exported(s)) for (const d of s.declarationList.declarations) for (const id of bindingNames(d.name)) if (aliasOf.has(id)) result.waivedReadback.set(id.text, aliasOf.get(id));
+        if (ts.isExportDeclaration(s) && !s.isTypeOnly && !s.moduleSpecifier && s.exportClause && ts.isNamedExports(s.exportClause)) for (const e of s.exportClause.elements.filter(x => !x.isTypeOnly)) { const b = resolveBinding(e.propertyName ?? e.name); if (b && aliasOf.has(b)) result.waivedReadback.set(e.name.text, aliasOf.get(b)); if (b && namespaceOf.has(b)) flag('unverifiable', 'namespace-escape', file, lineOf(e), b.text); }
         if (ts.isExportAssignment(s) && !s.isExportEquals && ts.isIdentifier(s.expression)) { const b = resolveBinding(s.expression); if (b && aliasOf.has(b)) result.waivedReadback.set('default', aliasOf.get(b)); }
       }
     }
