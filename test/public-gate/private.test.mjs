@@ -96,7 +96,7 @@ test('a list that separates entries with a lone carriage return keeps every entr
 test('an entry written with backslash escapes in a text blob is found on the blob\'s own line, and a near miss is not', () => {
   const parts = ['maple', 'harbor', 'test'];
   const repo = createRepo([
-    { path: 'src/guard.test.mjs', content: `// guard\nconst long = 'a' + \\\n  'b';\nassert.doesNotMatch(doc, /${parts.join('\\.')}/, 'names no host');\n` },
+    { path: 'src/guard.test.txt', content: `// guard\nconst long = 'a' + \\\n  'b';\nassert.doesNotMatch(doc, /${parts.join('\\.')}/, 'names no host');\n` },
     { path: 'src/near.mjs', content: `const pattern = /${['maple', 'harbour', 'test'].join('\\.')}/;\n` },
   ]);
   const result = runGate(completeArgs(repo, writeList([parts.join('.')])));

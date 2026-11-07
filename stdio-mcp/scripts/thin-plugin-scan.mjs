@@ -25,12 +25,44 @@ export function createModuleScanner(context) {
   // Parentheses and type-only wrappers (as, !, <T>, satisfies) never change the value.
   const wrapper = x => ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || ts.isNonNullExpression(x) || ts.isTypeAssertionExpression(x) || ts.isSatisfiesExpression(x);
   const unparen = x => { while (x && wrapper(x)) x = x.expression; return x; };
+  // The outermost wrapper around x, the node whose parent actually uses the value.
+  const outerOf = x => { while (x.parent && wrapper(x.parent)) x = x.parent; return x; };
+  const computedKey = e => !ts.isStringLiteralLike(e.argumentExpression) && !ts.isNumericLiteral(e.argumentExpression);
+  const isAssignment = p => ts.isBinaryExpression(p) && p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && p.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+  // Operators whose result can be one of their own operands; any other binary operator makes a new value.
+  const operandPassingOperators = [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.CommaToken];
+  const memberName = p => ts.isPropertyAccessExpression(p) ? p.name.text : ts.isStringLiteralLike(p.argumentExpression) ? p.argumentExpression.text : '';
+  // ||=, &&= and ??= give back the old value when they keep it, so their result carries the left read on.
+  const logicalAssignmentOperators = [ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken];
+  const resultDiscarded = a => ts.isExpressionStatement(outerOf(a).parent);
+  // True when the value of the expression o is only inspected, assigned over or discarded, so it cannot
+  // be handed on as a callable. A member read is data unless it picks call/apply/bind off the value, or
+  // unless anyMemberRead is set: the global object's members include eval, Function and process, and
+  // every member of those leads on (eval.constructor is Function). A template substitution is text
+  // unless the template is tagged, which hands the value to the tag.
+  const usedAsData = (o, anyMemberRead = false) => {
+    const p = o.parent;
+    if ((ts.isPropertyAccessExpression(p) || ts.isElementAccessExpression(p)) && p.expression === o) return !anyMemberRead && !['call', 'apply', 'bind'].includes(memberName(p));
+    if (ts.isBinaryExpression(p)) {
+      if (!isAssignment(p)) return !operandPassingOperators.includes(p.operatorToken.kind);
+      return p.left === o && (!logicalAssignmentOperators.includes(p.operatorToken.kind) || resultDiscarded(p));
+    }
+    if (ts.isConditionalExpression(p)) return p.condition === o;
+    if (ts.isTemplateSpan(p)) return !ts.isTaggedTemplateExpression(p.parent.parent);
+    return ts.isElementAccessExpression(p) || ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p) || ts.isTypeOfExpression(p) || ts.isVoidExpression(p)
+      || ts.isDeleteExpression(p) || ts.isIfStatement(p) || ts.isWhileStatement(p) || ts.isDoStatement(p);
+  };
+  const calledDirectly = o => ts.isCallExpression(o.parent) && o.parent.expression === o;
+  // x[k] with a key the scanner cannot read, whose value can be a function: bound, passed, returned,
+  // listed, constructed or combined. A direct call x[k]() is reported by the call rule instead.
+  const computedCallableRead = n => ts.isElementAccessExpression(n) && computedKey(n) && !usedAsData(outerOf(n)) && !calledDirectly(outerOf(n));
   const exportTarget = x => { x = unparen(x); return (ts.isIdentifier(x) && ['exports', 'globalThis', 'global', 'self', 'window'].includes(x.text)) || (ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) && x.expression.text === 'module' && x.name.text === 'exports'); };
   const globalObject = x => { x = unparen(x); return ts.isIdentifier(x) && ['globalThis', 'global', 'self', 'window'].includes(x.text); };
   // eval/Function count wherever they are read as a value (bare, aliased, comma, or as a
-  // member of the global object), not only when called by their bare name.
+  // member of the global object), not only when called by their bare name. A key the scanner cannot
+  // read (globalThis[key]) can name them too, so any read of the global object through one counts.
   const reflectiveRead = n => {
-    if (ts.isElementAccessExpression(n)) return globalObject(n.expression) && ts.isStringLiteralLike(n.argumentExpression) && ['eval', 'Function'].includes(n.argumentExpression.text);
+    if (ts.isElementAccessExpression(n)) return globalObject(n.expression) && (ts.isStringLiteralLike(n.argumentExpression) ? ['eval', 'Function'].includes(n.argumentExpression.text) : computedKey(n) && !usedAsData(outerOf(n), true));
     if (!ts.isIdentifier(n) || !['eval', 'Function'].includes(n.text)) return false;
     const p = n.parent;
     if (ts.isPropertyAccessExpression(p) && p.name === n) return globalObject(p.expression);
@@ -117,8 +149,7 @@ export function createModuleScanner(context) {
     // (const {x, y: z} = h); any other use (export {h}, copying or passing it) is unverifiable.
     const plainPattern = p => ts.isObjectBindingPattern(p) && p.elements.every(e => !e.dotDotDotToken && ts.isIdentifier(e.name) && (!e.propertyName || ts.isIdentifier(e.propertyName) || ts.isStringLiteralLike(e.propertyName)));
     const namespaceFollowed = n => {
-      let o = n; while (o.parent && wrapper(o.parent)) o = o.parent;
-      const p = o.parent;
+      const o = outerOf(n), p = o.parent;
       return (ts.isPropertyAccessExpression(p) && p.expression === o) || (ts.isElementAccessExpression(p) && p.expression === o && ts.isStringLiteralLike(p.argumentExpression))
         || (ts.isVariableDeclaration(p) && p.initializer === o && plainPattern(p.name));
     };
@@ -256,11 +287,12 @@ export function createModuleScanner(context) {
         if (['require.resolve', 'import.meta.resolve'].includes(n.expression.getText(ast))) flag('unverifiable', 'reflective-loader', file, lineOf(n));
         // A call through a non-literal key (x[k](), x['a' + 'b']()) can reach a readback member unseen.
         const callee = unparen(n.expression);
-        if (refNames.size && ts.isElementAccessExpression(callee) && !ts.isStringLiteralLike(callee.argumentExpression) && !ts.isNumericLiteral(callee.argumentExpression)) flag('unverifiable', 'computed-member-call', file, lineOf(n));
+        if (refNames.size && ts.isElementAccessExpression(callee) && computedKey(callee)) flag('unverifiable', 'computed-member-call', file, lineOf(n));
         if ((ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : '') === 'getBuiltinModule') flag('unverifiable', 'reflective-loader', file, lineOf(n));
         if (ts.isCallExpression(callee) && requireFactory(callee.expression)) flag('unverifiable', 'aliased-require', file, lineOf(n));
       }
       if (reflectiveRead(n)) flag('unverifiable', 'reflective-loader', file, lineOf(n));
+      else if (refNames.size && computedCallableRead(n)) flag('unverifiable', 'computed-member-read', file, lineOf(n));
       if (ts.isIdentifier(n) && n.text === 'require' && !(ts.isCallExpression(n.parent) && n.parent.expression === n) && !(ts.isPropertyAccessExpression(n.parent) && (n.parent.name === n || (n.parent.expression === n && !['call', 'apply', 'bind'].includes(n.parent.name.text)))) && !(ts.isVariableDeclaration(n.parent) && n.parent.name === n) && !ts.isImportEqualsDeclaration(n.parent)) flag('unverifiable', 'aliased-require', file, lineOf(n));
       if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left)) { if (ts.isStringLiteralLike(n.left.argumentExpression)) primitive(n, n.left.argumentExpression.text); else if (computedDefinitionRisk(n) || functionValued(n.right)) flag('unverifiable', 'computed-export', file, lineOf(n)); }
       if (ts.isComputedPropertyName(n) && !ts.isStringLiteralLike(n.expression)) flag('unverifiable', 'computed-member', file, lineOf(n));

@@ -1,9 +1,15 @@
+import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { GITLEAKS_PIN } from '../../scripts/ci/install-gitleaks.mjs';
+
+const BASE62 = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+/** A GitHub-token-shaped value built at run time, so no key-shaped literal is committed. */
+export const plantedKey = () => `${['ghp', '_'].join('')}${Array.from(randomBytes(36), (byte) => BASE62[byte % BASE62.length]).join('')}`;
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
@@ -66,6 +72,14 @@ export function writeStubGitleaks(settings = {}) {
   chmodSync(binary, 0o755);
   const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []);
   return { binary, sha256: sha256(readFileSync(binary)), calls };
+}
+
+/** Skips test `t` and returns true when `scanner` (from findPinnedGitleaks) is null; in CI a missing binary fails instead, so it cannot pass as a skip. */
+export function skipWithoutScanner(t, scanner) {
+  if (scanner) return false;
+  assert.ok(!process.env.CI, 'CI must provide the pinned gitleaks (GITLEAKS_BIN or PATH)');
+  t.skip('the pinned gitleaks is not installed here');
+  return true;
 }
 
 /** The real gitleaks named by GITLEAKS_BIN, or on PATH, when it reports the pinned version; else null. Returns { binary, sha256 }. */

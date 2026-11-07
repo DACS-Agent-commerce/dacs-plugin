@@ -9,7 +9,9 @@ globalThis.window ??= globalThis;
 globalThis.document ??= { baseURI: 'http://127.0.0.1/portal/assets/embedded-wallet/', currentScript: null };
 globalThis.location ??= new URL('http://127.0.0.1/portal/assets/embedded-wallet/index.html');
 const { Demos } = await import('../../public/portal/embedded-wallet/demos-runtime.mjs');
-for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete globalThis[k]; else globalThis[k] = v; }
+if (saved.window === undefined) delete globalThis.window; else globalThis.window = saved.window;
+if (saved.document === undefined) delete globalThis.document; else globalThis.document = saved.document;
+if (saved.location === undefined) delete globalThis.location; else globalThis.location = saved.location;
 
 const PKCS8_ED25519 = Buffer.from('302e020100300506032b657004220420', 'hex');
 // A fresh SDK key per instance, with a Node signer for the same key, so tests
