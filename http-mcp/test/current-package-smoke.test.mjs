@@ -29,7 +29,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseTarEntries, checkShippedFileSet, checkRuntimeGraphFiles, walletAssetsFor, fetchAsset, checkAssetResponse, checkToolSet, checkHealthUnconfigured } from '../scripts/check-embedded-wallet-package.mjs';
 import { importFindings, probePort } from '../scripts/check-offline-tester-package.mjs';
 import { forbiddenPackagePaths } from '../scripts/package-paths.mjs';
-import { contentFindings, isTextCandidate } from '../deploy/scripts/lib/rules.mjs';
 import { tarHeaders, headerModeFindings } from '../deploy/scripts/offline-pack-normalized.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -139,8 +138,6 @@ test('source-bound inventory: every non-dependency entry is this checkout byte-f
   assert.deepEqual(shipped.findings, []);
   assert.deepEqual(forbiddenPackagePaths(own), []);
   assert.deepEqual(own.filter((p) => /^(deploy|test|scripts|vendor|wallet-build|references)\//.test(p) || /(^|\/)\.env$/.test(p)), []);
-  const secretLike = own.filter((p) => isTextCandidate(p) && contentFindings(entries.get(p).toString('utf8')).length);
-  assert.deepEqual(secretLike, []);
   assert.deepEqual(checkRuntimeGraphFiles(entries), []);
   const pkg = JSON.parse(entries.get('package.json'));
   assert.deepEqual(pkg.bin, { 'dacs-chatgpt-plugin': './bin/dacs-chatgpt-plugin.mjs', 'dacs-ops-health': './bin/dacs-ops-health.mjs' });

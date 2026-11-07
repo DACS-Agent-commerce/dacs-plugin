@@ -243,7 +243,7 @@ async function main(argv) {
     for (const [name, key] of Object.entries(CONVERTED)) if (!legacyKeys.has(key)) throw new Error(`baseline ${label} has no ${key} (${name})`);
 
     if (args.writeFixture) {
-      const { switchContractEntry } = await import(pathToFileURL(join(PLUGIN, 'deploy/scripts/lib/rules.mjs')).href);
+      const { switchContractEntry } = await import(pathToFileURL(join(PLUGIN, 'src/switch-files.mjs')).href);
       const variables = { ...baseContract.variables, ...Object.fromEntries((legacyModule.SWITCHES ?? []).map((s) => [s.env, switchContractEntry(s)])) };
       const slice = switchSlice(legacy, variables, CONVERTED);
       writeFileSync(FIXTURE, `${JSON.stringify({ generatedFrom: `${args.ref}: src/config.mjs and deploy/env-contract.json`, by: 'node scripts/config-equivalence-migration.mjs --write-fixture', ...slice }, null, 2)}\n`);
