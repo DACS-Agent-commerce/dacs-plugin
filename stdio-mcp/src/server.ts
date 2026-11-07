@@ -170,7 +170,7 @@ export function createServer(deps: Deps): McpServer {
         requireDecision(d);
         if (d.decision !== 'allow') throw new Error('alignment approval required');
         const result = await original(form);
-        conduct.outcome(action, d.receipt, 'signed');
+        conduct.outcome(action, d.receipt, result.error ? 'failed' : 'signed');
         return result;
       },
       onAck: spec.onAck ? () => {requireDecision(conduct.decide(action)); spec.onAck?.();} : undefined});
