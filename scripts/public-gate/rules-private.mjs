@@ -171,8 +171,10 @@ export function createPrivateMatcher(entries, checkpoint) {
 
 /**
  * R-PRIVATE: finds list entries in every path and in every blob that was read, binary blobs included (decoded as UTF-8,
- * U+FFFD for invalid bytes). Returns findings { rule, kind: 'path' | 'content', entry, line? }, `entry` being the object
- * reader's entry. Throws GateInputError(limit:maxReportEntries) past that many findings.
+ * U+FFFD for invalid bytes). A text blob (valid UTF-8, no NUL byte) is also read with every backslash removed, so an entry
+ * written with regex or string escapes is found; the removal keeps every line break, so the lines are the blob's own.
+ * Returns findings { rule, kind: 'path' | 'content', entry, line? }, `entry` being the object reader's entry. Throws
+ * GateInputError(limit:maxReportEntries) past that many findings.
  */
 export function scanPrivate({ entries, matcher, limits }) {
   const findings = [];
@@ -182,8 +184,12 @@ export function scanPrivate({ entries, matcher, limits }) {
   };
   for (const entry of entries.filter((candidate) => candidate.path !== null)) {
     if (matcher.hasEntry(entry.path)) add({ kind: 'path', entry });
+    if (!entry.bytes) continue;
     const budget = limits.maxReportEntries + 1 - findings.length;
-    for (const line of entry.bytes ? matcher.entryLines(entry.bytes.toString('utf8'), budget) : []) add({ kind: 'content', entry, line });
+    const text = entry.bytes.toString('utf8');
+    const views = !entry.bytes.includes(0) && decodeUtf8Strict(entry.bytes) !== null ? [text, text.replaceAll('\\', '')] : [text];
+    const lines = new Set(views.flatMap((view) => matcher.entryLines(view, budget)));
+    for (const line of [...lines].sort((first, second) => first - second).slice(0, budget)) add({ kind: 'content', entry, line });
   }
   return findings;
 }
