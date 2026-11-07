@@ -5,12 +5,13 @@ import { PRIVATE_RULE_ID } from './rules-private.mjs';
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
 export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr' });
 
-const SHA256_HEX = /^[0-9a-f]{64}$/;
+/** Schema values shared by every report: a SHA-256 digest, a rule status and an unscannable entry's cause. */
+export const SHA256_HEX = /^[0-9a-f]{64}$/;
+export const STATUSES = ['passed', 'findings', 'not-run', 'unscannable'];
+export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition'];
 const SCOPES = ['generic', 'complete'];
 const RULE_IDS = [PRIVATE_RULE_ID];
-const STATUSES = ['passed', 'findings', 'not-run', 'unscannable'];
 const KINDS = ['path', 'content'];
-const CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition'];
 
 /** The fixed text printed after each cause; nothing else ever reaches stderr. A `limit:<name>` cause has one shared text. */
 const DIAGNOSTICS = {
@@ -24,17 +25,22 @@ const DIAGNOSTICS = {
   'not-a-commit': '--commit names an object that is not a commit', 'empty-tree': 'the commit has no files',
   'malformed-listing': 'git ls-tree returned a record this gate cannot parse', 'malformed-batch': 'git cat-file returned an unexpected record',
   'missing-object': 'the repository is missing a blob its tree names', 'output-limit': 'git produced more output than allowed',
+  'bad-ref': 'a ref is empty or starts with a dash', 'unknown-ref': 'the repository has no commit for one of the refs',
+  'unexpected-root': 'the history does not have the expected single root commit',
+  'pr-text-unreadable': 'the --pr-text file cannot be read', 'pr-text-malformed': 'the --pr-text file is not a JSON array of objects',
   'output-exists': 'the --out file already exists', 'output-unwritable': 'the --out file cannot be written',
   'evidence-exists': 'the --private-evidence file already exists', 'evidence-unwritable': 'the --private-evidence file cannot be written',
   'internal-error': 'the gate failed unexpectedly', limit: 'a configured limit was reached',
 };
 
-function checked(value, allowed) {
+/** Returns `value` when it is one of `allowed` (an array) or a string matching it (a RegExp); else throws Error. */
+export function checked(value, allowed) {
   if (Array.isArray(allowed) ? allowed.includes(value) : typeof value === 'string' && allowed.test(value)) return value;
   throw new Error('a report value is outside the report schema');
 }
 
-function counted(value) {
+/** Returns `value` when it is a positive safe integer; else throws Error. */
+export function counted(value) {
   if (Number.isSafeInteger(value) && value > 0) return value;
   throw new Error('a report number is outside the report schema');
 }
@@ -79,7 +85,7 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
       ...(expectedRoot === undefined ? {} : { expectedRoot: checked(expectedRoot, FULL_OBJECT_ID) }),
     },
     rules: rules.map(({ id, status }) => ({ id: checked(id, RULE_IDS), status: checked(status, STATUSES) })),
-    unscannable: unscannable.map(({ entry, cause }) => ({ location: locate(entry), cause: checked(cause, CAUSES) })),
+    unscannable: unscannable.map(({ entry, cause }) => ({ location: locate(entry), cause: checked(cause, UNSCANNABLE_CAUSES) })),
     findings: findings.map(({ rule, kind, entry, line }) => ({
       rule: checked(rule, RULE_IDS), kind: checked(kind, KINDS), location: locate(entry), ...(line === undefined ? {} : { line: counted(line) }),
     })),

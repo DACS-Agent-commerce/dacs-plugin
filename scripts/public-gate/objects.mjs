@@ -126,6 +126,51 @@ async function readBlobs(base, entries) {
   return parseBatch(await git({ ...base, args: ['cat-file', '--batch'], input, maxBytes: distinctBytes + wanted.size * BATCH_RECORD_SLACK_BYTES }), wanted);
 }
 
+function parseCommits(output, rows, limits) {
+  let offset = 0;
+  return rows.map(([sha, ...parents]) => {
+    const lineEnd = output.indexOf(10, offset);
+    const header = /^([0-9a-f]{40,64}) commit (\d+)$/.exec(lineEnd < 0 ? '' : output.toString('latin1', offset, lineEnd));
+    if (!header || header[1] !== sha) throw new GateInputError('malformed-batch', 'git cat-file returned an unexpected record');
+    if (Number(header[2]) > limits.maxBlobBytes) throw new GateInputError('limit:maxBlobBytes', `a commit object is over ${limits.maxBlobBytes} bytes`);
+    const end = lineEnd + 1 + Number(header[2]);
+    if (output[end] !== 10) throw new GateInputError('malformed-batch', 'git cat-file returned an unexpected record');
+    offset = end + 1;
+    return { sha, parents, raw: output.subarray(lineEnd + 1, end) };
+  });
+}
+
+/**
+ * Reads every commit reachable from `refs` (ref names or full object ids), parents before children. Returns
+ * { heads, commits }: `heads` are the object ids the refs name, `commits` are { sha, parents, raw } with `raw` the commit
+ * object (headers, blank line, message). Throws GateInputError for an unusable ref, a limit, a timeout, an interrupt or a
+ * malformed git reply.
+ */
+export async function readHistory({ repo, refs, limits, signal = new AbortController().signal }) {
+  const base = { repo, limits, signal, maxBytes: SMALL_REPLY_BYTES };
+  const heads = [];
+  for (const ref of refs) {
+    if (ref === '' || ref.startsWith('-')) throw new GateInputError('bad-ref', 'a ref must not be empty or start with a dash');
+    const options = { ...base, args: ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`] };
+    const found = await runGit(options);
+    if (found.status === 1) throw new GateInputError('unknown-ref', 'the repository has no commit for one of the refs');
+    if (found.status !== 0) throw refused(options, found);
+    heads.push(found.stdout.toString().trim());
+  }
+  const listing = await git({ ...base, maxBytes: limits.maxListingBytes, args: ['rev-list', '--topo-order', '--reverse', '--parents', ...new Set(heads), '--'] });
+  const rows = listing.toString('latin1').split('\n').filter(Boolean).map((line) => line.split(' '));
+  if (rows.length > limits.maxHistoryCommits) throw new GateInputError('limit:maxHistoryCommits', `the history holds more than ${limits.maxHistoryCommits} commits`);
+  const input = `${rows.map(([sha]) => sha).join('\n')}\n`;
+  const output = await git({ ...base, maxBytes: limits.maxTotalBlobBytes, args: ['cat-file', '--batch'], input });
+  return { heads: [...new Set(heads)].sort(), commits: parseCommits(output, rows, limits) };
+}
+
+/** Throws GateInputError('unexpected-root') unless `commits` have exactly one root commit and it is `expectedRoot`. */
+export function requireExpectedRoot(commits, expectedRoot) {
+  const roots = commits.filter((commit) => commit.parents.length === 0).map((commit) => commit.sha);
+  if (roots.length !== 1 || roots[0] !== expectedRoot) throw new GateInputError('unexpected-root', 'the history does not have the expected single root commit');
+}
+
 /**
  * Reads one commit from Git objects only. Returns { commit, tree, entries }; an entry is { position, pathBytes, path, mode,
  * kind, oid, size, problem, bytes } where `path` is null for a name that is not valid UTF-8, `problem` names why the blob
