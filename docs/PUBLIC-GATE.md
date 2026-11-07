@@ -1,9 +1,10 @@
 # Public-content gate
 
 Reads one commit from Git objects (never the working tree or index, never following a symlink) and reports, under a
-declared scope, what the rules it runs found in it. The gate currently runs only one rule, `R-PRIVATE` (the private
-list). Exit 0 in complete scope means that rule found nothing and every file could be read; it does not show that the
-content may become public. Generic scope runs no rule, so its exit 0 is never a complete pass.
+declared scope, what the rules it runs found in it. The gate currently runs three rules: `R-ACCOUNT` and `R-HOST` (the
+address rules) and `R-PRIVATE` (the private list). Exit 0 in complete scope means no rule found anything and every file
+could be read; it does not show that the content may become public. Generic scope runs the address rules and reports
+`R-PRIVATE` as `not-run`, so its exit 0 is never a complete pass.
 
 ```
 node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope generic [--out <file>]
@@ -27,6 +28,27 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   from a precomposed letter) and no one-to-many folding (`ß` is not `ss`). CRLF, a lone CR and a lone LF each end a line.
   A text blob is also read with its backslashes removed (line breaks kept, so the line is the blob's own), so an entry
   written with regex or string escapes is found.
+- **Hosts (`R-HOST`, both scopes).** Every path and every text blob is read line by line, as written and with its
+  escaped delimiters `\/`, `\@` and `\:` unescaped (`https:\/\/host\/x` is read as the URL it decodes to); a backslash ends a URL host.
+  An escaped dot (`\.`) is not unescaped, because it is regex syntax in the code's own host patterns. A dotted name is a host when it is the
+  host of a URL (any top-level name), a `host:port` pair, a quoted name in code (`.cjs .css .js .mjs .mts .sh .ts .tsx`), or a
+  bare name in any other text and in path names; the last three count only under a top-level name listed in
+  `HOST_TOP_LEVEL_NAMES`, so file names and property chains are not hosts. A host passes only on an exact, lower-case match with an
+  `allowedHosts` entry (`value`, `reason`): a subdomain, or a listed name used as a label prefix of another domain, is another
+  host and needs its own entry. Reserved names pass with any subdomain: the top-level names `invalid`, `test`, `example` and
+  `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label), a template placeholder
+  and an IP literal are not read here; the private list covers labels, and IP literals belong to the IP rule.
+- **Accounts (`R-ACCOUNT`, both scopes).** An email address passes when its domain is a reserved name or it is the SSH form
+  (`git@<host>:` or `git@<host>/`) of a host in `allowedHosts`. A domain of one label (`user@<label>`) is an email too, unless a `/`
+  precedes the user (`actions/checkout@v4`) or the label starts with a digit (`name@1.2.3`); a reference that ends in a word
+  after `@` (a package tag or a plugin marketplace) therefore needs a `scopedAllowances` entry. In commit metadata (`refusedMetadataEmails`) an email also passes when it is
+  part of an exact `publicIdentities` entry (`Name <email>`); that does not approve the identity itself, which the
+  identity rule of history mode still checks. The configuration starts with `publicIdentities` holding the publication identity.
+- **Allow-list entries.** A lockfile or generated bundle gets no exemption: a host or email there passes only through a
+  `scopedAllowances` entry (`path`, `rule`, `value`, `context`, `reason`) for that exact path, rule, lower-case value and context
+  (`url`, `host-port`, `quoted`, `bare` or `email`). `public-gate.config.json` may also hold the values its own entries name. A
+  malformed section makes the run exit 2 with cause `invalid-config`. Findings carry the rule, kind (`path` or `content`),
+  location and line, never the host or email.
 - **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
   run exits 2 (cause `unexpected-root`) without a report.
 - **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`; complete
