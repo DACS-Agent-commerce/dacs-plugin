@@ -109,6 +109,63 @@ test('K0-B5 a fence grant that arrives after tp1_fence_timeout is released at on
   assert.ok(await tab.isFree(), 'the late grant did not keep the lock');
 });
 
+// A clock whose time moves while its timers are delivered late: here they never fire, as when a busy page runs them
+// after the lock manager has already granted.
+function createLateTimerClock() {
+  let nowMs = 0;
+  return { now: () => nowMs, setTimer: () => () => {}, advance: (ms) => { nowMs += ms; } };
+}
+
+test('a grant that arrives once the wait has reached the timeout, before its timer was delivered, refuses tp1_fence_timeout with its cause, runs nothing and frees the fence', async () => {
+  const tab = createTab({ clock: createLateTimerClock() });
+  const holder = tab.hold();
+  await settle();
+  let sections = 0;
+  const overdue = settled(tab.fence.run('op-overdue', async () => { sections += 1; }));
+  await settle();
+  tab.clock.advance(FENCE_TIMEOUT_MS + 1);
+  holder.release();
+  const { error } = await overdue;
+  assertRefusal(error, 'tp1_fence_timeout');
+  assert.ok(error.cause, 'the abort reason is kept as the cause');
+  await Promise.all(tab.background);
+  assert.equal(sections, 0, 'the overdue grant ran no work');
+  assert.ok(await tab.isFree(), 'the overdue grant did not keep the lock');
+});
+
+test('a grant at exactly 10,000 ms of waiting is refused, and a grant one millisecond earlier runs', async () => {
+  for (const [waitedMs, outcome] of [[FENCE_TIMEOUT_MS - 1, 'ran'], [FENCE_TIMEOUT_MS, undefined]]) {
+    const tab = createTab({ clock: createLateTimerClock() });
+    const holder = tab.hold();
+    await settle();
+    let ran;
+    const waiting = settled(tab.fence.run('op-boundary', async () => { ran = 'ran'; }));
+    await settle();
+    tab.clock.advance(waitedMs);
+    holder.release();
+    const { error } = await waiting;
+    if (outcome === 'ran') assert.equal(error, undefined, `granted after ${waitedMs} ms`);
+    else assertRefusal(error, 'tp1_fence_timeout');
+    assert.equal(ran, outcome, `after ${waitedMs} ms`);
+  }
+});
+
+test('a connection replacement granted after the timeout is refused tp1_fence_timeout, replaces nothing and does not bump the generation', async () => {
+  const tab = createTab({ clock: createLateTimerClock() });
+  const holder = tab.hold();
+  await settle();
+  let replacements = 0;
+  const overdue = settled(tab.fence.replaceConnection(async () => { replacements += 1; }));
+  await settle();
+  tab.clock.advance(FENCE_TIMEOUT_MS);
+  holder.release();
+  assertRefusal((await overdue).error, 'tp1_fence_timeout');
+  await Promise.all(tab.background);
+  assert.equal(replacements, 0);
+  assert.equal(tab.fence.connectionGeneration, 0);
+  assert.ok(await tab.isFree());
+});
+
 test('a lock request that rejects refuses eb_fence_failed with that error as the cause and cancels the timeout', async () => {
   const tab = createTab();
   const failure = new Error('locks unavailable');

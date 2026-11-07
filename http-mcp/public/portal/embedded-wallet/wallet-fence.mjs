@@ -40,16 +40,20 @@ export const requireFunctions = (what, value, names) => {
   for (const name of names) if (typeof value?.[name] !== 'function') throw new TypeError(`${what}.${name} must be a function`);
 };
 
-// Resolves with the function that releases the lock. A grant after the timeout returns at once and grants nothing.
+// Resolves with the function that releases the lock. A grant after the timeout returns at once and grants nothing; a
+// timer that is delivered late does not extend the wait, because a grant is also checked against the clock itself.
 function requestLock(locks, name, clock, timeoutMs) {
   return new Promise((resolve, reject) => {
     const abort = new AbortController();
+    const startedAt = clock.now();
     let phase = 'waiting';
-    const cancelTimer = clock.setTimer(() => {
-      if (phase !== 'waiting') return;
+    const expire = () => {
       phase = 'timed-out';
       abort.abort(new Error(`fence not granted within ${timeoutMs} ms`));
       reject(refuse('tp1_fence_timeout', abort.signal.reason));
+    };
+    const cancelTimer = clock.setTimer(() => {
+      if (phase === 'waiting') expire();
     }, timeoutMs);
     const fail = (cause) => {
       if (phase !== 'waiting') return;
@@ -60,6 +64,11 @@ function requestLock(locks, name, clock, timeoutMs) {
     try {
       locks.request(name, { mode: 'exclusive', signal: abort.signal }, () => {
         if (phase !== 'waiting') return undefined;
+        if (clock.now() - startedAt >= timeoutMs) {
+          cancelTimer();
+          expire();
+          return undefined;
+        }
         phase = 'granted';
         cancelTimer();
         return new Promise((releaseLock) => resolve(releaseLock));
