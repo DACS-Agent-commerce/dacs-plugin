@@ -120,21 +120,24 @@ test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a l
     assert.ok(await world.fenceIsFree(), 'the late grant did not keep the lock');
   });
 
-  await t.test('K0-B6 a nested step of the same operation reuses the capability: one acquisition, no deadlock', async () => {
+  await t.test('K0-B6 a request carrying the live capability of its own operation is refused tp1_fence_not_owned; the owner is unaffected', async () => {
     const world = createWorld();
     const nested = [];
     const { error } = await world.settled(world.runPass({
       sign: async (armed) => {
         const bytes = await world.sign(armed);
+        const before = { counts: { ...world.counts }, events: world.events.length };
         nested.push(await world.settled(world.boundary.runPass(world.request({ lane: 'lane-nested', capability: armed.capability }))));
+        nested.push({ counts: { ...world.counts }, events: world.events.length }, before);
         return bytes;
       },
     }));
     assert.equal(error, undefined);
-    assert.equal(nested[0].error, undefined);
+    assertRefusal(nested[0].error, 'tp1_fence_not_owned');
+    assert.deepEqual(nested[1], nested[2], 'the refused child made no read, lock request, signer call or send');
+    assert.deepEqual(world.records.kinds('lane-nested'), []);
     assert.equal(world.counts.lockRequests, 1);
-    assert.equal(world.counts.signer, 2);
-    assert.deepEqual(world.records.kinds('lane-nested'), ['signed', 'dispatch-started', 'dispatch-acknowledged']);
+    assert.equal(world.counts.signer, 1);
   });
 
   await t.test('K0-B7 another operation presenting the capability is refused tp1_fence_not_owned; signer 0', async () => {
@@ -1228,16 +1231,22 @@ test('the pass holds the wallet fence until every inner signer and send it let s
     assert.deepEqual(first.records.kinds(first.lane), []);
   });
 
-  await t.test('a nested pass under a caller-held capability keeps the outer holder waiting for the pending send', async () => {
-    const [first] = twoTabs();
-    const transmission = pendingTransport(first);
-    const outer = first.settled(first.fence.run(first.operationId, (capability) => first.boundary.runPass(first.request({ capability, stages: [{ name: 'dispatch', send: earlySend(first) }] }))));
-    await settle();
-    assert.ok(await isPending(outer), 'the outer holder is still inside the fence');
-    transmission.resolve({ accepted: true });
-    assert.equal((await outer).value.outcomes[0].state, 'unknown');
-  });
-
+  for (const exit of ['returns', 'throws']) {
+    await t.test(`a request detached under a raw fence owner's capability is refused before any effect when the owner ${exit}`, async () => {
+      const [first, second] = twoTabs();
+      let detached;
+      const owner = first.settled(first.fence.run(first.operationId, async (capability) => {
+        detached = first.settled(first.boundary.runPass(first.request({ capability, stages: [{ name: 'dispatch', send: earlySend(first) }] })));
+        await settle();
+        if (exit === 'throws') throw new Error('owner failed');
+      }));
+      await owner;
+      assertRefusal((await detached).error, 'tp1_fence_not_owned');
+      assert.deepEqual([first.counts.signer, first.counts.transport, first.counts.stop, first.counts.authority], [0, 0, 0, 0]);
+      assert.deepEqual(first.records.kinds(first.lane), []);
+      assert.equal((await second.settled(second.runPass())).error, undefined);
+    });
+  }
   await t.test('a connection replacement requested during a pending send keeps connectionGeneration until the send settled', async () => {
     const [first] = twoTabs();
     const transmission = pendingTransport(first);
@@ -1269,5 +1278,62 @@ test('the pass holds the wallet fence until every inner signer and send it let s
     const { value } = await first.settled(first.runPass());
     assert.equal(value.outcomes[0].state, 'acknowledged');
     assert.ok(await first.fenceIsFree());
+  });
+});
+
+test('a request that carries a capability is refused tp1_fence_not_owned before any check, lock, record, signer or send', async (t) => {
+  const restoredDispatch = async () => {
+    const dead = createWorld();
+    dead.records.beforeCommit.set('dispatch-started', () => { dead.state.killed = true; });
+    await dead.settled(dead.runPass());
+    dead.records.beforeCommit.clear();
+    return { records: dead.records, request: { sign: undefined, retained: { bytes: new Uint8Array(dead.SIGNED_BYTES) } } };
+  };
+  const restoredBroadcast = async () => {
+    const dead = createWorld();
+    dead.records.failures.set('broadcast-started', new Error('disk full'));
+    await dead.settled(dead.runPass({ stages: stagesOf(dead, ['confirm', 'broadcast']) }));
+    dead.records.failures.clear();
+    return { records: dead.records, request: { sign: undefined, retained: { bytes: new Uint8Array(dead.SIGNED_BYTES) }, stages: ['broadcast'] } };
+  };
+  const modes = [
+    ['a signing request', async () => ({ records: createMemoryRecords(), request: {} })],
+    ['a restored dispatch lane', restoredDispatch],
+    ['a restored confirm-acknowledged lane', restoredBroadcast],
+  ];
+  const capabilities = [
+    ['the live capability of its own operation', (world, run) => world.fence.run(world.operationId, run)],
+    ['null', (world, run) => run(null)],
+    ['a forged capability', (world, run) => run({ operationId: world.operationId })],
+    ['a string', (world, run) => run('capability')],
+  ];
+  for (const [mode, prepare] of modes) {
+    for (const [name, supply] of capabilities) {
+      await t.test(`${mode} carrying ${name}`, async () => {
+        const { records, request } = await prepare();
+        const world = createWorld({ records });
+        const before = { kinds: [...records.kinds(world.lane)], events: world.events.length };
+        const { stages, ...rest } = request;
+        const { error } = await world.settled(supply(world, (capability) => world.runPass({ ...rest, ...(stages && { stages: stagesOf(world, stages) }), capability })));
+        assertRefusal(error, 'tp1_fence_not_owned');
+        assert.deepEqual([world.counts.signer, world.counts.transport, world.counts.stop, world.counts.authority], [0, 0, 0, 0]);
+        assert.equal(world.events.length, before.events, 'no check ran');
+        assert.deepEqual(records.kinds(world.lane), before.kinds, 'the lane is untouched');
+        assert.equal(world.counts.lockRequests, name.startsWith('the live') ? 1 : 0, 'no lock was requested for the refused request');
+      });
+    }
+  }
+
+  await t.test('a second boundary instance sharing the fence refuses the owner capability the same way', async () => {
+    const world = createWorld();
+    const calls = [];
+    const other = createEffectBoundary({
+      fence: world.fence, records: createMemoryRecords(),
+      checks: Object.fromEntries(['admission', 'approval', 'connectionDigest', 'stopped', 'readAuthority'].map((name) => [name, () => { calls.push(name); return true; }])),
+    });
+    const { error } = await world.settled(world.fence.run(world.operationId, (capability) => other.runPass(world.request({ capability }))));
+    assertRefusal(error, 'tp1_fence_not_owned');
+    assert.deepEqual(calls, []);
+    assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
   });
 });

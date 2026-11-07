@@ -247,9 +247,12 @@ async function runStage(pass, cursor, { name, send }) {
   return { stage: name, ...outcome };
 }
 
-// Capture each caller value once, including identity, descriptors and retained bytes.
+// Capture each caller value once, including identity, descriptors and retained bytes. A supplied capability is
+// refused here, before any adapter call: a pass must acquire and keep its own fence hold, and a pass running under
+// someone else's hold could outlive it.
 function snapshotRequest(request) {
   const { operationId, lane, pinVersion, approvalRevision, capability, sign, retained, stages } = request ?? {};
+  if (capability !== undefined) throw refuse('tp1_fence_not_owned');
   const identity = Object.freeze({ operationId, pinVersion, approvalRevision });
   for (const [key, value] of [...Object.entries(identity), ['lane', lane]]) if (!nonemptyString(value)) throw new TypeError(`${key} must be a non-empty string`);
   if ((sign === undefined) === (retained === undefined)) throw new TypeError('exactly one of sign and retained is required');
@@ -262,7 +265,7 @@ function snapshotRequest(request) {
   const tuple = (sign === undefined ? RESUME_TUPLES : [...WORKFLOWS.values()]).find((candidate) => candidate.length === names.length && candidate.every((name, i) => name === names[i]));
   if (tuple === undefined) throw new TypeError('stages must be a closed workflow or resume tuple');
   const workflow = [...WORKFLOWS.keys()].find((name) => WORKFLOWS.get(name) === tuple);
-  return Object.freeze({ identity, lane, capability, sign, workflow, tuple: Object.freeze([...tuple]), retained: retained === undefined ? undefined : Uint8Array.from(retainedBytes), stages: Object.freeze(steps) });
+  return Object.freeze({ identity, lane, sign, workflow, tuple: Object.freeze([...tuple]), retained: retained === undefined ? undefined : Uint8Array.from(retainedBytes), stages: Object.freeze(steps) });
 }
 
 /**
@@ -271,6 +274,7 @@ function snapshotRequest(request) {
  * captured revision. runPass requires nonempty string operationId/pinVersion/approvalRevision/lane and either
  * sign or retained.bytes plus closed stages; resolves {operationId, passId, outcomes}. Invalid requests throw
  * TypeError before adapter calls; refusal/persistence failures reject with EffectBoundaryRefusal and causes.
+ * Every pass acquires its own fence hold: a request carrying a capability is refused tp1_fence_not_owned first.
  */
 export function createEffectBoundary({ fence, checks, records, clock = SYSTEM_CLOCK, newPassId = () => globalThis.crypto.randomUUID(), stoppedCode = 'writes_stopped' }) {
   requireFunctions('fence', fence, ['run', 'owns']);
@@ -303,7 +307,7 @@ export function createEffectBoundary({ fence, checks, records, clock = SYSTEM_CL
     const pass = createPass({ fence, checks, clock, stoppedCode }, own.identity);
     try {
       await pass.verify(STEP_CHECKS.refresh);
-      return await fence.run(own.identity.operationId, (capability) => runUnderFence(pass, capability, own), own.capability);
+      return await fence.run(own.identity.operationId, (capability) => runUnderFence(pass, capability, own));
     } finally { pass.end(); }
   }
   return { runPass };
