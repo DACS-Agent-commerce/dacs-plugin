@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { test } from 'node:test';
 import { ChoiceError, MAX_SELECTOR_CHARS, parseChoice, parseFlags } from '../../scripts/lib/choice.mjs';
-import { cleanScannerArgs, createRepo, defaultWordingListFile, runGate, writeList } from './gate-fixtures.mjs';
+import { REPO_ROOT, cleanScannerArgs, createRepo, defaultWordingListFile, runGate, writeList } from './gate-fixtures.mjs';
 
 // One row per real CLI selector. Later owners add theirs: sdk-input --prepare, import-check subcommands and --plugin.
 const HOSTILE_VALUES = {
@@ -19,8 +21,12 @@ const COMPLETE_ONLY_FLAGS = ['--private-list', listFile, '--wording-list', defau
 const gateWithScope = (value) => runGate(['--repo', repo.dir, '--commit', repo.commit, ...cleanScannerArgs(),
   ...(value === undefined ? [] : ['--scope', value]), ...(value === 'complete' ? COMPLETE_ONLY_FLAGS : [])]);
 
+const sdkInputWithPrepare = (value) => spawnSync(process.execPath, [path.join(REPO_ROOT, 'scripts', 'ci', 'sdk-input.mjs'), ...(value === undefined ? [] : ['--prepare', value])], { encoding: 'utf8' });
+
+// `accepted` lists the exit codes a valid value may give; `field` names the report field that echoes the accepted value.
 const SELECTORS = [
-  { name: 'gate --scope', valid: ['generic', 'complete'], run: gateWithScope },
+  { name: 'gate --scope', valid: ['generic', 'complete'], run: gateWithScope, accepted: [0, 1], field: 'scope' },
+  { name: 'sdk-input --prepare', valid: ['root', 'http-mcp', 'stdio', 'buyer'], run: sdkInputWithPrepare, accepted: [0, 2], field: 'prepare' },
 ];
 
 test('at this PR: gate `--scope` and the gate\'s own routes; later owners add their rows. Each real CLI selector accepts only its exact enum: gate --scope generic or complete; sdk-input --prepare root, http-mcp, stdio or buyer; import-check subcommand prepare, check or finalize; --plugin http-mcp or stdio when required by prepare/check; absent required, empty, unknown, wrong-case, complet, COMPLETE and 100,000-character inputs exit 2 with bounded diagnostics before any report or npm call and never default or become not-run/passed; valid bare finalize still runs, and an unknown supplied --plugin is refused; later owners register their CLI routes in this single table', async (t) => {
@@ -28,8 +34,8 @@ test('at this PR: gate `--scope` and the gate\'s own routes; later owners add th
     for (const value of selector.valid) {
       await t.test(`${selector.name} accepts ${value}`, () => {
         const result = selector.run(value);
-        assert.ok(result.status === 0 || result.status === 1, result.stderr);
-        assert.equal(JSON.parse(result.stdout).scope, value);
+        assert.ok(selector.accepted.includes(result.status), result.stderr);
+        assert.equal(JSON.parse(result.stdout)[selector.field], value);
       });
     }
     await t.test(`${selector.name} refuses an absent value and never defaults`, () => {
