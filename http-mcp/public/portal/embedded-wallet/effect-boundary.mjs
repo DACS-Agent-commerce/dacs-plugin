@@ -12,8 +12,8 @@
 //   EB8      the stage's `<stage>-started` intent is persisted.
 //   EB8f     the EB transmitter runs the final stop read and the synchronous checks, then the single transmission
 //            in the same tick; a refusal is recorded as `<stage>-withheld`.
-//   EB9      `<stage>-acknowledged`, or `<stage>-unknown` once the transmission was invoked. The fence is released on
-//            every path.
+//   EB9      `<stage>-acknowledged` once the transmission fulfilled, or `<stage>-unknown` once it was invoked and did
+//            not (pending or failed when the stage returned). The fence is released on every path.
 // A pass copies and freezes its request before its first await. Its stages are a closed tuple: a signing pass runs
 // the workflow `dispatch` or `confirm-broadcast` (`confirm` then `broadcast`); a resume runs only a tuple RESUMES
 // lists for the lane's signed workflow and newest record. A stage that is not acknowledged ends the pass.
@@ -150,7 +150,7 @@ function createPass({ fence, checks, clock, stoppedCode }, { operationId, approv
     // Opens the only live step; its handle works until `closeStep()` or the end of the pass.
     openStep(kind) {
       const handle = Object.freeze({ get capability() { return pass.capability; } });
-      current = { pass, kind, handle, state: 'open', signed: undefined };
+      current = { pass, kind, handle, state: 'open', signed: undefined, transmission: undefined };
       STEPS.set(handle, current);
       return current;
     },
@@ -208,7 +208,10 @@ export function ebTransmit(innerSend, handle) {
     if (!sameBytes(offered, step.pass.bytes)) throw refuse('eb_bytes_mismatch');
     step.pass.verifyNow(STEP_CHECKS.sendTail);
     step.state = 'consumed';
-    return innerSend(step.pass.copyBytes(), ...rest);
+    step.transmission = { status: 'pending' };
+    const sending = (async () => innerSend(step.pass.copyBytes(), ...rest))();
+    sending.then(() => { step.transmission = { status: 'fulfilled' }; }, (error) => { step.transmission = { status: 'failed', error }; });
+    return sending;
   };
 }
 
@@ -257,7 +260,9 @@ async function signOrResume(pass, cursor, { sign, retained, tuple, workflow }) {
 }
 
 // EB7, the `-started` intent, then the stage's own handle for EB8f. Once the handle was consumed the transmission
-// was invoked, so the stage ends `acknowledged` or `unknown`, never withheld.
+// was invoked, so the stage ends `acknowledged` or `unknown`, never withheld. It is `acknowledged` only when the EB
+// transmitter's own transmission had fulfilled by the time the stage returned; one still pending, or one that
+// failed under a stage that returned anyway, is `unknown`.
 async function runStage(pass, cursor, { name, send }) {
   try {
     await pass.verify(STEP_CHECKS.beforeIntent);
@@ -285,6 +290,8 @@ async function runStage(pass, cursor, { name, send }) {
     throw settled.error;
   }
   if (!invoked) return unknown(refuse('eb_transmitter_bypassed'));
+  if (step.transmission.status === 'failed') return unknown(step.transmission.error);
+  if (step.transmission.status !== 'fulfilled') return unknown(refuse('eb_transmission_unfinished'));
   await cursor.append({ kind: `${name}-acknowledged`, stage: name });
   return { stage: name, state: 'acknowledged', result: settled.result };
 }

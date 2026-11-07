@@ -489,6 +489,38 @@ test('the EB signer and EB transmitter run the EB5r and EB8f tails immediately b
     assert.equal(value.outcomes[0].cause.code, 'eb_transmitter_bypassed');
     assert.deepEqual(world.records.kinds('lane-1'), ['signed', 'dispatch-started', 'dispatch-unknown']);
   });
+
+  await t.test('hostile: a first stage that returns while its transmission is still pending ends confirm-unknown and broadcast never runs', async () => {
+    const world = createWorld();
+    let failTransmission;
+    world.behavior.transport = () => (world.counts.transport === 1 ? new Promise((resolve, reject) => { failTransmission = reject; }) : { accepted: true });
+    const { value } = await world.settled(world.runPass({
+      sign: (armed) => world.sign(armed),
+      stages: [
+        { name: 'confirm', send: async (armed, bytes) => { world.send(armed, bytes).catch(() => undefined); await settle(); return { queued: true }; } },
+        { name: 'broadcast', send: world.send },
+      ],
+    }));
+    assert.deepEqual(value.outcomes.map(({ stage, state }) => [stage, state]), [['confirm', 'unknown']]);
+    assert.equal(value.outcomes[0].cause.code, 'eb_transmission_unfinished');
+    assert.equal(world.counts.transport, 1);
+    failTransmission(new Error('confirmation rejected after the callback returned'));
+    await settle();
+    assert.deepEqual(world.records.kinds('lane-1'), ['signed', 'confirm-started', 'confirm-unknown']);
+  });
+
+  await t.test('hostile: a stage whose transmission failed but whose callback resolves ends dispatch-unknown with the transport error as cause', async () => {
+    const world = createWorld();
+    const transportError = new Error('transport down');
+    world.behavior.transport = async () => { throw transportError; };
+    const { value } = await world.settled(world.runPass({
+      stages: [{ name: 'dispatch', send: async (armed, bytes) => { await world.send(armed, bytes).catch(() => undefined); return { accepted: true }; } }],
+    }));
+    assert.equal(value.outcomes[0].state, 'unknown');
+    assert.equal(value.outcomes[0].cause, transportError);
+    assert.deepEqual(world.records.kinds('lane-1'), ['signed', 'dispatch-started', 'dispatch-unknown']);
+    assert.equal(world.records.records('lane-1')[2].cause.message, 'transport down');
+  });
 });
 
 test('the bytes the wrapped signer returned are the bytes persisted and the only bytes the transmitter sends', async (t) => {
