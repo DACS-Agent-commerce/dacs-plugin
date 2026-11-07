@@ -1,13 +1,16 @@
 // K0 on the browser's effect boundary (public/portal/embedded-wallet/effect-boundary.mjs):
 // the actor fence, the aggregate read deadline, EB5r/EB8f final checks and the EB signer/transmitter.
 // Evidence: instrumented in-process doubles (controllable clock, Web Locks manager, in-memory record store
-// honouring the store contract). No real Chrome and no real IndexedDB; the durable store is P53b1b's.
+// honouring the store contract). No real Chrome. The durable records (effect-records.mjs) run over an in-memory
+// IndexedDB double that models transaction lifecycle, durability, aborts and kill cuts (test/helpers/indexeddb-double.mjs).
 // K0-F10 is the test for the connection replacement below. K0-B12, F15, F19 and F7's compensation branch
 // do not apply to a browser lane (no packed archive, no K1 revision).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createEffectBoundary, ebSign, ebTransmit, PASS_READ_DEADLINE_MS } from '../../public/portal/embedded-wallet/effect-boundary.mjs';
+import { createDurableEffectBoundary, createDurableRecordStore, deriveDispatchHistory, MAX_LANE_RECORDS, MAX_SIGNED_BYTES } from '../../public/portal/embedded-wallet/effect-records.mjs';
 import { createWorld, createMemoryRecords } from '../helpers/effect-boundary-doubles.mjs';
+import { createFakeIndexedDb } from '../helpers/indexeddb-double.mjs';
 import { createGate, settle } from '../helpers/wallet-fence-doubles.mjs';
 
 const READ_DEADLINE_MS = PASS_READ_DEADLINE_MS;
@@ -1490,5 +1493,464 @@ test('a connection digest that is not a nonempty string refuses tp1_local_bindin
       assert.deepEqual(noEffects(world), [0, 0, 0, 0, 0]);
       assert.deepEqual(records.kinds(world.lane), before);
     });
+  }
+});
+
+// ---- P53b1b: the durable lane records (effect-records.mjs) over an in-memory IndexedDB double ----
+
+const LANE = 'lane-1';
+const SIGNED = [7, 8, 9, 10];
+const TX_STAGES = ['confirm', 'broadcast'];
+const onKind = (kind) => (written) => written.some((record) => record.kind === kind);
+const kindsOf = (idb) => idb.committedRecords(LANE).map((record) => record.kind);
+const causeMessages = (error) => {
+  const messages = [];
+  for (let current = error; current; current = current.cause) messages.push(String(current.message));
+  return messages;
+};
+
+async function untilKilled(idb) {
+  for (let turn = 0; turn < 100 && !idb.dead; turn += 1) await settle();
+  assert.ok(idb.dead, 'the process was killed at the cut');
+}
+
+// One browser process: a world (its own tab, clock and Web Locks) whose pass writes to the durable records in `idb`.
+let processCount = 0;
+function startProcess(idb, overrides) {
+  const world = createWorld(overrides);
+  const processNumber = (processCount += 1);
+  let passNumber = 0;
+  const durable = createDurableEffectBoundary({
+    indexedDB: idb, locks: world.locks, fence: world.fence, checks: world.checks, clock: world.clock, newPassId: () => `process-${processNumber}-pass-${(passNumber += 1)}`,
+  });
+  return { ...world, durable, store: durable.records, run: (request) => durable.runPass(world.request(request)) };
+}
+
+const resume = (proc, bytes, names) => proc.settled(proc.run({ retained: { bytes: Uint8Array.from(bytes) }, sign: undefined, stages: stagesOf(proc, names) }));
+const laneRecord = (kind, passId, extra = {}) => ({ operationId: 'op-1', lane: LANE, pinVersion: 'pin-1', approvalRevision: 'approval-1', passId, kind, ...extra });
+const signedRecord = (passId = 'pass-a') => laneRecord('signed', passId, { workflow: 'confirm-broadcast', bytes: new Uint8Array(SIGNED) });
+const storeOver = (idb) => createDurableRecordStore({ indexedDB: idb, locks: {} });
+
+const crashRows = [
+  {
+    name: 'K0-P1 killed after the signer returned and before the signed bytes committed: nothing retained, nothing sent, the next attempt signs again',
+    arrange: (idb) => idb.cutAt(onKind('signed'), 'before'), killed: true, kinds: [], transport: 0,
+    async restart(next) {
+      assert.equal((await next.store.head(LANE)).signed, undefined);
+      return next.settled(next.run());
+    },
+    finalKinds: ['signed', 'dispatch-started', 'dispatch-acknowledged'], nextSigner: 1, nextTransport: 1,
+  },
+  {
+    name: 'K0-P2 a failed signed-bytes write refuses eb_persist_failed with its cause and sends nothing',
+    arrange: (idb) => idb.abortAt(onKind('signed'), new Error('EIO: write failed')), error: 'eb_persist_failed', cause: /EIO/, kinds: [], transport: 0,
+    finalKinds: [],
+  },
+  {
+    name: 'K0-P3 killed after the signed bytes committed and before the dispatch intent: a fresh pass sends the persisted bytes once',
+    arrange: (idb) => idb.cutAt(onKind('dispatch-started'), 'before'), killed: true, kinds: ['signed'], transport: 0,
+    async restart(next) {
+      const { signed } = await next.store.head(LANE);
+      assert.deepEqual([...signed.bytes], SIGNED);
+      return resume(next, signed.bytes, ['dispatch']);
+    },
+    finalKinds: ['signed', 'dispatch-started', 'dispatch-acknowledged'], nextTransport: 1, nextSent: SIGNED,
+  },
+  {
+    name: 'K0-P4 a stop appearing between the signature and the dispatch intent holds the signed bytes, also after a restart',
+    arrange: (idb, proc) => proc.on('stop', 4, () => { proc.state.killed = true; }), error: 'writes_stopped', kinds: ['signed', 'signed-held'], transport: 0,
+    async restart(next) {
+      const history = deriveDispatchHistory(await next.store.history(LANE));
+      assert.equal(history.neverDispatched, true);
+      assert.equal((await next.store.head(LANE)).last.kind, 'signed-held');
+    },
+    finalKinds: ['signed', 'signed-held'],
+  },
+  {
+    name: 'K0-P5 killed after the dispatch intent committed and before the transport call: the intent stays unknown and nothing is sent again',
+    arrange: (idb) => idb.cutAt(onKind('dispatch-started'), 'after'), killed: true, kinds: ['signed', 'dispatch-started'], transport: 0,
+    async restart(next) {
+      assert.equal(deriveDispatchHistory(await next.store.history(LANE)).neverDispatched, false);
+      return resume(next, SIGNED, ['dispatch']);
+    },
+    resumeError: 'eb_resume_not_allowed', finalKinds: ['signed', 'dispatch-started'],
+  },
+  {
+    name: 'K0-P6 the receiver took the bytes and the transport threw: dispatch-unknown with its cause, a readback records observed, transport 1 in total',
+    arrange: (idb, proc) => { proc.behavior.transport = async () => { throw new Error('connection reset after the receiver took the bytes'); }; },
+    outcome: 'unknown', kinds: ['signed', 'dispatch-started', 'dispatch-unknown'], transport: 1,
+    async restart(next) {
+      const { revision } = await next.store.head(LANE);
+      await next.store.append(LANE, revision, laneRecord('observed', 'readback'));
+    },
+    finalKinds: ['signed', 'dispatch-started', 'dispatch-unknown', 'observed'],
+  },
+  {
+    name: 'K0-P7 killed after the transmission and before the acknowledgement: unknown, transport 1 in total, no second send after the restart',
+    arrange: (idb) => idb.cutAt(onKind('dispatch-acknowledged'), 'before'), killed: true, kinds: ['signed', 'dispatch-started'], transport: 1,
+    async restart(next) {
+      return resume(next, SIGNED, ['dispatch']);
+    },
+    resumeError: 'eb_resume_not_allowed', finalKinds: ['signed', 'dispatch-started'],
+  },
+  {
+    name: 'K0-P8 killed after the confirmation was acknowledged and before the broadcast intent: one broadcast of the original bytes, no new signature',
+    stages: TX_STAGES, arrange: (idb) => idb.cutAt(onKind('broadcast-started'), 'before'), killed: true,
+    kinds: ['signed', 'confirm-started', 'confirm-acknowledged'], transport: 1,
+    async restart(next) {
+      assert.equal(deriveDispatchHistory(await next.store.history(LANE)).mayBroadcast, true);
+      return resume(next, (await next.store.head(LANE)).signed.bytes, ['broadcast']);
+    },
+    finalKinds: ['signed', 'confirm-started', 'confirm-acknowledged', 'broadcast-started', 'broadcast-acknowledged'], nextTransport: 1, nextSent: SIGNED,
+  },
+  {
+    name: 'K0-P9 the confirmation answer was lost: confirm-unknown, never advanced to broadcast, never reported unsent',
+    stages: TX_STAGES, arrange: (idb, proc) => { proc.behavior.transport = async () => { throw new Error('the confirmation answer was lost'); }; },
+    outcome: 'unknown', kinds: ['signed', 'confirm-started', 'confirm-unknown'], transport: 1,
+    async restart(next) {
+      const history = deriveDispatchHistory(await next.store.history(LANE));
+      assert.deepEqual([history.confirmation, history.mayBroadcast], ['unknown', false]);
+      return resume(next, SIGNED, ['broadcast']);
+    },
+    resumeError: 'eb_resume_not_allowed', finalKinds: ['signed', 'confirm-started', 'confirm-unknown'],
+  },
+];
+
+test('K0-P1 to K0-P9 on the browser boundary give the contract\'s durable states and transport counts', async (t) => {
+  for (const row of crashRows) {
+    await t.test(row.name, async () => {
+      const idb = createFakeIndexedDb();
+      const first = startProcess(idb);
+      row.arrange(idb, first);
+      const running = first.run({ stages: stagesOf(first, row.stages ?? ['dispatch']) });
+      let outcome;
+      if (row.killed) await untilKilled(idb);
+      else outcome = await first.settled(running);
+      assert.deepEqual(kindsOf(idb), row.kinds, 'records committed before the restart');
+      assert.equal(first.counts.transport, row.transport);
+      if (row.error) {
+        assertRefusal(outcome.error, row.error);
+        if (row.cause) assert.ok(causeMessages(outcome.error).some((message) => row.cause.test(message)), `the cause is kept: ${causeMessages(outcome.error)}`);
+      }
+      if (row.outcome) assert.equal(outcome.value.outcomes.at(-1).state, row.outcome);
+
+      const next = startProcess(idb.restart());
+      const resumed = await row.restart?.(next);
+      if (row.resumeError) assertRefusal(resumed.error, row.resumeError);
+      else if (resumed) assert.equal(resumed.error, undefined);
+      assert.deepEqual(kindsOf(idb), row.finalKinds, 'records after the restart');
+      assert.equal(next.counts.signer, row.nextSigner ?? 0);
+      assert.equal(next.counts.transport, row.nextTransport ?? 0);
+      if (row.nextSent) assert.deepEqual(next.sent.map((bytes) => [...bytes]), [row.nextSent]);
+    });
+  }
+});
+
+// The exact bytes and each stage's intent are committed, in completed strict transactions, before the request leaves.
+function recordWhatLeaves(idb, snapshots) {
+  return (armed, bytes) => ebTransmit(async (sent) => {
+    const records = idb.committedRecords(LANE);
+    snapshots.push({ kinds: records.map((record) => record.kind), signed: records[0]?.bytes, sent, openTransactions: idb.openTransactionCount() });
+    return { accepted: true };
+  }, armed)(bytes);
+}
+
+test("the exact signed transaction bytes are committed in a strict-durability transaction that has completed before the confirmation request leaves, a failed bytes or confirmation-intent commit refuses eb_persist_failed with no egress, and the confirmation's own intent is committed before its request leaves so a kill at that cut leaves confirm-started and never just signed", async (t) => {
+  const arrange = () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    const snapshots = [];
+    const stages = TX_STAGES.map((name) => ({ name, send: recordWhatLeaves(idb, snapshots) }));
+    return { idb, proc, snapshots, stages };
+  };
+
+  await t.test('both stages leave only behind committed bytes and their own committed intent', async () => {
+    const { idb, proc, snapshots, stages } = arrange();
+    await proc.run({ stages });
+    assert.deepEqual(snapshots.map((snapshot) => snapshot.kinds), [['signed', 'confirm-started'], ['signed', 'confirm-started', 'confirm-acknowledged', 'broadcast-started']]);
+    for (const snapshot of snapshots) {
+      assert.deepEqual([...snapshot.signed], [...snapshot.sent], 'the persisted bytes are the bytes sent');
+      assert.equal(snapshot.openTransactions, 0, 'no transaction is open while the request is out');
+    }
+    const writes = idb.transactions.filter((tx) => tx.mode === 'readwrite' && tx.writes.length > 0);
+    assert.equal(writes.length, 5);
+    assert.ok(writes.every((tx) => tx.durability === 'strict' && tx.state === 'committed'));
+  });
+
+  for (const kind of ['signed', 'confirm-started']) {
+    await t.test(`a failed ${kind} commit refuses eb_persist_failed and nothing leaves`, async () => {
+      const { idb, proc, snapshots, stages } = arrange();
+      idb.abortAt(onKind(kind), new Error('QuotaExceededError'));
+      const { error } = await proc.settled(proc.run({ stages }));
+      assertRefusal(error, 'eb_persist_failed');
+      assert.deepEqual(snapshots, []);
+      assert.equal(proc.counts.transport, 0);
+      assert.deepEqual(kindsOf(idb), kind === 'signed' ? [] : ['signed']);
+    });
+  }
+
+  await t.test('a kill after the confirmation request left leaves confirm-started, which is an unknown confirmation and not just signed', async () => {
+    const { idb, proc, snapshots, stages } = arrange();
+    idb.cutAt(onKind('confirm-acknowledged'), 'before');
+    proc.run({ stages });
+    await untilKilled(idb);
+    assert.equal(snapshots.length, 1);
+    assert.deepEqual(kindsOf(idb), ['signed', 'confirm-started']);
+    const history = deriveDispatchHistory(await startProcess(idb.restart()).store.history(LANE));
+    assert.deepEqual([history.confirmation, history.mayBroadcast], ['unknown', false]);
+  });
+});
+
+test('an effect-authorizing message signature is durable before it is submitted', async () => {
+  const idb = createFakeIndexedDb();
+  const proc = startProcess(idb);
+  const snapshots = [];
+  await proc.run({ stages: [{ name: 'dispatch', send: recordWhatLeaves(idb, snapshots) }] });
+  assert.equal(snapshots.length, 1);
+  assert.deepEqual(snapshots[0].kinds, ['signed', 'dispatch-started']);
+  assert.deepEqual([...snapshots[0].signed], [...snapshots[0].sent]);
+  assert.deepEqual(kindsOf(idb), ['signed', 'dispatch-started', 'dispatch-acknowledged']);
+});
+
+test('confirmation and broadcast are separate stages, an unknown confirmation including an unmatched confirm-started never advances to broadcast, and a later withheld pass never erases an earlier possible dispatch', async (t) => {
+  await t.test('an acknowledged confirmation alone leaves the broadcast for a later pass', async () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    await proc.store.append(LANE, 0, signedRecord());
+    assert.equal((await resume(proc, SIGNED, ['confirm'])).error, undefined);
+    assert.deepEqual(kindsOf(idb), ['signed', 'confirm-started', 'confirm-acknowledged']);
+    assert.deepEqual(deriveDispatchHistory(await proc.store.history(LANE)), { signed: true, neverDispatched: true, confirmation: 'acknowledged', mayBroadcast: true });
+  });
+
+  await t.test('an unmatched confirm-started is unknown, a later pass\'s acknowledgement does not clear it, and no broadcast follows', async () => {
+    const store = storeOver(createFakeIndexedDb());
+    await store.append(LANE, 0, signedRecord('pass-a'));
+    await store.append(LANE, 1, laneRecord('confirm-started', 'pass-a', { stage: 'confirm' }));
+    assert.equal(deriveDispatchHistory(await store.history(LANE)).confirmation, 'unknown');
+    await store.append(LANE, 2, laneRecord('confirm-started', 'pass-b', { stage: 'confirm' }));
+    await store.append(LANE, 3, laneRecord('confirm-acknowledged', 'pass-b', { stage: 'confirm' }));
+    const history = deriveDispatchHistory(await store.history(LANE));
+    assert.deepEqual([history.confirmation, history.mayBroadcast], ['unknown', false]);
+  });
+
+  await t.test('a pass asked to broadcast over a lane that ends in confirm-started refuses and sends nothing', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    await store.append(LANE, 0, signedRecord());
+    await store.append(LANE, 1, laneRecord('confirm-started', 'pass-a', { stage: 'confirm' }));
+    const proc = startProcess(idb);
+    const { error } = await resume(proc, SIGNED, ['broadcast']);
+    assertRefusal(error, 'eb_resume_not_allowed');
+    assert.equal(proc.counts.transport, 0);
+  });
+
+  await t.test('a later pass\'s withheld record does not clear an earlier dispatch intent, and an outcome from another pass is refused', async () => {
+    const store = storeOver(createFakeIndexedDb());
+    await store.append(LANE, 0, signedRecord('pass-a'));
+    await store.append(LANE, 1, laneRecord('dispatch-started', 'pass-a', { stage: 'dispatch' }));
+    await assert.rejects(store.append(LANE, 2, laneRecord('dispatch-withheld', 'pass-b', { stage: 'dispatch' })), { code: 'eb_record_out_of_sequence' });
+    await store.append(LANE, 2, laneRecord('dispatch-started', 'pass-b', { stage: 'dispatch' }));
+    await store.append(LANE, 3, laneRecord('dispatch-withheld', 'pass-b', { stage: 'dispatch' }));
+    assert.equal(deriveDispatchHistory(await store.history(LANE)).neverDispatched, false);
+  });
+
+  await t.test('intents that each have their own withheld record leave the lane never dispatched', async () => {
+    const store = storeOver(createFakeIndexedDb());
+    await store.append(LANE, 0, signedRecord('pass-a'));
+    await store.append(LANE, 1, laneRecord('dispatch-started', 'pass-a', { stage: 'dispatch' }));
+    await store.append(LANE, 2, laneRecord('dispatch-withheld', 'pass-a', { stage: 'dispatch' }));
+    assert.equal(deriveDispatchHistory(await store.history(LANE)).neverDispatched, true);
+  });
+});
+
+test('with Web Locks or IndexedDB unavailable every effect refuses with a named error before any signer call', async (t) => {
+  const erroringIndexedDb = { open() { const request = {}; queueMicrotask(() => { request.error = new Error('storage denied'); request.onerror(); }); return request; } };
+  const blockedIndexedDb = { open() { const request = {}; queueMicrotask(() => request.onblocked()); return request; } };
+  const throwingIndexedDb = { open() { throw new Error('SecurityError'); } };
+  const rows = [
+    { name: 'no Web Locks', options: () => ({ indexedDB: createFakeIndexedDb(), locks: null }), code: 'eb_web_locks_unavailable' },
+    { name: 'no IndexedDB', options: (world) => ({ indexedDB: null, locks: world.locks }), code: 'eb_indexeddb_unavailable' },
+    { name: 'IndexedDB open throws', options: (world) => ({ indexedDB: throwingIndexedDb, locks: world.locks }), code: 'eb_indexeddb_unavailable', cause: /SecurityError/ },
+    { name: 'IndexedDB open fails', options: (world) => ({ indexedDB: erroringIndexedDb, locks: world.locks }), code: 'eb_indexeddb_unavailable', cause: /storage denied/ },
+    { name: 'IndexedDB open is blocked', options: (world) => ({ indexedDB: blockedIndexedDb, locks: world.locks }), code: 'eb_indexeddb_unavailable', cause: /blocked/ },
+  ];
+  for (const row of rows) {
+    await t.test(row.name, async () => {
+      const world = createWorld();
+      const durable = createDurableEffectBoundary({ fence: world.fence, checks: world.checks, clock: world.clock, ...row.options(world) });
+      const { error } = await world.settled(durable.runPass(world.request()));
+      assertRefusal(error, row.code);
+      if (row.cause) assert.ok(causeMessages(error).some((message) => row.cause.test(message)));
+      assert.deepEqual([world.counts.signer, world.counts.transport, world.counts.lockRequests], [0, 0, 0]);
+    });
+  }
+});
+
+test('each durable transition is its own short readwrite transaction that checks and advances the lane revision across real task-boundary awaits, no transaction is held across an authority, stop, signer or network await, and a revision conflict from another tab refuses with nothing transmitted', async (t) => {
+  await t.test('every transition of a full pass is one strict transaction that adds one record and advances the head', async () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    await proc.run({ stages: stagesOf(proc, TX_STAGES) });
+    const transitions = idb.transactions.filter((tx) => tx.mode === 'readwrite' && tx.writes.length > 0);
+    assert.equal(transitions.length, 5);
+    for (const tx of transitions) {
+      assert.deepEqual(tx.writes.map((write) => write.store), ['records', 'heads']);
+      assert.equal(tx.durability, 'strict');
+    }
+    assert.deepEqual(idb.committedRecords(LANE).map((record) => record.seq), [1, 2, 3, 4, 5]);
+  });
+
+  await t.test('no transaction is open during any authority, stop, signer or network await', async () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    const open = [];
+    const probe = async () => { await settle(); open.push(idb.openTransactionCount()); };
+    for (let call = 1; call <= 8; call += 1) { proc.on('stop', call, probe); proc.on('authority', call, probe); }
+    const sign = async (armed) => { open.push(idb.openTransactionCount()); await settle(); return proc.sign(armed); };
+    const send = (armed, bytes) => { open.push(idb.openTransactionCount()); return proc.send(armed, bytes); };
+    await proc.run({ sign, stages: TX_STAGES.map((name) => ({ name, send })) });
+    assert.ok(open.length >= 10, `probed ${open.length} awaits`);
+    assert.ok(open.every((count) => count === 0), `open transactions at each await: ${open}`);
+  });
+
+  await t.test('a record written by another tab between the head read and the append is a revision conflict: eb_persist_failed, nothing transmitted, the other tab\'s record kept', async () => {
+    const idb = createFakeIndexedDb();
+    const tabA = startProcess(idb);
+    const tabB = storeOver(idb);
+    tabA.on('stop', 3, async () => { await tabB.append(LANE, 0, laneRecord('signed', 'other-tab', { workflow: 'dispatch', bytes: new Uint8Array([1, 2]) })); });
+    const { error } = await tabA.settled(tabA.run());
+    assertRefusal(error, 'eb_persist_failed');
+    assert.ok(causeMessages(error).some((message) => /expected 0/.test(message)), `cause: ${causeMessages(error)}`);
+    assert.equal(tabA.counts.transport, 0);
+    assert.deepEqual(idb.committedRecords(LANE).map((record) => [record.kind, record.passId]), [['signed', 'other-tab']]);
+  });
+
+  await t.test('a stale expected revision is refused eb_revision_conflict and changes nothing', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    await store.append(LANE, 0, signedRecord());
+    await assert.rejects(store.append(LANE, 0, signedRecord('pass-b')), { code: 'eb_revision_conflict' });
+    await assert.rejects(store.append(LANE, 5, laneRecord('observed', 'pass-b')), { code: 'eb_revision_conflict' });
+    assert.deepEqual(idb.committedRecords(LANE).map((record) => record.passId), ['pass-a']);
+  });
+
+  await t.test('the head hands the pass the stored signed record and newest record, and the caller\'s copy of the bytes cannot change what was stored', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    const record = signedRecord();
+    await store.append(LANE, 0, record);
+    record.bytes[0] = 99;
+    const { revision, signed, last } = await store.head(LANE);
+    assert.equal(revision, 1);
+    assert.deepEqual([...signed.bytes], SIGNED);
+    assert.deepEqual([signed.workflow, signed.operationId, signed.pinVersion, signed.approvalRevision], ['confirm-broadcast', 'op-1', 'pin-1', 'approval-1']);
+    assert.equal(last.kind, 'signed');
+    assert.deepEqual(await store.head('lane-empty'), { revision: 0, signed: undefined, last: undefined });
+  });
+
+  await t.test('a lane head that counts a record the lane lacks is refused eb_lane_corrupt', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    await store.append(LANE, 0, signedRecord());
+    idb.data.get('dacs-wallet-effects-v1').stores.get('heads').rows.set(JSON.stringify(LANE), { lane: LANE, revision: 2 });
+    await assert.rejects(store.head(LANE), { code: 'eb_lane_corrupt' });
+  });
+
+  const malformed = [
+    ['an unknown kind', (record) => ({ ...record, kind: 'dispatch-done' }), 'eb_record_invalid'],
+    ['a missing pass id', (record) => ({ ...record, passId: '' }), 'eb_record_invalid'],
+    ['another lane', (record) => ({ ...record, lane: 'lane-2' }), 'eb_record_invalid'],
+    ['a signed record without bytes', (record) => ({ ...record, bytes: undefined }), 'eb_record_invalid'],
+    ['a signed record without a workflow', (record) => ({ ...record, workflow: undefined }), 'eb_record_invalid'],
+    ['oversized signed bytes', (record) => ({ ...record, bytes: new Uint8Array(MAX_SIGNED_BYTES + 1) }), 'eb_record_invalid'],
+    ['bytes on a held record', () => laneRecord('signed-held', 'pass-a', { stage: 'dispatch', bytes: new Uint8Array(SIGNED) }), 'eb_record_invalid'],
+    ['a stage that differs from the kind', () => laneRecord('dispatch-started', 'pass-a', { stage: 'confirm' }), 'eb_record_invalid'],
+    ['a held record without a stage', () => laneRecord('signed-held', 'pass-a'), 'eb_record_invalid'],
+    ['a field that cannot be stored', () => laneRecord('signed-held', 'pass-a', { stage: 'dispatch', cause: () => undefined }), 'eb_record_invalid'],
+    ['a second signed record', (record) => record, 'eb_record_out_of_sequence', true],
+    ['an outcome without its intent', () => laneRecord('dispatch-acknowledged', 'pass-a', { stage: 'dispatch' }), 'eb_record_out_of_sequence', true],
+  ];
+  for (const [name, change, code, afterSigned] of malformed) {
+    await t.test(`${name} is refused ${code} and the lane is unchanged`, async () => {
+      const idb = createFakeIndexedDb();
+      const store = storeOver(idb);
+      if (afterSigned) await store.append(LANE, 0, signedRecord());
+      const before = idb.committedRecords(LANE);
+      await assert.rejects(store.append(LANE, before.length, change(signedRecord())), { code });
+      assert.deepEqual(idb.committedRecords(LANE), before);
+    });
+  }
+
+  await t.test('a record before the signed bytes is refused and a full lane refuses the next record', async () => {
+    const store = storeOver(createFakeIndexedDb());
+    await assert.rejects(store.append(LANE, 0, laneRecord('observed', 'pass-a')), { code: 'eb_record_out_of_sequence' });
+    await store.append(LANE, 0, signedRecord());
+    for (let revision = 1; revision < MAX_LANE_RECORDS; revision += 1) await store.append(LANE, revision, laneRecord('observed', 'pass-a'));
+    await assert.rejects(store.append(LANE, MAX_LANE_RECORDS, laneRecord('observed', 'pass-a')), { code: 'eb_lane_full' });
+  });
+});
+
+test('a record whose request succeeds inside a transaction that then aborts is not counted as persisted: the pass refuses eb_persist_failed with no egress', async (t) => {
+  for (const kind of ['signed', 'dispatch-started']) {
+    await t.test(`${kind}`, async () => {
+      const idb = createFakeIndexedDb();
+      const proc = startProcess(idb);
+      idb.abortAt(onKind(kind), new Error('the transaction was aborted'));
+      const { error } = await proc.settled(proc.run());
+      assertRefusal(error, 'eb_persist_failed');
+      assert.ok(causeMessages(error).some((message) => /the transaction was aborted/.test(message)));
+      const aborted = idb.transactions.find((tx) => tx.state === 'aborted');
+      assert.ok(aborted.writes.some((write) => write.value.kind === kind), 'the add request had succeeded inside the aborted transaction');
+      assert.equal(proc.counts.transport, 0);
+      assert.deepEqual(kindsOf(idb), kind === 'signed' ? [] : ['signed']);
+    });
+  }
+});
+
+test('where an opened transaction does not report strict durability, every effect refuses eb_durability_unavailable before any signer call', async (t) => {
+  await t.test('the pass', async () => {
+    const idb = createFakeIndexedDb({ strictDurability: false });
+    const proc = startProcess(idb);
+    const { error } = await proc.settled(proc.run());
+    assertRefusal(error, 'eb_durability_unavailable');
+    assert.deepEqual([proc.counts.signer, proc.counts.transport, proc.counts.lockRequests], [0, 0, 0]);
+    assert.deepEqual(kindsOf(idb), []);
+  });
+
+  await t.test('a single append', async () => {
+    const idb = createFakeIndexedDb({ strictDurability: false });
+    await assert.rejects(storeOver(idb).append(LANE, 0, signedRecord()), { code: 'eb_durability_unavailable' });
+    assert.deepEqual(kindsOf(idb), []);
+  });
+});
+
+const COMMIT_ORDER = ['signed', 'confirm-started', 'confirm-acknowledged', 'broadcast-started', 'broadcast-acknowledged'];
+
+test("a browser process killed before and after each record's commit leaves egress possible only behind committed exact bytes and a committed dispatch intent, and every earlier possible-dispatch record survives", async (t) => {
+  for (const [index, kind] of COMMIT_ORDER.entries()) {
+    for (const when of ['before', 'after']) {
+      await t.test(`killed ${when} the commit of ${kind}`, async () => {
+        const idb = createFakeIndexedDb();
+        const proc = startProcess(idb);
+        const snapshots = [];
+        idb.cutAt(onKind(kind), when);
+        proc.run({ stages: TX_STAGES.map((name) => ({ name, send: recordWhatLeaves(idb, snapshots) })) });
+        await untilKilled(idb);
+        const durable = COMMIT_ORDER.slice(0, index + (when === 'after' ? 1 : 0));
+        assert.deepEqual(kindsOf(idb), durable);
+        for (const snapshot of snapshots) {
+          assert.deepEqual([...snapshot.signed], [...snapshot.sent], 'every transmission carried the committed bytes');
+          assert.match(snapshot.kinds.at(-1), /-started$/, 'every transmission followed its committed intent');
+        }
+        const completed = COMMIT_ORDER.slice(0, index);
+        assert.equal(snapshots.length, ['confirm-started', 'broadcast-started'].filter((started) => completed.includes(started)).length, 'a request leaves only after its intent\'s commit completed');
+
+        const next = startProcess(idb.restart());
+        const history = deriveDispatchHistory(await next.store.history(LANE));
+        assert.equal(history.neverDispatched, !durable.includes('broadcast-started'), 'a committed broadcast intent survives as a possible dispatch');
+        assert.equal(history.signed, durable.length > 0);
+        assert.deepEqual([next.counts.signer, next.counts.transport], [0, 0], 'a restart sends nothing by itself');
+      });
+    }
   }
 });
