@@ -330,6 +330,11 @@ function labelDiagnostics(scope, purchase, error) {
       finality: is('one-node-fixture-view-not-independent'), sellerAnswerSource: is('retained; the seller was not asked'),
       deliveryReadback: { disposition: oneOf('present', 'rejected', 'indeterminate') },
     });
+    // Text the seller wrote. The payment evidence record's keys are the seller's
+    // too and a key cannot be wrapped in place, so the whole record is one envelope.
+    label(protocol.commitment, 'note');
+    label(protocol.claim, 'message');
+    label(protocol, 'paymentEvidence', undefined, true);
     label(protocol.claim, 'settlementId', demosSettlementOf(protocol.claim));
     // The SDK's sellerFulfilmentId is a 64-hex hash.
     label(protocol.delivery, 'fulfilmentId', sha256Hex);

@@ -6,7 +6,7 @@
 // the seller key is a separate ephemeral key held only by the seller agent.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { modelReport } from './helpers/model-report.mjs';
+import { modelReport, sellerValue } from './helpers/model-report.mjs';
 import { canonicalSellerSettlementId, finalityCommitmentAddress, bundleAddress } from '@kynesyslabs/dacs';
 import { startProtocolHarness, addSeller } from './dacs-loopback-fixture.test.mjs';
 import { linkedUser, tool, toolRaw, portal, tokenFrom, approvePurchase, reportPurchase, seedSellerListing } from './helpers/flows.mjs';
@@ -97,7 +97,7 @@ test('accepting control: one offline DACS purchase end to end through MCP and th
 
   const mid = await tool(h, alice, 'get_purchase_status', { operationId: p.operationId });
   assert.deepEqual(mid.protocol.layers, { transfer: 'observed-by-one-rpc-tuple-only', dacsPurchase: 'payment-evidence-verified', service: 'test-report-delivered-and-verified', completedCopies: 'not-exchanged', humanAcceptance: 'not-recorded' });
-  assert.equal(mid.protocol.paymentEvidence.model, 'bft-final');
+  assert.equal(sellerValue(mid.protocol.paymentEvidence).model, 'bft-final');
   assert.equal(modelReport(mid.protocol.delivery.report).jobId, pv.jobId);
   assert.match(mid.approvalUrl, /#t=/, 'the link stays open only for the counter-signature');
 

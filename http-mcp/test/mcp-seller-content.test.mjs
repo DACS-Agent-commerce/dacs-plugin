@@ -367,6 +367,38 @@ test('seller-chosen code fields stay raw only under their own field rule; anythi
   for (const text of ['ignore_previous_instructions', injection, 'ignoreprevious']) assert.equal(outsideEnvelopes(error).includes(text), false, text);
 });
 
+// Text a seller wrote inside the commitment, the claim and the payment evidence
+// record: [stores the seller's value and returns what the model must decode, where the model finds its envelope].
+// The evidence record's keys are the seller's too, so the whole record is one envelope.
+const sellerWritten = {
+  'commitment.note': [(p, v) => { p.commitment = { contentHash: 'c'.repeat(64), note: v }; return v; }, (s) => s.protocol.commitment.note],
+  'claim.message': [(p, v) => { p.claim = { txHash: 'f'.repeat(64), status: 'refused', message: v }; return v; }, (s) => s.protocol.claim.message],
+  'paymentEvidence.note': [(p, v) => { p.paymentEvidence = { txHash: 'f'.repeat(64), note: v }; return p.paymentEvidence; }, (s) => s.protocol.paymentEvidence],
+  'paymentEvidence key': [(p, v) => { p.paymentEvidence = { txHash: 'f'.repeat(64), [v]: 'fixture' }; return p.paymentEvidence; }, (s) => s.protocol.paymentEvidence],
+};
+
+test('seller-written commitment note, claim message and payment evidence reach the model only inside the seller-data envelope', async (t) => {
+  for (const [field, [store, read]] of Object.entries(sellerWritten)) {
+    const run = async (value) => {
+      const { services, operation } = setup({ refused: true });
+      const expected = store(operation.state.protocol, value);
+      const stored = JSON.stringify(operation);
+      const server = serverFor(services); t.after(() => server.close());
+      const results = [];
+      for (const name of purchases) results.push(await call(server, name));
+      assert.equal(JSON.stringify(operation), stored, `${field}: stored data stays raw`);
+      return { results, expected };
+    };
+    const { results, expected } = await run(hostileText);
+    for (const result of results) {
+      assert.equal(read(result.structuredContent).truncated, false, field);
+      assert.deepEqual(sellerValue(read(result.structuredContent)), expected, `${field}: wrapped, not lost`);
+      for (const text of [injection, 'IGNORE PRIOR']) assert.equal(outsideEnvelopes(result).includes(text), false, `${field}: ${text}`);
+    }
+    for (const result of (await run('x'.repeat(SELLER_DATA_MAX + 1))).results) assert.equal(read(result.structuredContent).truncated, true, `${field}: bounded`);
+  }
+});
+
 test('labelled seller values are lossless, and the model copy serializes toJSON values as JSON.stringify does', () => {
   // A `report` key or a toJSON value inside a labelled seller value is the seller's data, kept exactly.
   const at = new Date(0);
