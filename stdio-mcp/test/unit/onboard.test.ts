@@ -331,6 +331,52 @@ test('an interrupted backup is finished with the passphrase on the page', async 
   await h.approval!.stop();
 });
 
+test('an interactive approval that returns an error is recorded as failed, and the later success as signed', async () => {
+  const h = await harness(NO_KEY, { approval: true, walletFactory: factory() });
+  await h.call('demos_onboard_create_wallet');
+  const url = h.channel.last().approveUrl!;
+  await http(url + '/approve', 'POST', { passphrase: PASS, confirm: PASS, remember: 'on' });
+  await h.call('demos_onboard_create_wallet'); // backup was not acknowledged: offers the reveal page
+  const reveal = h.channel.last().approveUrl!;
+  const conductOutcomes = () => (JSON.parse(readFileSync(join(h.config.stateDir, 'alignment', 'conduct.json'), 'utf8')).receipts as Array<{ outcome: string }>).map((r) => r.outcome);
+  const before = conductOutcomes().length;
+  assert.match((await http(reveal + '/approve', 'POST', { passphrase: 'wrong passphrase!!' })).body, /does not unlock/);
+  const afterWrong = conductOutcomes().slice(before);
+  assert.ok(afterWrong.includes('failed'), `outcomes after a wrong passphrase: ${afterWrong.join(',')}`);
+  assert.ok(!afterWrong.includes('signed'), `outcomes after a wrong passphrase: ${afterWrong.join(',')}`);
+  await http(reveal + '/approve', 'POST', { passphrase: PASS });
+  assert.equal(conductOutcomes().at(-1), 'signed');
+  await h.approval!.stop();
+});
+
+test('an interactive approval whose page code throws is recorded as unknown, so a later STOP lists nothing in flight', async () => {
+  const wf = factory();
+  const addressOf = wf.addressOf;
+  let throwOnce = true;
+  wf.addressOf = async (m: string) => {
+    if (throwOnce) {
+      throwOnce = false;
+      throw new Error('address lookup failed');
+    }
+    return addressOf(m);
+  };
+  const h = await harness(NO_KEY, { approval: true, walletFactory: wf });
+  await h.call('demos_onboard_create_wallet');
+  const url = h.channel.last().approveUrl!;
+  const conductState = () => JSON.parse(readFileSync(join(h.config.stateDir, 'alignment', 'conduct.json'), 'utf8'));
+  assert.equal((await http(url + '/approve', 'POST', { passphrase: PASS, confirm: PASS })).status, 500);
+  assert.equal(conductState().receipts.at(-1).outcome, 'unknown');
+  assert.equal((await http(url + '/approve', 'POST', { passphrase: PASS, confirm: PASS })).status, 200);
+  assert.equal(conductState().receipts.at(-1).outcome, 'signed');
+  writeFileSync(join(h.config.stateDir, 'STOP'), 'stop');
+  await h.call('demos_alignment_heartbeat');
+  const state = conductState();
+  const actionHash = state.receipts.find((r: { outcome: string }) => r.outcome === 'signed').action_hash;
+  assert.deepEqual(state.inflight_action_hashes, []);
+  assert.deepEqual(state.irreversible_action_hashes, [actionHash]);
+  await h.approval!.stop();
+});
+
 test('a crash before onboard.json is written still leads to backup recovery; keystore verified on disk', async () => {
   const { unlinkSync } = await import('node:fs');
   const wf = factory();

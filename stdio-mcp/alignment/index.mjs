@@ -193,8 +193,12 @@ class Alignment {
       const signal=signals.length?Math.min(...signals):null;
       s.stop_latency_ms=signal!==null&&signal<=s.stop_at?Math.ceil(s.stop_at-signal):null;
       s.irreversible_action_hashes=[...new Set(s.receipts.filter(r=>['included','signed','unknown'].includes(r.outcome)).map(r=>r.action_hash))];
-      const completed=new Set(s.receipts.filter(r=>['included','signed','unknown','failed','cancelled'].includes(r.outcome)).map(r=>r.action_hash));
-      s.inflight_action_hashes=s.receipts.filter(r=>s.authorizations?.[r.digest]&&!completed.has(r.action_hash)).map(r=>r.action_hash);
+      const approvals=new Map(), completed=new Map();
+      for(const r of s.receipts){
+        if(s.authorizations?.[r.digest])approvals.set(r.action_hash,(approvals.get(r.action_hash)??0)+1);
+        if(['included','signed','unknown','failed','cancelled'].includes(r.outcome))completed.set(r.action_hash,(completed.get(r.action_hash)??0)+1);
+      }
+      s.inflight_action_hashes=[...approvals].filter(([actionHash,count])=>count>(completed.get(actionHash)??0)).map(([actionHash])=>actionHash);
       s.revoked_all_at = this.now();
       // STOP is a durable fact even if resume, policy evaluation or cancellation fails.
       this.#receipt(s, {kind:"stop-observed", generation:s.stop_generation}, {decision:"stop",tier:0,rules:["A6"],outcome:"stop_observed"});
