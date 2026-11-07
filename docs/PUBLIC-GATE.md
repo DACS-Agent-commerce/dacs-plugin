@@ -216,7 +216,7 @@ overwrites a file, and there is no `--private-evidence`.
 
 ## Bounded downloads, subprocesses and the gitleaks installer
 
-Library code and an installer. The secret scan runs the scanner through `run-bounded.mjs`; no workflow runs them yet.
+Library code and an installer. The secret scan runs the scanner through `run-bounded.mjs`; the gate workflow below runs the installer.
 
 - **`fetch-bounded.mjs`.** Downloads one https address to a new file and checks its SHA-256. The byte cap and the total deadline
   (redirects included) are enforced while the body streams, before the checksum; a `Content-Length` over the cap is refused first.
@@ -229,3 +229,20 @@ Library code and an installer. The secret scan runs the scanner through `run-bou
 - **`install-gitleaks.mjs --dir <folder>`.** Installs gitleaks 8.30.1 (linux x64, URL and SHA-256 in `GITLEAKS_PIN`) as
   `<folder>/gitleaks`: only a matching archive is extracted, only its `gitleaks` file, which must be a regular file reporting the
   pinned version. An existing binary is refused (`install-exists`), never trusted. Exit 0 installed, 2 refused with one cause line.
+
+## The gate workflow
+
+`.github/workflows/public-gate.yml` defines one job, `public-gate`, on every pull request and push (no path or branch filter).
+It has read-only `contents`, reads no secret, never uses `pull_request_target`, and pins every action by commit SHA. It checks
+out the pull request's head commit (the pushed commit on a push) with full history and no stored credentials, then runs in
+order, a failed step failing the job and skipping the rest:
+
+1. `npm ci` at the root;
+2. `install-gitleaks.mjs` into the run's temporary folder;
+3. `npm run gate:generic` on the head commit, with the installed binary and its SHA-256 computed on the runner, writing the report to `gate-report/report.json`;
+4. `npm test`, with `GITLEAKS_BIN` naming the installed binary so the real-scanner tests run;
+5. the upload of that report as the artifact `public-gate-report`, which runs even when an earlier step failed and replaces
+   the report of an earlier attempt when the job is re-run.
+
+The job runs the generic scope, so `R-PRIVATE` is `not-run` and its pass is never a complete pass. Actions runs it only once the
+repository is public; until then the same commands are run by hand.
