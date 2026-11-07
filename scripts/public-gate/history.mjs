@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { ChoiceError, parseFlags } from '../lib/choice.mjs';
-import { compareText, createScanDeadline, EXIT, gateRevision, loadConfig, requireValue, unscannableEntries } from './gate.mjs';
+import { compareText, createScanDeadline, EXIT, gateRevision, loadConfig, REGISTERED_RULE_IDS, requireValue, TREE_RULES, unscannableEntries } from './gate.mjs';
 import { FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
+import { ACCOUNT_RULE_ID, refusedMetadataEmails } from './rules-address.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, scanPrivate } from './rules-private.mjs';
 
 /** Id of the identity rule in reports: every author and committer is the allowed identity, in UTC. */
@@ -12,7 +13,9 @@ export const IDENTITY_RULE_ID = 'R-IDENTITY';
 
 const FLAGS = ['--repo', '--refs', '--private-list', '--expected-root', '--allowed-identity', '--pr-text', '--out'];
 const PERSON_LINE = /^(author|committer) (.*) <([^>]*)> \d+ ([+-]\d{4})$/;
-const RULE_IDS = [IDENTITY_RULE_ID, PRIVATE_RULE_ID];
+const RULE_IDS = [IDENTITY_RULE_ID, ...REGISTERED_RULE_IDS];
+/** What reads each commit's tree: every rule of complete scope, the private-list scan included. */
+const TREE_SCANS = [...TREE_RULES.map((rule) => rule.run), scanPrivate];
 const KINDS = ['path', 'content', 'author', 'committer', 'header', 'message', 'timezone', 'pr-text'];
 /** The part of a commit object a commit finding is in; its location is `<commit>:<field>`. */
 const COMMIT_FIELDS = ['author', 'committer', 'header', 'message'];
@@ -67,8 +70,20 @@ function stringsInFileOrder(text) {
   return strings;
 }
 
-/** Findings in one raw commit object: list entries in its message and headers, and (with an allowed identity) other identities or time zones. */
-function commitFindings({ sha, raw }, { matcher, identity, limits }) {
+/** The 1-based numbers of the first `maxLines` lines of `message` that hold an email the account rule refuses. */
+function refusedEmailLines(message, config, maxLines) {
+  const lines = [];
+  message.split('\n').forEach((text, index) => {
+    if (lines.length < maxLines && refusedMetadataEmails(text, config).length > 0) lines.push(index + 1);
+  });
+  return lines;
+}
+
+/**
+ * Findings in one raw commit object: list entries and emails the account rule refuses in its message and headers, and
+ * (with an allowed identity) other identities or time zones.
+ */
+function commitFindings({ sha, raw }, { matcher, identity, config, limits }) {
   const split = raw.indexOf('\n\n');
   const headers = (split < 0 ? raw : raw.subarray(0, split)).toString('utf8').split('\n');
   const findings = [];
@@ -78,6 +93,7 @@ function commitFindings({ sha, raw }, { matcher, identity, limits }) {
     const person = PERSON_LINE.exec(header);
     const kind = person ? person[1] : 'header';
     if (matcher.hasEntry(header)) add(PRIVATE_RULE_ID, kind, kind);
+    if (refusedMetadataEmails(header, config).length > 0) add(ACCOUNT_RULE_ID, kind, kind);
     if (!person || !identity) continue;
     seen.add(kind);
     if (`${person[2]} <${person[3]}>` !== identity) add(IDENTITY_RULE_ID, kind, kind);
@@ -86,6 +102,7 @@ function commitFindings({ sha, raw }, { matcher, identity, limits }) {
   if (identity) for (const kind of ['author', 'committer']) if (!seen.has(kind)) add(IDENTITY_RULE_ID, kind, kind);
   const message = split < 0 ? '' : raw.subarray(split + 2).toString('utf8');
   for (const line of matcher.entryLines(message, limits.maxReportEntries + 1)) add(PRIVATE_RULE_ID, 'message', 'message', line);
+  for (const line of refusedEmailLines(message, config, limits.maxReportEntries + 1)) add(ACCOUNT_RULE_ID, 'message', 'message', line);
   return findings;
 }
 
@@ -169,8 +186,8 @@ async function runHistory(argv, signal) {
     const { entries } = await readCommitObjects({ repo: options.repo, commit: commit.sha, limits, signal });
     unscannable.push(...unscannableEntries(entries, config).map((problem) => ({ commit: commit.sha, ...problem })));
     findings.push(...bounded(() => [
-      ...scanPrivate({ entries, matcher, limits }).map((finding) => ({ ...finding, commit: commit.sha })),
-      ...commitFindings(commit, { matcher, identity: options.identity, limits }),
+      ...TREE_SCANS.flatMap((scan) => scan({ entries, matcher, config, limits }).map((finding) => ({ ...finding, commit: commit.sha }))),
+      ...commitFindings(commit, { matcher, identity: options.identity, config, limits }),
     ]));
     requireWithinLimit();
   }
@@ -180,10 +197,11 @@ async function runHistory(argv, signal) {
   }
   findings.sort(compareFindings);
   const found = (rule) => findings.some((finding) => finding.rule === rule);
+  const scannedStatus = (id) => (found(id) ? 'findings' : unscannable.length > 0 ? 'unscannable' : 'passed');
   const rules = [
     { id: IDENTITY_RULE_ID, status: !options.identity ? 'not-run' : found(IDENTITY_RULE_ID) ? 'findings' : 'passed' },
-    { id: PRIVATE_RULE_ID, status: found(PRIVATE_RULE_ID) ? 'findings' : unscannable.length > 0 ? 'unscannable' : 'passed' },
-  ];
+    ...REGISTERED_RULE_IDS.map((id) => ({ id, status: scannedStatus(id) })),
+  ].sort((first, second) => compareText(first.id, second.id));
   const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, expectedRoot: options.expectedRoot, ...(prText ? { prTextSha256: prText.sha256 } : {}) };
   const report = buildHistoryReport({ heads, commits: commits.length, scanner, rules, unscannable, findings });
   await publish({ report }, { out: options.out });

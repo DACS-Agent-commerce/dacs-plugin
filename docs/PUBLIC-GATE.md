@@ -135,13 +135,16 @@ node scripts/public-gate/history.mjs --repo <dir> --refs <ref>[,<ref>...] --priv
 ```
 
 Walks every commit reachable from the refs (names or full object ids, comma-separated), parents first, and reports under
-scope `history`. Each commit's tree gets the same reading and the same `R-PRIVATE` scan as in complete scope. Reading, limits,
-exit codes and output rules are those above; `--out` never overwrites a file, and there is no `--private-evidence`.
+scope `history`. Each commit's tree gets the same reading and the same seven rules as in complete scope (`R-ACCOUNT`,
+`R-ARCHIVE`, `R-ENV`, `R-HOST`, `R-HOSTING`, `R-IP` and `R-PRIVATE`), so a file, address or archive that an earlier commit
+held and a later one removed is found. Reading, limits, exit codes and output rules are those above; `--out` never
+overwrites a file, and there is no `--private-evidence`.
 
 - **Root.** The walk must have exactly one root commit, `--expected-root`; any other root exits 2.
 - **Commits.** `R-PRIVATE` also scans each commit's message (kind `message`, with the line), its author and committer lines
   (kinds `author` and `committer`) and its other headers (kind `header`). A commit finding's location is `<commit>:<field>`,
-  the field (`author`, `committer`, `header` or `message`) it was found in.
+  the field (`author`, `committer`, `header` or `message`) it was found in. `R-ACCOUNT` scans the same fields for an email
+  that `refusedMetadataEmails` refuses (kinds `author`, `committer`, `header` and `message`, the last with the line).
 - **Identity.** With `--allowed-identity`, `R-IDENTITY` finds every author or committer line that is not exactly that
   identity (kind `author` or `committer`) and every time zone other than `+0000` (kind `timezone`). Without the flag the rule
   is `not-run`.
