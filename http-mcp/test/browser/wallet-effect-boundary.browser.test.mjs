@@ -803,6 +803,41 @@ test('K0-F8 a lane resumed at confirm alone ends at confirm-acknowledged and a l
   assert.deepEqual(first.records.kinds('lane-1').slice(-2), ['broadcast-started', 'broadcast-acknowledged']);
 });
 
+// Approval and pin bind the bytes that were signed: the resume's identity must be the identity the `signed` record carries.
+const otherIdentities = [
+  { name: 'operation id', overrides: { operationId: 'op-2' } },
+  { name: 'approval revision', overrides: { approvalRevision: 'approval-2' } },
+  { name: 'pin version', overrides: { pinVersion: 'pin-2' } },
+];
+
+test('K0-F8 a resume under another operation id, approval revision or pin version than the signing pass refuses eb_resume_not_allowed with signer 0, transport 0 and nothing appended', async (t) => {
+  for (const lane of heldStageLanes) {
+    for (const identity of otherIdentities) {
+      await t.test(`a lane holding ${lane.name} resumed under another ${identity.name} sends nothing`, async () => {
+        const first = createWorld();
+        lane.prepare(first);
+        await first.settled(first.runPass({ stages: lane.stages.map((name) => ({ name, send: first.send })) }));
+        first.records.beforeCommit.clear();
+        first.records.failures.clear();
+        const before = first.records.kinds('lane-1').length;
+        const resumed = createWorld({ records: first.records });
+        const { error } = await resumed.settled(resumed.runPass({
+          ...identity.overrides, retained: { bytes: new Uint8Array(first.SIGNED_BYTES) }, sign: undefined, stages: [{ name: lane.held, send: resumed.send }],
+        }));
+        assertRefusal(error, 'eb_resume_not_allowed');
+        assert.deepEqual([resumed.counts.signer, resumed.counts.transport], [0, 0]);
+        assert.equal(first.records.kinds('lane-1').length, before, 'nothing was appended');
+      });
+    }
+  }
+  await t.test('a store head that does not name the signing identity refuses the resume', async () => {
+    const world = createWorld({ records: craftedRecords({ lastKind: 'signed', signedWorkflow: 'dispatch', signedBytes: new Uint8Array([7, 8, 9, 10]), signedOperationId: undefined, signedPinVersion: undefined, signedApprovalRevision: undefined }) });
+    const { error } = await world.settled(world.runPass({ retained: { bytes: new Uint8Array(world.SIGNED_BYTES) }, sign: undefined }));
+    assertRefusal(error, 'eb_resume_not_allowed');
+    assert.deepEqual([world.counts.signer, world.counts.transport, world.records.appended], [0, 0, []]);
+  });
+});
+
 // The same store, but its head names the given stage (or none): the pass must not take its first stage from a head that omits it.
 const withLastStage = (records, lastStage) => ({
   head: async (lane) => ({ ...(await records.head(lane)), lastStage }),
@@ -903,10 +938,10 @@ test('a pass runs only a closed stage tuple: anything else is a TypeError before
   });
 });
 
-// A store whose head is the given one; appends are counted and accepted in sequence.
+// A store whose head is the given one (signed by the default request's identity unless it says otherwise); appends are counted and accepted in sequence.
 function craftedRecords(head) {
   const appended = [];
-  return { appended, head: async () => ({ revision: 3, ...head }), append: async (lane, revision, record) => { appended.push(record.kind); return { revision: revision + 1 }; } };
+  return { appended, head: async () => ({ revision: 3, signedOperationId: 'op-1', signedPinVersion: 'pin-1', signedApprovalRevision: 'approval-1', ...head }), append: async (lane, revision, record) => { appended.push(record.kind); return { revision: revision + 1 }; } };
 }
 
 // Written independently of the module's table: workflow, newest kind, lastStage ('-' for none), the tuple a resume runs.

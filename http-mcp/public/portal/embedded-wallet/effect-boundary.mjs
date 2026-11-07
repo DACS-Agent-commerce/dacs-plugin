@@ -21,9 +21,11 @@
 // transmitter `ebTransmit(innerSend, handle)`. A handle works only during its own step (else `tp1_fence_not_owned`)
 // and only once; a stage's handle exists only after its `-started` record committed. The inner signer's bytes,
 // copied before the sign step sees them, are the only bytes persisted and sent; each step and the transport get a
-// fresh copy. The fence, the clock, the checks and the record store (`head(lane)` -> `{ revision, lastKind,
-// lastStage, signedBytes, signedWorkflow }`, `append(lane, expectedRevision, record)`) are injected; nothing here
-// touches a network, IndexedDB or navigator. No page loads this yet.
+// fresh copy. A resume must also carry the operation id, pin version and approval revision the lane's `signed` record
+// was written under. The fence, the clock, the checks and the record store (`head(lane)` -> `{ revision, lastKind,
+// lastStage, signedBytes, signedWorkflow, signedOperationId, signedPinVersion, signedApprovalRevision }`,
+// `append(lane, expectedRevision, record)`) are injected; nothing here touches a network, IndexedDB or navigator.
+// No page loads this yet.
 import { EffectBoundaryRefusal, SYSTEM_CLOCK, refuse, requireFunctions } from './wallet-fence.mjs';
 
 /** Aggregate time one pass may spend inside authority and stop reads. */
@@ -237,12 +239,17 @@ function createLaneCursor(records, lane, identity) {
   };
 }
 
+// The approval and pin that authorized the signed bytes are the ones the lane's `signed` record carries; a store head
+// that does not name them (or names others) cannot be resumed by this pass.
+const signedUnderIdentity = (head, { operationId, pinVersion, approvalRevision }) => head.signedOperationId === operationId
+  && head.signedPinVersion === pinVersion && head.signedApprovalRevision === approvalRevision;
+
 // A signing pass needs an empty lane and persists the signer's bytes with the workflow. A resume needs its tuple in
-// RESUMES for the lane's head and the bytes of the lane's `signed` record; it then runs the EB5r tail.
-async function signOrResume(pass, cursor, { sign, retained, tuple, workflow }) {
+// RESUMES for the lane's head, the bytes and the identity of the lane's `signed` record; it then runs the EB5r tail.
+async function signOrResume(pass, cursor, { sign, retained, tuple, workflow, ...identity }) {
   const head = await cursor.head();
   if (retained !== undefined) {
-    if (!resumableTuples(head).includes(tuple) || !sameBytes(retained, head.signedBytes)) throw refuse('eb_resume_not_allowed', head.lastKind);
+    if (!resumableTuples(head).includes(tuple) || !sameBytes(retained, head.signedBytes) || !signedUnderIdentity(head, identity)) throw refuse('eb_resume_not_allowed', head.lastKind);
     await pass.stop();
     pass.verifyNow(STEP_CHECKS.signerTail);
     return retained;

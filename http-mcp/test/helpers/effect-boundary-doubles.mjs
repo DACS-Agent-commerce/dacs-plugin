@@ -5,9 +5,10 @@ import { createEffectBoundary, ebSign, ebTransmit } from '../../public/portal/em
 import { createWalletFence } from '../../public/portal/embedded-wallet/wallet-fence.mjs';
 import { createFakeClock, createFakeLocks, createGate, settle } from './wallet-fence-doubles.mjs';
 
-// head(lane) -> {revision, lastKind, lastStage, signedBytes, signedWorkflow}; append(lane, expectedRevision, record) -> {revision}.
-// `lastKind` and `lastStage` are the newest record's kind and stage, `signedBytes` and `signedWorkflow` the newest
-// `signed` record's bytes and workflow (each undefined when there is none). `failures` makes a kind's commit throw;
+// head(lane) -> {revision, lastKind, lastStage, signedBytes, signedWorkflow, signedOperationId, signedPinVersion,
+// signedApprovalRevision}; append(lane, expectedRevision, record) -> {revision}.
+// `lastKind` and `lastStage` are the newest record's kind and stage, the `signed*` fields the newest `signed`
+// record's bytes, workflow and identity (each undefined when there is none). `failures` makes a kind's commit throw;
 // `beforeCommit` runs a hook while a kind is being persisted.
 export function createMemoryRecords() {
   const lanes = new Map();
@@ -20,6 +21,7 @@ export function createMemoryRecords() {
       return {
         revision: records.length, lastKind: records.at(-1)?.kind, lastStage: records.at(-1)?.stage,
         signedBytes: signed && Uint8Array.from(signed.bytes), signedWorkflow: signed?.workflow,
+        signedOperationId: signed?.operationId, signedPinVersion: signed?.pinVersion, signedApprovalRevision: signed?.approvalRevision,
       };
     },
     async append(lane, expectedRevision, record) {
