@@ -744,10 +744,12 @@ test('resume bytes are copied when the pass starts: changing the caller\'s array
   }
 });
 
-// Each row leaves a two-stage lane at a stage that was held or withheld, then a second pass resumes it.
+// Each row leaves a two-stage lane at a stage that was held or withheld, then a second pass resumes it. A `fromHead`
+// row ends in a record whose kind does not name the stage, so the stage comes from the store head's `lastStage`.
 const heldStageLanes = [
   { name: 'confirm-acknowledged and broadcast-withheld', stages: ['confirm', 'broadcast'], held: 'broadcast', prepare: (w) => w.records.beforeCommit.set('broadcast-started', () => { w.state.killed = true; }) },
-  { name: 'confirm-acknowledged and signed-held for broadcast', stages: ['confirm', 'broadcast'], held: 'broadcast', prepare: (w) => w.records.beforeCommit.set('confirm-acknowledged', () => { w.state.admission = 'profile_not_admitted'; }) },
+  { name: 'confirm-acknowledged and signed-held for broadcast', stages: ['confirm', 'broadcast'], held: 'broadcast', fromHead: true, prepare: (w) => w.records.beforeCommit.set('confirm-acknowledged', () => { w.state.admission = 'profile_not_admitted'; }) },
+  { name: 'confirm-acknowledged and a failed broadcast-started write', stages: ['confirm', 'broadcast'], held: 'broadcast', fromHead: true, prepare: (w) => w.records.failures.set('broadcast-started', new Error('disk full')) },
   { name: 'confirm-withheld', stages: ['confirm', 'broadcast'], held: 'confirm', prepare: (w) => w.records.beforeCommit.set('confirm-started', () => { w.state.killed = true; }) },
   { name: 'dispatch-withheld', stages: ['dispatch'], held: 'dispatch', prepare: (w) => w.records.beforeCommit.set('dispatch-started', () => { w.state.killed = true; }) },
 ];
@@ -759,6 +761,7 @@ test('K0-F8 a resume starts at the stage the lane held or withheld and never re-
       row.prepare(first);
       await first.settled(first.runPass({ stages: row.stages.map((name) => ({ name, send: first.send })) }));
       first.records.beforeCommit.clear();
+      first.records.failures.clear();
       const before = first.records.kinds('lane-1').length;
       const resumed = createWorld({ records: first.records });
       const { error } = await resumed.settled(resumed.runPass({
@@ -785,6 +788,21 @@ test('K0-F8 a resume starts at the stage the lane held or withheld and never re-
   }
 });
 
+test('K0-F8 a lane resumed at confirm alone ends at confirm-acknowledged and a later resume transmits broadcast once', async () => {
+  const first = createWorld();
+  first.records.failures.set('confirm-started', new Error('disk full'));
+  await first.settled(first.runPass({ stages: stagesOf(first, ['confirm', 'broadcast']) }));
+  first.records.failures.clear();
+  const retained = () => ({ bytes: new Uint8Array(first.SIGNED_BYTES) });
+  const confirmed = createWorld({ records: first.records });
+  assert.equal((await confirmed.settled(confirmed.runPass({ retained: retained(), sign: undefined, stages: stagesOf(confirmed, ['confirm']) }))).error, undefined);
+  assert.equal(first.records.kinds('lane-1').at(-1), 'confirm-acknowledged');
+  const broadcast = createWorld({ records: first.records });
+  assert.equal((await broadcast.settled(broadcast.runPass({ retained: retained(), sign: undefined, stages: stagesOf(broadcast, ['broadcast']) }))).error, undefined);
+  assert.equal(broadcast.counts.transport, 1);
+  assert.deepEqual(first.records.kinds('lane-1').slice(-2), ['broadcast-started', 'broadcast-acknowledged']);
+});
+
 // The same store, but its head names the given stage (or none): the pass must not take its first stage from a head that omits it.
 const withLastStage = (records, lastStage) => ({
   head: async (lane) => ({ ...(await records.head(lane)), lastStage }),
@@ -806,8 +824,8 @@ test('K0-F8 a resume takes the held stage from the record kind, so a store head 
     return { error, resumed, appended: first.records.kinds('lane-1').length - before };
   };
   for (const row of heldStageLanes) {
-    // `named` rows end in `<stage>-withheld`; the other row ends in `signed-held`, whose stage only the head carries.
-    const named = row.name !== 'confirm-acknowledged and signed-held for broadcast';
+    // `named` rows end in `<stage>-withheld`; the others end in a record whose stage only the head carries.
+    const named = !row.fromHead;
     for (const name of ['dispatch', 'confirm', 'broadcast']) {
       const accepted = named && name === row.held;
       await t.test(`a lane holding ${row.name}, head without lastStage, ${accepted ? `transmits ${name} once` : `refuses a resume of ${name} eb_resume_not_allowed with transport 0`}`, async () => {
@@ -898,6 +916,7 @@ const ALLOWED_RESUMES = new Set([
   'confirm-broadcast signed-held confirm confirm', 'confirm-broadcast signed-held confirm confirm+broadcast',
   'confirm-broadcast confirm-withheld - confirm', 'confirm-broadcast confirm-withheld - confirm+broadcast',
   'confirm-broadcast confirm-withheld confirm confirm', 'confirm-broadcast confirm-withheld confirm confirm+broadcast',
+  'confirm-broadcast confirm-acknowledged confirm broadcast',
   'confirm-broadcast signed-held broadcast broadcast', 'confirm-broadcast broadcast-withheld - broadcast', 'confirm-broadcast broadcast-withheld broadcast broadcast',
 ]);
 

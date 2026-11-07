@@ -77,7 +77,7 @@ const WORKFLOWS = new Map([['dispatch', DISPATCH], ['confirm-broadcast', CONFIRM
 const RESUME_TUPLES = Object.freeze([DISPATCH, CONFIRM, BROADCAST, CONFIRM_BROADCAST]);
 
 // The resume table: the lane's signed workflow, its newest record's kind and held stage -> the tuples a resume may
-// run. Every other head (`-started`, `-unknown`, `-acknowledged`, an unknown kind or workflow) is refused.
+// run. Every other head (`-started`, `-unknown`, a final `-acknowledged`, an unknown kind or workflow) is refused.
 const resumeRow = (workflow, kind, stage, ...tuples) => Object.freeze({ workflow, kind, stage, tuples });
 const RESUMES = Object.freeze([
   resumeRow('dispatch', 'signed', undefined, DISPATCH),
@@ -86,6 +86,7 @@ const RESUMES = Object.freeze([
   resumeRow('confirm-broadcast', 'signed', undefined, CONFIRM, CONFIRM_BROADCAST),
   resumeRow('confirm-broadcast', 'signed-held', 'confirm', CONFIRM, CONFIRM_BROADCAST),
   resumeRow('confirm-broadcast', 'confirm-withheld', 'confirm', CONFIRM, CONFIRM_BROADCAST),
+  resumeRow('confirm-broadcast', 'confirm-acknowledged', 'confirm', BROADCAST),
   resumeRow('confirm-broadcast', 'signed-held', 'broadcast', BROADCAST),
   resumeRow('confirm-broadcast', 'broadcast-withheld', 'broadcast', BROADCAST),
 ]);
