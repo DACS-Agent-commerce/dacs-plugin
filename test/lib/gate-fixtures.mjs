@@ -4,6 +4,7 @@ import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeStubGitleaks } from './stub-gitleaks.mjs';
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const GATE_SCRIPT = path.join(REPO_ROOT, 'scripts', 'public-gate', 'gate.mjs');
@@ -137,8 +138,27 @@ export function historyArgs(history, listFile, extra = [], refs = 'main') {
   return ['--repo', history.dir, '--refs', refs, '--private-list', listFile, '--expected-root', history.commits[0], ...extra];
 }
 
+let cleanScanner;
+
+/** The gate's scanner arguments for a stub gitleaks that finds nothing. */
+export function cleanScannerArgs() {
+  cleanScanner ??= writeStubGitleaks();
+  return ['--gitleaks', cleanScanner.binary, '--gitleaks-sha256', cleanScanner.sha256];
+}
+
+/** Gate arguments for `repo`; unless `extra` names a scanner, they name the stub that finds nothing. */
 export function gateArgs(repo, scope, extra = []) {
-  return ['--repo', repo.dir, '--commit', repo.commit, '--scope', scope, ...extra];
+  return ['--repo', repo.dir, '--commit', repo.commit, '--scope', scope, ...(extra.includes('--gitleaks') ? [] : cleanScannerArgs()), ...extra];
+}
+
+/** The scanner identity fields a report carries, computed from the shipped config and policy file. */
+export function expectedScanIdentity() {
+  const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
+  return {
+    scannerVersion: config.scanner.version,
+    scannerPolicySha256: sha256(readFileSync(path.join(REPO_ROOT, '.gitleaks.toml'))),
+    secretExceptionsSha256: sha256(JSON.stringify({ baseline: config.secretBaseline, exceptions: config.secretExceptions })),
+  };
 }
 
 export function completeArgs(repo, listFile, extra = []) {

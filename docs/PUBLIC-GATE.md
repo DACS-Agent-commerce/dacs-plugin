@@ -1,18 +1,21 @@
 # Public-content gate
 
 Reads one commit from Git objects (never the working tree or index, never following a symlink) and reports, under a
-declared scope, what the rules it runs found in it. The gate currently runs seven rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
-(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules) and `R-PRIVATE` (the private list). Exit 0 in complete scope means no rule found anything and every file
+declared scope, what the rules it runs found in it. The gate currently runs eight rules: `R-ACCOUNT`, `R-HOST` and `R-IP`
+(the address rules), `R-ENV`, `R-HOSTING` and `R-ARCHIVE` (the file rules), `R-PRIVATE` (the private list) and `R-SECRET`
+(the secret scan). Exit 0 in complete scope means no rule found anything and every file
 could be read; it does not show that the content may become public. Generic scope runs the address rules and reports
 `R-PRIVATE` as `not-run`, so its exit 0 is never a complete pass.
 
 ```
-node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope generic [--out <file>]
+node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope generic \
+  --gitleaks <binary> --gitleaks-sha256 <hex> [--out <file>]
 node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope complete \
+  --gitleaks <binary> --gitleaks-sha256 <hex> \
   --private-list <file> --expected-root <full-sha> [--private-evidence <file>] [--out <file>]
 ```
 
-`--out` and `--private-evidence` create a new file and never overwrite one, and must name different files (exit 2 otherwise); without `--out` the report goes to stdout.
+`--gitleaks` and `--gitleaks-sha256` are required in both scopes (see Secret scan). `--out` and `--private-evidence` create a new file and never overwrite one, and must name different files (exit 2 otherwise); without `--out` the report goes to stdout.
 
 - **Reading.** Paths come from a NUL-separated listing. Blob size, total bytes and object count are limited in
   `public-gate.config.json`; passing a limit makes the target unscannable and names the limit. Every git call has a byte
@@ -88,8 +91,8 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   It does not find an archive written in an encoding, such as base64, or one a script builds.
 - **Root.** Complete scope reads the history behind `--commit`; it must have exactly one root commit, `--expected-root`, or the
   run exits 2 (cause `unexpected-root`) without a report.
-- **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`; complete
-  scope adds `expectedRoot`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
+- **Report.** JSON with exactly `scope`, `target` (`commit`, `tree`), `scanner` (`gateRevision`, `configSha256`,
+  `scannerVersion`, `scannerPolicySha256`, `secretExceptionsSha256`; complete scope adds `expectedRoot`), `rules` (`id`, `status`: `passed`, `findings`, `not-run`,
   `unscannable`), `unscannable` (`location`, `cause`) and sorted `findings` (`rule`, `kind`, `location`, `line`). It holds
   only fixed words, object ids, digests and numbers; no field is derived from the list itself. Every location is
   `<commit>:<position>`, the entry's 1-based position in the commit's listing. `--private-evidence` (mode `0600`, written
@@ -105,6 +108,51 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
 
 All output leaves through `scripts/public-gate/redact.mjs` on a route listed in `DIAGNOSTIC_ROUTES`.
 
+## Secret scan
+
+`R-SECRET` runs the pinned gitleaks (`scanner.version` in the config, 8.30.1, the SDK's version) over the commit's exact blobs, in both scopes.
+
+- **The binary.** `--gitleaks` names it and `--gitleaks-sha256` the SHA-256 of its bytes, which the install step records
+  after `install-gitleaks.mjs` (the pin holds only the archive's SHA-256). The gate copies the binary into a private
+  folder, checks the copy's SHA-256 and that it reports the pinned version, and runs only that copy, so a replacement after the
+  check changes nothing. A missing file, another checksum or another version fails before anything is written
+  (`scanner-missing`, `scanner-checksum-mismatch`, `scanner-version-mismatch`; exit 2).
+- **Input.** The gate first lists, in memory, one neutral name for each entry whose bytes it read: `o<position>` (the
+  entry's position in the listing), plus one suffix when its path matches one of the default rules that also test the
+  path: `.php` for `freemius-secret-key`, `.tf` for `hashicorp-tf-password` (`.tf`, `.hcl`), `.yaml` for
+  `kubernetes-secret-yaml` (`.yaml`, `.yml`), `.nuget.config` for `nuget-config-password` and `.p12` for `pkcs12-file`
+  (`*.p12`, `*.pfx`, which tests the path alone and reports no line). Those path patterns never match the same path, the
+  suffix is the only part of a path the scanner sees, and no default path skip matches a neutral name, so the scanner's
+  path skips (lockfiles, `.gitleaks.toml` names, `node_modules`, images) cannot hide an entry and no file in the target is
+  read as policy. In a fresh private folder each distinct blob is then written once, from the object reader (a symlink
+  is its link text), and each name is a hard link to it in the scanned folder.
+  The scanner also skips a file whose first read looks like an application type (PDF, bzip2, PostScript, ELF, tar at offset 257,
+  ISO at offset 32769 and others), so every blob is written behind a one-line text header: 262 bytes, or 32774 for a blob
+  that can reach offset 32769. No byte the target controls sits at a fixed offset the check reads. Lines are counted from the
+  blob's own first line (the scanner's line minus the header's one).
+- **Scanner run.** `gitleaks dir` with `--redact=100`, `--ignore-gitleaks-allow`, `--config .gitleaks.toml` (the default
+  rules, never a target file) and a run-owned ignore file, under `secretScanDeadlineMs` and `secretScanOutputBytes`
+  (`subprocess-timeout`, `subprocess-output-limit`; the process group is killed). Status 0 means no finding, 3 means findings, any
+  other status is `scanner-failed`. The report file is at most `maxScanReportBytes` and `maxReportEntries` items, and must agree
+  with the status (`scanner-report-malformed`, `limit:maxScanReportBytes`, `limit:maxReportEntries`).
+- **Findings.** Each scanner result names one neutral name, so it maps to exactly one occurrence; the report names a
+  location, rule and line only. A result for a name the scan did not write, a path rule on a name without its suffix, a
+  line on the header, or line 0 from any rule but `pkcs12-file` is `scanner-report-malformed`. Results on one line of one
+  occurrence (repeated, or from several rules) are one finding, so `R-SECRET` never has more findings than
+  `maxReportEntries`.
+- **Baseline.** `secretBaseline` holds the ten reviewed non-secret rulings of the imported tree (path, blob id, rule, line,
+  reason). Each ruling, and each exception, is one exact line of the run-owned ignore, `<neutral name>:<rule>:<line + 1>`,
+  for the one occurrence at its path and blob, so the scanner drops exactly that result; the same bytes at another path, a
+  changed blob or a shifted line are not covered, and a `.gitleaksignore` in the target is never read. A ruling's line is at
+  least 1, so no ruling covers a `pkcs12-file` result. The imported `.gitleaksignore` stays in the tree as the record of these rulings.
+- **Exceptions.** `secretExceptions` is empty. An entry has exactly `path`, `blob`, `rule` (a scanner rule id), `line` and
+  `reason` and exempts only that occurrence: the same value at another path, in another blob or on another line still fails.
+  An entry naming a path and blob the target does not hold is stale and fails the run (`stale-secret-exception`, exit 2)
+  before the scanner starts. Scanner fingerprints are never exception keys.
+- **Identity.** `scannerPolicySha256` is the SHA-256 of `.gitleaks.toml`; `secretExceptionsSha256` is the SHA-256 of
+  `JSON.stringify({ baseline: secretBaseline, exceptions: secretExceptions })` of the config.
+- **History mode** does not run the secret scan yet: it reports `R-SECRET` as `not-run`.
+
 ## Checking a saved report
 
 ```
@@ -116,16 +164,18 @@ report is never trusted for what it says about itself. Exit 1 refuses a report; 
 missing, over 1 MiB, or malformed (a report is malformed unless it has the report shape above, nested fields included). Nothing is written on exit 0; otherwise stderr holds one cause and its fixed text.
 
 - **Review context.** A JSON file in our records with exactly `gateRevision` and `configSha256` (the current reviewed
-  gate's identity) and `expectedRoot` (the root commit). Every expected value comes from it, from `--head` or from this gate's
-  registered rule ids, never from the report. The report's `scanner` must equal the context's three fields exactly, so a
-  field the context does not name (a later scanner policy) refuses the report until the context names it.
+  gate's identity), `scannerVersion`, `scannerPolicySha256` and `secretExceptionsSha256` (the scanner pin, the SHA-256 of
+  `.gitleaks.toml` and the SHA-256 of the baseline and exception entries, see Secret scan) and `expectedRoot` (the root
+  commit). Every expected value comes from it, from `--head` or from this gate's registered rule ids, never from the
+  report. The report's `scanner` must equal the context's six fields exactly, so a field the context does not name
+  refuses the report until the context names it.
 - **Causes.** `report-not-complete` (scope is not `complete`), `report-other-head` (target commit is not `--head`),
   `report-rules-differ` (the rule ids are not exactly the registered ones), `report-policy-differs` (the scanner identity
   differs from the context), `report-not-passing` (a finding, an unscannable entry or a rule not `passed`). The exit 2
   causes are `report-unreadable`, `report-malformed`, `context-unreadable`, `context-malformed`, `limit:maxCheckFileBytes`
   and `bad-arguments`.
 - **Not bound yet.** The report carries no digest of the private list (nothing in it derives from the list), so a
-  corrected list is not detected by this command; the scanner policy and exception digests arrive with the secret scan.
+  corrected list is not detected by this command.
 
 ## History mode
 
@@ -166,7 +216,7 @@ overwrites a file, and there is no `--private-evidence`.
 
 ## Bounded downloads, subprocesses and the gitleaks installer
 
-Library code and an installer; the gate and no workflow run them yet.
+Library code and an installer. The secret scan runs the scanner through `run-bounded.mjs`; no workflow runs them yet.
 
 - **`fetch-bounded.mjs`.** Downloads one https address to a new file and checks its SHA-256. The byte cap and the total deadline
   (redirects included) are enforced while the body streams, before the checksum; a `Content-Length` over the cap is refused first.

@@ -5,6 +5,7 @@ import { ChoiceError, parseFlags } from '../lib/choice.mjs';
 import { EXIT, REGISTERED_RULE_IDS, requireValue } from './gate.mjs';
 import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 import { SHA256_HEX, STATUSES, writeDiagnostic } from './redact.mjs';
+import { SEMVER } from './secret-scan.mjs';
 
 /** Largest report or review context accepted; a file over it is refused after reading at most one byte more. */
 const MAX_CHECK_FILE_BYTES = 1024 * 1024;
@@ -12,7 +13,9 @@ const MAX_CHECK_FILE_BYTES = 1024 * 1024;
 const FLAGS = ['--report', '--head', '--context'];
 const REPORT_KEYS = ['findings', 'rules', 'scanner', 'scope', 'target', 'unscannable'];
 /** The review context: exactly these fields, each matching its pattern. Later checks add theirs with the report fields they bind. */
-const CONTEXT_FIELDS = { gateRevision: SHA256_HEX, configSha256: SHA256_HEX, expectedRoot: FULL_OBJECT_ID };
+const CONTEXT_FIELDS = {
+  gateRevision: SHA256_HEX, configSha256: SHA256_HEX, scannerVersion: SEMVER, scannerPolicySha256: SHA256_HEX, secretExceptionsSha256: SHA256_HEX, expectedRoot: FULL_OBJECT_ID,
+};
 const ROUTE = 'check-report.stderr';
 
 /** Reads `file` as one JSON object of at most MAX_CHECK_FILE_BYTES; throws GateInputError `<subject>-unreadable`, `<subject>-malformed` or `limit:maxCheckFileBytes`. */

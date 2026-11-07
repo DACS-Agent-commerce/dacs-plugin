@@ -3,6 +3,7 @@ import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID } from './rules-address.mjs';
 import { ARCHIVE_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID } from './rules-files.mjs';
 import { PRIVATE_RULE_ID } from './rules-private.mjs';
+import { SECRET_RULE_ID, SEMVER } from './secret-scan.mjs';
 
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
 export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr' });
@@ -12,7 +13,7 @@ export const SHA256_HEX = /^[0-9a-f]{64}$/;
 export const STATUSES = ['passed', 'findings', 'not-run', 'unscannable'];
 export const UNSCANNABLE_CAUSES = ['invalid-utf8-path', 'submodule', 'limit:maxBlobBytes', 'nul-or-invalid-utf8-text', 'binary-without-disposition'];
 const SCOPES = ['generic', 'complete'];
-const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, PRIVATE_RULE_ID];
+const RULE_IDS = [ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, ENV_RULE_ID, HOSTING_RULE_ID, ARCHIVE_RULE_ID, PRIVATE_RULE_ID, SECRET_RULE_ID];
 const KINDS = ['path', 'content'];
 
 /** The fixed text printed after each cause; nothing else ever reaches stderr. A `limit:<name>` cause has one shared text. */
@@ -46,6 +47,9 @@ const DIAGNOSTICS = {
   'unsupported-platform': 'the pinned gitleaks archive is not for this platform', 'install-exists': 'the gitleaks binary already exists in the folder',
   'install-dir-unwritable': 'the install folder cannot be prepared', 'install-extract-failed': 'the gitleaks archive could not be extracted',
   'install-binary-invalid': 'the archive does not hold gitleaks as a regular file', 'install-version-mismatch': 'the binary does not report the pinned version',
+  'scanner-missing': 'the gitleaks binary cannot be copied for the scan', 'scanner-checksum-mismatch': 'the gitleaks binary does not match its SHA-256',
+  'scanner-version-mismatch': 'the gitleaks binary does not report the pinned version', 'scanner-failed': 'the scanner stopped with an error status',
+  'scanner-report-malformed': 'the scanner report is missing, malformed or disagrees with its status', 'stale-secret-exception': 'a secretExceptions entry names a path and blob the target does not hold',
   'internal-error': 'the gate failed unexpectedly', limit: 'a configured limit was reached',
 };
 
@@ -92,12 +96,13 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
     exactPaths.set(entry.position, [location, entry.path ?? `hex:${entry.pathBytes.toString('hex')}`]);
     return location;
   };
-  const { gateRevision, configSha256, expectedRoot } = scanner;
+  const { gateRevision, configSha256, expectedRoot, scannerVersion, scannerPolicySha256, secretExceptionsSha256 } = scanner;
   const report = {
     scope: checked(scope, SCOPES),
     target: { commit, tree: checked(target.tree, FULL_OBJECT_ID) },
     scanner: {
-      gateRevision: checked(gateRevision, SHA256_HEX), configSha256: checked(configSha256, SHA256_HEX),
+      gateRevision: checked(gateRevision, SHA256_HEX), configSha256: checked(configSha256, SHA256_HEX), scannerVersion: checked(scannerVersion, SEMVER),
+      scannerPolicySha256: checked(scannerPolicySha256, SHA256_HEX), secretExceptionsSha256: checked(secretExceptionsSha256, SHA256_HEX),
       ...(expectedRoot === undefined ? {} : { expectedRoot: checked(expectedRoot, FULL_OBJECT_ID) }),
     },
     rules: rules.map(({ id, status }) => ({ id: checked(id, RULE_IDS), status: checked(status, STATUSES) })),
