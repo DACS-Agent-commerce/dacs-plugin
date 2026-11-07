@@ -373,15 +373,63 @@ test('a module-level alias of a readback member makes its importer readback thro
   assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.line}:${r.rule}`), ['use-top-level.ts:2:readback-reference-escape']);
 });
 
-test('an import cycle cannot hide a module-level alias of a readback member from its importer', t => {
+const cycleAliases = {
+  member: 'const read = client.getTxByHash;',
+  element: 'const read = client["getTxByHash"];',
+  object: 'const {getTxByHash: read} = client;',
+  'quoted-object': 'const {"getTxByHash": read} = client;',
+  'object-rest': 'const {getTxByHash: read, ...rest} = client;',
+  'nested-object': 'const {x: {getTxByHash: read}} = client;',
+  array: 'const [{getTxByHash: read}] = [client];',
+  'nested-array': 'const [[{getTxByHash: read}]] = [[client]];',
+  'object-array': 'const {x: [{getTxByHash: read}]} = client;',
+  'array-object-array': 'const [{x: [{getTxByHash: read}]}] = [client];',
+  'omitted-element': 'const [, {getTxByHash: read}] = [0, client];',
+  'array-rest': 'const [...[{getTxByHash: read}]] = [client];',
+  namespace: 'import * as h from "./waived.js";\nconst {show: read} = h;',
+  'quoted-namespace': 'import * as h from "./waived.js";\nconst {"show": read} = h;',
+  'shorthand-namespace': 'import * as h from "./waived.js";\nconst {read} = h;',
+  'defaulted-namespace': 'import * as h from "./waived.js";\nconst {show: read = () => null} = h;',
+  'import-equals-namespace': 'import h = require("./waived.js");\nconst {show: read} = h;',
+};
+const cycleExports = {
+  declaration: [s => s.replace('const ', 'export const '), 'helper', 'import {read}'],
+  local: [s => `${s}\nexport {read};`, 'helper', 'import {read}'],
+  default: [s => `${s}\nexport default read;`, 'helper', 'import read'],
+  barrel: [s => `${s}\nexport {read};`, 'barrel', 'import {read}'],
+  star: [s => `${s}\nexport {read};`, 'star', 'import {read}'],
+};
+for (const [shape, alias] of Object.entries(cycleAliases)) for (const [kind, [expose, source, importLine]] of Object.entries(cycleExports)) {
+  test(`an import cycle cannot hide a module-level readback alias: ${shape}, ${kind} export`, t => {
+    const files = {
+      'helper.ts': `import {decide} from "./caller.js";\ndeclare const client: any;\n${expose(alias)}\nexport const again = decide;\n`,
+      'caller.ts': `${importLine} from "./${source}.js";\nexport function decide(h: string) { return read(h); }\n`,
+      'barrel.ts': 'export {read} from "./helper.js";\n',
+      'star.ts': 'export * from "./helper.js";\n',
+      'waived.ts': '// thin-plugin-waiver primitive:execution-readback -- status display only\nexport function show(c: any) { return c.getTxByHash("h"); }\nexport {show as read};\n',
+    };
+    const helperFirst = project(t, files), callerFirst = project(t, files);
+    helperFirst.scan('helper.ts'); callerFirst.scan('caller.ts');
+    const cycleFile = source === 'helper' ? 'caller.ts' : `${source}.ts`;
+    assert.deepEqual(helperFirst.found.unverifiable.map(r => `${r.file}:${r.rule}:${r.detail}`), [`${cycleFile}:cyclic-waived-import:./helper.js`]);
+    assert.deepEqual(callerFirst.found.violation.map(r => `${r.file}:${r.detail}`), ['caller.ts:execution-readback:decide']);
+    assert.deepEqual(helperFirst.found.violation, []);
+    assert.deepEqual(callerFirst.found.unverifiable, []);
+  });
+}
+
+test('an empty namespace destructure does not forward aliases in an import cycle', t => {
   const files = {
-    'helper.ts': 'import {decide} from "./caller.js";\ndeclare const client: any;\nexport const read = client.getTxByHash;\nexport const again = decide;\n',
-    'caller.ts': 'import {read} from "./helper.js";\nexport function decide(h: string) { return read(h); }\n',
+    'helper.ts': 'import {decide} from "./caller.js";\nimport * as h from "./data.js";\nconst {} = h;\nexport const read = () => 1;\nexport const again = decide;\n',
+    'caller.ts': 'import {read} from "./helper.js";\nexport function decide() { return read(); }\n',
+    'data.ts': 'export const value = 1;\n',
   };
-  const helperFirst = project(t, files), callerFirst = project(t, files);
-  helperFirst.scan('helper.ts'); callerFirst.scan('caller.ts');
-  assert.deepEqual(helperFirst.found.unverifiable.map(r => `${r.file}:${r.rule}:${r.detail}`), ['caller.ts:cyclic-waived-import:./helper.js']);
-  assert.deepEqual(callerFirst.found.violation.map(r => `${r.file}:${r.detail}`), ['caller.ts:execution-readback:decide']);
+  for (const first of ['helper.ts', 'caller.ts']) {
+    const p = project(t, files);
+    p.scan(first);
+    assert.deepEqual(p.found.violation, []);
+    assert.deepEqual(p.found.unverifiable, []);
+  }
 });
 
 test('a type-only re-export of a waived dependency namespace is not a runtime namespace escape', t => {

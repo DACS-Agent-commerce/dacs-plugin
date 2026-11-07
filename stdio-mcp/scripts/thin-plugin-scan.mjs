@@ -154,11 +154,23 @@ export function createModuleScanner(context) {
         || (ts.isVariableDeclaration(p) && p.initializer === o && plainPattern(p.name));
     };
     const memberRef = n => { n = unparen(n); if (!n) return null; if (ts.isPropertyAccessExpression(n) && refNames.has(n.name.text)) return n.name.text; if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression) && refNames.has(n.argumentExpression.text)) return n.argumentExpression.text; return null; };
-    // A module-level binding of a readback member (const read = x.m, const {m: read} = x) can be
+    // A module-level binding of a readback member (including nested object/array patterns) can be
     // exported, so until the module is settled it cannot vouch for itself, like a waived helper.
     const bindsReadbackMember = (name, initializer) => ts.isIdentifier(name) ? !!memberRef(initializer)
-      : ts.isObjectBindingPattern(name) && name.elements.some(e => { const key = e.propertyName ?? e.name; return ts.isObjectBindingPattern(e.name) ? bindsReadbackMember(e.name) : (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) && refNames.has(key.text); });
+      : name.elements.some(e => {
+        if (ts.isOmittedExpression(e)) return false;
+        const key = e.propertyName ?? e.name;
+        return (ts.isObjectBindingPattern(name) && (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) && refNames.has(key.text)) || bindsReadbackMember(e.name);
+      });
     result.readbackWaivers ||= ast.statements.some(s => ts.isVariableStatement(s) && s.declarationList.declarations.some(d => bindsReadbackMember(d.name, d.initializer)));
+    // Plain destructures of local namespaces can forward readback aliases too. Mark them before
+    // scanning dependencies: in a cycle, the namespace's waivers may not be available yet.
+    result.forwardsLocal ||= ast.statements.some(s => ts.isVariableStatement(s) && s.declarationList.declarations.some(d => {
+      const init = unparen(d.initializer);
+      if (!init || !ts.isIdentifier(init) || !plainPattern(d.name) || !d.name.elements.length) return false;
+      const b = resolveBinding(init);
+      return !!b && (ts.isNamespaceImport(b.parent) || ts.isImportEqualsDeclaration(b.parent)) && fromLocalImport(init);
+    }));
     const isDeclName = id => { const p = id.parent; return !!p && (((ts.isVariableDeclaration(p) || ts.isBindingElement(p) || ts.isParameter(p) || ts.isFunctionDeclaration(p) || ts.isFunctionExpression(p) || ts.isClassDeclaration(p) || ts.isImportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p) || ts.isImportEqualsDeclaration(p) || ts.isExportSpecifier(p) || ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isPropertySignature(p) || ts.isMethodSignature(p) || ts.isPropertyAccessExpression(p)) && p.name === id) || (ts.isBindingElement(p) && p.propertyName === id) || (ts.isExportSpecifier(p) && p.propertyName === id)); };
     const refOf = n => {
       let name = null;
