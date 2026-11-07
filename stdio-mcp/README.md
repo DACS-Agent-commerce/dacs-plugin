@@ -278,6 +278,7 @@ once one exists.
 | `DEMOS_KEYSTORE` | — | Encrypted keystore path (chmod 600) |
 | `DEMOS_KEYSTORE_PASSPHRASE` / `DEMOS_KEYSTORE_PASSPHRASE_FILE` | — | Keystore passphrase, or a chmod-600 file that holds it |
 | `DEMOS_MNEMONIC_FILE` | — | Plaintext mnemonic file (chmod 600). Discouraged; use a keystore |
+| `DEMOS_WALLET_MODE` | unset | `purchase-only` disables legacy key loading and signing; any other value refuses to start. A `<keystore>.purchase-only` file (beside the keystore path or its symlink target) does the same for keystore deployments; a mnemonic-file deployment is fenced only by this variable |
 | `DEMOS_DAILY_CAP_DEM` | `10` | Per-UTC-day cap on amount + fees |
 | `DEMOS_RECIPIENT_ALLOWLIST` | — | Comma-separated addresses |
 | `DEMOS_CONFIRM_CHANNELS` | `tty,desktop` | Any of `tty`, `desktop`, `webhook`, `stderr` |
