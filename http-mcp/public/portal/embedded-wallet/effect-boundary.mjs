@@ -1,59 +1,43 @@
-// The effect boundary (K0) for the embedded browser wallet. Every effect-producing signature and every egress
-// runs as one pass, in this order:
-//   EB1-EB4  pre-checks: admission, stop, approval binding, authority. They refuse early and authorize nothing
-//            after the fence wait.
-//   EB5      the per-wallet actor fence (`wallet-fence.mjs`, Web Locks), 10,000 ms to acquire. The pass captured the
-//            connection digest and connectionGeneration before the wait, and every later synchronous check compares
-//            against them.
-//   EB5r     under the fence, EB1-EB4 again. Then the EB signer runs the final stop read and the synchronous
-//            rechecks and calls the inner signer in the same tick.
-//   EB6      the signed bytes and the workflow are persisted (record `signed`) before they can leave the page.
-//   EB7      per egress stage: EB1, EB2, EB4 again, then digest and generation; a refusal keeps `signed-held`.
-//   EB8      the stage's `<stage>-started` intent is persisted.
-//   EB8f     the EB transmitter runs the final stop read and the synchronous checks, then the single transmission
-//            in the same tick; a refusal is recorded as `<stage>-withheld`.
-//   EB9      `<stage>-acknowledged` once the transmission fulfilled, or `<stage>-unknown` once it was invoked and did
-//            not (pending or failed when the stage returned). The fence is released on every path.
-// A pass copies and freezes its request before its first await. Its stages are a closed tuple: a signing pass runs
-// the workflow `dispatch` or `confirm-broadcast` (`confirm` then `broadcast`); a resume runs only a tuple RESUMES
-// lists for the lane's signed workflow and newest record. A stage that is not acknowledged ends the pass.
-// The sign step and each stage get their own one-use handle for the EB signer `ebSign(innerSign, handle)` or the EB
-// transmitter `ebTransmit(innerSend, handle)`. A handle works only during its own step (else `tp1_fence_not_owned`)
-// and only once; a stage's handle exists only after its `-started` record committed. The inner signer's bytes,
-// copied before the sign step sees them, are the only bytes persisted and sent; each step and the transport get a
-// fresh copy. A resume must also carry the operation id, pin version and approval revision the lane's `signed` record
-// was written under. The fence, the clock, the checks and the record store (`head(lane)` -> `{ revision, lastKind,
-// lastStage, signedBytes, signedWorkflow, signedOperationId, signedPinVersion, signedApprovalRevision }`,
-// `append(lane, expectedRevision, record)`) are injected; nothing here touches a network, IndexedDB or navigator.
-// No page loads this yet.
+// The browser wallet's K0 pass; no production path loads this module yet.
+// EB1–EB4 pre-checks authorize nothing after the wallet-fence wait. EB5r repeats them under the fence;
+// the EB signer performs its final stop read, synchronous checks and inner signature in the same tick.
+// EB6 saves private signed bytes by CAS. Each stage runs EB7, saves its -started intent (EB8), then
+// receives a one-use transmitter for EB8f's final stop read, synchronous checks and same-tick egress.
+// EB9 acknowledges only a fulfilled inner transmission; an invoked but unfinished/failed one is unknown.
+// Requests become frozen intents before any adapter call. Raw store heads become empty, resumable or
+// closed once. Resumption requires identical identity/bytes and a nonempty prefix from the next stage.
+// Normal execution advances with the same transition rule. Started, unknown and final records close lanes.
+// records.head(lane) -> {revision, signed, last}, with raw signed/newest records (absent on empty lanes).
+// records.append(lane, expectedRevision, record) -> {revision}; persistence is P53b1b's responsibility.
+// Authority/stop reads share 10,000 ms. Sign, send and record waits have no imposed deadline; a hung
+// callback holds the fence until page closure. A returning callback can leave an inner send in flight.
 import { EffectBoundaryRefusal, SYSTEM_CLOCK, refuse, requireFunctions } from './wallet-fence.mjs';
 
 /** Aggregate time one pass may spend inside authority and stop reads. */
 export const PASS_READ_DEADLINE_MS = 10_000;
-
 const MAX_CAUSE_MESSAGE_LENGTH = 200;
+const IDENTITY_KEYS = Object.freeze(['operationId', 'pinVersion', 'approvalRevision']);
+const WORKFLOWS = new Map([['dispatch', ['dispatch']], ['confirm-broadcast', ['confirm', 'broadcast']]]);
+const RESUME_TUPLES = [['dispatch'], ['confirm'], ['broadcast'], ['confirm', 'broadcast']];
+const STAGES = [...new Set([...WORKFLOWS.values()].flat())];
+const KINDS = new Set(['signed', 'signed-held', ...STAGES.flatMap((stage) => ['started', 'withheld', 'unknown', 'acknowledged'].map((suffix) => `${stage}-${suffix}`))]);
+const nonemptyString = (value) => typeof value === 'string' && value !== '';
 const sameBytes = (a, b) => a instanceof Uint8Array && b instanceof Uint8Array && a.length === b.length && a.every((byte, index) => byte === b[index]);
 
-// A synchronous check passes only by answering exactly `true`; a string is the refusal code.
-function runCheck(check, ...args) {
-  try {
-    return check(...args);
-  } catch (cause) {
-    throw refuse('eb_check_failed', cause);
-  }
+function runCheck(checks, name, ...args) {
+  try { return checks[name](...args); } catch (cause) { throw refuse('eb_check_failed', cause); }
 }
-
 function enforce(answer) {
-  if (answer !== true) throw typeof answer === 'string' && answer !== '' ? refuse(answer) : refuse('eb_check_invalid', answer);
+  if (answer !== true) throw nonemptyString(answer) ? refuse(answer) : refuse('eb_check_invalid', answer);
+}
+function describeCause(error) {
+  let code = 'unknown', message = 'Unprintable cause';
+  try { const value = error?.code; if (typeof value === 'string') code = value.slice(0, MAX_CAUSE_MESSAGE_LENGTH); } catch {}
+  try { message = String(error?.message ?? error).slice(0, MAX_CAUSE_MESSAGE_LENGTH); } catch {}
+  return { code, message };
 }
 
-const describeCause = (error) => ({
-  code: typeof error?.code === 'string' ? error.code : 'unknown',
-  message: String(error?.message ?? error).slice(0, MAX_CAUSE_MESSAGE_LENGTH),
-});
-
-// Time spent inside reads is summed against one limit. A read races a timer for what is left; a result that
-// settles after the timer, or that pushes the total over the limit, is ignored.
+// Only read time consumes the aggregate budget; late answers cannot authorize an effect.
 function createReadBudget(clock, limitMs) {
   let spentMs = 0;
   return (start, timeoutCode) => new Promise((resolve, reject) => {
@@ -70,87 +54,78 @@ function createReadBudget(clock, limitMs) {
   });
 }
 
-// The stage tuples. A signing pass runs a whole workflow; a resume runs a tuple that RESUMES lists.
-const DISPATCH = Object.freeze(['dispatch']);
-const CONFIRM = Object.freeze(['confirm']);
-const BROADCAST = Object.freeze(['broadcast']);
-const CONFIRM_BROADCAST = Object.freeze(['confirm', 'broadcast']);
-const WORKFLOWS = new Map([['dispatch', DISPATCH], ['confirm-broadcast', CONFIRM_BROADCAST]]);
-const RESUME_TUPLES = Object.freeze([DISPATCH, CONFIRM, BROADCAST, CONFIRM_BROADCAST]);
-
-// The resume table: the lane's signed workflow, its newest record's kind and held stage -> the tuples a resume may
-// run. Every other head (`-started`, `-unknown`, a final `-acknowledged`, an unknown kind or workflow) is refused.
-const resumeRow = (workflow, kind, stage, ...tuples) => Object.freeze({ workflow, kind, stage, tuples });
-const RESUMES = Object.freeze([
-  resumeRow('dispatch', 'signed', undefined, DISPATCH),
-  resumeRow('dispatch', 'signed-held', 'dispatch', DISPATCH),
-  resumeRow('dispatch', 'dispatch-withheld', 'dispatch', DISPATCH),
-  resumeRow('confirm-broadcast', 'signed', undefined, CONFIRM, CONFIRM_BROADCAST),
-  resumeRow('confirm-broadcast', 'signed-held', 'confirm', CONFIRM, CONFIRM_BROADCAST),
-  resumeRow('confirm-broadcast', 'confirm-withheld', 'confirm', CONFIRM, CONFIRM_BROADCAST),
-  resumeRow('confirm-broadcast', 'confirm-acknowledged', 'confirm', BROADCAST),
-  resumeRow('confirm-broadcast', 'signed-held', 'broadcast', BROADCAST),
-  resumeRow('confirm-broadcast', 'broadcast-withheld', 'broadcast', BROADCAST),
-]);
-
-// The held stage: a `<stage>-withheld` kind names it (a `lastStage` that differs gives `null`, which no row has);
-// any other kind takes `lastStage`, so `signed-held` needs one and `signed` must have none.
-function heldStage({ lastKind, lastStage }) {
-  const named = typeof lastKind === 'string' && lastKind.endsWith('-withheld') ? lastKind.slice(0, -'-withheld'.length) : undefined;
-  if (named === undefined) return lastStage;
-  return lastStage === undefined || lastStage === named ? named : null;
+// A single transition policy for both newly signed and resumed workflows.
+function nextStage(workflow, last) {
+  const stages = WORKFLOWS.get(workflow);
+  if (!stages || !KINDS.has(last?.kind)) return undefined;
+  const { kind, stage } = last;
+  if (kind === 'signed') return stage === undefined ? stages[0] : undefined;
+  if (kind === 'signed-held') return stages.includes(stage) ? stage : undefined;
+  const withheld = stages.find((name) => kind === `${name}-withheld`);
+  if (withheld !== undefined) return stage === undefined || stage === withheld ? withheld : undefined;
+  if (workflow === 'confirm-broadcast' && kind === 'confirm-acknowledged' && stage === 'confirm') return 'broadcast';
+  return undefined;
 }
 
-const resumableTuples = (head) => RESUMES.find((row) => row.workflow === head.signedWorkflow && row.kind === head.lastKind && row.stage === heldStage(head))?.tuples ?? [];
+// Parse once, before any further await. Missing/invalid signed values never reach the resume policy.
+function laneState(head) {
+  const { revision, signed, last } = head ?? {};
+  if (!Number.isSafeInteger(revision) || revision < 0) throw new TypeError('record store returned a malformed lane revision');
+  if (revision === 0 && signed == null && last == null) return { state: 'empty', revision };
+  const closed = { state: 'closed', revision };
+  if (revision === 0 || signed?.kind !== 'signed') return closed;
+  const { workflow, bytes } = signed;
+  if (!WORKFLOWS.has(workflow) || !(bytes instanceof Uint8Array) || bytes.length === 0) return closed;
+  const copied = Uint8Array.from(bytes);
+  const identity = Object.fromEntries(IDENTITY_KEYS.map((key) => [key, signed[key]]));
+  if (!Object.values(identity).every(nonemptyString)) return closed;
+  const next = nextStage(workflow, last);
+  return next === undefined ? closed : { state: 'resumable', revision, workflow, bytes: copied, identity: Object.freeze(identity), next };
+}
+function mayResume(state, own) {
+  if (state.state !== 'resumable') return false;
+  const remaining = WORKFLOWS.get(state.workflow).slice(WORKFLOWS.get(state.workflow).indexOf(state.next));
+  return own.tuple.length > 0 && own.tuple.length <= remaining.length && own.tuple.every((name, i) => name === remaining[i])
+    && IDENTITY_KEYS.every((key) => state.identity[key] === own.identity[key]) && sameBytes(own.retained, state.bytes);
+}
 
-// The checks each step runs, in order. `stop` and `authority` are awaited reads. The tails run synchronously after
-// the step's final stop read (and, for EB8f, the handle and byte checks), so nothing awaits before the inner call.
-// The approval binding is checked by the pre-checks, EB5r and the signer tail; EB7 and EB8f do not re-read it.
 const STEP_CHECKS = Object.freeze({
-  refresh: Object.freeze(['admission', 'stop', 'approval', 'authority', 'binding']),
-  beforeIntent: Object.freeze(['admission', 'stop', 'authority', 'binding']),
-  signerTail: Object.freeze(['owner', 'admission', 'approval', 'binding']),
-  sendTail: Object.freeze(['owner', 'admission', 'binding']),
+  refresh: ['admission', 'stop', 'approval', 'authority', 'binding'],
+  beforeIntent: ['admission', 'stop', 'authority', 'binding'],
+  signerTail: ['owner', 'admission', 'approval', 'binding'],
+  sendTail: ['owner', 'admission', 'binding'],
 });
-
-// Handles map to their step here. A handle is frozen and shows only the fence capability, for nested steps.
 const STEPS = new WeakMap();
-
-// The pass's state: `capability` is the fence capability, `bytes` the private canonical bytes, and at most one step
-// is live at a time. Every check named in STEP_CHECKS is a method; the synchronous ones never await.
 function createPass({ fence, checks, clock, stoppedCode }, { operationId, approvalRevision }) {
-  const binding = Object.freeze({ digest: runCheck(checks.connectionDigest), generation: fence.connectionGeneration });
+  const binding = { digest: runCheck(checks, 'connectionDigest'), generation: fence.connectionGeneration };
   const readWithinBudget = createReadBudget(clock, PASS_READ_DEADLINE_MS);
-  let live = true;
-  let current = null;
+  let live = true, current = null;
   const pass = {
     capability: null, bytes: undefined,
     owner() { if (!live || !fence.owns(pass.capability, operationId)) throw refuse('tp1_fence_not_owned'); },
-    admission: () => enforce(runCheck(checks.admission)),
-    approval: () => enforce(runCheck(checks.approval, approvalRevision)),
+    admission: () => enforce(runCheck(checks, 'admission')),
+    approval: () => enforce(runCheck(checks, 'approval', approvalRevision)),
     binding() {
-      if (runCheck(checks.connectionDigest) !== binding.digest || fence.connectionGeneration !== binding.generation) throw refuse('tp1_local_binding_changed');
+      if (runCheck(checks, 'connectionDigest') !== binding.digest || fence.connectionGeneration !== binding.generation) throw refuse('tp1_local_binding_changed');
     },
     async stop() {
       let stopped;
-      try {
-        stopped = await readWithinBudget(() => checks.stopped(), 'stop_check_timeout');
-      } catch (error) {
-        throw error instanceof EffectBoundaryRefusal ? error : refuse('stop_check_failed', error);
-      }
+      try { stopped = await readWithinBudget(() => checks.stopped(), 'stop_check_timeout'); }
+      catch (error) { throw error instanceof EffectBoundaryRefusal ? error : refuse('stop_check_failed', error); }
       if (stopped === true) throw refuse(stoppedCode);
       if (stopped !== false) throw refuse('stop_check_invalid', stopped);
     },
     async authority() {
-      try {
-        await readWithinBudget(() => checks.readAuthority(), 'tp1_authority_timeout');
-      } catch (error) {
-        throw error instanceof EffectBoundaryRefusal ? error : refuse(typeof error?.code === 'string' ? error.code : 'tp1_authority_failed', error);
+      try { await readWithinBudget(() => checks.readAuthority(), 'tp1_authority_timeout'); }
+      catch (error) {
+        if (error instanceof EffectBoundaryRefusal) throw error;
+        let code;
+        try { code = error?.code; } catch {}
+        throw refuse(typeof code === 'string' ? code : 'tp1_authority_failed', error);
       }
     },
     async verify(names) { for (const name of names) await pass[name](); },
     verifyNow(names) { for (const name of names) pass[name](); },
-    // Opens the only live step; its handle works until `closeStep()` or the end of the pass.
     openStep(kind) {
       const handle = Object.freeze({ get capability() { return pass.capability; } });
       current = { pass, kind, handle, state: 'open', signed: undefined, transmission: undefined };
@@ -164,27 +139,19 @@ function createPass({ fence, checks, clock, stoppedCode }, { operationId, approv
   };
   return pass;
 }
-
-// The live step behind a handle, of the given kind and under its owner's fence; anything else is not owned.
 function liveStep(handle, kind) {
   const step = STEPS.get(handle);
   if (step?.kind !== kind || !step.pass.isLive(step)) throw refuse('tp1_fence_not_owned');
   step.pass.owner();
   return step;
 }
-
-// After the final stop read: the handle must still be live and unused.
 function claimStep(handle, kind, repeatedCode) {
   const step = liveStep(handle, kind);
   if (step.state !== 'open') throw refuse(repeatedCode);
   return step;
 }
 
-/**
- * The EB signer: wraps the inner signer so that the library's call awaits the final stop read, runs the synchronous
- * rechecks (owner, admission, approval, digest, generation) and calls `innerSign` in the same tick. Rejects (inner
- * signer not called) unless `handle` is its pass's live sign handle, or with `eb_signer_repeated` on a second call.
- */
+/** Wraps the inner signer with EB5r's final stop read and same-tick checks; requires a live one-use sign handle. */
 export function ebSign(innerSign, handle) {
   return async (...args) => {
     await liveStep(handle, 'sign').pass.stop();
@@ -197,12 +164,7 @@ export function ebSign(innerSign, handle) {
   };
 }
 
-/**
- * The EB transmitter (EB8f): copies the bytes it is given, awaits the final stop read, checks the handle, that the
- * copy equals the persisted bytes (`eb_bytes_mismatch`), admission, digest and generation, and calls `innerSend`
- * with a fresh copy in the same tick. Rejects (inner send not called) unless `handle` is the live stage handle, or
- * with `eb_transmission_repeated` on a second call.
- */
+/** Wraps one inner send with EB8f, byte equality and private copies; rejects foreign, stale or consumed handles. */
 export function ebTransmit(innerSend, handle) {
   return async (bytes, ...rest) => {
     const offered = bytes instanceof Uint8Array ? Uint8Array.from(bytes) : undefined;
@@ -218,101 +180,74 @@ export function ebTransmit(innerSend, handle) {
   };
 }
 
-// Appends under the lane's revision: the head is read once, every append is compared against the revision the
-// previous append returned, and a failed, malformed or out-of-sequence answer is `eb_persist_failed`.
 function createLaneCursor(records, lane, identity) {
-  let head;
+  let head, revision;
+  const guarded = async (work) => { try { return await work(); } catch (cause) { throw refuse('eb_persist_failed', cause); } };
   const readHead = async () => {
-    head ??= await records.head(lane);
-    if (!Number.isSafeInteger(head?.revision) || head.revision < 0) throw new TypeError('record store returned a malformed lane head');
+    if (head === undefined) { head = laneState(await records.head(lane)); revision = head.revision; }
     return head;
   };
-  const guarded = (step) => step().catch((cause) => { throw refuse('eb_persist_failed', cause); });
   return {
     head: () => guarded(readHead),
     append: (fields) => guarded(async () => {
-      const { revision } = await readHead();
+      await readHead();
       const next = await records.append(lane, revision, { ...identity, ...fields });
-      if (next?.revision !== revision + 1) throw new TypeError('record store returned an out-of-sequence revision');
-      head = { revision: next.revision };
+      if (!Number.isSafeInteger(next?.revision) || next.revision !== revision + 1) throw new TypeError('record store returned an out-of-sequence revision');
+      revision = next.revision;
     }),
   };
 }
-
-// The approval and pin that authorized the signed bytes are the ones the lane's `signed` record carries; a store head
-// that does not name them (or names others) cannot be resumed by this pass.
-const signedUnderIdentity = (head, { operationId, pinVersion, approvalRevision }) => head.signedOperationId === operationId
-  && head.signedPinVersion === pinVersion && head.signedApprovalRevision === approvalRevision;
-
-// A signing pass needs an empty lane and persists the signer's bytes with the workflow. A resume needs its tuple in
-// RESUMES for the lane's head, the bytes and the identity of the lane's `signed` record; it then runs the EB5r tail.
-async function signOrResume(pass, cursor, { sign, retained, tuple, workflow, ...identity }) {
-  const head = await cursor.head();
-  if (retained !== undefined) {
-    if (!resumableTuples(head).includes(tuple) || !sameBytes(retained, head.signedBytes) || !signedUnderIdentity(head, identity)) throw refuse('eb_resume_not_allowed', head.lastKind);
+async function signOrResume(pass, cursor, own) {
+  const state = await cursor.head();
+  if (own.retained !== undefined) {
+    if (!mayResume(state, own)) throw refuse('eb_resume_not_allowed');
     await pass.stop();
     pass.verifyNow(STEP_CHECKS.signerTail);
-    return retained;
+    return state;
   }
-  if (head.revision !== 0) throw refuse('eb_lane_not_empty', head.lastKind);
+  if (state.state !== 'empty') throw refuse('eb_lane_not_empty');
   const step = pass.openStep('sign');
-  try {
-    await sign(step.handle);
-  } finally {
-    pass.closeStep();
-  }
+  try { await own.sign(step.handle); } finally { pass.closeStep(); }
   if (step.state === 'open') throw refuse('eb_signer_bypassed');
   if (!(step.signed?.length > 0)) throw refuse('eb_signed_bytes_invalid');
-  await cursor.append({ kind: 'signed', workflow, bytes: Uint8Array.from(step.signed) });
-  return step.signed;
+  await cursor.append({ kind: 'signed', workflow: own.workflow, bytes: Uint8Array.from(step.signed) });
+  return { workflow: own.workflow, bytes: step.signed, next: nextStage(own.workflow, { kind: 'signed' }) };
 }
 
-// EB7, the `-started` intent, then the stage's own handle for EB8f. Once the handle was consumed the transmission
-// was invoked, so the stage ends `acknowledged` or `unknown`, never withheld. It is `acknowledged` only when the EB
-// transmitter's own transmission had fulfilled by the time the stage returned; one still pending, or one that
-// failed under a stage that returned anyway, is `unknown`.
+// Pure five-row policy: consuming a handle can never produce a withheld outcome.
+function stageOutcome(invoked, settled, transmission) {
+  if ('error' in settled) return { state: invoked ? 'unknown' : 'withheld', cause: settled.error };
+  if (!invoked) return { state: 'unknown', cause: refuse('eb_transmitter_bypassed') };
+  if (transmission.status !== 'fulfilled') return { state: 'unknown', cause: transmission.status === 'failed' ? transmission.error : refuse('eb_transmission_unfinished') };
+  return { state: 'acknowledged', result: settled.result };
+}
+async function saveRefusal(cursor, fields, original) {
+  try { await cursor.append({ ...fields, cause: describeCause(original) }); }
+  catch (persistence) { throw refuse('eb_persist_failed', new AggregateError([original, persistence], 'refusal record failed')); }
+}
 async function runStage(pass, cursor, { name, send }) {
-  try {
-    await pass.verify(STEP_CHECKS.beforeIntent);
-  } catch (error) {
-    await cursor.append({ kind: 'signed-held', stage: name, cause: describeCause(error) });
-    throw error;
-  }
+  try { await pass.verify(STEP_CHECKS.beforeIntent); }
+  catch (error) { await saveRefusal(cursor, { kind: 'signed-held', stage: name }, error); throw error; }
   await cursor.append({ kind: `${name}-started`, stage: name });
   const step = pass.openStep('send');
   let settled;
-  try {
-    settled = { result: await send(step.handle, pass.copyBytes()) };
-  } catch (error) {
-    settled = { error };
+  try { settled = { result: await send(step.handle, pass.copyBytes()) }; }
+  catch (error) { settled = { error }; }
+  finally { pass.closeStep(); }
+  const outcome = stageOutcome(step.state === 'consumed', settled, step.transmission);
+  if (outcome.state === 'withheld') {
+    await saveRefusal(cursor, { kind: `${name}-withheld`, stage: name }, outcome.cause);
+    throw outcome.cause;
   }
-  pass.closeStep();
-  const invoked = step.state === 'consumed';
-  const unknown = async (cause) => {
-    await cursor.append({ kind: `${name}-unknown`, stage: name, cause: describeCause(cause) });
-    return { stage: name, state: 'unknown', cause };
-  };
-  if ('error' in settled) {
-    if (invoked) return unknown(settled.error);
-    await cursor.append({ kind: `${name}-withheld`, stage: name, cause: describeCause(settled.error) });
-    throw settled.error;
-  }
-  if (!invoked) return unknown(refuse('eb_transmitter_bypassed'));
-  if (step.transmission.status === 'failed') return unknown(step.transmission.error);
-  if (step.transmission.status !== 'fulfilled') return unknown(refuse('eb_transmission_unfinished'));
-  await cursor.append({ kind: `${name}-acknowledged`, stage: name });
-  return { stage: name, state: 'acknowledged', result: settled.result };
+  await cursor.append({ kind: `${name}-${outcome.state}`, stage: name, ...(outcome.state === 'unknown' ? { cause: describeCause(outcome.cause) } : {}) });
+  return { stage: name, ...outcome };
 }
 
-const tupleOf = (candidates, names) => candidates.find((tuple) => tuple.length === names.length && tuple.every((name, index) => name === names[index]));
-
-// The pass's own frozen copy of the request, read once. A signing pass's stages must be a whole workflow and a
-// resume's a resumable tuple; anything else is a TypeError before any read, lock, record or effect.
+// Capture each caller value once, including identity, descriptors and retained bytes.
 function snapshotRequest(request) {
   const { operationId, lane, pinVersion, approvalRevision, capability, sign, retained, stages } = request ?? {};
-  for (const [field, value] of [['operationId', operationId], ['lane', lane]]) {
-    if (typeof value !== 'string' || value === '') throw new TypeError(`${field} must be a non-empty string`);
-  }
+  const identity = Object.freeze({ operationId, pinVersion, approvalRevision });
+  for (const [key, value] of [...Object.entries(identity), ['lane', lane]]) if (!nonemptyString(value)) throw new TypeError(`${key} must be a non-empty string`);
   if ((sign === undefined) === (retained === undefined)) throw new TypeError('exactly one of sign and retained is required');
   if (sign !== undefined && typeof sign !== 'function') throw new TypeError('request.sign must be a function');
   const retainedBytes = retained?.bytes;
@@ -320,55 +255,48 @@ function snapshotRequest(request) {
   const steps = Array.from(Array.isArray(stages) ? stages : [], (stage) => Object.freeze({ name: stage?.name, send: stage?.send }));
   for (const { send } of steps) if (typeof send !== 'function') throw new TypeError('stage.send must be a function');
   const names = steps.map(({ name }) => name);
-  const tuple = tupleOf(sign === undefined ? RESUME_TUPLES : [...WORKFLOWS.values()], names);
-  if (tuple === undefined) throw new TypeError(`stages [${names.join(', ')}] are not a ${sign === undefined ? 'resumable tuple' : 'workflow'}`);
-  const workflow = sign === undefined ? undefined : [...WORKFLOWS.keys()].find((name) => WORKFLOWS.get(name) === tuple);
-  return Object.freeze({
-    operationId, lane, pinVersion, approvalRevision, capability, sign, workflow, tuple,
-    retained: retained === undefined ? undefined : Uint8Array.from(retainedBytes), stages: Object.freeze(steps),
-  });
+  const tuple = (sign === undefined ? RESUME_TUPLES : [...WORKFLOWS.values()]).find((candidate) => candidate.length === names.length && candidate.every((name, i) => name === names[i]));
+  if (tuple === undefined) throw new TypeError('stages must be a closed workflow or resume tuple');
+  const workflow = [...WORKFLOWS.keys()].find((name) => WORKFLOWS.get(name) === tuple);
+  return Object.freeze({ identity, lane, capability, sign, workflow, tuple: Object.freeze([...tuple]), retained: retained === undefined ? undefined : Uint8Array.from(retainedBytes), stages: Object.freeze(steps) });
 }
 
 /**
- * Builds the pass runner for one wallet. `fence` is the wallet's `createWalletFence` result, `clock` the injected clock
- * and `newPassId` the pass id source. `checks`: `admission()` and `approval(revision)` answer `true` or a refusal
- * code; `connectionDigest()` answers the local digest; `stopped()` answers a boolean (true = stopped); `readAuthority()`
- * resolves when the binding is current. `records` is the record store. `stoppedCode` is the refusal for a stop
- * (`writes_stopped`, or `seller_stopped`). `runPass({ operationId, lane, pinVersion, approvalRevision, sign | retained,
- * stages, capability? })` resolves `{ operationId, passId, outcomes }`, one outcome per stage that ran (`acknowledged`
- * or `unknown`). It rejects with a TypeError for a malformed request or stage tuple, and with an
- * `EffectBoundaryRefusal` for every refusal, signer and transport untouched where K0 says so.
+ * Creates an unwired wallet pass runner with injected fence, checks and record store. Check methods return true
+ * or a refusal code; stopped returns boolean, readAuthority resolves for a current binding. Approval receives the
+ * captured revision. runPass requires nonempty string operationId/pinVersion/approvalRevision/lane and either
+ * sign or retained.bytes plus closed stages; resolves {operationId, passId, outcomes}. Invalid requests throw
+ * TypeError before adapter calls; refusal/persistence failures reject with EffectBoundaryRefusal and causes.
  */
 export function createEffectBoundary({ fence, checks, records, clock = SYSTEM_CLOCK, newPassId = () => globalThis.crypto.randomUUID(), stoppedCode = 'writes_stopped' }) {
   requireFunctions('fence', fence, ['run', 'owns']);
   requireFunctions('checks', checks, ['admission', 'approval', 'connectionDigest', 'stopped', 'readAuthority']);
   requireFunctions('records', records, ['head', 'append']);
-
   async function runUnderFence(pass, capability, own) {
     pass.capability = capability;
-    const { operationId, lane, pinVersion, approvalRevision } = own;
+    const { operationId } = own.identity;
     const passId = newPassId();
-    const cursor = createLaneCursor(records, lane, { operationId, lane, pinVersion, approvalRevision, passId });
+    const cursor = createLaneCursor(records, own.lane, { ...own.identity, lane: own.lane, passId });
     await pass.verify(STEP_CHECKS.refresh);
-    pass.bytes = await signOrResume(pass, cursor, own);
+    const state = await signOrResume(pass, cursor, own);
+    pass.bytes = state.bytes;
     const outcomes = [];
     for (const stage of own.stages) {
-      outcomes.push(await runStage(pass, cursor, stage));
-      if (outcomes.at(-1).state !== 'acknowledged') break;
+      if (stage.name !== state.next) throw refuse('eb_resume_not_allowed');
+      const outcome = await runStage(pass, cursor, stage);
+      outcomes.push(outcome);
+      if (outcome.state !== 'acknowledged') break;
+      state.next = nextStage(state.workflow, { kind: `${stage.name}-acknowledged`, stage: stage.name });
     }
     return { operationId, passId, outcomes };
   }
-
   async function runPass(request) {
     const own = snapshotRequest(request);
-    const pass = createPass({ fence, checks, clock, stoppedCode }, own);
+    const pass = createPass({ fence, checks, clock, stoppedCode }, own.identity);
     try {
       await pass.verify(STEP_CHECKS.refresh);
-      return await fence.run(own.operationId, (capability) => runUnderFence(pass, capability, own), own.capability);
-    } finally {
-      pass.end();
-    }
+      return await fence.run(own.identity.operationId, (capability) => runUnderFence(pass, capability, own), own.capability);
+    } finally { pass.end(); }
   }
-
   return { runPass };
 }

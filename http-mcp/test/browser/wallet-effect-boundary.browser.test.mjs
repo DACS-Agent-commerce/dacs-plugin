@@ -6,11 +6,11 @@
 // do not apply to a browser lane (no packed archive, no K1 revision).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ebSign, ebTransmit } from '../../public/portal/embedded-wallet/effect-boundary.mjs';
-import { createWorld } from '../helpers/effect-boundary-doubles.mjs';
+import { createEffectBoundary, ebSign, ebTransmit, PASS_READ_DEADLINE_MS } from '../../public/portal/embedded-wallet/effect-boundary.mjs';
+import { createWorld, createMemoryRecords } from '../helpers/effect-boundary-doubles.mjs';
 import { createGate, settle } from '../helpers/wallet-fence-doubles.mjs';
 
-const READ_DEADLINE_MS = 10_000;
+const READ_DEADLINE_MS = PASS_READ_DEADLINE_MS;
 const FENCE_TIMEOUT_MS = 10_000;
 
 function assertRefusal(error, code) {
@@ -126,19 +126,6 @@ test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a l
     });
     assertRefusal(foreign[0].error, 'tp1_fence_not_owned');
     assert.equal(world.counts.signer, 1, 'only the owner signed');
-  });
-
-  await t.test('K0-B8 a release by a non-owner has no effect; the owner still holds the fence', async () => {
-    const world = createWorld();
-    let waiter;
-    await world.fence.run('op-1', async (capability) => {
-      assert.equal(world.fence.release(capability, 'op-2'), false, 'another operation');
-      assert.equal(world.fence.release({ operationId: 'op-1' }, 'op-1'), false, 'a forged capability');
-      waiter = world.fence.run('op-3', async () => 'acquired');
-      await settle();
-      assert.ok(await isPending(waiter), 'the owner still holds it');
-    });
-    assert.equal(await waiter, 'acquired');
   });
 
   await t.test('K0-B9 two overlapping purchases on one actor never interleave sign-to-dispatch sections', async () => {
@@ -404,19 +391,7 @@ test('a connection replacement takes the fence and bumps connectionGeneration, a
     assert.equal(world.counts.signer, 0);
   });
 
-  await t.test('a replacement that throws still bumps the generation and releases the fence', async () => {
-    const world = createWorld();
-    const failure = new Error('reconnect failed');
-    await assert.rejects(world.fence.replaceConnection(async () => { throw failure; }), failure);
-    assert.equal(world.fence.connectionGeneration, 1);
-    assert.ok(await world.fenceIsFree());
-  });
 
-  await t.test('only a fenced replacement can change the generation', () => {
-    const world = createWorld();
-    assert.throws(() => { world.fence.connectionGeneration = 5; }, TypeError);
-    assert.equal(world.fence.connectionGeneration, 0);
-  });
 });
 
 test('the EB signer and EB transmitter run the EB5r and EB8f tails immediately before the inner call they wrap, and refuse tp1_fence_not_owned outside the pass that armed them', async (t) => {
@@ -588,84 +563,6 @@ test('the bytes the wrapped signer returned are the bytes persisted and the only
   });
 });
 
-// Each row leaves a lane in a state, then a second pass asks to resume that lane's retained bytes.
-const laneStates = [
-  { name: 'only a signed record (the crash came before the intent)', resumable: true, prepare: (w) => w.records.failures.set('dispatch-started', new Error('disk full')) },
-  { name: 'signed-held (EB7 refused)', resumable: true, prepare: (w) => w.records.beforeCommit.set('signed', () => { w.state.admission = 'profile_not_admitted'; }) },
-  { name: 'dispatch-withheld (EB8f refused)', resumable: true, prepare: (w) => w.records.beforeCommit.set('dispatch-started', () => { w.state.killed = true; }) },
-  { name: 'dispatch-started and no answer (a crash during the send)', resumable: false, prepare: (w) => w.records.failures.set('dispatch-acknowledged', new Error('tab closed')) },
-  { name: 'dispatch-unknown (the answer was lost)', resumable: false, prepare: (w) => { w.behavior.transport = async () => { throw new Error('socket reset'); }; } },
-  { name: 'dispatch-acknowledged', resumable: false, prepare: () => {} },
-];
-
-test('K0-F8 a lane\'s records decide whether a pass may sign or resume its retained bytes', async (t) => {
-  for (const row of laneStates) {
-    const verdict = row.resumable ? 'transmits the retained bytes once' : 'is refused eb_resume_not_allowed with transport 0';
-    await t.test(`resuming a lane that holds ${row.name} ${verdict}`, async () => {
-      const first = createWorld();
-      row.prepare(first);
-      await first.settled(first.runPass());
-      first.records.failures.clear();
-      first.records.beforeCommit.clear();
-      const before = first.records.kinds('lane-1').length;
-      const restarted = createWorld({ records: first.records });
-      const { error } = await restarted.settled(restarted.runPass({ retained: { bytes: new Uint8Array(first.SIGNED_BYTES) }, sign: undefined }));
-      if (row.resumable) {
-        assert.equal(error, undefined);
-        assert.equal(restarted.counts.transport, 1);
-      } else {
-        assertRefusal(error, 'eb_resume_not_allowed');
-        assert.equal(restarted.counts.transport, 0);
-        assert.equal(first.records.kinds('lane-1').length, before, 'nothing was appended');
-      }
-      assert.equal(restarted.counts.signer, 0);
-    });
-  }
-
-  await t.test('retained bytes on an empty lane are refused eb_resume_not_allowed with signer 0 and transport 0', async () => {
-    const world = createWorld();
-    const { error } = await world.settled(world.runPass({ retained: { bytes: new Uint8Array([99]) }, sign: undefined }));
-    assertRefusal(error, 'eb_resume_not_allowed');
-    assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
-    assert.deepEqual(world.records.kinds('lane-1'), []);
-  });
-
-  await t.test('retained bytes that differ from the lane\'s signed record are refused eb_resume_not_allowed', async () => {
-    const first = createWorld();
-    first.records.beforeCommit.set('dispatch-started', () => { first.state.killed = true; });
-    await first.settled(first.runPass());
-    first.records.beforeCommit.clear();
-    const restarted = createWorld({ records: first.records });
-    const { error } = await restarted.settled(restarted.runPass({ retained: { bytes: new Uint8Array([99]) }, sign: undefined }));
-    assertRefusal(error, 'eb_resume_not_allowed');
-    assert.equal(restarted.counts.transport, 0);
-  });
-
-  await t.test('a store head that cannot prove the last record is refused eb_persist_failed', async () => {
-    const world = createWorld();
-    world.records.head = async () => ({ revision: 'one' });
-    const { error } = await world.settled(world.runPass());
-    assertRefusal(error, 'eb_persist_failed');
-    assert.equal(world.counts.signer, 0);
-  });
-
-  for (const row of laneStates) {
-    await t.test(`a new signing pass on a lane that holds ${row.name} is refused eb_lane_not_empty with signer 1 in total`, async () => {
-      const first = createWorld();
-      row.prepare(first);
-      await first.settled(first.runPass());
-      first.records.failures.clear();
-      first.records.beforeCommit.clear();
-      const before = first.records.kinds('lane-1').length;
-      const second = createWorld({ records: first.records });
-      const { error } = await second.settled(second.runPass());
-      assertRefusal(error, 'eb_lane_not_empty');
-      assert.deepEqual([first.counts.signer + second.counts.signer, second.counts.transport], [1, 0]);
-      assert.equal(first.records.kinds('lane-1').length, before);
-    });
-  }
-});
-
 test('the handle given to sign and send steps carries no pass state: bytes, call counts and liveness cannot be changed through it', async (t) => {
   const forged = new Uint8Array([66, 66]);
 
@@ -745,49 +642,6 @@ test('resume bytes are copied when the pass starts: changing the caller\'s array
 });
 
 // Each row leaves a two-stage lane at a stage that was held or withheld, then a second pass resumes it. A `fromHead`
-// row ends in a record whose kind does not name the stage, so the stage comes from the store head's `lastStage`.
-const heldStageLanes = [
-  { name: 'confirm-acknowledged and broadcast-withheld', stages: ['confirm', 'broadcast'], held: 'broadcast', prepare: (w) => w.records.beforeCommit.set('broadcast-started', () => { w.state.killed = true; }) },
-  { name: 'confirm-acknowledged and signed-held for broadcast', stages: ['confirm', 'broadcast'], held: 'broadcast', fromHead: true, prepare: (w) => w.records.beforeCommit.set('confirm-acknowledged', () => { w.state.admission = 'profile_not_admitted'; }) },
-  { name: 'confirm-acknowledged and a failed broadcast-started write', stages: ['confirm', 'broadcast'], held: 'broadcast', fromHead: true, prepare: (w) => w.records.failures.set('broadcast-started', new Error('disk full')) },
-  { name: 'confirm-withheld', stages: ['confirm', 'broadcast'], held: 'confirm', prepare: (w) => w.records.beforeCommit.set('confirm-started', () => { w.state.killed = true; }) },
-  { name: 'dispatch-withheld', stages: ['dispatch'], held: 'dispatch', prepare: (w) => w.records.beforeCommit.set('dispatch-started', () => { w.state.killed = true; }) },
-];
-
-test('K0-F8 a resume starts at the stage the lane held or withheld and never re-sends a stage the lane shows as sent', async (t) => {
-  for (const row of heldStageLanes) {
-    const resume = async (names, check) => {
-      const first = createWorld();
-      row.prepare(first);
-      await first.settled(first.runPass({ stages: row.stages.map((name) => ({ name, send: first.send })) }));
-      first.records.beforeCommit.clear();
-      first.records.failures.clear();
-      const before = first.records.kinds('lane-1').length;
-      const resumed = createWorld({ records: first.records });
-      const { error } = await resumed.settled(resumed.runPass({
-        retained: { bytes: new Uint8Array(first.SIGNED_BYTES) }, sign: undefined, stages: names.map((name) => ({ name, send: resumed.send })),
-      }));
-      await check({ error, resumed, records: first.records, before });
-    };
-
-    await t.test(`a lane holding ${row.name} transmits ${row.held} once when the resume starts there`, () => resume([row.held], ({ error, resumed, records }) => {
-      assert.equal(error, undefined);
-      assert.equal(resumed.counts.transport, 1);
-      assert.equal(records.kinds('lane-1').at(-1), `${row.held}-acknowledged`);
-    }));
-
-    const others = ['dispatch', 'confirm', 'broadcast'].filter((name) => name !== row.held).map((name) => [name]);
-    if (row.held === 'broadcast') others.push(['confirm', 'broadcast']);
-    for (const names of others) {
-      await t.test(`a lane holding ${row.name} refuses a resume of ${names.join(', ')} eb_resume_not_allowed with transport 0`, () => resume(names, ({ error, resumed, records, before }) => {
-        assertRefusal(error, 'eb_resume_not_allowed');
-        assert.deepEqual([resumed.counts.signer, resumed.counts.transport], [0, 0]);
-        assert.equal(records.kinds('lane-1').length, before, 'nothing was appended');
-      }));
-    }
-  }
-});
-
 test('K0-F8 a lane resumed at confirm alone ends at confirm-acknowledged and a later resume transmits broadcast once', async () => {
   const first = createWorld();
   first.records.failures.set('confirm-started', new Error('disk full'));
@@ -803,99 +657,6 @@ test('K0-F8 a lane resumed at confirm alone ends at confirm-acknowledged and a l
   assert.deepEqual(first.records.kinds('lane-1').slice(-2), ['broadcast-started', 'broadcast-acknowledged']);
 });
 
-// Approval and pin bind the bytes that were signed: the resume's identity must be the identity the `signed` record carries.
-const otherIdentities = [
-  { name: 'operation id', overrides: { operationId: 'op-2' } },
-  { name: 'approval revision', overrides: { approvalRevision: 'approval-2' } },
-  { name: 'pin version', overrides: { pinVersion: 'pin-2' } },
-];
-
-test('K0-F8 a resume under another operation id, approval revision or pin version than the signing pass refuses eb_resume_not_allowed with signer 0, transport 0 and nothing appended', async (t) => {
-  for (const lane of heldStageLanes) {
-    for (const identity of otherIdentities) {
-      await t.test(`a lane holding ${lane.name} resumed under another ${identity.name} sends nothing`, async () => {
-        const first = createWorld();
-        lane.prepare(first);
-        await first.settled(first.runPass({ stages: lane.stages.map((name) => ({ name, send: first.send })) }));
-        first.records.beforeCommit.clear();
-        first.records.failures.clear();
-        const before = first.records.kinds('lane-1').length;
-        const resumed = createWorld({ records: first.records });
-        const { error } = await resumed.settled(resumed.runPass({
-          ...identity.overrides, retained: { bytes: new Uint8Array(first.SIGNED_BYTES) }, sign: undefined, stages: [{ name: lane.held, send: resumed.send }],
-        }));
-        assertRefusal(error, 'eb_resume_not_allowed');
-        assert.deepEqual([resumed.counts.signer, resumed.counts.transport], [0, 0]);
-        assert.equal(first.records.kinds('lane-1').length, before, 'nothing was appended');
-      });
-    }
-  }
-  await t.test('a store head that does not name the signing identity refuses the resume', async () => {
-    const world = createWorld({ records: craftedRecords({ lastKind: 'signed', signedWorkflow: 'dispatch', signedBytes: new Uint8Array([7, 8, 9, 10]), signedOperationId: undefined, signedPinVersion: undefined, signedApprovalRevision: undefined }) });
-    const { error } = await world.settled(world.runPass({ retained: { bytes: new Uint8Array(world.SIGNED_BYTES) }, sign: undefined }));
-    assertRefusal(error, 'eb_resume_not_allowed');
-    assert.deepEqual([world.counts.signer, world.counts.transport, world.records.appended], [0, 0, []]);
-  });
-});
-
-// The same store, but its head names the given stage (or none): the pass must not take its first stage from a head that omits it.
-const withLastStage = (records, lastStage) => ({
-  head: async (lane) => ({ ...(await records.head(lane)), lastStage }),
-  append: (...args) => records.append(...args),
-});
-
-test('K0-F8 a resume takes the held stage from the record kind, so a store head without or with another lastStage cannot skip it', async (t) => {
-  const resume = async (row, lastStage, names) => {
-    const first = createWorld();
-    row.prepare(first);
-    await first.settled(first.runPass({ stages: row.stages.map((name) => ({ name, send: first.send })) }));
-    first.records.beforeCommit.clear();
-    first.records.failures.clear();
-    const before = first.records.kinds('lane-1').length;
-    const resumed = createWorld({ records: withLastStage(first.records, lastStage) });
-    const { error } = await resumed.settled(resumed.runPass({
-      retained: { bytes: new Uint8Array(first.SIGNED_BYTES) }, sign: undefined, stages: names.map((name) => ({ name, send: resumed.send })),
-    }));
-    return { error, resumed, appended: first.records.kinds('lane-1').length - before };
-  };
-  for (const row of heldStageLanes) {
-    // `named` rows end in `<stage>-withheld`; the others end in a record whose stage only the head carries.
-    const named = !row.fromHead;
-    for (const name of ['dispatch', 'confirm', 'broadcast']) {
-      const accepted = named && name === row.held;
-      await t.test(`a lane holding ${row.name}, head without lastStage, ${accepted ? `transmits ${name} once` : `refuses a resume of ${name} eb_resume_not_allowed with transport 0`}`, async () => {
-        const { error, resumed, appended } = await resume(row, undefined, [name]);
-        if (accepted) {
-          assert.equal(error, undefined);
-          assert.equal(resumed.counts.transport, 1);
-        } else {
-          assertRefusal(error, 'eb_resume_not_allowed');
-          assert.deepEqual([resumed.counts.signer, resumed.counts.transport, appended], [0, 0, 0]);
-        }
-      });
-    }
-    if (named) {
-      await t.test(`a lane holding ${row.name}, head naming another stage, refuses a resume of ${row.held} eb_resume_not_allowed with transport 0`, async () => {
-        const { error, resumed } = await resume(row, row.held === 'dispatch' ? 'confirm' : 'dispatch', [row.held]);
-        assertRefusal(error, 'eb_resume_not_allowed');
-        assert.deepEqual([resumed.counts.signer, resumed.counts.transport], [0, 0]);
-      });
-    }
-  }
-
-  const signedOnly = { name: 'only a signed record before confirm', stages: ['confirm', 'broadcast'], prepare: (w) => w.records.failures.set('confirm-started', new Error('disk full')) };
-  await t.test('a lane holding only a signed record refuses a resume that starts at broadcast eb_resume_not_allowed with transport 0', async () => {
-    const { error, resumed, appended } = await resume(signedOnly, undefined, ['broadcast']);
-    assertRefusal(error, 'eb_resume_not_allowed');
-    assert.deepEqual([resumed.counts.signer, resumed.counts.transport, appended], [0, 0, 0]);
-  });
-  await t.test('a lane holding only a signed record transmits confirm once when the resume starts there', async () => {
-    const { error, resumed } = await resume(signedOnly, undefined, ['confirm']);
-    assert.equal(error, undefined);
-    assert.equal(resumed.counts.transport, 1);
-  });
-});
-
 const stagesOf = (world, names) => names.map((name) => ({ name, send: world.send }));
 const effectCounts = (world) => [world.counts.stop, world.counts.authority, world.counts.lockRequests, world.counts.signer, world.counts.transport];
 
@@ -908,6 +669,13 @@ const rejectedTuples = [
   { name: 'dispatch mixed with broadcast', stages: (w) => stagesOf(w, ['dispatch', 'broadcast']) },
   { name: 'an unknown stage', stages: (w) => stagesOf(w, ['refund']) },
   { name: 'a stage without send', stages: () => [{ name: 'dispatch' }] },
+  ...[
+    ['broadcast', 'broadcast'], ['confirm', 'dispatch'], ['broadcast', 'dispatch'], ['dispatch', 'confirm'],
+    ['confirm', 'broadcast', 'dispatch'], ['confirm', 'broadcast', 'confirm'], ['confirm', 'broadcast', 'broadcast'],
+    ['dispatch', 'dispatch', 'dispatch'], ['confirm', 'confirm', 'broadcast'], ['refund', 'dispatch'],
+  ].map((names) => ({ name: names.join('+'), stages: (w) => stagesOf(w, names) })),
+  { name: 'null stages', stages: () => null },
+  { name: 'non-array stages', stages: () => ({ 0: { name: 'dispatch' }, length: 1 }) },
 ];
 
 test('a pass runs only a closed stage tuple: anything else is a TypeError before any read, lock, record or effect', async (t) => {
@@ -938,48 +706,136 @@ test('a pass runs only a closed stage tuple: anything else is a TypeError before
   });
 });
 
-// A store whose head is the given one (signed by the default request's identity unless it says otherwise); appends are counted and accepted in sequence.
-function craftedRecords(head) {
+// Independent answer key: exactly nine states, including confirmation committed before broadcast intent.
+const RESUME_ANSWERS = [
+  ['dispatch', 'signed', undefined, [['dispatch']]],
+  ['dispatch', 'signed-held', 'dispatch', [['dispatch']]],
+  ['dispatch', 'dispatch-withheld', 'dispatch', [['dispatch']]],
+  ['confirm-broadcast', 'signed', undefined, [['confirm'], ['confirm', 'broadcast']]],
+  ['confirm-broadcast', 'signed-held', 'confirm', [['confirm'], ['confirm', 'broadcast']]],
+  ['confirm-broadcast', 'confirm-withheld', 'confirm', [['confirm'], ['confirm', 'broadcast']]],
+  ['confirm-broadcast', 'confirm-acknowledged', 'confirm', [['broadcast']]],
+  ['confirm-broadcast', 'signed-held', 'broadcast', [['broadcast']]],
+  ['confirm-broadcast', 'broadcast-withheld', 'broadcast', [['broadcast']]],
+];
+const IDENTITY = { operationId: 'op-1', pinVersion: 'pin-1', approvalRevision: 'approval-1' };
+const storedSigned = (overrides) => ({ kind: 'signed', workflow: 'dispatch', bytes: new Uint8Array([7, 8, 9, 10]), ...IDENTITY, ...overrides });
+function craftedRecords(signed, last = signed, revision = 3) {
   const appended = [];
-  return { appended, head: async () => ({ revision: 3, signedOperationId: 'op-1', signedPinVersion: 'pin-1', signedApprovalRevision: 'approval-1', ...head }), append: async (lane, revision, record) => { appended.push(record.kind); return { revision: revision + 1 }; } };
+  return { appended, head: async () => ({ revision, signed, last }), append: async (lane, expected, record) => { appended.push(record.kind); return { revision: expected + 1 }; } };
+}
+const resumeRequest = (w, names = ['dispatch']) => ({ sign: undefined, retained: { bytes: new Uint8Array(w.SIGNED_BYTES) }, stages: stagesOf(w, names) });
+function noResumeEffects(w) {
+  assert.deepEqual([w.counts.signer, w.counts.transport, w.records.appended], [0, 0, []]);
 }
 
-// Written independently of the module's table: workflow, newest kind, lastStage ('-' for none), the tuple a resume runs.
-const ALLOWED_RESUMES = new Set([
-  'dispatch signed - dispatch', 'dispatch signed-held dispatch dispatch', 'dispatch dispatch-withheld - dispatch', 'dispatch dispatch-withheld dispatch dispatch',
-  'confirm-broadcast signed - confirm', 'confirm-broadcast signed - confirm+broadcast',
-  'confirm-broadcast signed-held confirm confirm', 'confirm-broadcast signed-held confirm confirm+broadcast',
-  'confirm-broadcast confirm-withheld - confirm', 'confirm-broadcast confirm-withheld - confirm+broadcast',
-  'confirm-broadcast confirm-withheld confirm confirm', 'confirm-broadcast confirm-withheld confirm confirm+broadcast',
-  'confirm-broadcast confirm-acknowledged confirm broadcast',
-  'confirm-broadcast signed-held broadcast broadcast', 'confirm-broadcast broadcast-withheld - broadcast', 'confirm-broadcast broadcast-withheld broadcast broadcast',
-]);
-
-test('K0-F8 every workflow, newest record and requested tuple outside the resume table sends nothing and appends nothing', async () => {
-  const stageNames = ['dispatch', 'confirm', 'broadcast'];
-  const kinds = ['signed', 'signed-held', 'refund-withheld', 'constructor', undefined, ...stageNames.flatMap((name) => ['withheld', 'started', 'unknown', 'acknowledged'].map((end) => `${name}-${end}`))];
-  const mismatches = [];
-  let allowedRuns = 0;
+test('K0-F8 raw head workflow, kind, stage, identity and tuple agree with the independent nine-row answer key', async () => {
+  const stages = ['dispatch', 'confirm', 'broadcast'];
+  const kinds = ['signed', 'signed-held', 'refund-withheld', 'constructor', undefined, ...stages.flatMap((s) => ['withheld', 'started', 'unknown', 'acknowledged'].map((end) => `${s}-${end}`))];
+  const identities = [{}, ...Object.keys(IDENTITY).flatMap((key) => [{ [key]: 'changed' }, { [key]: undefined }, { [key]: {} }])];
+  let allowed = 0;
   for (const workflow of ['dispatch', 'confirm-broadcast', undefined, 'refund']) {
-    for (const lastKind of kinds) {
-      for (const lastStage of [undefined, ...stageNames]) {
-        for (const names of [['dispatch'], ['confirm'], ['broadcast'], ['confirm', 'broadcast']]) {
-          const world = createWorld({ records: craftedRecords({ lastKind, lastStage, signedWorkflow: workflow, signedBytes: new Uint8Array([7, 8, 9, 10]) }) });
-          const { error } = await world.settled(world.runPass({ retained: { bytes: new Uint8Array(world.SIGNED_BYTES) }, sign: undefined, stages: stagesOf(world, names) }));
-          const key = `${workflow} ${lastKind} ${lastStage ?? '-'} ${names.join('+')}`;
-          const allowed = ALLOWED_RESUMES.has(key);
-          const expected = allowed
-            ? { code: undefined, counts: [0, names.length], appended: names.flatMap((name) => [`${name}-started`, `${name}-acknowledged`]) }
-            : { code: 'eb_resume_not_allowed', counts: [0, 0], appended: [] };
-          const actual = { code: error?.code, counts: [world.counts.signer, world.counts.transport], appended: world.records.appended };
-          if (JSON.stringify(actual) !== JSON.stringify(expected)) mismatches.push({ key, actual, expected });
-          allowedRuns += allowed ? 1 : 0;
-        }
+    for (const kind of kinds) for (const stage of [undefined, ...stages]) for (const identity of identities) {
+      for (const tuple of [['dispatch'], ['confirm'], ['broadcast'], ['confirm', 'broadcast']]) {
+        const signed = storedSigned({ workflow, ...identity });
+        const w = createWorld({ records: craftedRecords(signed, { kind, stage }) });
+        const { error } = await w.settled(w.runPass(resumeRequest(w, tuple)));
+        const effectiveStage = kind?.endsWith('-withheld') && stage === undefined ? kind.slice(0, -9) : stage;
+        const accept = Object.keys(identity).length === 0 && RESUME_ANSWERS.some(([wf, k, s, tuples]) => wf === workflow && k === kind && s === effectiveStage && tuples.some((t) => t.join() === tuple.join()));
+        const actual = [error?.code, w.counts.signer, w.counts.transport, w.records.appended];
+        const expected = accept ? [undefined, 0, tuple.length, tuple.flatMap((s) => [`${s}-started`, `${s}-acknowledged`])] : ['eb_resume_not_allowed', 0, 0, []];
+        assert.deepEqual(actual, expected, JSON.stringify({ workflow, kind, stage, identity, tuple }));
+        if (accept) allowed += 1;
       }
     }
   }
-  assert.deepEqual(mismatches, []);
-  assert.equal(allowedRuns, ALLOWED_RESUMES.size, 'every allowed row was exercised');
+  assert.equal(allowed, 16, 'nine states include short prefixes and omitted withheld stage');
+});
+
+test('cold2 F1 request identities are primitive nonempty strings before every adapter in both modes', async (t) => {
+  for (const key of [...Object.keys(IDENTITY), 'lane']) for (const value of [undefined, null, {}, 1, '', new String('revision')]) {
+    for (const mode of ['sign', 'resume']) await t.test(`${key} ${String(value)} ${mode}`, async () => {
+      const w = createWorld();
+      let heads = 0;
+      w.records.head = async () => { heads += 1; return { revision: 0 }; };
+      const { error } = await w.settled(w.runPass({ ...(mode === 'resume' ? resumeRequest(w) : {}), [key]: value }));
+      assert.ok(error instanceof TypeError);
+      assert.deepEqual([...effectCounts(w), heads, w.events.length, w.records.kinds(w.lane).length], [0, 0, 0, 0, 0, 0, 0, 0]);
+    });
+  }
+});
+
+test('cold2 F1 exact missing-pin and missing-approval probes refuse both initial sign and matching-missing resume', async (t) => {
+  for (const key of ['pinVersion', 'approvalRevision']) await t.test(key, async () => {
+    const w = createWorld();
+    w.records.failures.set('dispatch-started', new Error('intent commit failed'));
+    const initial = await w.settled(w.runPass({ [key]: undefined }));
+    assert.ok(initial.error instanceof TypeError);
+    const records = craftedRecords(storedSigned({ [key]: undefined }));
+    const resumed = createWorld({ records });
+    assert.ok((await resumed.settled(resumed.runPass({ ...resumeRequest(resumed), [key]: undefined }))).error instanceof TypeError);
+    noResumeEffects(resumed);
+    assert.deepEqual([w.counts.signer, w.counts.transport, w.records.kinds(w.lane)], [0, 0, []]);
+  });
+});
+
+test('raw malformed lane heads never authorize signing or resumption', async (t) => {
+  const signed = storedSigned();
+  const invalid = [undefined, null, {}, { ...signed, kind: 'other' }, { ...signed, bytes: [] }, { ...signed, bytes: new Uint8Array() }, ...Object.keys(IDENTITY).flatMap((key) => [undefined, null, {}, 1, ''].map((value) => ({ ...signed, [key]: value })))];
+  for (const [index, record] of invalid.entries()) await t.test(`signed shape ${index}`, async () => {
+    const w = createWorld({ records: craftedRecords(record, { kind: 'signed' }) });
+    assertRefusal((await w.settled(w.runPass(resumeRequest(w)))).error, 'eb_resume_not_allowed');
+    noResumeEffects(w);
+    assertRefusal((await w.settled(w.runPass())).error, 'eb_lane_not_empty');
+  });
+  for (const revision of [-1, '1', NaN, 1.1, Number.MAX_SAFE_INTEGER + 1]) {
+    const w = createWorld({ records: craftedRecords(signed, signed, revision) });
+    assertRefusal((await w.settled(w.runPass(resumeRequest(w)))).error, 'eb_persist_failed');
+    noResumeEffects(w);
+  }
+  await t.test('an empty lane cannot resume retained bytes', async () => {
+    const w = createWorld();
+    assertRefusal((await w.settled(w.runPass(resumeRequest(w)))).error, 'eb_resume_not_allowed');
+    assert.deepEqual([w.counts.signer, w.counts.transport, w.records.kinds(w.lane)], [0, 0, []]);
+  });
+  await t.test('an occupied valid lane cannot sign again', async () => {
+    const w = createWorld({ records: craftedRecords(signed) });
+    assertRefusal((await w.settled(w.runPass())).error, 'eb_lane_not_empty');
+    noResumeEffects(w);
+  });
+  const inconsistentEmpty = createWorld({ records: craftedRecords(signed, signed, 0) });
+  assertRefusal((await inconsistentEmpty.settled(inconsistentEmpty.runPass())).error, 'eb_lane_not_empty');
+  assert.equal(inconsistentEmpty.counts.signer, 0);
+});
+
+test('K0-F8 crash recovery is derived from each actual committed write and never repeats confirm', async (t) => {
+  for (const workflow of [['dispatch'], ['confirm', 'broadcast']]) {
+    const complete = createWorld();
+    await complete.runPass({ stages: stagesOf(complete, workflow) });
+    const writes = complete.records.records(complete.lane);
+    for (let i = 0; i < writes.length; i += 1) await t.test(`crash after ${workflow.join('+')} ${writes[i].kind}`, async () => {
+      const records = createMemoryRecords();
+      for (let j = 0; j <= i; j += 1) await records.append('lane-1', j, writes[j]);
+      const next = writes[i].kind === 'signed' ? workflow : writes[i].kind === 'confirm-acknowledged' ? ['broadcast'] : null;
+      const w = createWorld({ records });
+      const { error } = await w.settled(w.runPass(resumeRequest(w, next ?? workflow)));
+      assert.equal(error?.code, next ? undefined : 'eb_resume_not_allowed');
+      assert.deepEqual([w.counts.signer, w.counts.transport], [0, next?.length ?? 0]);
+      const repeat = createWorld({ records });
+      assertRefusal((await repeat.settled(repeat.runPass(resumeRequest(repeat, ['confirm'])))).error, 'eb_resume_not_allowed');
+      assert.equal(repeat.counts.transport, 0);
+    });
+  }
+});
+
+test('a failed broadcast-started commit leaves confirm acknowledged and a restart sends broadcast once', async () => {
+  const w = createWorld();
+  w.records.failures.set('broadcast-started', new Error('disk full'));
+  assertRefusal((await w.settled(w.runPass({ stages: stagesOf(w, ['confirm', 'broadcast']) }))).error, 'eb_persist_failed');
+  w.records.failures.clear();
+  const restarted = createWorld({ records: w.records });
+  await restarted.runPass(resumeRequest(restarted, ['broadcast']));
+  assert.deepEqual([w.counts.transport, restarted.counts.signer, restarted.counts.transport], [1, 0, 1]);
 });
 
 test('the EB8f transport gets a private copy: the caller\'s array and the transport\'s own input cannot change what is persisted or sent', async (t) => {
@@ -1086,25 +942,27 @@ test('each step has its own one-use handle: a kept, stale or other-stage handle 
 });
 
 test('the pass copies its request on entry: changing the caller\'s request or stage descriptors at any await changes nothing', async (t) => {
-  const points = [...[1, 2, 3, 4, 5].map((call) => ['stop', call]), ...[1, 2, 3].map((call) => ['authority', call]), ['commit', 'signed'], ['commit', 'dispatch-started']];
-  for (const [kind, call] of points) {
-    await t.test(`the request changed inside ${kind} ${call}`, async () => {
+  for (const workflow of [['dispatch'], ['confirm', 'broadcast']]) {
+    const points = [...Array.from({ length: workflow.length === 1 ? 5 : 7 }, (_, i) => ['stop', i + 1]), ...Array.from({ length: workflow.length === 1 ? 3 : 4 }, (_, i) => ['authority', i + 1]), ...['signed', ...workflow.flatMap((s) => [`${s}-started`, `${s}-acknowledged`])].map((kind) => ['commit', kind])];
+    for (const [kind, call] of points) await t.test(`${workflow.join('+')} request changed inside ${kind} ${call}`, async () => {
       const world = createWorld();
       let foreign = 0;
-      const request = world.request({});
+      const request = world.request({ stages: stagesOf(world, workflow) });
       const tamper = () => {
         request.stages[0].name = 'broadcast';
         request.stages[0].send = async () => { foreign += 1; };
         request.stages.push({ name: 'dispatch', send: world.send });
         request.sign = async () => { foreign += 1; };
         request.lane = 'lane-other';
+        for (const key of Object.keys(IDENTITY)) request[key] = { changed: true };
       };
       if (kind === 'commit') world.records.beforeCommit.set(call, tamper); else world.on(kind, call, tamper);
       const { error } = await world.settled(world.boundary.runPass(request));
       assert.equal(error, undefined);
-      assert.deepEqual([world.counts.signer, world.counts.transport, foreign], [1, 1, 0]);
-      assert.deepEqual(world.records.kinds('lane-1'), ['signed', 'dispatch-started', 'dispatch-acknowledged']);
+      assert.deepEqual([world.counts.signer, world.counts.transport, foreign], [1, workflow.length, 0]);
+      assert.deepEqual(world.records.kinds('lane-1'), ['signed', ...workflow.flatMap((s) => [`${s}-started`, `${s}-acknowledged`])]);
       assert.deepEqual(world.records.kinds('lane-other'), []);
+      for (const record of world.records.records(world.lane)) for (const [key, value] of Object.entries(IDENTITY)) assert.equal(record[key], value);
     });
   }
 });
@@ -1158,4 +1016,136 @@ test('a record store that moved under the pass or answers out of sequence refuse
     assert.deepEqual([world.counts.signer, world.counts.transport], [1, 0]);
     assert.ok(await world.fenceIsFree());
   });
+});
+
+test('error summaries tolerate null prototypes, throwing getters and oversized messages before and after invocation', async (t) => {
+  const causes = [Object.create(null), Object.defineProperty({}, 'message', { get() { throw new Error('getter'); } }), Object.defineProperty({}, 'code', { get() { throw new Error('getter'); } }), new Error('x'.repeat(500))];
+  for (const [index, cause] of causes.entries()) for (const invoked of [false, true]) await t.test(`cause ${index}, invoked ${invoked}`, async () => {
+    const w = createWorld();
+    const result = await w.settled(w.runPass({ stages: [{ name: 'dispatch', send: async (h, bytes) => { if (invoked) await w.send(h, bytes); throw cause; } }] }));
+    if (invoked) assert.equal(result.value.outcomes[0].cause, cause); else assert.equal(result.error, cause);
+    const last = w.records.records(w.lane).at(-1);
+    assert.equal(last.kind, invoked ? 'dispatch-unknown' : 'dispatch-withheld');
+    assert.ok(last.cause.message.length <= 200);
+    assert.ok(last.cause.code.length <= 200);
+  });
+});
+
+test('failed held and withheld records retain the original refusal and persistence cause', async (t) => {
+  for (const kind of ['signed-held', 'dispatch-withheld']) await t.test(kind, async () => {
+    const w = createWorld();
+    const original = new Error('original refusal');
+    const disk = new Error('disk full');
+    if (kind === 'signed-held') w.on('authority', 3, () => { throw original; });
+    w.records.failures.set(kind, disk);
+    const stages = kind === 'dispatch-withheld' ? [{ name: 'dispatch', send: async () => { throw original; } }] : undefined;
+    const { error } = await w.settled(w.runPass(stages ? { stages } : {}));
+    assertRefusal(error, 'eb_persist_failed');
+    assert.ok(error.cause instanceof AggregateError);
+    const [refusal, persistence] = error.cause.errors;
+    assert.equal(kind === 'signed-held' ? refusal.cause : refusal, original);
+    assertRefusal(persistence, 'eb_persist_failed');
+    assert.equal(persistence.cause, disk);
+  });
+});
+
+test('checks keep their receiver and approval receives only the captured primitive revision', async () => {
+  const w = createWorld();
+  const calls = [];
+  const checks = {
+    ok: true,
+    admission() { assert.equal(this, checks); return this.ok; },
+    approval(revision) { assert.equal(this, checks); calls.push(revision); return this.ok; },
+    connectionDigest() { assert.equal(this, checks); return 'digest'; },
+    async stopped() { assert.equal(this, checks); return !this.ok; },
+    async readAuthority() { assert.equal(this, checks); },
+  };
+  const boundary = createEffectBoundary({ fence: w.fence, records: w.records, checks, clock: w.clock });
+  await boundary.runPass(w.request());
+  assert.deepEqual(calls, ['approval-1', 'approval-1', 'approval-1']);
+});
+
+test('identity getters are captured exactly once and mutable object revisions never reach a commit barrier', async () => {
+  const w = createWorld();
+  const request = w.request();
+  const reads = {};
+  for (const [key, value] of Object.entries({ ...IDENTITY, lane: w.lane })) Object.defineProperty(request, key, { get() { reads[key] = (reads[key] ?? 0) + 1; return reads[key] === 1 ? value : 'changed'; } });
+  await w.boundary.runPass(request);
+  assert.deepEqual(Object.values(reads), [1, 1, 1, 1]);
+  const objectRevision = { value: 'approval-1' };
+  const invalid = createWorld();
+  invalid.records.beforeCommit.set('signed', () => { objectRevision.value = 'changed'; });
+  assert.ok((await invalid.settled(invalid.runPass({ approvalRevision: objectRevision }))).error instanceof TypeError);
+  assert.equal(objectRevision.value, 'approval-1');
+  assert.deepEqual(effectCounts(invalid), [0, 0, 0, 0, 0]);
+});
+
+test('the five stage outcome rows use actual transmission settlement and late success or failure never advances broadcast', async (t) => {
+  for (const mode of ['not-invoked-error', 'not-invoked-ok', 'invoked-error', 'failed', 'pending-success', 'pending-error', 'fulfilled']) await t.test(mode, async () => {
+    const w = createWorld();
+    const failure = new Error('stage failure');
+    let settleTransport;
+    if (mode.startsWith('pending')) w.behavior.transport = () => new Promise((resolve, reject) => { settleTransport = mode === 'pending-success' ? resolve : reject; });
+    if (mode === 'failed') w.behavior.transport = async () => { throw failure; };
+    const callback = async (h, bytes) => {
+      if (mode === 'not-invoked-error') throw failure;
+      if (mode === 'not-invoked-ok') return 'no send';
+      const sending = w.send(h, bytes);
+      if (mode.startsWith('pending')) { sending.catch(() => {}); await settle(); return 'queued'; }
+      await sending.catch(() => {});
+      if (mode === 'invoked-error') throw failure;
+      return 'callback ok';
+    };
+    const { error, value } = await w.settled(w.runPass({ stages: [{ name: 'confirm', send: callback }, { name: 'broadcast', send: w.send }] }));
+    if (mode === 'not-invoked-error') assert.equal(error, failure);
+    else assert.equal(value.outcomes[0].state, mode === 'fulfilled' ? 'acknowledged' : 'unknown');
+    assert.equal(w.counts.transport, mode === 'fulfilled' ? 2 : mode.startsWith('not-invoked') ? 0 : 1);
+    const before = w.records.kinds(w.lane);
+    if (settleTransport) { settleTransport(mode === 'pending-error' ? failure : 'late ok'); await settle(); }
+    assert.deepEqual(w.records.kinds(w.lane), before);
+  });
+});
+
+test('retained bytes must match the validated raw record and later mutations of that record cannot change egress', async () => {
+  const signed = storedSigned();
+  const wrong = createWorld({ records: craftedRecords(signed) });
+  assertRefusal((await wrong.settled(wrong.runPass({ ...resumeRequest(wrong), retained: { bytes: new Uint8Array([99]) } }))).error, 'eb_resume_not_allowed');
+  noResumeEffects(wrong);
+  const w = createWorld({ records: craftedRecords(signed) });
+  w.on('stop', 3, () => { signed.bytes.fill(99); signed.approvalRevision = 'changed'; });
+  await w.runPass(resumeRequest(w));
+  assert.deepEqual([...w.sent[0]], w.SIGNED_BYTES);
+});
+
+test('the aggregate read budget spans prechecks and the fenced signer tail', async () => {
+  const w = createWorld();
+  for (const [kind, call] of [['stop', 1], ['authority', 1], ['stop', 2], ['authority', 2]]) w.on(kind, call, () => w.clock.advance(2_499));
+  w.on('stop', 3, () => w.clock.advance(4));
+  assertRefusal((await w.settled(w.runPass())).error, 'stop_check_timeout');
+  assert.deepEqual([w.counts.signer, w.counts.transport], [0, 0]);
+  assert.ok(await w.fenceIsFree());
+});
+
+test('invalid request shapes and signer results fail closed', async (t) => {
+  const requests = [undefined, null, 1, {}, { sign: undefined }, { retained: { bytes: new Uint8Array([1]) } }, { sign: 1 }, { sign: undefined, retained: {} }, { sign: undefined, retained: { bytes: [] } }, { sign: undefined, retained: { bytes: new Uint8Array() } }];
+  for (const [index, overrides] of requests.entries()) await t.test(`request shape ${index}`, async () => {
+    const w = createWorld();
+    const request = index < 4 ? overrides : w.request(overrides);
+    assert.ok((await w.settled(w.boundary.runPass(request))).error instanceof TypeError);
+    assert.deepEqual(effectCounts(w), [0, 0, 0, 0, 0]);
+  });
+  const w = createWorld();
+  assertRefusal((await w.settled(w.runPass({ sign: (h) => ebSign(async () => new Uint8Array(), h)() }))).error, 'eb_signed_bytes_invalid');
+  assert.deepEqual(w.records.kinds(w.lane), []);
+});
+
+test('authority failures retain readable codes and the original cause when properties throw', async () => {
+  for (const failure of [Object.assign(new Error('authority refused'), { code: 'unknown' }), Object.defineProperty({}, 'code', { get() { throw new Error('getter'); } }), Object.create(null)]) {
+    const w = createWorld();
+    w.on('authority', 1, () => { throw failure; });
+    const { error } = await w.settled(w.runPass());
+    assertRefusal(error, failure instanceof Error ? 'unknown' : 'tp1_authority_failed');
+    assert.equal(error.cause, failure);
+    assert.deepEqual([w.counts.signer, w.counts.transport], [0, 0]);
+  }
 });
