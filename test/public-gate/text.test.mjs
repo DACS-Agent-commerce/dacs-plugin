@@ -303,8 +303,12 @@ test('wording: raw HTML in Markdown with a reference without its semicolon is re
 });
 
 test('wording: the legacy name list holds the 106 names HTML5 decodes without a semicolon, and each counts as a prefix', () => {
-  const source = readFileSync(new URL('../../scripts/public-gate/rules-text.mjs', import.meta.url), 'utf8');
-  const names = /LEGACY_REFERENCE_NAMES = \(([^;]*)\)\.split/.exec(source)[1].match(/'([^']*)'/g).flatMap((part) => part.slice(1, -1).trim().split(' '));
+  const names = ['AElig', 'AMP', 'Aacute', 'Acirc', 'Agrave', 'Aring', 'Atilde', 'Auml', 'COPY', 'Ccedil', 'ETH', 'Eacute', 'Ecirc', 'Egrave', 'Euml', 'GT', 'Iacute', 'Icirc', 'Igrave', 'Iuml',
+    'LT', 'Ntilde', 'Oacute', 'Ocirc', 'Ograve', 'Oslash', 'Otilde', 'Ouml', 'QUOT', 'REG', 'THORN', 'Uacute', 'Ucirc', 'Ugrave', 'Uuml', 'Yacute', 'aacute', 'acirc', 'acute', 'aelig',
+    'agrave', 'amp', 'aring', 'atilde', 'auml', 'brvbar', 'ccedil', 'cedil', 'cent', 'copy', 'curren', 'deg', 'divide', 'eacute', 'ecirc', 'egrave', 'eth', 'euml', 'frac12', 'frac14',
+    'frac34', 'gt', 'iacute', 'icirc', 'iexcl', 'igrave', 'iquest', 'iuml', 'laquo', 'lt', 'macr', 'micro', 'middot', 'nbsp', 'not', 'ntilde', 'oacute', 'ocirc', 'ograve', 'ordf', 'ordm',
+    'oslash', 'otilde', 'ouml', 'para', 'plusmn', 'pound', 'quot', 'raquo', 'reg', 'sect', 'shy', 'sup1', 'sup2', 'sup3', 'szlig', 'thorn', 'times', 'uacute', 'ucirc', 'ugrave', 'uml',
+    'uuml', 'yacute', 'yen', 'yuml'];
   assert.equal(names.length, 106);
   assert.equal(new Set(names).size, 106);
   for (const name of names) assert.deepEqual(findingLines('a.md', `x &${name}q y\n`, ['unlisted-entry']), [1], name);
@@ -318,6 +322,20 @@ test('wording: JSON query strings keep literal ampersands in keys and nested val
 test('wording: YAML anchors and aliases keep literal ampersands', () => {
   const text = 'defaults: &defaults\n  team: R&D\n  company: AT&T\nbase: &base\n  <<: *defaults\n';
   for (const name of ['manifest.yml', 'manifest.yaml']) assert.deepEqual(findingLines(name, text, ['unlisted-entry']), [], name);
+});
+
+test('wording: a YAML anchor that starts with a legacy name is still read as a reference and refused', () => {
+  const text = 'defaults: &eth_mainnet\n  team: R&D\nbase: &params\n  <<: *params\n';
+  for (const name of ['manifest.yml', 'manifest.yaml']) assert.deepEqual(findingLines(name, text, ['unlisted-entry']), [1, 3], name);
+});
+
+test('wording: a JSON query string key or value that starts with a legacy name is still read as a reference and refused', () => {
+  const text = JSON.stringify({ '?a=1&param=2': { urls: ['https://example.test/?a=1&region=eu', 'BTC&ETH'] } }, null, 2);
+  assert.deepEqual(findingLines('.claude-plugin/plugin.json', text, ['unlisted-entry']), [2, 4, 5]);
+});
+
+test('wording: a Markdown link query that starts with a legacy name is still read as a reference and refused', () => {
+  assert.deepEqual(findingLines('README.md', 'fine\n\n[docs](https://example.test/page?a=1&section=2)\n', ['unlisted-entry']), [3]);
 });
 
 test('wording: a line of a million character references is checked within a small heap, as a blob and as pull-request text', () => {
