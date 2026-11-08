@@ -248,15 +248,18 @@ export class DemosChain implements ChainReader {
     // The SDK's call() never throws: a transport failure comes back as a {result: 500, require_reply}
     // envelope. A transport failure is not "not found": surface it instead of reporting absence.
     const isEnvelope = (x: any) => x && typeof x === 'object' && typeof x.result === 'number' && x.result >= 400 && 'require_reply' in x;
+    // A 404 envelope is the node's "no such transaction", not a transport failure.
     if (isEnvelope(status)) {
-      statusErr = status.response instanceof Error ? status.response : new Error(`node returned result ${status.result}`);
+      if (status.result !== 404) statusErr = status.response instanceof Error ? status.response : new Error(`node returned result ${status.result}`);
       status = null;
     }
     if (isEnvelope(tx)) tx = null;
     if (statusErr && !tx) throw sanitizeError(statusErr, this.guard);
     const contentRaw = tx?.content;
     const content = typeof contentRaw === 'string' ? (maybeParseJson(contentRaw) as any) : contentRaw;
-    const found = !!content || (status && typeof status === 'object' && typeof status.state === 'string' && status.state !== 'not_found');
+    // The node reports "unknown" (as well as "not_found") for a hash it has never seen, so neither state is evidence
+    // that the transaction exists; only transaction content or a known state is.
+    const found = !!content || (status && typeof status === 'object' && typeof status.state === 'string' && status.state !== 'not_found' && status.state !== 'unknown');
     return {
       hash,
       found: !!found,

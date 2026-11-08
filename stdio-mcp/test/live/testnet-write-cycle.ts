@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { approvalLinkFromLine } from './approval-link.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const RPC = process.env.DEMOS_RPC_URL ?? '';
@@ -65,8 +66,8 @@ async function start(name: string, env: Record<string, string>): Promise<Instanc
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i);
       buf = buf.slice(i + 1);
-      const m = /APPROVE OR DENY HERE: (http:\/\/127\.0\.0\.1:\d+\/a\/[A-Za-z0-9_-]{43})/.exec(line);
-      if (m) links.push(m[1]!);
+      const link = approvalLinkFromLine(line);
+      if (link) links.push(link);
       // never echo approval links or codes
       else if (process.env.LIVE_VERBOSE && !/\/a\/|code/i.test(line)) process.stderr.write(`[${name}] ${line}\n`);
     }
