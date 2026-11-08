@@ -54,14 +54,16 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   written with only `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&nbsp;` decoded, with markup erased, and with each markup token one space.
   Markup is HTML comments and tags (attributes included), Markdown link destinations, reference labels and definitions, link brackets, block-quote
   marks, escaping backslashes and character references; any other character reference fails (write the character).
-  In HTML blobs (`.html` and `.htm`, as read by `R-EVAL`) and `.svg` blobs (case-insensitive extensions), unterminated numeric and named references also fail, preserving the existing checks.
-  In every other input, including Markdown, text, JSON, YAML and `--pr-text`, a character reference requires its terminating `;`;
-  other ampersands are literal text, so `R&D`, `AT&T`, `?x=1&copy=2` and YAML anchors pass this reference check. A list entry fails unless it
+  A numeric reference (`&#` and digits, or `&#x` and hex digits) and a legacy named reference (one of the 106 names that HTML5 decodes without a `;`, case-sensitive,
+  read as the longest such name that starts the text after the ampersand, so a name followed by more letters counts) count as references with or without the `;`, in every input, including
+  raw HTML inside Markdown and `--pr-text`; without the `;` they are none of the six decoded ones, so they fail. Any other named reference counts only with its `;`. In HTML blobs (`.html` and `.htm`, as read by `R-EVAL`) and `.svg` blobs
+  (case-insensitive extensions) every ampersand followed by a name or `#` also fails, preserving the existing checks. Outside HTML and SVG any other unterminated
+  ampersand is literal text, so `R&D`, `Q&A`, `AT&T` and YAML anchors pass this reference check. A list entry fails unless it
   lies wholly inside the approved clause or a disclaimer of the same view; the body of a closed fence whose language is a shell may hold entries.
   In a status phrase, white space, a Unicode dash (`Pd`), invisible format characters and `_`, `*` or a backtick between the words count as a gap (a camelCase name has none).
   A sentence about the review's status (in the erased and spaced views and in each markup token, read with the six references decoded and escaping backslashes dropped; a token is a comment, a tag with its attributes, a link destination, title or label, so a URL or file name holding the words fails as it does in plain text) passes only as the approved clause
   (case-insensitive, no reason added; never inside a token) or a negative disclaimer; clauses end at sentence ends, semicolons and parentheses. In history mode the list is also matched, with no exemption and no status check, in commit
-  and tag messages and headers (continuation lines joined to their header) as written and in `--pr-text` in all three views (the first with the six references decoded; any other semicolon-terminated character reference there fails).
+  and tag messages and headers (continuation lines joined to their header) as written and in `--pr-text` in all three views (the first with the six references decoded; any other character reference there fails, as in a blob).
 - **Dynamic evaluation (`R-EVAL`, both scopes).** Parses, with the TypeScript compiler (nothing is run), every `.js .mjs .cjs .jsx .ts .mts .cts .tsx`
   file (`.d.ts`, `.d.mts` and `.d.cts` included), in a child
   process (`rules-eval-child.mjs`) under `run-bounded`. Its rules are syntactic and track no value. **Names:** the name `eval` or `Function` fails wherever it is

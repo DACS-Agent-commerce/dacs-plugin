@@ -278,23 +278,45 @@ test('wording: only the six known terminated character references are decoded; a
   assert.deepEqual(findingLines('m.json', JSON.stringify({ description: 'a &#32; b' }, null, 2), ['unlisted-entry']), [2]);
 });
 
-test('wording: unterminated references are literal outside HTML and SVG blobs', () => {
-  const literal = ['R&D', 'AT&T', 'Q&A', 'caf&eacute', '&#233', '&#xE9', '&copy2', '&notit', '&amp', '&#39', 'security&nbspreview', '?x=1&copy=2'];
+test('wording: an ampersand that starts neither a numeric nor a legacy named reference is literal outside HTML and SVG blobs', () => {
+  const literal = ['R&D', 'AT&T', 'Q&A', 'a&b', '&foo', '&#', '&#x', '&#xyz', '&Copy', '&Nbsp', '&Notit','security&review', '&company=1'];
   for (const reference of literal) {
     for (const name of ['a.md', 'a.txt', 'a.xml', 'LICENSE']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [], `${name}: ${reference}`);
+  }
+  for (const reference of ['R&D', 'AT&T', 'Q&A', 'a&b', '&foo']) {
     for (const name of ['page.html', 'page.htm', 'page.svg', 'PAGE.HTML', 'PAGE.HTM', 'PAGE.SVG']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
   }
   assert.deepEqual(findingLines('a.md', `${FIRST}&D ${SECOND}`), []);
   assert.deepEqual(findingLines('a.md', 'R&D tool', ['R&D tool']), [1]);
 });
 
+test('wording: a numeric reference or a legacy named reference counts without its semicolon, as the longest legacy name that is a prefix of the text', () => {
+  const counted = ['caf&eacute', '&#233', '&#xE9', '&#XE9', '&#102larn', '&#x66', '&copy2', '&notit', '&amp', '&#39', 'security&nbspreview', '?x=1&copy=2', '&copyright', '&nbspquux', '&ampere', '&sup2x'];
+  for (const reference of counted) {
+    for (const name of ['a.md', 'a.txt', 'a.xml', 'LICENSE', 'page.html', 'page.svg']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
+  }
+});
+
+test('wording: raw HTML in Markdown with a reference without its semicolon is refused at its line', () => {
+  assert.deepEqual(findingLines('a.md', '<div>\nflarn&nbspquux\n</div>\n', ['unlisted-entry']), [2]);
+  assert.deepEqual(findingLines('a.md', '<p>&#102larn quux</p>\n', ['unlisted-entry']), [1]);
+});
+
+test('wording: the legacy name list holds the 106 names HTML5 decodes without a semicolon, and each counts as a prefix', () => {
+  const source = readFileSync(new URL('../../scripts/public-gate/rules-text.mjs', import.meta.url), 'utf8');
+  const names = /LEGACY_REFERENCE_NAMES = \(([^;]*)\)\.split/.exec(source)[1].match(/'([^']*)'/g).flatMap((part) => part.slice(1, -1).trim().split(' '));
+  assert.equal(names.length, 106);
+  assert.equal(new Set(names).size, 106);
+  for (const name of names) assert.deepEqual(findingLines('a.md', `x &${name}q y\n`, ['unlisted-entry']), [1], name);
+});
+
 test('wording: JSON query strings keep literal ampersands in keys and nested values', () => {
-  const text = JSON.stringify({ '?x=1&copy=2': { urls: ['?x=1&copy=2', '?q=R&D&company=AT&T'] } }, null, 2);
+  const text = JSON.stringify({ '?x=1&company=2': { urls: ['?x=1&company=2', '?q=R&D&company=AT&T'] } }, null, 2);
   assert.deepEqual(findingLines('.claude-plugin/plugin.json', text, ['unlisted-entry']), []);
 });
 
 test('wording: YAML anchors and aliases keep literal ampersands', () => {
-  const text = 'defaults: &defaults\n  team: R&D\n  company: AT&T\ncopy: &copy\n  <<: *defaults\n';
+  const text = 'defaults: &defaults\n  team: R&D\n  company: AT&T\nbase: &base\n  <<: *defaults\n';
   for (const name of ['manifest.yml', 'manifest.yaml']) assert.deepEqual(findingLines(name, text, ['unlisted-entry']), [], name);
 });
 
@@ -499,10 +521,21 @@ const reportRules = (result) => JSON.parse(result.stdout).findings.map(({ rule }
 test('history: --pr-text accepts ordinary ampersands in keys and nested values', () => {
   const history = createHistory([{ files: { 'a.md': 'plain\n' }, message: 'plain' }]);
   const prText = path.join(makeTempDir('pr'), 'pr.json');
-  writeFileSync(prText, JSON.stringify([{ 'R&D': { title: 'AT&T Q&A', body: 'R&D\n\n?x=1&copy=2\n\n&amp &#233 &copy2 security&nbspreview' } }]));
+  writeFileSync(prText, JSON.stringify([{ 'R&D': { title: 'AT&T Q&A', body: 'R&D\n\n?x=1&company=2\n\na&b &foo' } }]));
   const result = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList([TERM]), '--pr-text', prText], 'main'));
   assert.equal(result.status, 0, result.stdout || result.stderr);
   assert.deepEqual(reportRules(result), []);
+});
+
+test('history: --pr-text refuses a numeric or legacy named reference without its semicolon, in raw HTML too', () => {
+  const history = createHistory([{ files: { 'a.md': 'plain\n' }, message: 'plain' }]);
+  for (const body of ['<div>\nflarn&nbspquux\n</div>', '<p>&#102larn quux</p>', 'a &copyright b', 'a &#x66 b']) {
+    const prText = path.join(makeTempDir('pr'), 'pr.json');
+    writeFileSync(prText, JSON.stringify([{ body }]));
+    const result = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList([TERM]), '--pr-text', prText], 'main'));
+    assert.equal(result.status, 1, `${body}: ${result.stdout || result.stderr}`);
+    assert.ok(reportRules(result).length > 0 && reportRules(result).every((rule) => rule === 'R-WORDING'), body);
+  }
 });
 
 test('wording list: a wording entry in prose is an R-WORDING finding and not an R-PRIVATE one, and the reverse; the report names the list by its digest', () => {
