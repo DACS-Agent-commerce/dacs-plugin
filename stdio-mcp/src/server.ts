@@ -169,8 +169,14 @@ export function createServer(deps: Deps): McpServer {
         const d = conduct.decide(action, {phase: 'execute', approval: {hash: conductHash(action), expires_at: expiresAt, stop_generation:stopGeneration, nonce: randomBytes(16).toString('hex')}, trustedApproval: true});
         requireDecision(d);
         if (d.decision !== 'allow') throw new Error('alignment approval required');
-        const result = await original(form);
-        conduct.outcome(action, d.receipt, 'signed');
+        let result;
+        try {
+          result = await original(form);
+        } catch (e) {
+          conduct.outcome(action, d.receipt, 'unknown'); // the page code may have written the keystore before it threw
+          throw e;
+        }
+        conduct.outcome(action, d.receipt, result.error ? 'failed' : 'signed');
         return result;
       },
       onAck: spec.onAck ? () => {requireDecision(conduct.decide(action)); spec.onAck?.();} : undefined});
