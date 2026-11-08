@@ -288,7 +288,24 @@ const AFTER_URL_HOST = /^(?:$|[/?#:\s'"`)\]>,;])/;
 function resolvedUrlHost(host, whole) {
   const decoded = withEscapesDecoded(host) ?? host;
   const mapped = mappedHost(decoded) ?? decoded;
-  return (whole ? urlIpv4(mapped.replace(TRAILING_DOTS, '')) : null) ?? mapped;
+  return (whole ? urlIpv4(mapped.replace(TRAILING_DOTS, '')) : null) ?? withNumericPrefixResolved(mapped);
+}
+
+/**
+ * `host`, a decoded and mapped URL host, with the numbers and dots before its first placeholder character replaced by the IPv4 address a URL
+ * parser reads them as (`urlIpv4`), when the placeholder stands for what follows the host (`0x7f.0.0.1%s` as `127.0.0.1%s`,
+ * `2130706433${path}` as `127.0.0.1${path}`): the numeric counterpart of `urlHostPrefixValue`, so that a numeric host before a
+ * placeholder is classified as the address it is, as its dotted-quad spelling is. A host with no placeholder, with nothing before it, or
+ * with a prefix that is no address (`10.0.0.${host}`: the numbers a URL parser reads end in a number, never in the dot, hyphen or underscore
+ * of a label the placeholder completes) is returned unchanged.
+ */
+function withNumericPrefixResolved(host) {
+  const first = host.search(FIRST_PLACEHOLDER_CHARACTER);
+  if (first <= 0) return host;
+  const before = host.slice(0, first);
+  // The whole host may have refused mapping because of the placeholder (`127。0。0。1%s`); the prefix alone maps.
+  const address = urlIpv4(mappedHost(before) ?? before);
+  return address === null ? host : address + host.slice(first);
 }
 
 /** `match` with its URL host resolved (`resolvedUrlHost`), the host counting as whole when `AFTER_URL_HOST` allows what follows it in `string`. */

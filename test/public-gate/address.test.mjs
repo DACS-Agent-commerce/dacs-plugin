@@ -161,9 +161,9 @@ test('hosts: the name before a URL host\'s first placeholder is read as the host
     'docs/before.md': [`see https://${OTHER}%s/x`, `see https://${OTHER}\${path}`, `see https://${encoded(OTHER)}%s/x`, `see https://${mapped(idn)}\${a}\${b}/x`,
       // 5-6 pass: a listed name and a reserved one before the placeholder, plain and escaped.
       `see https://github.com%s/x and //${encoded('github.com')}\${path}`, `see https://${name('cdn', 'example', 'net')}%(path)s/x`,
-      // 7-8 pass: the placeholder completes a label (`api.${env}`, `cdn-${env}.example.org`, `host_${env}.example.org`, `api.github.${tld}`), or a
-      // single label precedes it.
-      'see https://api.${env}/x and https://cdn-${env}.example.org/x', `see https://host_\${env}.example.org/x and https://\${name}.com/x and https://api.${name('github', '${tld}')}/x`].join('\n') + '\n',
+      // 7-8 pass: the placeholder completes a label (`api.${env}`, `cdn-${env}.example.org`, `api.github-${env}.com`, `host_${env}.example.org`,
+      // `api.github.${tld}`), or a single label precedes it.
+      'see https://api.${env}/x and https://cdn-${env}.example.org/x and https://api.github-${env}.com/x', `see https://host_\${env}.example.org/x and https://\${name}.com/x and https://api.${name('github', '${tld}')}/x`].join('\n') + '\n',
     // 1-3 fail, 4 passes: the same in code, with string escapes for the dots in 2 and a protocol-relative URL in 3.
     'src/before.mjs': [`const a = "https://${OTHER}%s/x";`, `const b = "https://${OTHER.replaceAll('.', '\\u002e')}\${path}";`, `const c = "//${encoded(OTHER)}%(p)s/x";`,
       'const d = `https://api.${env}/x` + "https://github.com%s/x";'].join('\n') + '\n',
@@ -569,6 +569,28 @@ test('addresses: a protocol-relative URL host in numbers and dots, percent escap
   assert.deepEqual(scanned(scanIps, files, NO_DISPOSITIONS), [1, 2, 3, 4].map((line) => `R-IP content docs/relative-ip.md ${line}`).concat('R-IP content src/relative-ip.mjs 1'));
   assert.deepEqual(scanned(scanHosts, files), []);
   assert.deepEqual(refusedMetadataIps(`subject\n\nsee //${decimal}/x and //${ipv4Spellings(127, 0, 0, 1)[0]}/y`), [PRIVATE_V4]);
+});
+
+test('addresses: a URL host in numbers and dots before its first placeholder (`https://0x7f%2e0%2e0%2e1%s/`, a private one) fails as the IPv4 address a URL parser reads it as, in prose, data, code and commit metadata, with plain, escaped or mapped dots and in every numeric spelling; a loopback or documentation address there passes, and the host rule reports none of them', () => {
+  const encodings = [(host) => host, (host) => host.replaceAll('.', '%2e'), (host) => host.replaceAll('.', '%2E'), (host) => host.replaceAll('.', '。')];
+  const placeholders = ['%s', '${path}', '%(path)s'];
+  const shaped = (spellings) => spellings.flatMap((host) => encodings.flatMap((encode) => placeholders.map((placeholder) => encode(host) + placeholder)));
+  const privateHosts = [...shaped(ipv4Spellings(192, 168, 0, 1)), ...shaped(ipv4Spellings(10, 0, 0, 7))];
+  const permittedHosts = [...shaped(ipv4Spellings(127, 0, 0, 1)), ...shaped(ipv4Spellings(192, 0, 2, 7))];
+  const files = {
+    'docs/prefix.md': privateHosts.map((host) => `see https://${host}/x`).join('\n') + '\n',
+    'conf/prefix.json': privateHosts.map((host) => `{ "u": "https://${host}/x" }`).join('\n') + '\n',
+    'src/prefix.mjs': privateHosts.map((host) => `const u = "https://${host}/x";`).join('\n') + '\n',
+    'src/prefix.ts': privateHosts.map((host) => `const u = \`//${host}/x\`;`).join('\n') + '\n',
+    'docs/permitted-prefix.md': permittedHosts.map((host) => `see https://${host}/x and //${host}/y`).join('\n') + '\n',
+  };
+  const every = (file) => privateHosts.map((_, index) => `R-IP content ${file} ${index + 1}`);
+  assert.deepEqual(scanned(scanIps, files, NO_DISPOSITIONS), [...every('docs/prefix.md'), ...every('conf/prefix.json'), ...every('src/prefix.mjs'), ...every('src/prefix.ts')]);
+  assert.deepEqual(scanned(scanHosts, files), []);
+  const [hex] = ipv4Spellings(192, 168, 0, 1).filter((host) => host.startsWith('0x') && host.includes('.'));
+  assert.deepEqual(refusedMetadataIps(`subject\n\nsee https://${hex.replaceAll('.', '%2e')}%s/x and https://${ipv4Spellings(127, 0, 0, 1)[1]}\${path}/y`), [ipv4(192, 168, 0, 1)]);
+  // A placeholder that completes a label leaves the numbers before it unread: no address.
+  assert.deepEqual(scanned(scanIps, { 'docs/label.md': 'see https://10.0.0.${host}/x and https://0xa.${rest}/y and https://10-${n}.example.org/z\n' }, NO_DISPOSITIONS), []);
 });
 
 test('addresses: a host in numbers and escaped full stops, and an unquoted CSS `url(//...)` host in numbers, fail or pass as the address a URL parser reads', () => {
