@@ -281,8 +281,8 @@ test('wording: only the six known terminated character references are decoded; a
 test('wording: unterminated references are literal outside HTML and SVG blobs', () => {
   const literal = ['R&D', 'AT&T', 'Q&A', 'caf&eacute', '&#233', '&#xE9', '&copy2', '&notit', '&amp', '&#39', 'security&nbspreview', '?x=1&copy=2'];
   for (const reference of literal) {
-    for (const name of ['a.md', 'a.txt', 'a.htm', 'a.xml', 'LICENSE']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [], `${name}: ${reference}`);
-    for (const name of ['page.html', 'page.svg', 'PAGE.HTML', 'PAGE.SVG']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
+    for (const name of ['a.md', 'a.txt', 'a.xml', 'LICENSE']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [], `${name}: ${reference}`);
+    for (const name of ['page.html', 'page.htm', 'page.svg', 'PAGE.HTML', 'PAGE.HTM', 'PAGE.SVG']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
   }
   assert.deepEqual(findingLines('a.md', `${FIRST}&D ${SECOND}`), []);
   assert.deepEqual(findingLines('a.md', 'R&D tool', ['R&D tool']), [1]);

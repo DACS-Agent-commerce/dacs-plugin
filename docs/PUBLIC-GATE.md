@@ -54,7 +54,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   written with only `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&nbsp;` decoded, with markup erased, and with each markup token one space.
   Markup is HTML comments and tags (attributes included), Markdown link destinations, reference labels and definitions, link brackets, block-quote
   marks, escaping backslashes and character references; any other character reference fails (write the character).
-  In `.html` and `.svg` blobs (case-insensitive extensions), unterminated numeric and named references also fail, preserving the existing checks.
+  In HTML blobs (`.html` and `.htm`, as read by `R-EVAL`) and `.svg` blobs (case-insensitive extensions), unterminated numeric and named references also fail, preserving the existing checks.
   In every other input, including Markdown, text, JSON, YAML and `--pr-text`, a character reference requires its terminating `;`;
   other ampersands are literal text, so `R&D`, `AT&T`, `?x=1&copy=2` and YAML anchors pass this reference check. A list entry fails unless it
   lies wholly inside the approved clause or a disclaimer of the same view; the body of a closed fence whose language is a shell may hold entries.

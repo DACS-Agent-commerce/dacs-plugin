@@ -13,6 +13,8 @@ export const EVAL_RULE_ID = 'R-EVAL';
 const PARSER_CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'rules-eval-child.mjs');
 /** The unit kind of each extension the rule reads: a JS or TS file, or an HTML file whose code only the child takes out. */
 const UNIT_KIND_BY_EXTENSION = new Map(Object.entries({ '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx', '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx', '.html': 'html', '.htm': 'html' }));
+/** Whether a lower-case file extension is parsed as HTML by the eval rule. */
+export const isHtmlExtension = (extension) => UNIT_KIND_BY_EXTENSION.get(extension) === 'html';
 const UNIT_CAUSES = ['eval-parse-error', 'eval-computed-member', 'eval-too-deep', 'eval-html-unreadable'];
 const GENERATED_KEYS = ['path', 'reason', 'sha256'];
 

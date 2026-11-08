@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 import { CODE_EXTENSIONS, textOf, viewsOf } from './rules-address.mjs';
+import { isHtmlExtension } from './rules-eval.mjs';
 import { createPrivateMatcher } from './rules-private.mjs';
 
 /** Id of the rule that refuses internal reports in reports. */
@@ -376,7 +377,7 @@ export function scanWording({ entries, wordingMatcher, limits }) {
   for (const entry of entries.filter((candidate) => candidate.path !== null)) {
     const [text, extension] = [textOf(entry), path.posix.extname(entry.path).toLowerCase()];
     if (text === null || SOURCE_EXTENSIONS.has(extension)) continue;
-    const references = extension === '.html' || extension === '.svg' ? HTML_CHARACTER_REFERENCE : CHARACTER_REFERENCE;
+    const references = isHtmlExtension(extension) || extension === '.svg' ? HTML_CHARACTER_REFERENCE : CHARACTER_REFERENCE;
     const lines = extension === '.json' ? manifestFindingLines(text, wordingMatcher) : proseFindingLines(text, wordingMatcher, references);
     for (const line of [...lines].sort((first, second) => first - second)) add({ kind: 'content', entry, line });
   }
