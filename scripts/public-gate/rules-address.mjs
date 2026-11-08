@@ -136,6 +136,10 @@ function normalisedHost(host) {
 const PLACEHOLDER_CHARACTER = /[${}<>*]|%(?![0-9a-f]{2})/gi;
 /** The dot that ends a label (`DOT`). */
 const LABEL_END = new RegExp(DOT, 'i');
+/** The first placeholder character of a host (`PLACEHOLDER_CHARACTER`, unanchored and without the global flag, for `search`). */
+const FIRST_PLACEHOLDER_CHARACTER = new RegExp(PLACEHOLDER_CHARACTER.source, 'i');
+/** What ends the text before a placeholder when the placeholder completes a label of the name (`api.${env}`, `cdn-${env}.example.org`) rather than following a whole name: a dot (`DOT`), a hyphen or an underscore. */
+const LABEL_TAIL = new RegExp(String.raw`(?:${DOT}|[-_])$`, 'i');
 /**
  * A dot and a dotted name as a URL host may hold it, of two labels or more and with any last label (`example.xn--p1ai`): what follows the
  * label of the last placeholder when it names a host. A single label (`${name}.com`) names no host.
@@ -171,6 +175,19 @@ function urlHostValue(host) {
   return rest === null ? null : (rest.match(LITERAL_SUFFIX)?.[1] ?? '');
 }
 
+/**
+ * The name a URL host holds before its first placeholder character, normalised (`normalisedHost`): the host a URL parser sees when the
+ * placeholder stands for what follows the host (`https://<domain>${path}`, `https://<domain>%s`, `https://<domain>%2e<tld>%s`). '' when the
+ * host holds no placeholder or nothing precedes it; when what precedes it ends in a dot, a hyphen or an underscore (`LABEL_TAIL`: the
+ * placeholder completes a label, as in `api.${env}`); and when what precedes it cannot be normalised, since `urlHostValue` reports such a host.
+ */
+function urlHostPrefixValue(host) {
+  const first = host.search(FIRST_PLACEHOLDER_CHARACTER);
+  if (first <= 0) return '';
+  const before = host.slice(0, first);
+  return LABEL_TAIL.test(before) ? '' : (normalisedHost(before) ?? '');
+}
+
 /** Whether `host`, as `normalisedHost` returned it (a normalised host normalises to itself) or as written when that was null, is one that could not be normalised. */
 const isUnnormalisable = (host) => normalisedHost(host) === null;
 
@@ -198,7 +215,10 @@ function unlistedHostsIn(line, { code, listedHosts }) {
     return value !== null && DECODED_HOST.test(value) ? value : '';
   };
   const asUrlHost = ({ host }) => urlHostValue(host) ?? host;
-  const forms = [['url', URL_HOST, asUrlHost], ['url', code ? CODE_PROTOCOL_RELATIVE_HOST : PROTOCOL_RELATIVE_HOST, asHost],
+  /** The name before a URL host's first placeholder (`urlHostPrefixValue`), matched like the host itself. */
+  const asNameBefore = ({ host }) => { const value = urlHostPrefixValue(host); return DECODED_HOST.test(value) ? value : ''; };
+  const relative = code ? CODE_PROTOCOL_RELATIVE_HOST : PROTOCOL_RELATIVE_HOST;
+  const forms = [['url', URL_HOST, asUrlHost], ['url', relative, asHost], ['url', URL_HOST, asNameBefore], ['url', relative, asNameBefore],
     ['host-port', HOST_PORT, asWritten], code ? ['quoted', QUOTED_NAME, asWritten] : ['bare', BARE_NAME, asWritten]];
   return forms.flatMap(([context, pattern, valueOf]) => matchesOf(pattern, context, line, valueOf))
     .filter(({ value, context }) => (context === 'url' && isUnnormalisable(value)) || (value.includes('.') && !NOT_A_NAME.test(value)

@@ -152,6 +152,27 @@ test('hosts: a placeholder is found before a URL host is decoded, so `${tenant}%
     'R-HOST content src/escaped-placeholder.mjs 2', 'R-HOST content src/escaped-placeholder.mjs 3']);
 });
 
+test('hosts: the name before a URL host\'s first placeholder is read as the host (`https://<domain>%s`), with plain, escaped or mapped dots; a listed or reserved one passes, and a placeholder that completes a label (`api.${env}`, `cdn-${env}.<domain>`) is read as before', () => {
+  const encoded = (host) => host.replaceAll('.', '%2e');
+  const mapped = (host) => host.replaceAll('.', '\u3002');
+  const idn = name('attacker', 'xn--p1ai');
+  const files = {
+    // 1-4 fail: an unlisted name before `%s`, `${path}`, `%2e<tld>%s` (the escape is a dot, `%s` the first placeholder) and two placeholders.
+    'docs/before.md': [`see https://${OTHER}%s/x`, `see https://${OTHER}\${path}`, `see https://${encoded(OTHER)}%s/x`, `see https://${mapped(idn)}\${a}\${b}/x`,
+      // 5-6 pass: a listed name and a reserved one before the placeholder, plain and escaped.
+      `see https://github.com%s/x and //${encoded('github.com')}\${path}`, `see https://${name('cdn', 'example', 'net')}%(path)s/x`,
+      // 7-8 pass: the placeholder completes a label (`api.${env}`, `cdn-${env}.example.org`, `host_${env}.example.org`, `api.github.${tld}`), or a
+      // single label precedes it.
+      'see https://api.${env}/x and https://cdn-${env}.example.org/x', `see https://host_\${env}.example.org/x and https://\${name}.com/x and https://api.${name('github', '${tld}')}/x`].join('\n') + '\n',
+    // 1-3 fail, 4 passes: the same in code, with string escapes for the dots in 2 and a protocol-relative URL in 3.
+    'src/before.mjs': [`const a = "https://${OTHER}%s/x";`, `const b = "https://${OTHER.replaceAll('.', '\\u002e')}\${path}";`, `const c = "//${encoded(OTHER)}%(p)s/x";`,
+      'const d = `https://api.${env}/x` + "https://github.com%s/x";'].join('\n') + '\n',
+  };
+  assert.deepEqual(scanned(scanHosts, files), [1, 2, 3, 4].map((line) => `R-HOST content docs/before.md ${line}`).concat([1, 2, 3].map((line) => `R-HOST content src/before.mjs ${line}`)));
+  // Before this reading, the escaped and mapped spellings (docs 3 and 4, code 2 and 3) were reported as unnormalisable, listed or not; now the
+  // name decides, so an escaped listed name before a placeholder passes (docs 5) rather than failing as a spelling that could not be read.
+});
+
 test('hosts: a URL host with a placeholder fails, as at base, when one of its escapes does not decode to host characters; `%2e` still reads as a dot', () => {
   const [undecodable] = UNDECODABLE_HOSTS[0].split('.');
   const [slash, nul, doubled] = [['%', '2f'], ['%', '00'], ['%', '252e']].map((parts) => parts.join(''));
@@ -578,7 +599,7 @@ test('addresses: an exact disposition is pinned to its blob, so another spelling
   assert.deepEqual(scanned(scanIps, { 'docs/shared.md': `http://${PRIVATE_V4}/x and http://${ipv4Spellings(10, 0, 0, 8)[0]}/x and\n` }, config), ['R-IP content docs/shared.md 1']);
 });
 
-test('hosts and addresses: across URL forms, file kinds, dot spellings and placeholders, a URL host gives the result its literal name or address gives (a cross-feature table)', () => {
+test('hosts and addresses: across URL forms, file kinds, dot spellings and placeholders before and after the name, a URL host gives the result its literal name or address gives (a cross-feature table)', () => {
   const unicodeDots = ['\u3002', '\uFF0E', '\uFF61'];
   const encodedStops = ['%E3%80%82', '%ef%bc%8e', '%EF%BD%A1'];
   const escapedStops = ['\\u3002', '\\uFF0E', '\\u{ff61}'];
@@ -604,6 +625,8 @@ test('hosts and addresses: across URL forms, file kinds, dot spellings and place
       const prose = path.startsWith('docs/') || path.startsWith('conf/');
       const bareSubdomain = /\w$/.test(placeholder) && host === 'github.com' && prose && (!mapped.includes(dot) || placeholder === '$T');
       check(path, wrap(form(written)), bareSubdomain ? 'R-HOST' : want);
+      // The same placeholder after the name (`https://<domain>%s`): the name before the first placeholder is read as the host.
+      if (placeholder) check(path, wrap(form(host.replaceAll('.', dot) + placeholder)), want);
     }
     for (const [octets, want] of [[[10, 0, 0, 7], 'R-IP'], [[127, 0, 0, 1], ''], [[192, 0, 2, 1], '']]) for (const spelling of ipv4Spellings(...octets)) for (const dot of ['.', '\u3002', '%2e', '%E3%80%82', ...(path.startsWith('docs/') ? [] : ['\\uff0e'])]) {
       if (dot === '.' || spelling.includes('.')) check(path, wrap(form(spelling.replaceAll('.', dot))), want);

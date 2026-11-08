@@ -101,11 +101,13 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   host and needs its own entry. Reserved names pass with any subdomain: the top-level names `invalid`, `test`, `example` and
   `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label) and an IP literal are not
   read here; the private list covers labels, and IP literals belong to the IP rule. A URL host with a template placeholder (`$ { } < > *`,
-  or a `%` that starts no percent escape: `${tenant}`, `%s`, `%(host)s`, `{tenant}`, `$TENANT`, `<tenant>`, `*`) is read through its
-  last placeholder character: the dotted name after the label that holds it, of two labels or more with any last label, is matched
-  like any URL host (`https://${tenant}.host.example.com/` as `host.example.com`), and a host with no such name after its last
-  placeholder (`${host}`, `api.${env}`, `${name}.com`) is not read. A placeholder host whose escapes do not all decode to host
-  characters is a finding, as below.
+  or a `%` that starts no percent escape: `${tenant}`, `%s`, `%(host)s`, `{tenant}`, `$TENANT`, `<tenant>`, `*`) is read on both sides
+  of its placeholders: the dotted name after the label that holds the last placeholder character, of two labels or more with any last
+  label, is matched like any URL host (`https://${tenant}.host.example.com/` as `host.example.com`), and so is the whole name before the
+  first placeholder character when that placeholder stands for what follows the host (`https://host.example.com%s/` and
+  `https://host.example.com${path}` as `host.example.com`). A placeholder that completes a label is not read as a name boundary
+  (`api.${env}`, `cdn-${env}.example.org`), and a host with no dotted name on either side (`${host}`, `${name}.com`) is not read. A
+  placeholder host whose escapes do not all decode to host characters is a finding, as below.
   A URL host is normalised the way a URL parser resolves it before it is matched: percent escapes decoded once (`host%2eexample%2ecom` is
   `host.example.com`), lower-cased, and a trailing dot dropped; a host with a non-ASCII character mapped with UTS 46 as `node:url`'s
   `domainToASCII` does (the full stops U+3002, U+FF0E and U+FF61 become dots, full-width letters ASCII, an internationalised name
