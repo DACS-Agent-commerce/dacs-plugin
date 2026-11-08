@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { GateInputError } from '../../scripts/public-gate/objects.mjs';
 import { hasValidAddressConfig, hasValidIpDispositions, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps, scanAccounts, scanHosts, scanIps } from '../../scripts/public-gate/rules-address.mjs';
@@ -229,6 +230,26 @@ test('hosts: a percent-encoded dot, an upper-case encoding or a trailing dot in 
     'src/encoded.mjs': `const url = '${urlOf(ATTACKER_ENCODED)}';\n`,
   };
   assert.deepEqual(scanned(scanHosts, files), [1, 2, 3, 4].map((line) => `R-HOST content docs/encoded.md ${line}`).concat('R-HOST content src/encoded.mjs 1'));
+});
+
+test('hosts and IPs: a URL host with a very long run of dots inside it is read in linear time, with the result its short form gives', () => {
+  // Trimming the dots that end a host once retried the trim from every dot of a run: 40,000 dots took about 1.5 s in R-HOST and 0.5 s
+  // in R-IP, and the time grew with the square of the run. Ten times as many dots would take minutes; the child is killed long before.
+  const config = { ...CONFIG, ipDispositions: [] };
+  const lines = (n) => [`see https://a${'.'.repeat(n)}x/y`, `see https://a${'。'.repeat(n)}x/y`, `see //a${'.'.repeat(n)}x/y`, `see https://a${'%2e'.repeat(n)}%/y`];
+  const short = { 'docs/dots.md': lines(2).join('\n') + '\n' };
+  assert.deepEqual(scanned(scanHosts, short, config), [1, 2, 3].map((line) => `R-HOST content docs/dots.md ${line}`));
+  assert.deepEqual(scanned(scanIps, short, config), []);
+  const script = `import { scanHosts, scanIps } from ${JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'scripts/public-gate/rules-address.mjs')).href)};
+    const lines = ${lines.toString()};
+    const entries = [{ position: 1, path: 'docs/dots.md', oid: 'b'.repeat(40), bytes: Buffer.from(lines(400_000).join('\\n') + '\\n') }];
+    const config = ${JSON.stringify(config)};
+    const found = (scan) => scan({ entries, config, limits: { maxReportEntries: 1000 } }).map((finding) => finding.rule + ' ' + finding.line).join(',');
+    process.stdout.write(found(scanHosts) + ';' + found(scanIps));`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 10_000 });
+  assert.equal(result.signal, null, 'both scans finished before their deadline');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'R-HOST 1,R-HOST 2,R-HOST 3;');
 });
 
 test('hosts: an encoded form of a listed host passes, and an encoded subdomain of it fails', () => {

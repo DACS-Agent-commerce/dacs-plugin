@@ -30,6 +30,8 @@ const HOST_TOP_LEVEL_NAMES = new Set(['com', 'org', 'net', 'io', 'dev', 'ai', 'x
 const LINE_BREAK = /\r\n|\r|\n/;
 /** A dotted name within DNS limits (labels of at most 63 characters, at most 127 of them): bounded so a long dotted line cannot exhaust the regex stack. */
 const NAME_LABELS = String.raw`(?:[a-z0-9_-]{1,63}\.){1,127}[a-z]{2,63}`;
+/** The dots that end a host. The lookbehind lets a match start only at the first dot of a run, so a run of dots that does not end the host is passed over once, in linear time, rather than retried from each dot. */
+const TRAILING_DOTS = /(?<!\.)\.+$/;
 /**
  * A dot in a URL host as written: `.`, its percent escape `%2e`, or one of the full stops a URL parser maps to a dot
  * (U+3002, U+FF0E, U+FF61), written as the character or percent-encoded in UTF-8.
@@ -126,7 +128,7 @@ function normalisedHost(host) {
   const decoded = withEscapesDecoded(host)?.toLowerCase();
   const mapped = decoded === undefined ? null : mappedHost(decoded);
   if (mapped === null || (mapped !== host.toLowerCase() && !DECODED_HOST.test(mapped))) return null;
-  const name = mapped.replace(/\.+$/, '');
+  const name = mapped.replace(TRAILING_DOTS, '');
   return urlIpv4(name) ?? name;
 }
 
@@ -266,7 +268,7 @@ const AFTER_URL_HOST = /^(?:$|[/?#:\s'"`)\]>,;])/;
 function resolvedUrlHost(host, whole) {
   const decoded = withEscapesDecoded(host) ?? host;
   const mapped = mappedHost(decoded) ?? decoded;
-  return (whole ? urlIpv4(mapped.replace(/\.+$/, '')) : null) ?? mapped;
+  return (whole ? urlIpv4(mapped.replace(TRAILING_DOTS, '')) : null) ?? mapped;
 }
 
 /** `match` with its URL host resolved (`resolvedUrlHost`), the host counting as whole when `AFTER_URL_HOST` allows what follows it in `string`. */
