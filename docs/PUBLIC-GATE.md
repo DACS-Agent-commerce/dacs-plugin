@@ -53,7 +53,14 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   emphasis marks and invisible characters removed, white space collapsed, the entries normalised the same way) are read in three views: as
   written with only `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&nbsp;` decoded, with markup erased, and with each markup token one space.
   Markup is HTML comments and tags (attributes included), Markdown link destinations, reference labels and definitions, link brackets, block-quote
-  marks, escaping backslashes and character references; any other character reference fails (write the character). A list entry fails unless it
+  marks, escaping backslashes and character references; any other character reference fails (write the character).
+  A numeric reference (`&#` and digits, or `&#x` and hex digits) and a legacy named reference (one of the 106 names that HTML5 decodes without a `;`, case-sensitive,
+  read as the longest such name that starts the text after the ampersand, so a name followed by more letters counts) count as references with or without the `;`, in every input, including
+  raw HTML inside Markdown and `--pr-text`; without the `;` they are none of the six decoded ones, so they fail. Any other named reference counts only with its `;`. In HTML blobs (`.html` and `.htm`, as read by `R-EVAL`) and `.svg` blobs
+  (case-insensitive extensions) every ampersand followed by a name or `#` also fails, preserving the existing checks. Outside HTML and SVG any other unterminated
+  ampersand is literal text only when the text after it does not start with a legacy name, so `R&D`, `Q&A`, `AT&T` and `&defaults` pass this reference check. An anchor, query key or word
+  that starts with a legacy name is still read as a reference and checked, so it fails: a YAML anchor named `eth_mainnet` or `params`, a query key `region=eu` and the word `ETH` after an ampersand all start with `eth`, `para`, `reg` or `ETH`;
+  the same holds for query strings in JSON and in Markdown links. A list entry fails unless it
   lies wholly inside the approved clause or a disclaimer of the same view; the body of a closed fence whose language is a shell may hold entries.
   In a status phrase, white space, a Unicode dash (`Pd`), invisible format characters and `_`, `*` or a backtick between the words count as a gap (a camelCase name has none).
   A sentence about the review's status (in the erased and spaced views and in each markup token, read with the six references decoded and escaping backslashes dropped; a token is a comment, a tag with its attributes, a link destination, title or label, so a URL or file name holding the words fails as it does in plain text) passes only as the approved clause
