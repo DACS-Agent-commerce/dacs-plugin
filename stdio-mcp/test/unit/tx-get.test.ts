@@ -49,3 +49,9 @@ test('a hash with transaction content is found whatever the status says', async 
 test('a transport failure (5xx envelope) with no transaction is an error, not "not found"', async () => {
   await assert.rejects(chainWith({ result: 500, response: 'down', require_reply: false }, null).getTx(HASH));
 });
+
+test('a 404 "Unknown message" (the node has no such handler) is an error, not "not found"', async () => {
+  const unknownHandler = { result: 404, response: 'Unknown message', require_reply: false };
+  await assert.rejects(chainWith(unknownHandler, null).getTx(HASH));
+  await assert.rejects(chainWith(unknownHandler, envelope404).getTx(HASH));
+});
