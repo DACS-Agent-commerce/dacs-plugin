@@ -7,7 +7,8 @@
     "gate:generic": "node scripts/public-gate/gate.mjs --scope generic",
     "gate:complete": "node scripts/public-gate/gate.mjs --scope complete",
     "gate:history": "node scripts/public-gate/history.mjs",
-    "test": "node --test \"test/**/*.test.mjs\""
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "test:all": "node scripts/ci/test-all.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"

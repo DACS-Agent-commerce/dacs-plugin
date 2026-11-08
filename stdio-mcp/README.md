@@ -40,8 +40,10 @@ run against a live wallet or node.
 - **What has been checked:** the unit tests pass (mocked SDK, no network). The
   integration tests, the type check, the build and the Claude Code plugin
   validation have not been run for this import.
-- **The CI workflow is not in this repository.** The workflow-pin and
-  workflow-settings unit tests skip without it.
+- **The CI workflow is `.github/workflows/stdio-mcp.yml`.** It runs the type
+  check, the unit tests and the build. The workflow-pin and workflow-settings
+  unit tests skip without the workflow file. Nothing has run it yet: Actions
+  jobs start once the repository is public.
 - **There is no built-in RPC.** Read-only use takes `DEMOS_RPC_URL`. The
   mainnet opt-in described below exists in the code, but has not been tried.
 

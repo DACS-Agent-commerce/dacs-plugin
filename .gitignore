@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+# Local environment files; a template named .env.example stays tracked.
+.env
+.env.*
+!.env.example
