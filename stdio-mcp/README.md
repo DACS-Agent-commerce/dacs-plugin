@@ -302,9 +302,13 @@ is launched from.
 - Signatures follow CORE §B.7: `domain_separator || artifact_hash_hex`, with
   ed25519 values in unpadded Base64URL (SIG-6). The decoder is strict:
   padding, the standard alphabet, hex and residual bits are all rejected.
-- Key resolution is offline for `key:<hex>` claims only. A Demos wallet's claim
-  is `key:<address without 0x>`. Any other scheme (`did:`, `cci-xm:`, …) gives
-  `indeterminate` and is never accepted.
+- Key resolution is offline for `key:<hex>` and `did:demos:agent:<hex>` claims,
+  where `<hex>` is the 64 lowercase hex of the ed25519 public key (the HTTP
+  plugin signs Listings with the `did:demos:agent:` form). A Demos wallet's
+  claim is `key:<address without 0x>`. Signatures by either form verify for
+  Listings, offers, Agreements and bundles; a payee address still comes only
+  from a `key:` claim or the offer's payout bindings. Any other scheme (other
+  `did:` methods, `cci-xm:`, …) gives `indeterminate` and is never accepted.
 - Bundles: the hash omits `signatures` and `anchoredByRole`. The verifier
   applies the required-signer rule (buyer + seller, plus a distinct
   orchestrator) and lets aborted outcomes carry a single signature. On a
