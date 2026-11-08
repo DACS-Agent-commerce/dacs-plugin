@@ -266,16 +266,36 @@ test('wording: a finding is at the first line of its paragraph, counted in the f
   assert.deepEqual(findingLines('a.md', `a\r\n\r\nb\r\n${TERM}\r\n`), [3]);
 });
 
-test('wording: only the six known character references are decoded; any other, numeric, named, unknown or without its semicolon, is refused at its line', () => {
+test('wording: only the six known terminated character references are decoded; any other terminated reference is refused at its line', () => {
   assert.deepEqual(findingLines('a.md', 'a &amp; b &lt; c &gt; d &quot; e &#39; f &nbsp; g, a & b, a && b, a &= b\n'), []);
   assert.deepEqual(findingLines('a.md', `${FIRST}&nbsp;${SECOND}\n`), [1]);
-  const refused = ['caf&eacute;', 'caf&eacute', '&#233;', '&#233', '&#xe9;', '&#xE9', `${FIRST}&#32;${SECOND}`, '&#x20;', '&#10;', '&#150;', '&#0;', '&#xD800;', '&#1114112;', '&hyphen;', '&constructor;',
-    '&copy2', '&notit', 'AT&T', 'R&D', '&AMP;', '&amp', '&#39', '&#039;', '&#;'];
+  const refused = ['caf&eacute;', '&#233;', '&#xe9;', `${FIRST}&#32;${SECOND}`, '&#x20;', '&#10;', '&#150;', '&#0;', '&#xD800;', '&#1114112;', '&hyphen;', '&constructor;',
+    '&copy2;', '&notit;', '&AMP;', '&#039;', '&#;'];
   for (const reference of refused) {
     for (const name of ['a.md', 'page.html', 'a.txt']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
   }
   assert.deepEqual(findingLines('page.html', '<p title="a&hyphen;b">x</p>', ['unlisted-entry']), [1]);
   assert.deepEqual(findingLines('m.json', JSON.stringify({ description: 'a &#32; b' }, null, 2), ['unlisted-entry']), [2]);
+});
+
+test('wording: unterminated references are literal outside HTML and SVG blobs', () => {
+  const literal = ['R&D', 'AT&T', 'Q&A', 'caf&eacute', '&#233', '&#xE9', '&copy2', '&notit', '&amp', '&#39', 'security&nbspreview', '?x=1&copy=2'];
+  for (const reference of literal) {
+    for (const name of ['a.md', 'a.txt', 'a.htm', 'a.xml', 'LICENSE']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [], `${name}: ${reference}`);
+    for (const name of ['page.html', 'page.svg', 'PAGE.HTML', 'PAGE.SVG']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
+  }
+  assert.deepEqual(findingLines('a.md', `${FIRST}&D ${SECOND}`), []);
+  assert.deepEqual(findingLines('a.md', 'R&D tool', ['R&D tool']), [1]);
+});
+
+test('wording: JSON query strings keep literal ampersands in keys and nested values', () => {
+  const text = JSON.stringify({ '?x=1&copy=2': { urls: ['?x=1&copy=2', '?q=R&D&company=AT&T'] } }, null, 2);
+  assert.deepEqual(findingLines('.claude-plugin/plugin.json', text, ['unlisted-entry']), []);
+});
+
+test('wording: YAML anchors and aliases keep literal ampersands', () => {
+  const text = 'defaults: &defaults\n  team: R&D\n  company: AT&T\ncopy: &copy\n  <<: *defaults\n';
+  for (const name of ['manifest.yml', 'manifest.yaml']) assert.deepEqual(findingLines(name, text, ['unlisted-entry']), [], name);
 });
 
 test('wording: a line of a million character references is checked within a small heap, as a blob and as pull-request text', () => {
@@ -285,9 +305,9 @@ test('wording: a line of a million character references is checked within a smal
     const limits = { maxReportEntries: 100 };
     const read = (text) => [scanWording({ entries: [{ path: 'a.md', bytes: Buffer.from(text), oid: 'a'.repeat(40), position: 1 }], wordingMatcher: matcher, limits }).length,
       wordingEntryLines(text, matcher, 100, { readMarkup: true }).length];
-    console.log(JSON.stringify([read('&a'.repeat(1 << 20)), read('&amp;'.repeat(1 << 20))]));`;
+    console.log(JSON.stringify([read('&a'.repeat(1 << 20)), read('&a;'.repeat(1 << 20)), read('&amp;'.repeat(1 << 20))]));`;
   const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  assert.equal(output.trim(), '[[1,1],[0,0]]');
+  assert.equal(output.trim(), '[[0,0],[1,1],[0,0]]');
 });
 
 test('wording: a source file is not read in any source extension that R-EVAL parses, in any case; Markdown, HTML, SVG and text are', () => {
@@ -475,6 +495,15 @@ test('wording list: the flag is required in complete scope and refused in generi
 });
 
 const reportRules = (result) => JSON.parse(result.stdout).findings.map(({ rule }) => rule);
+
+test('history: --pr-text accepts ordinary ampersands in keys and nested values', () => {
+  const history = createHistory([{ files: { 'a.md': 'plain\n' }, message: 'plain' }]);
+  const prText = path.join(makeTempDir('pr'), 'pr.json');
+  writeFileSync(prText, JSON.stringify([{ 'R&D': { title: 'AT&T Q&A', body: 'R&D\n\n?x=1&copy=2\n\n&amp &#233 &copy2 security&nbspreview' } }]));
+  const result = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList([TERM]), '--pr-text', prText], 'main'));
+  assert.equal(result.status, 0, result.stdout || result.stderr);
+  assert.deepEqual(reportRules(result), []);
+});
 
 test('wording list: a wording entry in prose is an R-WORDING finding and not an R-PRIVATE one, and the reverse; the report names the list by its digest', () => {
   const repo = createRepo([{ path: 'a.md', content: `uses ${TERM}\n` }, { path: 'b.md', content: 'mentions private-entry\n' }]);
