@@ -469,6 +469,13 @@ test('wording: in a blob an entry passes only wholly inside the approved clause 
   assert.deepEqual(findingLines('page.html', `<p>Held. ${HOLD}.</p>`, [REVIEW]), []);
 });
 
+test('wording: a longer entry that crosses the start of a disclaimer fails although a shorter entry ending at the same place lies inside it', () => {
+  const [inside, crossing] = [REVIEW, `is not a ${REVIEW}`];
+  assert.deepEqual(findingLines('a.md', `It is not a ${REVIEW}\n`, [inside]), []);
+  assert.deepEqual(findingLines('a.md', `It is not a ${REVIEW}\n`, [inside, crossing]), [1]);
+  assert.deepEqual(findingLines('a.md', `It is not a ${REVIEW}\n`, [crossing, inside]), [1]);
+});
+
 test('wording: the approved clause passes inside rendered markup', () => {
   for (const page of [`<p>${HOLD}.</p>`, `<p>${HOLD}<!-- x -->.</p>`, `[${HOLD}](u).`, `<p title="Not a ${REVIEW}">${HOLD}.</p>`]) assert.deepEqual(findingLines('page.html', page, ['unlisted-entry']), [], page);
 });
