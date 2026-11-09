@@ -186,12 +186,12 @@ function claimRefs(identity: Record<string, any>): string[] {
   return Array.isArray(identity.claims) ? identity.claims.map((c: any) => (isObj(c) ? c.ref : undefined)).filter((r: unknown): r is string => typeof r === 'string') : [];
 }
 
-/** Presentation proof for a `key:` presentedBy claim. Legacy std-base64 is accepted for fixtures predating SIG-6. */
+/** Presentation proof for a `key:` or `did:demos:agent:` presentedBy claim. Legacy std-base64 is accepted for fixtures predating SIG-6. */
 function presentationCheck(identity: Record<string, any>): Check {
   const by = identity.presentedBy;
   const sigs = identity.presentation?.signatures;
   const key = keyForClaim(by);
-  if (!key) return { check: 'bundle-presentation', decision: 'indeterminate', detail: 'presentedBy is not a key: claim; control proof needs DACS-2 resolution' };
+  if (!key) return { check: 'bundle-presentation', decision: 'indeterminate', detail: 'presentedBy is not a key: or did:demos:agent: claim; control proof needs DACS-2 resolution' };
   if (identity.presentation?.kind !== 'per-claim' || !Array.isArray(sigs)) return { check: 'bundle-presentation', decision: 'indeterminate', detail: 'only per-claim presentation is verified here' };
   const mine = sigs.find((s: any) => isObj(s) && s.ref === by);
   if (!mine || typeof mine.signature !== 'string') return { check: 'bundle-presentation', decision: 'fail', detail: 'no presentation signature by the presentedBy claim (BP-4)' };
