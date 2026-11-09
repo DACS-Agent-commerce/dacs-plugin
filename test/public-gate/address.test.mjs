@@ -387,8 +387,17 @@ test('generic scope runs the three address rules; a finding names rule, kind, lo
     { rule: 'R-HOST', kind: 'content', location: `${planted.commit}:1`, line: 2 },
     { rule: 'R-IP', kind: 'content', location: `${planted.commit}:1`, line: 2 },
   ]);
-  assert.deepEqual(report.rules.map((rule) => rule.status), ['findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'findings', 'not-run', 'findings', 'findings', 'not-run']);
+  assert.deepEqual(report.rules.map((rule) => rule.status), ['findings', 'passed', 'passed', 'passed', 'findings', 'passed', 'findings', 'passed', 'not-run', 'passed', 'passed', 'not-run']);
   for (const text of [OTHER, LISTED, PUBLIC_V4, 'a.md']) assert.ok(!`${failing.stdout}${failing.stderr}`.includes(text));
+});
+
+test('a finding for one rule makes only that rule report findings; the rules with no finding still pass', () => {
+  const repo = createRepo([{ path: 'a.md', content: `See https://${OTHER}/\n` }]);
+  const result = runGate(gateArgs(repo, 'generic'));
+  assert.equal(result.status, 1);
+  const report = JSON.parse(result.stdout);
+  assert.deepEqual(report.findings.map(({ rule }) => rule), ['R-HOST']);
+  assert.deepEqual(report.rules, [{ id: 'R-ACCOUNT', status: 'passed' }, { id: 'R-ARCHIVE', status: 'passed' }, { id: 'R-ENV', status: 'passed' }, { id: 'R-EVAL', status: 'passed' }, { id: 'R-HOST', status: 'findings' }, { id: 'R-HOSTING', status: 'passed' }, { id: 'R-IP', status: 'passed' }, { id: 'R-ISSUE', status: 'passed' }, { id: 'R-PRIVATE', status: 'not-run' }, { id: 'R-REPORT', status: 'passed' }, { id: 'R-SECRET', status: 'passed' }, { id: 'R-WORDING', status: 'not-run' }]);
 });
 
 test('a long unbroken line of letters, dots or hyphens scans in linear time and the gate passes', () => {

@@ -83,7 +83,7 @@ test('eval HTML :: every non-exact row fails closed in generic, complete and his
     ['history', () => runHistory(historyArgs(history, list)), history.commits[1]],
   ];
   // R-WORDING (complete scope and history) refuses the rows holding a character reference other than the six it reads; `&quot;` is one of those six.
-  // A complete-scope report gives every rule the status `findings` once any rule finds something; history gives each rule its own.
+  // Each rule reports its own findings, so R-EVAL stays `unscannable` in every mode.
   const referenceLabels = ['named parentheses entities', 'named whitespace entity', 'numeric entity', 'hexadecimal entity', 'numeric entities in an svg script'];
   const statusOf = (report, id) => report.rules.find((rule) => rule.id === id).status;
   for (const [mode, run, commit] of cases) await t.test(mode, () => {
@@ -93,7 +93,7 @@ test('eval HTML :: every non-exact row fails closed in generic, complete and his
     const wordingRows = mode === 'generic' ? [] : entries.flatMap(({ label }, index) => (referenceLabels.includes(label) ? [`R-WORDING ${commit}:${index + 1}`] : []));
     assert.deepEqual(report.findings.map(({ rule, location }) => `${rule} ${location}`), wordingRows);
     assert.equal(statusOf(report, 'R-WORDING'), mode === 'generic' ? 'not-run' : 'findings');
-    assert.equal(statusOf(report, 'R-EVAL'), mode === 'complete' ? 'findings' : 'unscannable');
+    assert.equal(statusOf(report, 'R-EVAL'), 'unscannable');
     assert.equal(report.unscannable.length, entries.length);
     entries.forEach(({ label }, index) => assert.ok(report.unscannable.some((row) => row.location === `${commit}:${index + 1}` && row.cause === unreadable), label));
   });
