@@ -75,7 +75,8 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   A callee that holds a timer but is not one (`.call`, `.apply`, `.bind`, a wrapper, a conditional) fails unless every argument is a function, a number, `this`, `null`, `undefined` or a global object.
   **Computed keys:** a non-literal (or BigInt) bracket key on an expression that names one of those four objects anywhere in it, or a destructuring (declared, a parameter,
   `=` or `for…of`) whose pattern has such a key, a rest element or a spread and whose value or defaults name one, makes the file unscannable (`eval-computed-member`).
-  Strings, comments, regular expressions, template text, types, interfaces, `implements` clauses, type-only imports and exports and `declare` variable, function, class, enum and module declarations never count;
+  Strings, comments, regular expressions, template text, types, type aliases, type parameters, interfaces, `implements` clauses, namespace-export declarations, type-only imports (with their import attributes) and exports,
+  function and method signatures without a body, and `declare` variable, function, class, enum and module declarations never count;
   a `declare` export assignment, import alias or class field is still read, because the TypeScript emitter keeps it.
   A symlink with one of these extensions or `.html`/`.htm` (any case) is unscannable (`eval-symlink`), never followed and never exempt; a blob that is not text but has a reviewed binary disposition is `eval-not-text`.
   Inline code in `.html` and `.htm` files is read by the same child, with linear patterns, in exact forms only; anything else in the file is unscannable (`eval-html-unreadable`, and then no finding of that file is listed):
