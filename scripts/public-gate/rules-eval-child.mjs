@@ -47,11 +47,17 @@ function isUse(identifier) {
 const DROPPED_DECLARATIONS = new Set([ts.SyntaxKind.VariableStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration]);
 const isDroppedDeclaration = (node) => DROPPED_DECLARATIONS.has(node.kind) && (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.DeclareKeyword);
 /** Whether `node` is an import or export written with `type` (a whole declaration, an alias, or one specifier), which the emitter drops. */
-const isTypeOnlyModuleNode = (node) => (ts.isImportClause(node) || ts.isExportDeclaration(node) || ts.isImportEqualsDeclaration(node) || ts.isImportSpecifier(node) || ts.isExportSpecifier(node)) && node.isTypeOnly;
-// Types, interfaces, `implements` clauses, type-only imports and exports, and `declare` variable, function, class, enum and namespace statements are erased: nothing in them runs. A class `extends` clause does,
-// and so do a `declare` export assignment, import alias or class field, which the emitter keeps. Every walk of the tree, `visit` and `usesOf` alike, stops at an erased node.
-const isErased = (node) => (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node)
-  || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isTypeOnlyModuleNode(node) || isDroppedDeclaration(node);
+const isTypeOnlyModuleNode = (node) => (ts.isExportDeclaration(node) || ts.isImportEqualsDeclaration(node) || ts.isImportSpecifier(node) || ts.isExportSpecifier(node)) && node.isTypeOnly;
+/** Whether `node` is an import declaration whose clause is written with `type`; the emitter drops the whole declaration, import attributes included. */
+const isTypeOnlyImportDeclaration = (node) => ts.isImportDeclaration(node) && node.importClause?.isTypeOnly === true;
+/** Whether `node` is a function or method declaration without a body: an overload or abstract signature, which the emitter drops. */
+const isBodylessSignature = (node) => (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && node.body === undefined;
+// Types, type aliases, type parameters, interfaces, `implements` clauses, namespace-export declarations, type-only imports and exports, body-less function and method signatures, and `declare` variable, function, class, enum
+// and namespace statements are erased: nothing in them runs. A class `extends` clause does, and so do a function or method with a body, and a `declare` export assignment, import alias or class field, which the emitter keeps.
+// Every walk of the tree, `visit` and `holding` alike, stops at an erased node.
+const isErased = (node) => (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isTypeParameterDeclaration(node)
+  || ts.isNamespaceExportDeclaration(node) || (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) || isTypeOnlyModuleNode(node) || isTypeOnlyImportDeclaration(node)
+  || isBodylessSignature(node) || isDroppedDeclaration(node);
 
 /** A test, kept per node, of whether a node holds anywhere in it, outside erased nodes, a node for which `matches` is true. */
 function holding(matches) {
