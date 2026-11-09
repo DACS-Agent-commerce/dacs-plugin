@@ -51,7 +51,7 @@ const URL_HOST = new RegExp(String.raw`(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/(?:
  * read as in `URL_HOST`.
  */
 const PROTOCOL_RELATIVE_HOST = new RegExp(String.raw`(?<![\w:/\\])\/\/(?:[^\s/\\?#@]*@)?${URL_HOST_PART}`, 'gi');
-const CODE_PROTOCOL_RELATIVE_HOST = new RegExp(String.raw`(?<=['"\`]|\burl\(\s*)\/\/(?:[^\s/\\?#@'"\`]*@)?${URL_HOST_PART}`, 'gi');
+const CODE_PROTOCOL_RELATIVE_HOST = new RegExp(String.raw`(?=\/\/)(?<=['"\`]|\burl\(\s*)\/\/(?:[^\s/\\?#@'"\`]*@)?${URL_HOST_PART}`, 'gi');
 const HOST_PORT = new RegExp(String.raw`(?<![\w.@/:-])(?<host>${NAME_LABELS}):\d{1,5}(?!\w)`, 'gi');
 const BARE_NAME = new RegExp(String.raw`(?<![\w.@/:-])(?<host>${NAME_LABELS})(?![\w-]|\.[a-z0-9_-]|@)`, 'gi');
 const QUOTED_NAME = new RegExp(String.raw`(?<quote>['"\`])(?<host>${NAME_LABELS})\k<quote>`, 'gi');
@@ -279,7 +279,7 @@ export function viewsOf(line) {
 }
 
 /** What may follow a whole URL host: the end of the line, a delimiter, a quote or a closing bracket. A backslash does not (`http:\/\/127\.0\.0\.1` in a regex ends its host match at `127`). */
-const AFTER_URL_HOST = /^(?:$|[/?#:\s'"`)\]>,;])/;
+const AFTER_URL_HOST = /^(?:$|[/?#:\s'"`)\]<>,;])/;
 
 /**
  * A URL host as the address rules read it in a line: its percent escapes decoded, mapped to ASCII (`mappedHost`) and, when it is
@@ -313,7 +313,9 @@ function withHostResolved(match, ...args) {
   const { host } = args.at(-1);
   const string = args.at(-2);
   const end = args.at(-3) + match.length;
-  return match.slice(0, -host.length) + resolvedUrlHost(host, AFTER_URL_HOST.test(string.slice(end, end + 1)));
+  const next = string.slice(end, end + 1);
+  // A `<` after a dot, hyphen or underscore opens a placeholder that completes a label (`10.0.0.<host>`), as `${host}` does; otherwise it ends the host (`<br>`, `<path>`).
+  return match.slice(0, -host.length) + resolvedUrlHost(host, AFTER_URL_HOST.test(next) && !(next === '<' && LABEL_TAIL.test(host)));
 }
 
 /**

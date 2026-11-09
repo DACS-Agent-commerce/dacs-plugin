@@ -273,6 +273,29 @@ test('hosts and IPs: a URL host with a very long run of dots inside it is read i
   assert.equal(result.stdout, 'R-HOST 1,R-HOST 2,R-HOST 3;');
 });
 
+test('hosts and IPs: a code line with a very long run of spaces before a `//` is read in linear time, with the result its short form gives', () => {
+  // The lookbehind that places a protocol-relative host in code after a quote or `url(` was tried at every position of a line, each try
+  // walking back over the whole run of spaces: 40,000 spaces before `//a` took about 1.5 s in R-HOST, and the time grew with the square of
+  // the run. A `//` is now required at the position before the lookbehind is tried, so a run of spaces is passed over once.
+  const config = { ...CONFIG, ipDispositions: [] };
+  const lines = (n) => [`x = url(${' '.repeat(n)}//${OTHER})`, `const a = "${' '.repeat(n)}//${OTHER}";`, `${' '.repeat(n)}//${OTHER}`];
+  const short = { 'src/spaces.mjs': lines(2).join('\n') + '\n', 'web/spaces.css': `.x { background: url(${' '.repeat(2)}//${OTHER}); }\n` };
+  assert.deepEqual(scanned(scanHosts, short, config), ['R-HOST content src/spaces.mjs 1', 'R-HOST content web/spaces.css 1']);
+  assert.deepEqual(scanned(scanIps, short, config), []);
+  const script = `import { scanHosts, scanIps } from ${JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'scripts/public-gate/rules-address.mjs')).href)};
+    const OTHER = ${JSON.stringify(OTHER)};
+    const lines = ${lines.toString()};
+    const entries = [{ position: 1, path: 'src/spaces.mjs', oid: 'b'.repeat(40), bytes: Buffer.from(lines(400_000).join('\\n') + '\\n') },
+      { position: 2, path: 'web/spaces.css', oid: 'c'.repeat(40), bytes: Buffer.from('.x { background: url(' + ' '.repeat(400_000) + '//' + OTHER + '); }\\n') }];
+    const config = ${JSON.stringify(config)};
+    const found = (scan) => scan({ entries, config, limits: { maxReportEntries: 1000 } }).map((finding) => finding.entry.path + ' ' + finding.line).join(',');
+    process.stdout.write(found(scanHosts) + ';' + found(scanIps));`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 10_000 });
+  assert.equal(result.signal, null, 'both scans finished before their deadline');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'src/spaces.mjs 1,web/spaces.css 1;');
+});
+
 test('hosts: an encoded form of a listed host passes, and an encoded subdomain of it fails', () => {
   const files = { 'docs/encoded.md': ['github%2ecom', 'GITHUB%2Ecom.', 'api%2egithub%2ecom'].map((host) => urlOf(host)).join('\n') + '\n' };
   assert.deepEqual(scanned(scanHosts, files), ['R-HOST content docs/encoded.md 3']);
@@ -591,6 +614,25 @@ test('addresses: a URL host in numbers and dots before its first placeholder (`h
   assert.deepEqual(refusedMetadataIps(`subject\n\nsee https://${hex.replaceAll('.', '%2e')}%s/x and https://${ipv4Spellings(127, 0, 0, 1)[1]}\${path}/y`), [ipv4(192, 168, 0, 1)]);
   // A placeholder that completes a label leaves the numbers before it unread: no address.
   assert.deepEqual(scanned(scanIps, { 'docs/label.md': 'see https://10.0.0.${host}/x and https://0xa.${rest}/y and https://10-${n}.example.org/z\n' }, NO_DISPOSITIONS), []);
+});
+
+test('addresses: a URL host in numbers and dots followed by `<` (an HTML tag such as `<br>`, or an angle placeholder for what follows the host such as `<path>`) fails as the IPv4 address a URL parser reads it as, in prose, data, code and commit metadata and in every numeric spelling; a loopback or documentation address there passes, an angle placeholder that completes a label (`10.0.0.<host>`) is no address, and the host rule reports none of them', () => {
+  const tags = ['<br>', '<path>', '</a>'];
+  const shaped = (spellings) => spellings.flatMap((host) => tags.map((tag) => host + tag));
+  const privateHosts = shaped(ipv4Spellings(192, 168, 0, 1));
+  const permittedHosts = [...shaped(ipv4Spellings(127, 0, 0, 1)), ...shaped(ipv4Spellings(192, 0, 2, 7))];
+  const files = {
+    'docs/tag.md': privateHosts.map((host) => `see http://${host} x`).join('\n') + '\n',
+    'conf/tag.json': privateHosts.map((host) => `{ "u": "http://${host}" }`).join('\n') + '\n',
+    'src/tag.mjs': privateHosts.map((host) => `const u = "http://${host}";`).join('\n') + '\n',
+    'docs/permitted-tag.md': permittedHosts.map((host) => `see http://${host} x`).join('\n') + '\n',
+    'docs/angle-label.md': 'see http://10.0.0.<host>/x and http://192.168.1.<id>/y and https://0xa.<rest>/z and http://10-<n>.example.org/w\n',
+  };
+  const every = (file) => privateHosts.map((_, index) => `R-IP content ${file} ${index + 1}`);
+  assert.deepEqual(scanned(scanIps, files, NO_DISPOSITIONS), [...every('docs/tag.md'), ...every('conf/tag.json'), ...every('src/tag.mjs')]);
+  assert.deepEqual(scanned(scanHosts, files), []);
+  const [hex] = ipv4Spellings(192, 168, 0, 1).filter((host) => host.startsWith('0x') && host.includes('.'));
+  assert.deepEqual(refusedMetadataIps(`subject\n\nsee http://${hex}<br> and http://${ipv4Spellings(127, 0, 0, 1)[0]}<br>`), [ipv4(192, 168, 0, 1)]);
 });
 
 test('addresses: a host in numbers and escaped full stops, and an unquoted CSS `url(//...)` host in numbers, fail or pass as the address a URL parser reads', () => {
