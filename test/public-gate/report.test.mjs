@@ -72,6 +72,32 @@ test('findings sort by position and line as numbers', () => {
   assert.deepEqual(report.findings.map(({ location, line }) => [location, line]), [[`${repo.commit}:2`, 1], [`${repo.commit}:10`, 10], [`${repo.commit}:10`, 11]]);
 });
 
+test('maxReportEntries bounds all the findings of a gate run, not only each rule\'s: at the limit the report is published; one more exits 2 with limit:maxReportEntries and publishes nothing', () => {
+  const limit = JSON.parse(readFileSync(CONFIG_FILE, 'utf8')).limits.maxReportEntries;
+  // Built here, so this file holds no unlisted host or address of its own.
+  const host = (index) => [`h${index}`, 'harbor', 'dev'].join('.');
+  const address = (index) => [10, 0, index >> 8, index & 255].join('.');
+  const both = Math.floor(limit / 2);
+  const run = (addressOnly) => {
+    const lines = [
+      ...Array.from({ length: both }, (_, index) => `see https://${host(index)}/x via ${address(index)}`),
+      ...Array.from({ length: addressOnly }, (_, index) => `via ${address(both + index)}`),
+    ];
+    const out = path.join(makeTempDir('report-limit'), 'report.json');
+    return { result: runGate(gateArgs(createRepo([{ path: 'docs/many.md', content: `${lines.join('\n')}\n` }]), 'generic', ['--out', out])), out };
+  };
+  const atLimit = run(limit - 2 * both);
+  assert.equal(atLimit.result.status, 1, atLimit.result.stderr);
+  const counts = {};
+  for (const { rule } of JSON.parse(readFileSync(atLimit.out, 'utf8')).findings) counts[rule] = (counts[rule] ?? 0) + 1;
+  assert.deepEqual(counts, { 'R-HOST': both, 'R-IP': limit - both });
+  const past = run(limit - 2 * both + 1);
+  assert.equal(past.result.status, 2, past.result.stderr);
+  assert.match(past.result.stderr, /^limit:maxReportEntries\b/);
+  assert.equal(past.result.stdout, '');
+  assert.equal(existsSync(past.out), false, 'no report is published');
+});
+
 test('an empty --out or --private-evidence value is refused instead of being treated as absent', () => {
   const repo = createRepo([{ path: 'a.txt', content: 'clean\n' }]);
   const listFile = writeList([PLANTED]);

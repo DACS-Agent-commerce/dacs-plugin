@@ -149,6 +149,7 @@ async function runGate(argv, signal) {
   const treeFindings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, wordingMatcher, config, limits: config.limits }));
   requireNoStaleLockfileDisposition(entries, config.lockfileDispositions);
   const findings = [...treeFindings, ...evalScan.findings, ...await scanSecrets({ entries, config, scanner: options.scanner, signal })].sort(compareFindings);
+  if (findings.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} findings`);
   const scanner = { gateRevision: gateRevision(), configSha256: config.sha256, ...secretScanIdentity(config, options.scanner), ...(options.expectedRoot ? { expectedRoot: options.expectedRoot } : {}), ...(wordingList ? { wordingListSha256: wordingList.sha256 } : {}) };
   const rules = ALL_RULES.map((rule) => ({ id: rule.id, status: ruleStatus(rule, { scope: options.scope, findings, unscannable }) }))
     .sort((first, second) => compareText(first.id, second.id));
