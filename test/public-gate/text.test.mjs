@@ -8,6 +8,13 @@ import {
   CONFIG_FILE, REPO_ROOT, completeArgs, createAnnotatedTag, createHistory, createRepo, gateArgs, git, historyArgs, makeTempDir, runCheckReport, runGate, runHistory, sha256, walkFiles, writeList,
 } from '../lib/gate-fixtures.mjs';
 
+/** Environment for a child that prints a Node warning at startup, before any diagnostic; a diagnostic is matched on its own line. */
+const STARTUP_WARNING = (() => {
+  const file = path.join(makeTempDir('warn'), 'warn.cjs');
+  writeFileSync(file, "process.emitWarning('planted startup warning');\n");
+  return { NODE_OPTIONS: `--require ${file}` };
+})();
+
 const CONFIG = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
 const LIMITS = CONFIG.limits;
 const OID = 'b'.repeat(40);
@@ -191,14 +198,16 @@ test('issue references: a malformed publicRepositories or lockfileDispositions s
 const LOCKFILE_STALE_ENTRY = { path: SIX_DISPOSITIONS[0].path, content: '{}\n' };
 
 test('issue references: a lockfile held at another blob than its disposition stops the run, and a tree without the lockfile path does not', () => {
-  const stale = runGate(gateArgs(createRepo([LOCKFILE_STALE_ENTRY]), 'generic'));
+  const stale = runGate(gateArgs(createRepo([LOCKFILE_STALE_ENTRY]), 'generic'), { env: STARTUP_WARNING });
   assert.equal(stale.status, 2);
-  assert.match(stale.stderr, /^stale-lockfile-disposition: /);
+  assert.ok(stale.stderr.includes('planted startup warning'), stale.stderr);
+  assert.match(stale.stderr, /^stale-lockfile-disposition: /m);
   assert.equal(runGate(gateArgs(createRepo([{ path: 'a.txt', content: 'a\n' }]), 'generic')).status, 0);
   const history = createHistory([{ files: { [LOCKFILE_STALE_ENTRY.path]: LOCKFILE_STALE_ENTRY.content } }]);
-  const staleHistory = runHistory(historyArgs(history, writeList(['private-entry'])));
+  const staleHistory = runHistory(historyArgs(history, writeList(['private-entry'])), { env: STARTUP_WARNING });
   assert.equal(staleHistory.status, 2);
-  assert.match(staleHistory.stderr, /^stale-lockfile-disposition: /);
+  assert.ok(staleHistory.stderr.includes('planted startup warning'), staleHistory.stderr);
+  assert.match(staleHistory.stderr, /^stale-lockfile-disposition: /m);
 });
 
 // ---- R-WORDING ------------------------------------------------------------------------------------------------------
@@ -519,17 +528,18 @@ test('wording list: a list inside the repository, missing, not UTF-8, empty, pad
   for (const [listFile, cause] of cases) {
     const result = runWithWordingList(listFile);
     assert.equal(result.status, 2, cause);
-    assert.match(result.stderr, new RegExp(`^${cause}: `), cause);
+    assert.match(result.stderr, new RegExp(`^${cause}: `, 'm'), cause);
   }
 });
 
 test('wording list: the flag is required in complete scope and refused in generic scope', () => {
   const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
   const list = writeList(['private-entry']);
-  const withoutFlag = runGate(gateArgs(repo, 'complete', ['--private-list', list, '--expected-root', repo.commit]));
-  assert.match(withoutFlag.stderr, /^bad-arguments: /);
+  const withoutFlag = runGate(gateArgs(repo, 'complete', ['--private-list', list, '--expected-root', repo.commit]), { env: STARTUP_WARNING });
+  assert.ok(withoutFlag.stderr.includes('planted startup warning'), withoutFlag.stderr);
+  assert.match(withoutFlag.stderr, /^bad-arguments: /m);
   const generic = runGate(gateArgs(repo, 'generic', ['--wording-list', writeList([TERM])]));
-  assert.match(generic.stderr, /^bad-arguments: /);
+  assert.match(generic.stderr, /^bad-arguments: /m);
   const complete = runGate(completeArgs(repo, list, ['--wording-list', writeList([TERM])]));
   assert.equal(complete.status, 0, complete.stderr);
 });
@@ -580,7 +590,7 @@ test('wording list: a report made under another wording list is refused by check
   writeFileSync(contextFile, JSON.stringify({ ...context, wordingListSha256: sha256('another') }));
   const refused = runCheckReport(['--report', reportFile, '--head', repo.commit, '--context', contextFile]);
   assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /^report-policy-differs: /);
+  assert.match(refused.stderr, /^report-policy-differs: /m);
 });
 
 test('history: R-WORDING finds an entry in a tree file, in a commit message, in a wrapped commit message, in a tag message and in the pull-request text', () => {
