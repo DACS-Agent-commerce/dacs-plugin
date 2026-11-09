@@ -109,7 +109,7 @@ export function unscannableEntries(entries, config) {
 
 function ruleStatus(rule, { scope, findings, unscannable }) {
   if (rule.completeOnly && scope === 'generic') return 'not-run';
-  if (findings.length > 0) return 'findings';
+  if (findings.some((finding) => finding.rule === rule.id)) return 'findings';
   return unscannable.length > 0 ? 'unscannable' : 'passed';
 }
 
