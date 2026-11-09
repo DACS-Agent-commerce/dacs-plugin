@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { makeJobCheckout } from '../lib/workflow-fixtures.mjs';
@@ -14,11 +15,15 @@ const HTTP = 'http-mcp, browser files included';
 const STDIO = 'stdio typecheck and unit tests';
 const PENDING_RESULTS = ['Checker regression suite', 'W-6 import check, both plugins', 'Buyer execution suite', 'Buyer runtime refusal on the floor']
   .map((suite) => `${suite}: unverifiable (pending-P54c2)`);
+const STDIO_FLOOR_NOT_RUN = `${STDIO}: unverifiable (runtime-20.19.0-not-run)`;
+/** An executable file that stands in for the browser the http-mcp row requires. */
+const BROWSER = process.execPath;
 
-/** A stand-in suite: records its name in ORDER_LOG, fails when FAIL_AT names it, and prints its pid then waits when HANG_AT names it. */
+/** A stand-in suite: records its name in ORDER_LOG and the CI value it saw in CI_LOG, fails when FAIL_AT names it, and prints its pid then waits when HANG_AT names it. */
 const STUB_SUITE = `import { appendFileSync } from 'node:fs';
 const name = process.argv[2] ?? 'root';
 appendFileSync(process.env.ORDER_LOG, name + '\\n');
+appendFileSync(process.env.CI_LOG, name + '=' + process.env.CI + '\\n');
 if (process.env.FAIL_AT === name) process.exit(1);
 if (process.env.HANG_AT === name) {
   console.log('hang-pid ' + process.pid);
@@ -52,9 +57,13 @@ function makeMatrixProject() {
 
 const orderLog = (dir) => path.join(dir, 'order.log');
 const suitesRun = (dir) => (existsSync(orderLog(dir)) ? readFileSync(orderLog(dir), 'utf8').split('\n').filter(Boolean) : []);
+const ciLog = (dir) => path.join(dir, 'ci.log');
+const ciSeenBySuites = (dir) => (existsSync(ciLog(dir)) ? readFileSync(ciLog(dir), 'utf8').split('\n').filter(Boolean) : []);
 const testAllArgs = ['run', 'test:all', '--silent'];
 const resultsOf = (stdout) => stdout.split('\n').filter((line) => line.startsWith(RESULT_PREFIX)).map((line) => line.slice(RESULT_PREFIX.length));
-const runTestAll = (dir, env = {}) => spawnSync('npm', testAllArgs, { cwd: dir, env: { ...CLEAN_ENV, ORDER_LOG: orderLog(dir), ...env }, encoding: 'utf8' });
+const runTestAll = (dir, env = {}) => spawnSync('npm', testAllArgs, {
+  cwd: dir, env: { ...CLEAN_ENV, ORDER_LOG: orderLog(dir), CI_LOG: ciLog(dir), DACS_TEST_CHROME: BROWSER, ...env }, encoding: 'utf8',
+});
 const isRunning = (pid) => {
   try {
     process.kill(pid, 0);
@@ -72,7 +81,7 @@ const isRunning = (pid) => {
  */
 function interruptWhileHanging(dir) {
   return new Promise((resolve, reject) => {
-    const child = spawn('npm', testAllArgs, { cwd: dir, detached: true, env: { ...CLEAN_ENV, ORDER_LOG: orderLog(dir), HANG_AT: 'stdio-typecheck' }, stdio: ['ignore', 'pipe', 'inherit'] });
+    const child = spawn('npm', testAllArgs, { cwd: dir, detached: true, env: { ...CLEAN_ENV, ORDER_LOG: orderLog(dir), CI_LOG: ciLog(dir), DACS_TEST_CHROME: BROWSER, HANG_AT: 'stdio-typecheck' }, stdio: ['ignore', 'pipe', 'inherit'] });
     let hangingPid = null;
     let seen = '';
     child.on('error', reject);
@@ -100,13 +109,42 @@ test('npm run test:all, executed as package.json defines it in a temporary proje
     assert.equal(result.status, EXIT.unverifiable, result.stdout + result.stderr);
     assert.deepEqual(suitesRun(dir), ['root', 'stdio-typecheck', 'stdio-test'], 'http-mcp\'s suite never ran: its input is unavailable');
     assert.deepEqual(resultsOf(result.stdout), [
-      `${ROOT}: pass`, `${HTTP}: unverifiable (sdk-input-unavailable)`, `${STDIO}: pass`, ...PENDING_RESULTS,
+      `${ROOT}: pass`, `${HTTP}: unverifiable (sdk-input-unavailable)`, STDIO_FLOOR_NOT_RUN, ...PENDING_RESULTS,
     ]);
   });
 
+  await t.test('every suite runs with CI set, so the suites\' own refusals to skip in CI apply, whatever the caller\'s environment held', () => {
+    for (const callerCi of [undefined, '', 'false']) {
+      const dir = makeMatrixProject();
+      const result = runTestAll(dir, callerCi === undefined ? {} : { CI: callerCi });
+      assert.equal(result.status, EXIT.unverifiable, result.stdout + result.stderr);
+      assert.deepEqual(ciSeenBySuites(dir), ['root=true', 'stdio-typecheck=true', 'stdio-test=true'], `caller CI ${JSON.stringify(callerCi)}`);
+    }
+  });
+
+  await t.test('a row whose suite needs a runtime this run is not on is unverifiable, never a pass, even though the commands it ran passed', () => {
+    const dir = makeMatrixProject();
+    const result = runTestAll(dir);
+    assert.deepEqual(suitesRun(dir), ['root', 'stdio-typecheck', 'stdio-test'], 'the commands ran on this run\'s runtime');
+    assert.ok(resultsOf(result.stdout).includes(STDIO_FLOOR_NOT_RUN), result.stdout);
+  });
+
+  for (const [description, env, cause] of [
+    ['unset', { DACS_TEST_CHROME: '' }, 'browser-unset'],
+    ['not an existing file', { DACS_TEST_CHROME: path.join(os.tmpdir(), 'no-such-browser') }, 'browser-absent'],
+  ]) {
+    await t.test(`the http-mcp row is unverifiable (${cause}) when DACS_TEST_CHROME is ${description}, so its browser files cannot skip into a pass`, () => {
+      const dir = makeMatrixProject();
+      const result = runTestAll(dir, env);
+      assert.equal(result.status, EXIT.unverifiable, result.stdout + result.stderr);
+      assert.ok(resultsOf(result.stdout).includes(`${HTTP}: unverifiable (${cause})`), result.stdout);
+      assert.ok(!suitesRun(dir).includes('http-mcp'));
+    });
+  }
+
   const HTTP_UNVERIFIABLE = `${HTTP}: unverifiable (sdk-input-unavailable)`;
   for (const [failing, expected] of [
-    ['root', [`${ROOT}: fail (exit-1)`, HTTP_UNVERIFIABLE, `${STDIO}: pass`]],
+    ['root', [`${ROOT}: fail (exit-1)`, HTTP_UNVERIFIABLE, STDIO_FLOOR_NOT_RUN]],
     ['stdio-test', [`${ROOT}: pass`, HTTP_UNVERIFIABLE, `${STDIO}: fail (exit-1)`]],
   ]) {
     await t.test(`a failing ${failing} suite fails the run, and the other rows still run and report`, () => {

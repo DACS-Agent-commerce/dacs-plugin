@@ -114,6 +114,7 @@ test('intermediate stage: the README\'s delivered rows equal the commands, prepa
         assert.equal(commandDirectory(row.command), entry.directory, row.suite);
         assert.deepEqual(spans(row.command).filter((span) => span !== entry.directory), entry.commands, row.suite);
         assert.ok(row.prepared.includes(`sdk-input --prepare ${entry.prepare}`), row.suite);
+        assert.deepEqual(entry.runtimes, row.runtime.match(VERSION), `${row.suite}: the runtimes test:all credits are the row's`);
       }
     });
   });
