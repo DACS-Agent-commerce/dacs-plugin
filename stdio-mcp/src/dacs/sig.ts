@@ -57,6 +57,15 @@ export function keyForClaim(claim: unknown): Uint8Array | null {
 }
 
 /**
+ * The identity a claim names, for "same party?" checks: `key:<hex>` and
+ * `did:demos:agent:<hex>` of one key are one identity; any other claim is itself.
+ */
+export function claimIdentity(claim: unknown): string {
+  const m = typeof claim === 'string' ? VERIFY_CLAIM.exec(claim) : null;
+  return m ? `ed25519:${m[1]}` : String(claim);
+}
+
+/**
  * True for a canonical, on-curve ed25519 key that is not of small order. A key
  * that fails this is refused before any signature is checked against it.
  */
