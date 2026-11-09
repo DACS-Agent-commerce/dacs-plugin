@@ -62,7 +62,8 @@ export function keyForClaim(claim: unknown): Uint8Array | null {
  */
 export function claimIdentity(claim: unknown): string {
   const m = typeof claim === 'string' ? VERIFY_CLAIM.exec(claim) : null;
-  return m ? `ed25519:${m[1]}` : String(claim);
+  // The NUL prefix cannot start a claim, so no claim string equals a key identity.
+  return m ? `\u0000ed25519:${m[1]}` : String(claim);
 }
 
 /**

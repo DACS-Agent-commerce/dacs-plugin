@@ -245,13 +245,23 @@ export class DemosChain implements ChainReader {
       tx = null;
     }
     // The SDK's call() never throws: an error reply comes back as a {result, response, require_reply} envelope.
+    // For an HTTP error status that envelope is {result: 500, response: TransportError}, and the node's real
+    // status and body are on the error's cause (the axios error's response).
     const isEnvelope = (x: any) => x && typeof x === 'object' && typeof x.result === 'number' && x.result >= 400 && 'require_reply' in x;
+    const replyOf = (x: any): { status: number; body: any } => {
+      const httpReply = x.response instanceof Error ? (x.response as any).cause?.response : undefined;
+      if (httpReply && typeof httpReply.status === 'number') {
+        const data = httpReply.data;
+        return { status: httpReply.status, body: data && typeof data === 'object' && 'response' in data ? data.response : data };
+      }
+      return { status: x.result, body: x.response };
+    };
     // Only a 404 whose body says what the node searched is "no such transaction": getTransactionStatus answers
     // {state: "unknown", checkedThroughBlock}, getTxByHash {checkedThroughBlock}. Any other error reply (a transport
     // failure, a 500 lookup_failed, a 404 "Unknown message" for a missing handler) says nothing about the hash.
     const searchedAbsent = (x: any) => {
-      const body = x.response;
-      if (x.result !== 404 || !body || typeof body !== 'object' || body instanceof Error) return false;
+      const { status, body } = replyOf(x);
+      if (status !== 404 || !body || typeof body !== 'object' || body instanceof Error) return false;
       return typeof body.checkedThroughBlock === 'number' || body.state === 'unknown' || body.state === 'not_found';
     };
     const envelopeError = (x: any) => (x.response instanceof Error ? x.response : new Error(`node returned result ${x.result}`));

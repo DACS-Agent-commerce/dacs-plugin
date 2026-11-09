@@ -29,6 +29,8 @@ const structureProblem = (doc: any) => {
 
 test('claimIdentity: both forms of one key are the same identity; other claims are themselves', () => {
   assert.equal(claimIdentity(`key:${HEX}`), claimIdentity(`did:demos:agent:${HEX}`));
+  // a claim literally spelled like the identity of a key is not that key
+  assert.notEqual(claimIdentity(`ed25519:${HEX}`), claimIdentity(`key:${HEX}`));
   assert.notEqual(claimIdentity(`key:${HEX}`), claimIdentity(`key:${OTHER}`));
   assert.equal(claimIdentity('did:web:example.com'), 'did:web:example.com');
 });

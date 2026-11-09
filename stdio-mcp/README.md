@@ -309,7 +309,8 @@ is launched from.
   wherever a claim signs (Listings, offers, Agreements, bundles, settlement
   evidence, bundle bindings and receipts). Both forms of one key are one
   party: a document cannot list them as two parties, and one key cannot sign
-  as two. A payee address still comes only from a `key:` claim or the offer's
+  as two. An expected signer, issuer or holder you pass to a check (for
+  example `expected_signer`) must use the same claim form as the document. A payee address still comes only from a `key:` claim or the offer's
   payout bindings, so a `did:demos:agent` Listing verifies without a
   `logical_address`. Any other scheme (other
   `did:` methods, `cci-xm:`, …) gives `indeterminate` and is never accepted.
