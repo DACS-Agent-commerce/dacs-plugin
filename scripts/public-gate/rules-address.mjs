@@ -281,13 +281,30 @@ export function viewsOf(line) {
 /** What may follow a whole URL host: the end of the line, a delimiter, a quote or a closing bracket. A backslash does not (`http:\/\/127\.0\.0\.1` in a regex ends its host match at `127`). */
 const AFTER_URL_HOST = /^(?:$|[/?#:\s'"`)\]<>,;])/;
 
+/** The three full stops a URL parser maps to a dot (`FULL_STOPS`), as a pattern. */
+const FULL_STOP_CHARACTERS = /[\u3002\uff0e\uff61]/g;
+
+/**
+ * The IPv4 address a URL parser reads `text`, a decoded but unmapped host, as when it is four parts in numbers and dots, a trailing dot dropped
+ * (`0x7f.0.0.1.` as `127.0.0.1`); otherwise null. A placeholder after four parts and a dot would start a fifth label, which no IPv4 address
+ * has (a URL parser refuses a fifth number), so the four parts are an address whatever follows; after fewer parts (`10.0.0.`) the placeholder
+ * may complete it. The parts are counted before the host is mapped: `domainToASCII` reads `127。0。0。` as the address `127.0.0.0`, which would
+ * make an incomplete label whole.
+ */
+function fourPartIpv4(text) {
+  const numbers = text.replace(FULL_STOP_CHARACTERS, '.').replace(TRAILING_DOTS, '');
+  return numbers.split('.').length === 4 ? urlIpv4(mappedHost(numbers) ?? numbers) : null;
+}
+
 /**
  * A URL host as the address rules read it in a line: its percent escapes decoded, mapped to ASCII (`mappedHost`) and, when it is
  * in numbers and dots and the whole host (`whole`), the IPv4 address a URL parser reads it as (`urlIpv4`). A step that fails leaves the host as the step before had it.
  */
-function resolvedUrlHost(host, whole) {
+function resolvedUrlHost(host, whole, labelTail = false) {
   const decoded = withEscapesDecoded(host) ?? host;
   const mapped = mappedHost(decoded) ?? decoded;
+  // A label-tail host (`127。0。0。` before `<host>`) is a fragment, not a host: it is not mapped, since `domainToASCII` would read it as `127.0.0.0`.
+  if (labelTail) return fourPartIpv4(decoded) ?? decoded.replace(FULL_STOP_CHARACTERS, '.');
   return (whole ? urlIpv4(mapped.replace(TRAILING_DOTS, '')) : null) ?? withNumericPrefixResolved(mapped);
 }
 
@@ -297,14 +314,15 @@ function resolvedUrlHost(host, whole) {
  * `2130706433${path}` as `127.0.0.1${path}`): the numeric counterpart of `urlHostPrefixValue`, so that a numeric host before a
  * placeholder is classified as the address it is, as its dotted-quad spelling is. A host with no placeholder, with nothing before it, or
  * with a prefix that is no address (`10.0.0.${host}`: the numbers a URL parser reads end in a number, never in the dot, hyphen or underscore
- * of a label the placeholder completes) is returned unchanged.
+ * of a label the placeholder completes, unless they are already four parts, `fourPartIpv4`) is returned unchanged.
  */
 function withNumericPrefixResolved(host) {
   const first = host.search(FIRST_PLACEHOLDER_CHARACTER);
   if (first <= 0) return host;
   const before = host.slice(0, first);
-  // The whole host may have refused mapping because of the placeholder (`127。0。0。1%s`); the prefix alone maps.
-  const address = urlIpv4(mappedHost(before) ?? before);
+  // The whole host may have refused mapping because of the placeholder (`127。0。0。1%s`); the prefix alone maps. A prefix that ends in a dot
+  // is counted before it maps (`fourPartIpv4`), since `domainToASCII` would read `127。0。0。` as `127.0.0.0`.
+  const address = TRAILING_DOTS.test(before.replace(FULL_STOP_CHARACTERS, '.')) ? fourPartIpv4(before) : urlIpv4(mappedHost(before) ?? before);
   return address === null ? host : address + host.slice(first);
 }
 
@@ -314,8 +332,10 @@ function withHostResolved(match, ...args) {
   const string = args.at(-2);
   const end = args.at(-3) + match.length;
   const next = string.slice(end, end + 1);
-  // A `<` after a dot, hyphen or underscore opens a placeholder that completes a label (`10.0.0.<host>`), as `${host}` does; otherwise it ends the host (`<br>`, `<path>`).
-  return match.slice(0, -host.length) + resolvedUrlHost(host, AFTER_URL_HOST.test(next) && !(next === '<' && LABEL_TAIL.test(host)));
+  // A `<` after a dot, hyphen or underscore may open a placeholder that completes a label (`10.0.0.<host>`), as `${host}` does, so only
+  // numbers already four parts are read there (`fourPartIpv4`); otherwise `<` ends the host (`<br>`, `<path>`).
+  const labelTail = next === '<' && LABEL_TAIL.test(host);
+  return match.slice(0, -host.length) + resolvedUrlHost(host, AFTER_URL_HOST.test(next) && !labelTail, labelTail);
 }
 
 /**

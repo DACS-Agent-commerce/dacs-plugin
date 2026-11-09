@@ -635,6 +635,32 @@ test('addresses: a URL host in numbers and dots followed by `<` (an HTML tag suc
   assert.deepEqual(refusedMetadataIps(`subject\n\nsee http://${hex}<br> and http://${ipv4Spellings(127, 0, 0, 1)[0]}<br>`), [ipv4(192, 168, 0, 1)]);
 });
 
+test('addresses: a URL host of four numbers ending in a dot, before `<` or a placeholder (`0xc0.0xa8.0.1.<br>`, `0xc0.0xa8.0.1.%s`), fails as the IPv4 address a URL parser reads it as, since a fifth label makes no address, in prose, data, code and commit metadata, in every four-part spelling and dot encoding; a loopback or documentation address there passes, fewer numbers before the dot (`10.0.0.<host>`, `0xa.${rest}`, with plain, encoded or mapped dots) stay a label the placeholder completes, and the host rule reports none of them', () => {
+  const encodings = [(host) => host, (host) => host.replaceAll('.', '%2e'), (host) => host.replaceAll('.', '。')];
+  const tails = ['.<br>', '.<path>', '..<br>', '.%s', '.${path}', '.%(path)s'];
+  const fourPart = (spellings) => [...spellings.filter((host) => host.split('.').length === 4), spellings.at(-1).replace(/^(0x[0-9a-f]+)\.(\d+)\./, (_, a, b) => `${a}.0x${Number(b).toString(16)}.`)];
+  const shaped = (spellings) => fourPart(spellings).flatMap((host) => encodings.flatMap((encode) => tails.map((tail) => encode(host + tail.slice(0, tail.lastIndexOf('.') + 1)) + tail.slice(tail.lastIndexOf('.') + 1))));
+  const privateHosts = shaped(ipv4Spellings(192, 168, 0, 1));
+  const permittedHosts = [...shaped(ipv4Spellings(127, 0, 0, 1)), ...shaped(ipv4Spellings(192, 0, 2, 7))];
+  const files = {
+    'docs/four.md': privateHosts.map((host) => `see http://${host}/x`).join('\n') + '\n',
+    'conf/four.json': privateHosts.map((host) => `{ "u": "http://${host}/x" }`).join('\n') + '\n',
+    'src/four.mjs': privateHosts.map((host) => `const u = "http://${host}/x";`).join('\n') + '\n',
+    'docs/permitted-four.md': permittedHosts.map((host) => `see http://${host}/x`).join('\n') + '\n',
+    'docs/label-four.md': ['see http://10.0.0.<host>/x and http://192.168.1.<id>/y and https://0xa.<rest>/z',
+      'see https://10.0.0.${host}/x and https://0xa.${rest}/y and http://10.0.0.%s/z and http://192.168.1..<id>/w',
+      // Full stops a URL parser maps to dots, written, percent-encoded or (in code) escaped: still a label the placeholder completes, as the ASCII form is.
+      'see http://10。0。0。<host>/x and http://0xa。%s/y and https://192．168．1．${host}/z and http://10｡0｡0｡%(host)s/w',
+      'see http://10%e3%80%820%e3%80%820%e3%80%82<host>/x and http://0xa%e3%80%82%s/y'].join('\n') + '\n',
+    'src/label-four.mjs': 'const u = "http://10\\u30020\\u30020\\u3002<host>/x" + "http://0xa\\u3002%s/y";\n',
+  };
+  const every = (file) => privateHosts.map((_, index) => `R-IP content ${file} ${index + 1}`);
+  assert.deepEqual(scanned(scanIps, files, NO_DISPOSITIONS), [...every('docs/four.md'), ...every('conf/four.json'), ...every('src/four.mjs')]);
+  assert.deepEqual(scanned(scanHosts, files), []);
+  const [hex] = ipv4Spellings(192, 168, 0, 1).filter((host) => host.startsWith('0x') && host.includes('.'));
+  assert.deepEqual(refusedMetadataIps(`subject\n\nsee http://${hex}.<br> and http://${hex}.%s/x and http://0x7f.0.0.1.<br>`), [ipv4(192, 168, 0, 1)]);
+});
+
 test('addresses: a host in numbers and escaped full stops, and an unquoted CSS `url(//...)` host in numbers, fail or pass as the address a URL parser reads', () => {
   const [decimal] = ipv4Spellings(10, 0, 0, 7);
   const [loopbackDecimal] = ipv4Spellings(127, 0, 0, 1);

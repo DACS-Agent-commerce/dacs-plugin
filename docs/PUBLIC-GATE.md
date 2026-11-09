@@ -119,7 +119,9 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `http://127.0.0.1/`. Only a whole host is resolved: in a regex such as `http:\/\/127\.0\.0\.1` the host ends at the backslash.
   In a placeholder host, the numbers and dots before the first placeholder character are resolved the same way when the placeholder
   stands for what follows the host (`http://0x7f%2e0%2e0%2e1%s/` and `http://2130706433${path}` are judged as `http://127.0.0.1/`; a
-  placeholder that completes a label, as in `10.0.0.${host}`, is not read as an address).
+  placeholder that completes a label, as in `10.0.0.${host}` or `10.0.0.<host>`, is not read as an address). Four numbers already
+  before the dot are an address whatever follows, since a fifth label makes no IPv4 address: `http://0x7f.0.0.1.<br>` and
+  `http://0x7f.0.0.1.%s/` are judged as `http://127.0.0.1/`.
 - **Accounts (`R-ACCOUNT`, both scopes).** An email address passes when its domain is a reserved name or it is the SSH form
   (`git@<host>:` or `git@<host>/`) of a host in `allowedHosts`. A domain of one label (`user@<label>`) is an email too, unless a `/`
   precedes the user (`actions/checkout@v4`) or the label starts with a digit (`name@1.2.3`); a reference that ends in a word
