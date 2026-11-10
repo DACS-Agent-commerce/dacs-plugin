@@ -1025,11 +1025,21 @@ export function createServer(deps: Deps): McpServer {
       const b = writeBlocker(config);
       if (b) throw new Error(b);
       // reserve the approved maximum before anything is signed; release what was not used
+      // (price and quoted fee are separate parts; no write here quotes a storage fee)
+      const priceOs = p.intent?.amountOs ?? 0n;
+      let reservation: string | null = null;
       try {
-        if (p.spendOs > 0n) ledger.reserve(p.spendOs, `this ${p.kind}`);
+        if (p.spendOs > 0n) reservation = ledger.reserve({ priceOs, networkFeeOs: p.spendOs - priceOs, storageFeeOs: 0n }, `this ${p.kind}`);
       } catch (e) {
         throw new Error(`${(e as Error).message} (the approval was consumed; prepare again)`);
       }
+      /** Close the reservation, keeping the given parts charged. Frees at most once per submit. */
+      const releaseReservation = (kept: { priceOs?: bigint; networkFeeOs?: bigint } = {}) => {
+        if (reservation === null) return;
+        const id = reservation;
+        reservation = null;
+        ledger.release(id, kept);
+      };
       const confirmedAt = now();
       let r: Awaited<ReturnType<PendingAction['execute']>>;
       try {
@@ -1037,7 +1047,7 @@ export function createServer(deps: Deps): McpServer {
       } catch (e) {
         if (!(e instanceof TransmittedError)) {
           // failed before any signed bytes left this process: nothing can settle
-          if (p.spendOs > 0n) ledger.release(p.spendOs);
+          releaseReservation();
           throw e;
         }
         // signed bytes reached the RPC: the tx may still settle. Keep the reservation and
@@ -1049,7 +1059,11 @@ export function createServer(deps: Deps): McpServer {
           output: { warning: 'Outcome unknown: the signed transaction was sent to the RPC before this error. The cap reservation is kept. Check demos_tx_get with the tx hash; do not resubmit.' },
         };
       }
-      if (r.actualSpendOs !== undefined && r.actualSpendOs < p.spendOs) ledger.release(p.spendOs - r.actualSpendOs);
+      // completed, or failed with a known fee: keep the price and the fee paid, free the rest of the quote.
+      // Pending and unknown outcomes keep the whole reservation open.
+      if (r.actualSpendOs !== undefined && (r.chain?.state === 'included' || r.chain?.state === 'failed')) {
+        releaseReservation({ priceOs, networkFeeOs: r.actualSpendOs - priceOs });
+      }
       const receipt = buildReceipt(
         {
           action: p.kind,
