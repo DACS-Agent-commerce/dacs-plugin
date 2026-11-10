@@ -241,14 +241,37 @@ module, an `ENOENT` from reading a file while the module is evaluated, an
 assertion failure, a timeout, a second fatal error or any other line the file
 wrote to stderr all stay failures. When
 the file loads again its entry fails the run as a known failure that now
-passes, and is removed. The baseline holds 176 carry-over entries; the one other entry is described below.
+passes, and is removed. The baseline holds 229 carry-over entries; the one other entry is described below.
 
-`test/known-failures.json` holds one entry: the seller-disposition payment-path
-case, recorded in the source repository as observing 7 CREATEs instead of 5.
-It does not describe this repository. The test file needs modules that are not
-carried, so it fails at load here and the entry excuses nothing. It stays
-because `test/run-test-files.test.mjs` reads it. It is not a list of the
+`test/known-failures.json` holds 230 entries: the 229 carry-over entries and one
+other, the seller-disposition payment-path case, recorded in the source
+repository as observing 7 CREATEs instead of 5. That entry does not describe
+this repository. Its test file needs modules that are not carried, so it fails
+at load here and the entry excuses nothing. It stays because
+`test/run-test-files.test.mjs` reads it. The baseline is not a list of the
 failures in this tree, which are far more numerous.
+
+### Failing tests with no owning card yet
+
+These tests guard approval, custody, seller-evidence or no-resend behaviour, and
+no card in the plan owns the module each one needs. Each of the first thirteen
+files below is kept as it is: not skipped, not changed and not excused as dead,
+and none has a carry-over entry. They stay failing until their cards exist.
+
+- `test/browser/overnight-acceptance-widget-click.browser.test.mjs`: repeated clicks on "Open wallet approval" each send exactly one open-link with the returned URL.
+- `test/buyer-chain-readback-unit.test.mjs`: the buyer-chain-readback switch (default off, strict off/on) and a bound Deliverable read back with the Listing seller as the only expected writer.
+- `test/commit-on-signature.test.mjs`: early commitment is off by default, accepts only an explicit on or off, and when on starts both writes before either completes.
+- `test/devnet-operator-seller-disposition-prefixed.test.mjs`: the seller disposition wrapper preserves receiver, arguments, result and rejection identity once, with no resend (this file also holds the one non-carry-over baseline entry above).
+- `test/operator-session-lifecycle.test.mjs`: a restart with open access off retires existing keys at startup and periodically, reports failures and keeps delegation disabled.
+- `test/seller-native-delivery-lock-fence.test.mjs`: a holder that lost its job lock before the native Deliverable submission submits and retains nothing, and the next request delivers exactly once.
+- `test/seller-policy-delivery-evidence.test.mjs`: seller policy holds concurrent full debits across approval instances that share a ledger.
+- `test/seller-session-concurrent-recheck.test.mjs`: a recheck that started before a concurrent one retained the answer cannot erase that answer.
+- `test/seller-session-delayed-evidence.test.mjs`: a delivery verified after delayed evidence publication still retires its key after the grace period.
+- `test/seller-session-final-readback.test.mjs`: absent, rejected and unavailable fresh reads clear the current delivery, and restoration recovers it.
+- `test/seller-session-key-secrecy.test.mjs`: an unreadable key record is reported with fixed text only, and the sweep never copies key bytes to stderr.
+- `test/seller-session-late-recheck.test.mjs`: a late successful recheck with a seller-signed CREATE of another artifact keeps the retained answer.
+- `test/seller-session-legacy-operator.test.mjs`: a legacy delegated row whose key was already deleted keeps its readback pointer through a transient outage and recovers.
+- `test/devnet-operator-approval-tty-stop.test.mjs`, two cases (terminal approval prompt and stop, and a late approval after stop): the file was deleted earlier with the demo operator it drove, so nothing fails today, but the approval behaviour has no test until a card gives it a boundary.
 
 ## Rebuild the baseline after each main merge
 
