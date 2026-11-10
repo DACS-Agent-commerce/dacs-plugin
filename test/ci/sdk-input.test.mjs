@@ -234,7 +234,7 @@ test('on the real carried manifest-and-lock pairs, http-mcp is legacy-unavailabl
     const result = runSdkInput(['--prepare', 'stdio']);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(result.report.roots.map(({ root, state }) => [root, state]), [
-      ['.', 'none'], ['http-mcp', 'legacy-unavailable'], ['http-mcp/wallet-build', 'published'], ['stdio-mcp', 'published'], ['stdio-mcp/buyer', 'absent'],
+      ['.', 'none'], ['http-mcp', 'legacy-unavailable'], ['http-mcp/wallet-build', 'published'], ['stdio-mcp', 'published'], ['stdio-mcp/buyer', 'absent'], ['tools/lint', 'none'],
     ]);
     assert.equal(stateOf(result, 'http-mcp').cause, 'recorded-legacy-file-vendor');
   });
