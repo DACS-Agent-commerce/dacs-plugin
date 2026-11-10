@@ -108,12 +108,15 @@ const scenarios = {
     leaksNothing(result.stdout, result.stderr);
     assert.ok(!result.stderr.includes(PRIVATE_VALUE.slice(0, 4)) && !result.stderr.includes('fatal'));
   },
-  'install-gitleaks.stderr': () => {
+  'install-gitleaks.stderr': async () => {
+    // The installer refuses any platform but its pinned archive's before it touches the folder, so the cause depends on where this runs.
+    const { GITLEAKS_PIN } = await import('../../scripts/ci/install-gitleaks.mjs');
+    const pinned = process.platform === GITLEAKS_PIN.platform && process.arch === GITLEAKS_PIN.arch;
     const blocker = path.join(makeTempDir('install-blocker'), PRIVATE_VALUE);
     writeFileSync(blocker, 'a file where a folder is needed\n');
     const result = spawnSync(process.execPath, [INSTALLER, '--dir', path.join(blocker, 'bin')], { encoding: 'utf8' });
     assert.equal(result.status, 2);
-    assert.equal(result.stderr, 'install-dir-unwritable: the install folder cannot be prepared\n');
+    assert.equal(result.stderr, pinned ? 'install-dir-unwritable: the install folder cannot be prepared\n' : 'unsupported-platform: the pinned gitleaks archive is not for this platform\n');
     leaksNothing(result.stdout, result.stderr);
   },
   'rules-eval-child.stderr': () => {

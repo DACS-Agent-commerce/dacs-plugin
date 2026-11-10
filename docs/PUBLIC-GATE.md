@@ -94,19 +94,42 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   Limits of the detection: a global object or timer held in a variable; a timer string held in a variable or property; a timer passed as an argument (`Reflect.apply(setTimeout, …)`, `list.forEach(setTimeout)`); a computed key on an expression naming none of the
   four objects (`top`, `parent` and `frames` with a computed key included); functions that read a global's properties (`Reflect`, `Object.values`); `this` and `constructor` chains.
 - **Hosts (`R-HOST`, both scopes).** Every path and every text blob is read line by line, as written and with its
-  escaped delimiters `\/`, `\@` and `\:` unescaped (`https:\/\/host\/x` is read as the URL it decodes to); a backslash ends a URL host.
+  escaped delimiters `\/`, `\@` and `\:` unescaped and its `\uXXXX`, `\u{X}` and `\xXX` escapes of a printable ASCII character, or
+  of the full stops U+3002, U+FF0E and U+FF61, decoded (`https:\/\/host\/x` and `host\x2eexample\x2ecom` are read as what they decode
+  to); a backslash ends a URL host.
   An escaped dot (`\.`) is not unescaped, because it is regex syntax in the code's own host patterns. A dotted name is a host when it is the
   host of a URL (any top-level name), a `host:port` pair, a quoted name in code (`.cjs .css .js .mjs .mts .sh .ts .tsx`), or a
   bare name in any other text and in path names; the last three count only under a top-level name listed in
-  `HOST_TOP_LEVEL_NAMES`, so file names and property chains are not hosts. A host passes only on an exact, lower-case match with an
+  `HOST_TOP_LEVEL_NAMES`, so file names and property chains are not hosts. A URL may be protocol-relative (`//host.example.com/x`):
+  in prose and data `//` counts where it starts a token (not after `:`, `/`, a backslash or a word character), and in code only right
+  after a quote or after `url(`, so a `//` that starts a comment is not read as one (`url(` is matched as text, so `url(//host)` in a
+  comment is read); without a scheme, the host counts only when it normalises to a host a URL parser accepts. A host passes only on an
+  exact, lower-case match with an
   `allowedHosts` entry (`value`, `reason`): a subdomain, or a listed name used as a label prefix of another domain, is another
   host and needs its own entry. Reserved names pass with any subdomain: the top-level names `invalid`, `test`, `example` and
-  `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label), a template placeholder
-  and an IP literal are not read here; the private list covers labels, and IP literals belong to the IP rule.
+  `localhost`, and `example.com`, `example.org` and `example.net`. A name with no dot (a machine label) and an IP literal are not
+  read here; the private list covers labels, and IP literals belong to the IP rule. A URL host with a template placeholder (`$ { } < > *`,
+  or a `%` that starts no percent escape: `${tenant}`, `%s`, `%(host)s`, `{tenant}`, `$TENANT`, `<tenant>`, `*`) is read on both sides
+  of its placeholders: the dotted name after the label that holds the last placeholder character, of two labels or more with any last
+  label, is matched like any URL host (`https://${tenant}.host.example.com/` as `host.example.com`), and so is the whole name before the
+  first placeholder character when that placeholder stands for what follows the host (`https://host.example.com%s/` and
+  `https://host.example.com${path}` as `host.example.com`). A placeholder that completes a label is not read as a name boundary
+  (`api.${env}`, `cdn-${env}.example.org`), and a host with no dotted name on either side (`${host}`, `${name}.com`) is not read. A
+  placeholder host whose escapes do not all decode to host characters is a finding, as below.
   A URL host is normalised the way a URL parser resolves it before it is matched: percent escapes decoded once (`host%2eexample%2ecom` is
-  `host.example.com`), lower-cased, and a trailing dot dropped. A URL host whose escapes are not valid UTF-8, or that decodes to anything
+  `host.example.com`), lower-cased, and a trailing dot dropped; a host with a non-ASCII character mapped with UTS 46 as `node:url`'s
+  `domainToASCII` does (the full stops U+3002, U+FF0E and U+FF61 become dots, full-width letters ASCII, an internationalised name
+  its `xn--` form; a name it refuses is a finding); and a host of one to four numbers (decimal, octal or hex) read as the IPv4
+  address the URL parser gives it (`http://2130706433/` is `http://127.0.0.1/`). A spelling that resolves to a listed or reserved
+  name, or to a passing address, passes like it. A URL host whose escapes are not valid UTF-8, or that decodes to anything
   but a name or a bracketed IPv6 literal (`host%252eexample`, `host%2fx`), is a finding, not a pass. The IP rule and the commit-metadata
-  checks read the decoded host too, so `http://127%2e0%2e0%2e1/` is judged as `http://127.0.0.1/`.
+  checks read the resolved host too, protocol-relative ones included, so `http://127%2e0%2e0%2e1/` and `//2130706433/` are judged as
+  `http://127.0.0.1/`. Only a whole host is resolved: in a regex such as `http:\/\/127\.0\.0\.1` the host ends at the backslash.
+  In a placeholder host, the numbers and dots before the first placeholder character are resolved the same way when the placeholder
+  stands for what follows the host (`http://0x7f%2e0%2e0%2e1%s/` and `http://2130706433${path}` are judged as `http://127.0.0.1/`; a
+  placeholder that completes a label, as in `10.0.0.${host}` or `10.0.0.<host>`, is not read as an address). Four numbers already
+  before the dot are an address whatever follows, since a fifth label makes no IPv4 address: `http://0x7f.0.0.1.<br>` and
+  `http://0x7f.0.0.1.%s/` are judged as `http://127.0.0.1/`.
 - **Accounts (`R-ACCOUNT`, both scopes).** An email address passes when its domain is a reserved name or it is the SSH form
   (`git@<host>:` or `git@<host>/`) of a host in `allowedHosts`. A domain of one label (`user@<label>`) is an email too, unless a `/`
   precedes the user (`actions/checkout@v4`) or the label starts with a digit (`name@1.2.3`); a reference that ends in a word
@@ -119,12 +142,16 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   the RFC 5737 documentation ranges (`192.0.2.*`, `198.51.100.*`, `203.0.113.*`), IPv6 `::1`, `::` and `2001:db8::/32`. An expanded
   form (the loopback address with all eight groups written out) and every IPv4-mapped form (the `ffff` group after the zero run, then an
   IPv4 address or two hex groups), loopback ones included, are not those classes. A dotted name of five or more numbers (an object identifier) or one with a number above 255 is not an address.
+  A URL host in numbers is classified as the address the URL parser reads (`http://3221225985/` passes as `192.0.2.1`); a four-part
+  decimal literal is also read as written.
   Text next to a literal does not hide it: a `label:` before an IPv6 literal (`ip:<literal>`), an underscore, a dot after a name, a
   `\n`, `\r` or `\t` escape and a letter or underscore after an IPv4 literal all leave it refused. Only a letter or digit before an IPv4
   literal (a version tag such as `v1.2.3.4`) and a longer dotted number around it keep it from being read as one.
 - **IP dispositions.** Any other literal passes only through an `ipDispositions` entry (`path`, `blob`, `line`, `context`,
   `sha256`, `reason`) that matches the occurrence on all of: the file's path, its blob id, its 1-based line, the three characters on
-  each side of the literal with `<ip>` in its place (fewer at a line edge), and the SHA-256 of the literal as written (lower case).
+  each side of the literal with `<ip>` in its place (fewer at a line edge), and the SHA-256 of the literal as the rule reads it: as
+  written (lower case), or for a URL host the literal it resolves to, so on the reviewed line another spelling of the same address
+  in the same context shares the entry.
   A path name never matches one. Editing a file changes its blob id, so its entries stop applying until they are reviewed again.
   The shipped entries are the 55 object-identifier tokens on line 5 of `http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs`
   and the three loopback notations on line 161 of `http-mcp/test/oauth-loopback.test.mjs`.
