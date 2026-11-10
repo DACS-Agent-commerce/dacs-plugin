@@ -1,6 +1,7 @@
 /**
  * These checks hold .github/workflows/stdio-mcp.yml to these rules:
- *  1. It runs on pull requests that touch stdio-mcp/ or the workflow, and on pushes to any
+ *  1. It runs on pull requests that touch stdio-mcp/, the workflow or the inputs shared with
+ *     the other jobs (scripts/ci/, package.json, package-lock.json), and on pushes to any
  *     branch that touch the same paths, but not on tag pushes.
  *  2. A newer run for the same ref cancels the one in progress, for pushes and pull requests.
  *  3. The token has read-only contents permission, set once at the top, and every checkout
@@ -8,8 +9,8 @@
  *  4. One job on ubuntu-24.04, one leg each for Node 20.19 and 22, fail-fast off, and
  *     setup-node installs the leg's own version. The versions are exact, and the 20.19 leg
  *     is the floor in package.json "engines", not whichever 20.19 patch is newest.
- *  5. The steps are checkout, setup-node, then npm ci --ignore-scripts, typecheck, test and
- *     build in stdio-mcp/, in that order and nothing else.
+ *  5. The steps are checkout, setup-node, the SDK input validation, then npm ci
+ *     --ignore-scripts, typecheck, test and build in stdio-mcp/, in that order and nothing else.
  *  6. No top-level, job or step key outside the ones it uses, since others could skip a step,
  *     mask a failure or widen access.
  *  7. The npm scripts those steps run are the ones in package.json today, and no project
@@ -36,7 +37,7 @@ import os from 'node:os';
 
 const WORKFLOW = path.join(import.meta.dirname, '../../../.github/workflows/stdio-mcp.yml');
 /** Without the CI workflow in the checkout there is nothing to check. CI always has it. */
-const skip = !fs.existsSync(WORKFLOW) && !process.env.GITHUB_ACTIONS ? 'without the CI workflow' : false;
+const skip = !fs.existsSync(WORKFLOW) && !process.env.GITHUB_ACTIONS ? 'without the workflow file' : false;
 
 /** The workflow's text, and its lines without comments, blank lines or trailing space. */
 interface Workflow { text: string; lines: string[] }
@@ -75,7 +76,11 @@ function jobSteps(w: Workflow): string[][] {
   return out;
 }
 
-const PATHS = ['    paths:', "      - 'stdio-mcp/**'", "      - '.github/workflows/stdio-mcp.yml'"];
+// The last three are inputs shared with the other jobs: the validation tool and the root manifest and lock.
+const PATHS = [
+  '    paths:', "      - 'stdio-mcp/**'", "      - '.github/workflows/stdio-mcp.yml'",
+  "      - 'scripts/ci/**'", "      - 'package.json'", "      - 'package-lock.json'",
+];
 const NODE_VERSIONS = ['20.19.0', '22.23.3'];
 const MATRIX = `        node-version: [${NODE_VERSIONS.map((v) => `'${v}'`).join(', ')}]`;
 
@@ -147,6 +152,7 @@ const CHECKS = {
     assert.deepEqual(sequence, [
       ['uses: actions/checkout', 'with:'],
       ['uses: actions/setup-node', 'with:'],
+      ['run: node ../scripts/ci/sdk-input.mjs --prepare stdio'],
       ['run: npm ci --ignore-scripts --no-audit --no-fund'],
       ['run: npm run typecheck'],
       ['run: npm test'],
@@ -214,7 +220,7 @@ test('workflow: the Node legs are exact versions, and the first is the floor in 
   assert.equal(`>=${NODE_VERSIONS[0]}`, pkg.engines.node);
 });
 
-test('workflow: checkout, setup-node, then npm ci --ignore-scripts, typecheck, test and build in stdio-mcp/, and nothing else', { skip }, () => {
+test('workflow: checkout, setup-node, the SDK input validation, then npm ci --ignore-scripts, typecheck, test and build in stdio-mcp/, and nothing else', { skip }, () => {
   CHECKS.steps(real());
 });
 
@@ -340,6 +346,8 @@ const REFUSED: [keyof typeof CHECKS, string, string, string][] = [
   ['job', 'fail-fast: true', '      fail-fast: false\n', '      fail-fast: true\n'],
   ['job', 'continue-on-error on the job', '    timeout-minutes: 20\n', '    timeout-minutes: 20\n    continue-on-error: true\n'],
   ['job', 'if: false on the job', '    timeout-minutes: 20\n', '    timeout-minutes: 20\n    if: false\n'],
+  ['steps', 'the SDK input validation dropped', '      - run: node ../scripts/ci/sdk-input.mjs --prepare stdio\n', ''],
+  ['steps', 'the SDK input validation tolerated with || true', '      - run: node ../scripts/ci/sdk-input.mjs --prepare stdio\n', '      - run: node ../scripts/ci/sdk-input.mjs --prepare stdio || true\n'],
   ['steps', 'npm test dropped', '      - run: npm test\n', ''],
   ['steps', 'npm test || true', '      - run: npm test\n', '      - run: npm test || true\n'],
   ['steps', 'a # inside a word before || true', '      - run: npm test\n', '      - run: npm test#|| true\n'],

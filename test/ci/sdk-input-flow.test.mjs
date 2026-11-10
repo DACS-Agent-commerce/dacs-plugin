@@ -11,6 +11,8 @@ const JOBS = [
   { name: 'http-mcp', workflow: 'http-mcp-tests.yml', validation: /sdk-input\.mjs --prepare http-mcp$/, install: 'npm ci ', root: 'http-mcp/wallet-build' },
 ];
 
+const STDIO_JOB = { name: 'stdio-mcp', workflow: 'stdio-mcp.yml', validation: /sdk-input\.mjs --prepare stdio$/, install: 'npm ci ', root: 'stdio-mcp' };
+
 const FORBIDDEN_INPUTS = [
   ['a path spec in the manifest', 'local-path-spec', (editJson, root) => editJson(root, 'package.json', (manifest) => {
     manifest.dependencies = { ...manifest.dependencies, [SDK_KEY]: 'file:../sdk' };
@@ -54,4 +56,25 @@ test('each of the public-gate and http-mcp jobs\' own preparation commands, run 
       });
     }
   }
+});
+
+test('the stdio job\'s own preparation commands, run with a forbidden SDK spec in stdio\'s manifest and an instrumented npm, fail at the validation step and never invoke npm', async (t) => {
+  const { text, steps } = validationToInstall(STDIO_JOB);
+
+  await t.test('stdio-mcp: with no forbidden input the validation passes and the instrumented install is reached', () => {
+    const { runs, npmCalls } = runSteps(makeJobCheckout(), text, steps);
+    assert.deepEqual(runs.map(({ status }) => status), [0, 1]);
+    assert.equal(npmCalls, 'ci --ignore-scripts --no-audit --no-fund\n');
+  });
+
+  const [label, cause, plant] = FORBIDDEN_INPUTS[0];
+  await t.test(`stdio-mcp: ${label} fails at validation with exit 1 and npm is never invoked`, () => {
+    const checkout = makeJobCheckout(({ editJson }) => plant(editJson, STDIO_JOB.root));
+    const { runs, npmCalls } = runSteps(checkout, text, steps);
+    assert.equal(runs.length, 1, 'the install after the validation never runs');
+    assert.equal(runs[0].status, 1);
+    assert.match(runs[0].stderr, /^sdk-input-refused: /);
+    assert.equal(JSON.parse(runs[0].stdout).roots.find(({ root }) => root === STDIO_JOB.root).cause, cause);
+    assert.equal(npmCalls, '');
+  });
 });

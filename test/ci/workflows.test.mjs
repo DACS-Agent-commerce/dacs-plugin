@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { REPO_ROOT } from '../lib/gate-fixtures.mjs';
-import { commandOf, directoryOf, inventoryRoots, makeJobCheckout, readWorkflow, runSteps, stepsOf, workflows } from '../lib/workflow-fixtures.mjs';
+import { WORKFLOW_DIRECTORY, commandOf, directoryOf, inventoryRoots, makeJobCheckout, readWorkflow, runSteps, stepsOf, workflows } from '../lib/workflow-fixtures.mjs';
 
 const GATE_WORKFLOW = 'public-gate.yml';
 const HTTP_WORKFLOW = 'http-mcp-tests.yml';
@@ -46,7 +47,15 @@ test('every action is pinned by SHA, contents are read-only, checkouts keep no c
 test('every setup-node step installs an exact Node release, so a new release cannot change a run', () => {
   for (const { file, text } of workflows()) {
     const setupNodes = stepsOf(text).filter((step) => step.includes('actions/setup-node@'));
-    for (const step of setupNodes) assert.match(step, /^ {10}node-version: "\d+\.\d+\.\d+"$/m, `${file}: node-version is not an exact release`);
+    const matrixLine = text.match(/^ {8}node-version: \[(.+)\]$/m);
+    const matrixExact = matrixLine !== null && matrixLine[1].split(', ').every((entry) => /^'\d+\.\d+\.\d+'$/.test(entry));
+    for (const step of setupNodes) {
+      if (step.includes('node-version: ${{ matrix.node-version }}')) {
+        assert.ok(matrixExact, `${file}: the node-version matrix is not exact releases`);
+      } else {
+        assert.match(step, /^ {10}node-version: "\d+\.\d+\.\d+"$/m, `${file}: node-version is not an exact release`);
+      }
+    }
   }
 });
 
@@ -132,6 +141,36 @@ test('the http-mcp job runs sdk-input before both installs, http-mcp and wallet-
     for (const event of ['pull_request', 'push']) {
       const filter = pathFilter(http, event);
       assert.deepEqual([...filter].sort(), ['.github/workflows/http-mcp-tests.yml', 'http-mcp/**', ...SHARED_INPUT_PATHS].sort(), event);
+    }
+  });
+});
+
+const STDIO_WORKFLOW = 'stdio-mcp.yml';
+const STDIO_VALIDATION = 'node ../scripts/ci/sdk-input.mjs --prepare stdio';
+/**
+ * The SHA-256 of .github/workflows/stdio-mcp.yml. Provenance: written fresh in this PR from stdio's workflow tests; no carried source.
+ * A change to the file must update this value in the same PR.
+ */
+const STDIO_WORKFLOW_SHA256 = '23de4d28a16310c6f369a8f88ab7f79e1765cdf8f0f2fe6341a141cab54eec5f';
+
+test('stdio-mcp.yml matches its own recorded SHA-256 (written fresh in this PR from stdio\'s workflow tests, no carried source), runs the validation step after setup-node and before npm ci, and has the three shared-input additions in both the push and pull-request filters', async (t) => {
+  const text = readWorkflow(STDIO_WORKFLOW);
+
+  await t.test('the file\'s bytes are the recorded ones', () => {
+    assert.equal(createHash('sha256').update(readFileSync(path.join(WORKFLOW_DIRECTORY, STDIO_WORKFLOW))).digest('hex'), STDIO_WORKFLOW_SHA256);
+  });
+
+  await t.test('the validation is the only step between setup-node and npm ci', () => {
+    const steps = stepsOf(text);
+    const validation = steps.findIndex((step) => commandOf(step) === STDIO_VALIDATION);
+    assert.equal(steps.filter((step) => commandOf(step) === STDIO_VALIDATION).length, 1);
+    assert.equal(validation, stepIndex(steps, 'actions/setup-node@') + 1);
+    assert.equal(validation + 1, stepIndex(steps, 'run: npm ci --ignore-scripts'));
+  });
+
+  await t.test('both the pull-request and push filters hold the plugin folder, the workflow and the shared validation inputs', () => {
+    for (const event of ['pull_request', 'push']) {
+      assert.deepEqual([...pathFilter(text, event)].sort(), ['.github/workflows/stdio-mcp.yml', 'stdio-mcp/**', ...SHARED_INPUT_PATHS].sort(), event);
     }
   });
 });
