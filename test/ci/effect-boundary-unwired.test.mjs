@@ -9,15 +9,14 @@ const ALLOWLIST = [
   'http-mcp/public/portal/embedded-wallet/effect-boundary.mjs',
   'http-mcp/public/portal/embedded-wallet/effect-records.mjs',
   'http-mcp/test/',
+  'test/ci/effect-boundary-unwired.test.mjs',
 ];
 const GUARD_MESSAGE = 'This module must not be wired to a page or route until its sign and send tails re-read authority; '
   + 'remove this guard in the PR that adds that re-read.';
 
 function matchesUnwiredModule(file, source) {
   if (ALLOWLIST.some((allowed) => allowed.endsWith('/') ? file.startsWith(allowed) : file === allowed)) return false;
-  if (file.startsWith('http-mcp/public/')) return /effect-(?:boundary|records)\.mjs/.test(source);
-  const imports = source.matchAll(/\b(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)['"`](\.{1,2}\/[^'"`]+)['"`]/g);
-  return [...imports].some(([, target]) => /\/effect-(?:boundary|records)\.mjs(?:[?#].*)?$/.test(target));
+  return /effect-(?:boundary|records)\.mjs/.test(source);
 }
 
 function assertUnwired(files) {
@@ -62,7 +61,26 @@ for (const moduleName of ['effect-boundary.mjs', 'effect-records.mjs']) {
   test(`matches a plain public string reference to ${moduleName}`, () => {
     const source = `const moduleFile = '${moduleName}';`;
     assert.equal(matchesUnwiredModule('http-mcp/public/nested/fixture.js', source), true);
-    assert.equal(matchesUnwiredModule('test/ci/fixture.test.mjs', source), false);
+    assert.equal(matchesUnwiredModule('http-mcp/src/fixture.mjs', source), true);
+  });
+
+  test(`matches non-relative references to ${moduleName} in a file under http-mcp/src/`, () => {
+    const forms = [
+      ['an asset-list entry', `const assets = ['embedded-wallet/${moduleName}'];`],
+      ['an absolute-path import', `const loaded = import('/portal/assets/embedded-wallet/${moduleName}');`],
+      ['an absolute script src in a template string', `const page = \`<script type="module" src="/portal/embedded-wallet/${moduleName}"></script>\`;`],
+      ['a new URL call', `const url = new URL('./embedded-wallet/${moduleName}', base);`],
+      ['a package exports entry', `{ "exports": { "./wallet-effect": "./http-mcp/public/portal/embedded-wallet/${moduleName}" } }`],
+    ];
+    for (const [kind, source] of forms) {
+      assert.equal(matchesUnwiredModule('http-mcp/src/portal/fixture.mjs', source), true, kind);
+      const page = { file: 'http-mcp/src/portal/fixture.mjs', source };
+      assert.throws(() => assertUnwired([page]), (error) => {
+        assert.ok(error.message.includes(GUARD_MESSAGE), kind);
+        assert.ok(error.message.includes(page.file), kind);
+        return true;
+      }, kind);
+    }
   });
 
   test(`allows ${moduleName} imports only in the listed files and test directory`, () => {
