@@ -10,7 +10,7 @@
 import { randomBytes } from 'node:crypto';
 import { isCanonicalDecimal } from '../amount.js';
 import { contentHash } from './jcs.js';
-import { addressForClaim, claimForAddress, encodeSig6, SEP, signedBytes, verifyDomainSig } from './sig.js';
+import { addressForClaim, claimForAddress, claimIdentity, encodeSig6, SEP, signedBytes, verifyDomainSig } from './sig.js';
 import { verifyAgreementStructure, type Check } from './verify.js';
 
 export const DEM_RAIL_ID = 'demos-native:DEM';
@@ -55,7 +55,7 @@ const HASH_RE = /^(sha256:)?[0-9a-f]{64}$/;
 export function buildOffer(input: OfferInput, selfAddress: string, now = Date.now()): AgreementDoc {
   const selfClaim = claimForAddress(selfAddress);
   if (input.self.role === input.counterparty.role) throw new Error('self and counterparty must have different roles (buyer/seller)');
-  if (input.counterparty.primaryClaim === selfClaim) throw new Error('counterparty cannot be this wallet');
+  if (claimIdentity(input.counterparty.primaryClaim) === claimIdentity(selfClaim)) throw new Error('counterparty cannot be this wallet');
   if (!isCanonicalDecimal(input.price.amount)) throw new Error('price.amount must be a positive CD-1 canonical decimal (e.g. "1.5", not "1.50")');
   if (!HASH_RE.test(input.listingRef.contentHash)) throw new Error('listingRef.contentHash must be a sha256 hex');
   if (!HASH_RE.test(input.deliverable.hash)) throw new Error('deliverable.hash must be a sha256 hex');
@@ -123,7 +123,7 @@ export function analyzeOfferForAccept(doc: unknown, selfAddress: string, now = D
   const parties: any[] = Array.isArray(d.parties) ? d.parties : [];
   const roleCount = (r: string) => parties.filter((p) => p?.role === r).length;
   if (roleCount('buyer') !== 1 || roleCount('seller') !== 1) throw new Error('offer must name exactly one buyer and exactly one seller');
-  if (new Set(parties.map((p) => p?.primaryClaim)).size !== parties.length) throw new Error('offer parties must have distinct primary claims');
+  if (new Set(parties.map((p) => claimIdentity(p?.primaryClaim))).size !== parties.length) throw new Error('offer parties must have distinct primary claims');
   for (const p of parties) {
     if (!/^(sha256:)?[0-9a-f]{64}$/.test(String(p?.bundleHash)) || !p?.vetRecordRef || typeof p.vetRecordRef !== 'object') {
       throw new Error(`party ${String(p?.role)} lacks a bundleHash / vetRecordRef`);

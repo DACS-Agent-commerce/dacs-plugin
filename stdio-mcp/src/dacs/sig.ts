@@ -2,9 +2,11 @@
  * CORE §B.7 domain-separated signatures.
  *   signed_bytes := UTF8(domain_separator) || UTF8(lowercase-hex artifact_hash)
  *   value        := unpadded Base64URL of the raw signature bytes (SIG-6)
- * Key resolution: only the `key:<hex-pubkey>` scheme (DACS-1 §6.3.1; lowercase,
- * no 0x) resolves to an ed25519 key offline. A Demos wallet address is its
- * ed25519 public key, so a Demos wallet's claim is `key:<address without 0x>`.
+ * Key resolution offline: the `key:<hex-pubkey>` scheme (DACS-1 §6.3.1; lowercase,
+ * no 0x) and the Demos agent claim `did:demos:agent:<hex-pubkey>` that the HTTP
+ * plugin publishes with. Both carry the ed25519 public key itself as 64
+ * lowercase hex. A Demos wallet address is its ed25519 public key, so a Demos
+ * wallet's claim is `key:<address without 0x>`.
  * Other schemes need DACS-2 resolution and verify as `indeterminate` here.
  */
 import * as ed from '@noble/ed25519';
@@ -44,12 +46,24 @@ export function encodeSig6(bytes: Uint8Array): string {
 }
 
 const KEY_CLAIM = /^key:([0-9a-f]{64})$/;
+// Verification only: addressForClaim (payee and listing address) stays key:-only.
+const VERIFY_CLAIM = /^(?:key:|did:demos:agent:)([0-9a-f]{64})$/;
 
-/** ed25519 public key for a `key:` claim, else null (unresolvable offline). */
+/** ed25519 public key for a `key:` or `did:demos:agent:` claim, else null (unresolvable offline). */
 export function keyForClaim(claim: unknown): Uint8Array | null {
   if (typeof claim !== 'string') return null;
-  const m = KEY_CLAIM.exec(claim);
+  const m = VERIFY_CLAIM.exec(claim);
   return m ? Uint8Array.from(Buffer.from(m[1]!, 'hex')) : null;
+}
+
+/**
+ * The identity a claim names, for "same party?" checks: `key:<hex>` and
+ * `did:demos:agent:<hex>` of one key are one identity; any other claim is itself.
+ */
+export function claimIdentity(claim: unknown): string {
+  const m = typeof claim === 'string' ? VERIFY_CLAIM.exec(claim) : null;
+  // The NUL prefix cannot start a claim, so no claim string equals a key identity.
+  return m ? `\u0000ed25519:${m[1]}` : String(claim);
 }
 
 /**
@@ -87,7 +101,7 @@ export function verifyDomainSig(
   if (!sig) return { decision: 'fail', reason: 'signature value is not canonical unpadded Base64URL (SIG-6)' };
   if (sig.length !== 64) return { decision: 'fail', reason: `ed25519 signature must be 64 bytes, got ${sig.length}` };
   const key = keyForClaim(claim);
-  if (!key) return { decision: 'indeterminate', reason: `cannot resolve a key for claim ${String(claim)} offline (only key:<hex> resolves)` };
+  if (!key) return { decision: 'indeterminate', reason: `cannot resolve a key for claim ${String(claim)} offline (only key:<hex> and did:demos:agent:<hex> resolve)` };
   if (!isUsableKey(key)) return { decision: 'fail', reason: 'public key is small-order or not canonical' };
   try {
     const ok = ed.verify(sig, new TextEncoder().encode(signedBytes(separator, artifactHashHex)), key);

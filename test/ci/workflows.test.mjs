@@ -44,6 +44,21 @@ test('every action is pinned by SHA, contents are read-only, checkouts keep no c
   }
 });
 
+test('every setup-node step installs an exact Node release, so a new release cannot change a run', () => {
+  for (const { file, text } of workflows()) {
+    const setupNodes = stepsOf(text).filter((step) => step.includes('actions/setup-node@'));
+    const matrixLine = text.match(/^ {8}node-version: \[(.+)\]$/m);
+    const matrixExact = matrixLine !== null && matrixLine[1].split(', ').every((entry) => /^'\d+\.\d+\.\d+'$/.test(entry));
+    for (const step of setupNodes) {
+      if (step.includes('node-version: ${{ matrix.node-version }}')) {
+        assert.ok(matrixExact, `${file}: the node-version matrix is not exact releases`);
+      } else {
+        assert.match(step, /^ {10}node-version: "\d+\.\d+\.\d+"$/m, `${file}: node-version is not an exact release`);
+      }
+    }
+  }
+});
+
 test('the gate job is named public-gate, runs on every pull request and push with no path filter and full history, installs root dependencies and gitleaks through the bounded installer, runs generic scope and npm test, and uploads the report under a fixed name even on failure', () => {
   const text = readWorkflow(GATE_WORKFLOW);
   assert.match(text, /^name: public-gate\n/);

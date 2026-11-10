@@ -2,9 +2,10 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import {tmpdir} from 'node:os';
 import {generateKeyPairSync} from 'node:crypto';
 import {harness, keypair} from '../helpers.js';
-import {CARD_HASH, signedEnvelope, hash, verifyReceipts} from '../../alignment/index.mjs';
+import {Alignment, CARD_HASH, signedEnvelope, hash, verifyReceipts} from '../../alignment/index.mjs';
 const to=keypair(8).address;
 test('all clients see instructions, resource, prompt and write pointers',async()=>{
  const h=await harness();assert.match(h.client.getInstructions()??'',/People stay in control/);
@@ -24,6 +25,37 @@ test('STOP cancels pending, removal cannot resume, no broadcast happens',async()
  fs.writeFileSync(path.join(h.config.stateDir,'STOP'),'stop');let r=await h.call('demos_tx_submit',{prepared_id:p.json.prepared_id,confirmation_code:h.channel.last().code});assert.equal(r.isError,true);
  fs.unlinkSync(path.join(h.config.stateDir,'STOP'));r=await h.call('demos_tx_prepare',{to,amount_dem:'1'});assert.equal(r.isError,true);assert.equal(h.wallet.broadcasts.length,0);
  assert.equal((await h.call('demos_balance',{address:to})).isError,false);
+});
+for(const scenario of [
+ {title:'STOP lists a running approval retry after a failed attempt',firstOutcome:'failed'},
+ {title:'STOP retains a signed action while its approval retry is in flight',firstOutcome:'signed'},
+] as const)test(scenario.title,(t)=>{
+ const home=fs.mkdtempSync(path.join(tmpdir(),'alignment-retry-'));
+ t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
+ const conduct=new Alignment({home,now:()=>0});
+ const action={kind:'create-wallet',network:'testnet',actor:'local',recipient:'local',cost_os:'0'};
+ const actionHash=hash(action);
+ const approve=(nonce:string,target=action)=>conduct.decide(target,{phase:'execute',trustedApproval:true,
+  approval:{hash:hash(target),expires_at:60_000,stop_generation:0,nonce}});
+ const first=approve('first');assert.equal(first.decision,'allow');
+ assert.equal(conduct.outcome(action,first.receipt,scenario.firstOutcome).outcome,scenario.firstOutcome);
+ const retry=approve('retry');assert.equal(retry.decision,'allow');
+ assert.equal(retry.receipt.action_hash,first.receipt.action_hash);
+ assert.notEqual(retry.receipt.digest,first.receipt.digest);
+ const finishedAction={...action,kind:'set-limit'};
+ for(const nonce of ['finished-first','finished-retry']){
+  const finished=approve(nonce,finishedAction);assert.equal(finished.decision,'allow');
+  conduct.outcome(finishedAction,finished.receipt,'failed');
+ }
+ fs.writeFileSync(path.join(home,'STOP'),'stop');
+ assert.equal(conduct.decide({kind:'status',read:true}).decision,'allow');
+ const state=conduct.state();assert.equal(state.stop,true);
+ const stop=state.receipts.find((r:{outcome:string})=>r.outcome==='stop_observed');
+ assert.ok(stop);
+ for(const report of [state,stop]){
+  assert.deepEqual(report.inflight_action_hashes,[actionHash]);
+  assert.deepEqual(report.irreversible_action_hashes,scenario.firstOutcome==='signed'?[actionHash]:[]);
+ }
 });
 test('signed standing mandate allows identity writes with no prompt, but never a payment',async()=>{
  const h=await harness({}, {beforeServer:(stateDir,w)=>{
