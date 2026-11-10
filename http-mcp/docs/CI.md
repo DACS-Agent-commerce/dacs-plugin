@@ -221,14 +221,15 @@ A file that cannot load because a module it imports is not carried ends with
 Node's fatal-error diagnostic and no test. The runner reports it as one
 `[carry-over]` failure naming the missing module, instead of `[process failure]`
 and `[incomplete results]`, only when all of this holds: the file did not time
-out or end on a signal, no test in it started, it has no other failure, and the
+out or end on a signal, no test in it started and it printed nothing to stdout,
+it has no other failure, and the
 reporter found exactly one missing module, with nothing else on the file's
 stderr, whose path inside `http-mcp/` equals the `expect` of the file's entry. Such an entry has `"test": "[carry-over]"` and
 `"class": "carry-over"`, and its `expect` is that path (for example
 `src/missing.mjs`), not a message. Nothing else is excused: another missing
 module, an `ENOENT` from reading a file while the module is evaluated, an
-assertion failure, a timeout, a second fatal error or any other line the file
-wrote to stderr all stay failures. When
+assertion failure, a timeout, a second fatal error, any other line the file
+wrote to stderr or any line it wrote to stdout all stay failures. When
 the file loads again its entry fails the run as a known failure that now
 passes, and is removed. The baseline holds no such entry yet.
 
