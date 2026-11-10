@@ -241,7 +241,7 @@ module, an `ENOENT` from reading a file while the module is evaluated, an
 assertion failure, a timeout, a second fatal error or any other line the file
 wrote to stderr all stay failures. When
 the file loads again its entry fails the run as a known failure that now
-passes, and is removed. The baseline holds no such entry yet.
+passes, and is removed. The baseline holds 176 carry-over entries; the one other entry is described below.
 
 `test/known-failures.json` holds one entry: the seller-disposition payment-path
 case, recorded in the source repository as observing 7 CREATEs instead of 5.

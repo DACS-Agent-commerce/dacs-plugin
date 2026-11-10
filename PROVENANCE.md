@@ -21,7 +21,14 @@ Files from the earlier repository that are not in this one:
   funding code (`http-mcp/src/dacs/`, `vendor/` and five related modules). These
   are planned to come from the published SDK instead.
 - The development demo, the deploy tooling and three agreement brokers.
-- Scripts, tests, docs and fixtures that serve only those files.
+
+The first commit also carried tests and helpers for not-carried modules. The carry-over
+baseline, [`http-mcp/test/known-failures.json`](http-mcp/test/known-failures.json),
+lists 176 retained test files and their missing modules. Other retained tests
+still need not-carried modules or fixtures.
+
+Other files not carried:
+
 - Internal review and process records, and the CI workflows (added later).
 - Files deleted from a kept folder before import: two operator records and one CI
   requirements note, which were internal process records.
