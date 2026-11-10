@@ -47,7 +47,7 @@ source, the tarball, the installed package and the HTTP downloads:
 `wallet-build/` (the esbuild 0.25.12 build tooling, its lockfile and its `node_modules`)
 is **not** in `files` or in the image build context. It must never ship. The checkers
 also reject `.env*` (except the root .env.example template), SQLite/state files, keys, wallet-named
-JSON files (`*wallet*.json`, matched on the file name), tests, working-notes files (`AGENTS.md`, `STATUS.md`, `ACCEPTANCE.md`)
+JSON files (`*wallet*.json`, matched on the file name), tests, working-notes files of a source checkout (`AGENTS.md`, `STATUS.md`, `ACCEPTANCE.md`)
 and any `node_modules` path that is not in npm's own `bundled` list. That list is the
 vendored `@kynesyslabs/dacs` and its hoisted dependencies. The wallet-JSON rule matches the
 file name, not the directory. So `embedded-wallet/runtime-manifest.json`, a public

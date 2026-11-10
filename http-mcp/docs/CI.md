@@ -2,7 +2,7 @@
 
 **State of this repository.** The workflow described below is
 `.github/workflows/http-mcp-tests.yml`. `deploy/` (including `deploy/test/`) is
-not carried here, and many test files cannot load (see `PROVENANCE.md`, "Not
+not carried here, and many test files cannot load (in a source checkout see `PROVENANCE.md`, "Not
 carried"). `npm run test:ci`
 runs every file under `test/`, browser files included; a file that cannot load
 because a module it imports is not carried fails, unless the baseline holds a
