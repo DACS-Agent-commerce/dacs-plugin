@@ -13,8 +13,9 @@
 // signal, which `test:exit` passes on.
 // A file that cannot load, because a module it imports is not there, ends with
 // Node's fatal-error diagnostic on stderr and no test. When the file printed
-// nothing to stdout, that diagnostic is the whole of stderr and names one missing file inside the run directory,
-// `test:load-failure` passes the file's path on; any other shape gives none.
+// nothing to stdout, that diagnostic is the whole of stderr and names one
+// missing file inside the run directory, `test:load-failure` passes the file's
+// path on; any other shape gives none.
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 const ASYNC_AFTER_END = /generated asynchronous activity after the test ended/;
