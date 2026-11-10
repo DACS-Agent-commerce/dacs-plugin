@@ -153,7 +153,10 @@ of the write tools can run against a testnet RPC.
    Read-only use takes `DEMOS_RPC_URL`.
 6. **Daily spend cap, allow-list, kill switch.** The cap covers amount plus fees,
    with a default of 10 DEM per UTC day. It is checked at prepare and reserved at
-   submit under a cross-process lock. Any part the write did not use is released.
+   submit under a cross-process lock. When a write completes or fails with a known
+   fee, the part it did not use is released; a write that is pending or whose
+   outcome is unknown keeps its whole reservation, which stays open until the
+   human clears it (see `SECURITY.md`).
    The ledger lives in `~/.demos-mcp`, not in the plugin data directory, so a
    reinstall does not reset the cap. Creating `~/.demos-mcp/KILL` refuses every
    write immediately.

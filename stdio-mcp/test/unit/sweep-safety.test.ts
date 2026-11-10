@@ -35,7 +35,13 @@ test('a live lock older than 30 seconds is refused, not removed', () => {
   writeFileSync(lock, '');
   const old = new Date(Date.now() - LOCK_AGE_MS);
   utimesSync(lock, old, old);
-  assert.throws(() => ledgerAt(dir).reserve(parts(10n, 5n), 'x'), /locked by another process/);
+  assert.throws(() => ledgerAt(dir).reserve(parts(10n, 5n), 'x'), (err: unknown) => {
+    assert.ok(err instanceof SpendCapError);
+    assert.match(err.message, /locked by another process/);
+    assert.ok(err.message.includes(lock), 'the message names the lock file');
+    assert.match(err.message, /remove it if no other process is running/);
+    return true;
+  });
   assert.ok(existsSync(lock), 'the lock of a live process stays');
   assert.equal(existsSync(ledgerPath(dir)), false, 'nothing was recorded');
 });

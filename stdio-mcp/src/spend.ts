@@ -178,7 +178,9 @@ export class SpendLedger {
       try {
         fd = openSync(lock, 'wx', 0o600);
       } catch {
-        if (Date.now() > until) throw new SpendCapError('spend ledger is locked by another process; try again');
+        if (Date.now() > until) {
+          throw new SpendCapError(`spend ledger is locked by another process (lock file ${lock}); if it stays locked, remove it if no other process is running`);
+        }
         const t = Date.now() + 25;
         while (Date.now() < t) {
           /* short spin; reserve is rare and quick */
