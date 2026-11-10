@@ -39,6 +39,7 @@ const isExcludedTarget = (target) => EXCLUDED_PREFIXES.some((prefix) => `${targe
   || EXCLUDED_FILES.includes(target);
 
 // The non-test modules whose imports resolve to excluded modules, each with the follow-up that switches or retires it.
+// An entry left here after its module stops importing an excluded path is not reported; remove it with that change.
 const SWITCH_OWNER = 'follow-up: switch the import to the published SDK';
 const SCRIPT_OWNER = 'follow-up: switch the script, or retire it with its command';
 const EXCLUDED_MODULE_IMPORTERS = new Map([
@@ -67,7 +68,7 @@ test('every unresolved import in http-mcp source targets an excluded path', () =
 test('every module that imports an excluded module has a follow-up recorded', () => {
   for (const file of excludedModuleImporters()) {
     const owner = EXCLUDED_MODULE_IMPORTERS.get(file);
-    assert.ok(owner, `${file} imports an excluded module and has no follow-up in EXCLUDED_MODULE_IMPORTERS`);
+    assert.ok(owner, `${file} has an import that does not resolve and no follow-up in EXCLUDED_MODULE_IMPORTERS (a missing module that is not excluded also fails the test above)`);
     if (file.startsWith('http-mcp/scripts/')) assert.equal(owner, SCRIPT_OWNER, `${file} is a script and needs the script follow-up`);
   }
 });
@@ -83,8 +84,8 @@ test('the excluded paths are absent and tests needed for carried targets are ret
   assert.ok(!trackedFiles.some((file) => /(?:^|\/)(?:carry|removal)[^/]*(?<!\.test)\.(?:mjs|py)$/.test(file)));
 });
 
-// Records that are not carried are not named here. This test does not check http-mcp/'s top-level folders: a new
-// tracked folder with no excluded imports passes it. Only a complete-scope run of the gate's private list checks every
+// Records that are not carried are not named here. This test does not check http-mcp/'s top-level folders: the import
+// rules read only http-mcp/src/ and http-mcp/scripts/, so a new tracked folder passes it whatever it imports. Only a complete-scope run of the gate's private list checks every
 // path and file for them (docs/PUBLIC-GATE.md); pull-request CI runs the generic scope, so that check happens separately.
 test('TESTING and the docs required by retained tests are kept', () => {
   assert.ok(exists('http-mcp/docs/TESTING.md'));
@@ -109,7 +110,7 @@ const COMPUTED_REACH_KEEPS = [
   'http-mcp/test/fixtures/ci-runner/root-hook.mjs', 'http-mcp/test/fixtures/ci-runner/suites.mjs',
   'http-mcp/test/fixtures/ci-runner/timeout.mjs', 'http-mcp/test/fixtures/ci-runner/tmpdir.mjs',
   'http-mcp/test/fixtures/seller-durable-state.v1-baseline.mjs',
-  'http-mcp/test/helpers/devnet-stop-loader.mjs','http-mcp/test/helpers/devnet-stop-operator.mjs',
+  'http-mcp/test/helpers/devnet-stop-loader.mjs', 'http-mcp/test/helpers/devnet-stop-operator.mjs',
   'http-mcp/test/helpers/seller-durable-state-lock-holder.mjs', 'http-mcp/test/helpers/seller-state-lease-race.mjs',
   'http-mcp/test/helpers/seller-state-no-procfs.mjs', 'http-mcp/test/helpers/showcase-safety-mutants.mjs',
 ];
