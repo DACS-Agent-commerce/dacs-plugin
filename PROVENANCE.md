@@ -24,7 +24,7 @@ Files from the earlier repository that are not in this one:
 
 The first commit also carried tests and helpers for not-carried modules. The carry-over
 baseline, [`http-mcp/test/known-failures.json`](http-mcp/test/known-failures.json),
-lists 229 retained test files and their missing modules. Other retained tests
+lists 243 retained test files and their missing modules. Other retained tests
 still need not-carried modules or fixtures.
 
 Other files not carried:
@@ -81,7 +81,7 @@ Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 | `http-mcp/bin/offline-fixtures/tester-ui/dashboard.js` | `1b518aa2253517a41e0b152c334c6606dbcc762e` | verbatim |
 | `http-mcp/bin/offline-fixtures/tester-ui/index.html` | `1affc91c0383a8891ffaa9aa8d87569901e06f5a` | verbatim |
 | `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md` | `d59ae0969c74048f55fc4a5fdcfce145a9495dc6` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording |
-| `http-mcp/docs/CI.md` | `79d8b9c7942148d19f13d46e3ef50cf2335e034b` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; a "state of this repository" note; baseline and discovery-count text corrected to this tree; a private commit id removed; then changed here: the baseline entry count; a list of failing tests with no owning card yet; one mention of the provenance file says "source checkout" |
+| `http-mcp/docs/CI.md` | `ddd9f9c7d1b8374828a6ebb29d69eae7f9558d56` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; a "state of this repository" note; baseline and discovery-count text corrected to this tree; a private commit id removed; then changed here: the baseline entry count; a list of the tests owned by the P303 cards and a list of failing tests the baseline does not cover; one mention of the provenance file says "source checkout" |
 | `http-mcp/docs/CONNECT-OTHER-CLIENTS.md` | `b9baac786e7c40bb2453aabd2088ea63a3f8ef9a` | verbatim |
 | `http-mcp/docs/CURRENT-TESTER-PACKAGE.md` | `eb83facc209e15cbac39d5b6a33dfc2799a9c525` | edited: public wording: internal review, process, PR and private-path references removed or reworded; the tarball and original-artifact lookup described as the test now does it |
 | `http-mcp/docs/DEPLOYMENT-CHECKLIST.md` | `1dc60328b6f1b6d12616b9ff9cb25fb25c0639f7` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -566,7 +566,7 @@ Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 | `http-mcp/test/identities.test.mjs` | `142ef667e3faa7824ef4dba93d0523d0a881ce7a` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/identity-actions.test.mjs` | `0b1edc65471375ca30eaf6dd2b47add79a42e743` | verbatim |
 | `http-mcp/test/immutable-readbacks.test.mjs` | `f8dd18c87541eacb81c19031caa1e43d19c14723` | verbatim |
-| `http-mcp/test/known-failures.json` | `489c0f1f5a0325f4395f084a2c9ad9acade18bc1` | edited: the reason text says the entry does not apply in this repository; then changed here: carry-over entries for 53 more test files |
+| `http-mcp/test/known-failures.json` | `d4d4f4916c9e719fd9c5c7a5f2403ba8598264d4` | edited: the reason text says the entry does not apply in this repository; then changed here: carry-over entries for 67 more test files (53, then 14 that the P303 cards own or that need the P42aa modules) |
 | `http-mcp/test/legacy-publication-cancel.test.mjs` | `3e10c754c17c7a9178e49c4bdb65f3bfc5c07778` | verbatim |
 | `http-mcp/test/listing-http-unavailable.test.mjs` | `f43c769cf92b4767fbeaa5b312a4fb48ad3ca739` | verbatim |
 | `http-mcp/test/loopback-test-tls.test.mjs` | `aa3c5624eb24b6db6232aaf669c371ce0463629b` | verbatim |
