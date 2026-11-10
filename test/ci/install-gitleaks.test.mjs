@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { GITLEAKS_PIN, installGitleaks } from '../../scripts/ci/install-gitleaks.mjs';
+import { DOWNLOAD_RETRY_DELAYS_MS, GITLEAKS_PIN, installGitleaks } from '../../scripts/ci/install-gitleaks.mjs';
 import { REPO_ROOT, makeTempDir } from '../lib/gate-fixtures.mjs';
 import { archiveTransport, buildFakeArchive, fakePin, installFolder } from '../lib/fake-gitleaks.mjs';
 
@@ -102,4 +102,84 @@ test('the command line refuses a missing, unknown or repeated option with a caus
     assert.match(result.stderr, new RegExp(`^${cause}: [^\\n]+\\n$`));
     assert.ok(!result.stderr.includes('seen-in-output'));
   }
+});
+
+/** A transport that answers its calls in order: a number is that HTTP status, 'dropped' a reset connection, 'archive' the bytes. */
+function sequence(bytes, steps) {
+  const calls = [];
+  const serve = archiveTransport(bytes);
+  const transport = async (url, options) => {
+    calls.push(performance.now());
+    const step = steps[calls.length - 1];
+    if (step === 'archive') return serve(url, options);
+    if (step === 'dropped') throw new TypeError('fetch failed', { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) });
+    return { status: step ?? 404, location: null, contentLength: null, body: null, release() {} };
+  };
+  return { transport, calls };
+}
+
+test('a transient download failure (HTTP 503, HTTP 429 or a dropped connection) is tried again and the verified archive installed', async () => {
+  const bytes = buildFakeArchive();
+  for (const first of [503, 429, 'dropped']) {
+    const directory = installFolder();
+    const { transport, calls } = sequence(bytes, [first, 'archive']);
+    assert.equal(await installGitleaks({ directory, pin: fakePin(bytes), transport, retryDelaysMs: [0, 0] }), path.join(directory, 'gitleaks'));
+    assert.equal(calls.length, 2, String(first));
+    assert.deepEqual(readdirSync(directory), ['gitleaks']);
+  }
+});
+
+test('retries are bounded: three transient failures keep the download cause and leave the folder empty', async () => {
+  const bytes = buildFakeArchive();
+  const directory = installFolder();
+  const { transport, calls } = sequence(bytes, [503, 502, 500, 'archive']);
+  const error = await rejection(installGitleaks({ directory, pin: fakePin(bytes), transport, retryDelaysMs: [0, 0] }));
+  assert.equal(error.cause, 'download-http-failure');
+  assert.equal(calls.length, 3);
+  assert.deepEqual(readdirSync(directory), []);
+});
+
+test('a checksum mismatch, a refused status and a failure after the download are never a reason to download again', async () => {
+  const bytes = buildFakeArchive();
+  const cases = [
+    [fakePin(bytes, { archiveSha256: 'f'.repeat(64) }), ['archive', 'archive'], 'download-checksum-mismatch'],
+    [fakePin(bytes), [404, 'archive'], 'download-http-failure'],
+    [fakePin(buildFakeArchive({ version: '9.9.9' })), ['archive', 'archive'], 'download-checksum-mismatch'],
+  ];
+  for (const [pin, steps, cause] of cases) {
+    const directory = installFolder();
+    const { transport, calls } = sequence(bytes, steps);
+    assert.equal((await rejection(installGitleaks({ directory, pin, transport, retryDelaysMs: [0, 0] }))).cause, cause);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(readdirSync(directory), []);
+  }
+  const mismatched = buildFakeArchive({ version: '9.9.9' });
+  const directory = installFolder();
+  const { transport, calls } = sequence(mismatched, ['archive', 'archive']);
+  assert.equal((await rejection(installGitleaks({ directory, pin: fakePin(mismatched), transport, retryDelaysMs: [0, 0] }))).cause, 'install-version-mismatch');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(readdirSync(directory), []);
+});
+
+test('by default the installer waits exactly its first retry delay, then tries once more; the delays are two waits inside the download deadline', async (t) => {
+  assert.deepEqual(DOWNLOAD_RETRY_DELAYS_MS, [2_000, 6_000]);
+  assert.ok(Object.isFrozen(DOWNLOAD_RETRY_DELAYS_MS));
+  assert.ok(DOWNLOAD_RETRY_DELAYS_MS.every((ms) => Number.isSafeInteger(ms) && ms > 0));
+  assert.ok(DOWNLOAD_RETRY_DELAYS_MS[0] + DOWNLOAD_RETRY_DELAYS_MS[1] <= 120_000 / 2, 'the waits use at most half of the download deadline');
+  const bytes = buildFakeArchive();
+  const directory = installFolder();
+  const { transport, calls } = sequence(bytes, [503, 'archive']);
+  const turns = async (count) => { for (let index = 0; index < count; index += 1) await new Promise((resolve) => { setImmediate(resolve); }); };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const running = installGitleaks({ directory, pin: fakePin(bytes), transport });
+  for (let polls = 0; calls.length < 1 && polls < 1_000; polls += 1) await turns(1);
+  await turns(50);
+  t.mock.timers.tick(DOWNLOAD_RETRY_DELAYS_MS[0] - 1);
+  await turns(50);
+  assert.equal(calls.length, 1, 'no second attempt before the first delay has passed');
+  t.mock.timers.tick(1);
+  for (let polls = 0; calls.length < 2 && polls < 1_000; polls += 1) await turns(1);
+  assert.equal(calls.length, 2);
+  assert.equal(await running, path.join(directory, 'gitleaks'));
+  assert.deepEqual(readdirSync(directory), ['gitleaks']);
 });

@@ -288,3 +288,208 @@ test('truncation, an HTTP failure, a checksum mismatch and an interruption remov
     assert.deepEqual(seen, [{ url: URL_ONE, redirect: 'manual', aborted: false }]);
   });
 });
+
+/** A transport that answers its calls in order from `steps` (a route object, or a function that throws or returns one) and records them. */
+function sequenceTransport(steps) {
+  const calls = { urls: [], released: 0, releasedBeforeCall: [] };
+  const transport = async (url) => {
+    calls.releasedBeforeCall.push(calls.released);
+    calls.urls.push(url);
+    const step = steps[calls.urls.length - 1] ?? { status: 404 };
+    const route = typeof step === 'function' ? step() : step;
+    return { status: 200, location: null, contentLength: null, body: chunksThenEnd([]), ...route, release() { calls.released += 1; } };
+  };
+  return { transport, calls };
+}
+
+const networkError = (code, message = 'fetch failed') => () => { throw new TypeError(message, { cause: Object.assign(new Error(code), { code }) }); };
+/** A fresh route serving PAYLOAD (a body can be read once). */
+const good = () => ({ body: chunksThenEnd([PAYLOAD]), contentLength: PAYLOAD.length });
+const NO_WAIT = [0, 0];
+
+test('an HTTP 429 or 5xx or a dropped connection is tried again from the first address within the one deadline; every other failure, and a caller without retry delays, gets one attempt', async (t) => {
+  for (const [name, steps] of [['503', [{ status: 503 }]], ['429', [{ status: 429 }]], ['500 then 502', [{ status: 500 }, { status: 502 }]]]) {
+    await t.test(`HTTP ${name} then the file: stored after ${steps.length + 1} attempts, each response released before the next`, async () => {
+      const destination = freshPath();
+      const { transport, calls } = sequenceTransport([...steps, good]);
+      assert.deepEqual(await download({ destination, transport, retryDelaysMs: NO_WAIT }), { bytes: PAYLOAD.length, sha256: digest(PAYLOAD) });
+      assert.equal(calls.urls.length, steps.length + 1);
+      assert.deepEqual(calls.releasedBeforeCall, calls.urls.map((_, index) => index));
+      assert.deepEqual(readFileSync(destination), PAYLOAD);
+    });
+  }
+
+  await t.test('three transient failures exhaust two retry delays with the last failure\'s cause; a fourth response is never asked for', async () => {
+    const destination = freshPath();
+    const { transport, calls } = sequenceTransport([{ status: 503 }, { status: 503 }, { status: 504 }, good]);
+    const error = await rejection(download({ destination, transport, retryDelaysMs: NO_WAIT }));
+    assert.equal(error.cause, 'download-http-failure');
+    assert.match(error.message, /504/);
+    assert.equal(calls.urls.length, 3);
+    assert.equal(calls.released, 3);
+    assert.equal(existsSync(destination), false);
+  });
+
+  await t.test('without retry delays a transient failure is still one attempt', async () => {
+    const { transport, calls } = sequenceTransport([{ status: 503 }, good]);
+    assert.equal((await rejection(download({ transport }))).cause, 'download-http-failure');
+    assert.equal(calls.urls.length, 1);
+  });
+
+  for (const status of [400, 401, 403, 404, 410]) {
+    await t.test(`HTTP ${status} is not tried again`, async () => {
+      const { transport, calls } = sequenceTransport([{ status }, good]);
+      assert.equal((await rejection(download({ transport, retryDelaysMs: NO_WAIT }))).cause, 'download-http-failure');
+      assert.equal(calls.urls.length, 1);
+    });
+  }
+
+  const permanent = [
+    ['a checksum mismatch', { body: chunksThenEnd([Buffer.from('other bytes of the same kind')]) }, 'download-checksum-mismatch'],
+    ['a Content-Length over the cap', { contentLength: CAP + 1, body: chunksThenEnd([Buffer.alloc(1)]) }, 'download-too-large'],
+    ['a body over the cap', { body: chunksThenEnd([Buffer.alloc(40), Buffer.alloc(40)]) }, 'download-too-large'],
+    ['a body shorter than its Content-Length', { body: chunksThenEnd([PAYLOAD.subarray(0, 10)]), contentLength: PAYLOAD.length }, 'download-truncated'],
+    ['a redirect to http', { status: 302, location: 'http://download.example.invalid/archive.tgz' }, 'download-redirect-refused'],
+    ['a redirect without a Location', { status: 301 }, 'download-redirect-refused'],
+  ];
+  for (const [name, first, cause] of permanent) {
+    await t.test(`${name} is not tried again`, async () => {
+      const destination = freshPath();
+      const { transport, calls } = sequenceTransport([first, good]);
+      assert.equal((await rejection(download({ destination, transport, retryDelaysMs: NO_WAIT }))).cause, cause);
+      assert.equal(calls.urls.length, 1);
+      assert.equal(existsSync(destination), false);
+    });
+  }
+
+  await t.test('too many redirects is not tried again', async () => {
+    const { transport, calls } = sequenceTransport([{ status: 302, location: URL_TWO }, { status: 302, location: URL_ONE }, good]);
+    assert.equal((await rejection(download({ transport, maxRedirects: 1, retryDelaysMs: NO_WAIT }))).cause, 'download-too-many-redirects');
+    assert.deepEqual(calls.urls, [URL_ONE, URL_TWO]);
+  });
+
+  await t.test('an existing destination is not tried again and is left untouched', async () => {
+    const destination = freshPath();
+    await download({ destination, transport: serving(PAYLOAD).transport });
+    const { transport, calls } = sequenceTransport([{ status: 503 }, good]);
+    assert.equal((await rejection(download({ destination, transport, retryDelaysMs: NO_WAIT }))).cause, 'download-destination-exists');
+    assert.equal(calls.urls.length, 2);
+    assert.deepEqual(readFileSync(destination), PAYLOAD);
+  });
+
+  for (const code of ['UND_ERR_SOCKET', 'ECONNRESET', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'EAI_AGAIN']) {
+    await t.test(`a network error with ${code} before the response is tried again`, async () => {
+      const { transport, calls } = sequenceTransport([networkError(code), good]);
+      await download({ transport, retryDelaysMs: NO_WAIT });
+      assert.equal(calls.urls.length, 2);
+    });
+  }
+
+  for (const [name, fail] of [
+    ['ENOTFOUND', networkError('ENOTFOUND')], ['ECONNREFUSED', networkError('ECONNREFUSED')],
+    ['a certificate error', networkError('DEPTH_ZERO_SELF_SIGNED_CERT')], ['an expired certificate', networkError('CERT_HAS_EXPIRED')],
+    ['no code', () => { throw new TypeError('fetch failed'); }], ['a plain Error', () => { throw new Error('boom'); }],
+  ]) {
+    await t.test(`a network error with ${name} is not tried again`, async () => {
+      const { transport, calls } = sequenceTransport([fail, good]);
+      assert.equal((await rejection(download({ transport, retryDelaysMs: NO_WAIT }))).cause, 'download-failed');
+      assert.equal(calls.urls.length, 1);
+    });
+  }
+
+  await t.test('a connection dropped inside the body removes the partial file, and the next attempt writes the whole file afresh', async () => {
+    const destination = freshPath();
+    const dropped = async function* drop() { yield PAYLOAD.subarray(0, 8); throw new TypeError('terminated', { cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }) }); };
+    let partialSeen;
+    const { transport, calls } = sequenceTransport([{ body: dropped(), contentLength: PAYLOAD.length }, () => { partialSeen = existsSync(destination); return good(); }]);
+    await download({ destination, transport, retryDelaysMs: NO_WAIT });
+    assert.equal(partialSeen, false);
+    assert.equal(calls.urls.length, 2);
+    assert.deepEqual(readFileSync(destination), PAYLOAD);
+  });
+
+  await t.test('the byte cap applies to each attempt, not to their sum', async () => {
+    const dropped = async function* drop() { yield Buffer.alloc(CAP - 4); throw new TypeError('terminated', { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) }); };
+    const { transport, calls } = sequenceTransport([{ body: dropped() }, good]);
+    await download({ transport, retryDelaysMs: NO_WAIT });
+    assert.equal(calls.urls.length, 2);
+  });
+
+  await t.test('a transient failure at a redirect target starts again at the first address', async () => {
+    const { transport, calls } = sequenceTransport([{ status: 302, location: URL_TWO }, { status: 503 }, { status: 302, location: URL_TWO }, good]);
+    await download({ transport, retryDelaysMs: NO_WAIT });
+    assert.deepEqual(calls.urls, [URL_ONE, URL_TWO, URL_ONE, URL_TWO]);
+  });
+
+  await t.test('the waits are taken in order and each one is waited for', async () => {
+    const { transport, calls } = sequenceTransport([{ status: 503 }, { status: 503 }, good]);
+    const stamps = [];
+    const timed = async (url, options) => { stamps.push(performance.now()); return transport(url, options); };
+    await download({ transport: timed, retryDelaysMs: [30, 90] });
+    assert.equal(calls.urls.length, 3);
+    assert.ok(stamps[1] - stamps[0] >= 29, `first wait ${stamps[1] - stamps[0]} ms`);
+    assert.ok(stamps[2] - stamps[1] >= 89, `second wait ${stamps[2] - stamps[1]} ms`);
+  });
+
+  await t.test('a wait that would end past the deadline is not taken: the failure is reported at once with its own cause', async () => {
+    const { transport, calls } = sequenceTransport([{ status: 503 }, good]);
+    const started = performance.now();
+    const error = await rejection(download({ transport, deadlineMs: 2_000, retryDelaysMs: [60_000] }));
+    assert.equal(error.cause, 'download-http-failure');
+    assert.equal(calls.urls.length, 1);
+    assert.ok(performance.now() - started < 1_000);
+  });
+
+  await t.test('the one deadline covers every attempt: a second attempt that stalls times out and no third is made', async () => {
+    const destination = freshPath();
+    const stalled = controlledBody();
+    stalled.push(Buffer.from('first'));
+    const { transport, calls } = sequenceTransport([{ status: 503 }, { body: stalled.body }, good]);
+    const timersBefore = countTimers();
+    assert.equal((await rejection(download({ destination, transport, deadlineMs: 150, retryDelaysMs: [20, 0] }))).cause, 'download-timeout');
+    assert.equal(calls.urls.length, 2);
+    assert.equal(calls.released, 2);
+    assert.equal(existsSync(destination), false);
+    assert.equal(countTimers(), timersBefore);
+  });
+
+  await t.test('an abort during a wait is an interruption: no further attempt and no timer left', async () => {
+    const controller = new AbortController();
+    const { transport, calls } = sequenceTransport([{ status: 503 }, good]);
+    const timersBefore = countTimers();
+    const outcome = rejection(download({ transport, signal: controller.signal, retryDelaysMs: [GENEROUS_DEADLINE_MS / 2] }));
+    while (calls.released < 1) await nextTurn();
+    const started = performance.now();
+    controller.abort();
+    assert.equal((await outcome).cause, 'interrupted');
+    assert.ok(performance.now() - started < 1_000);
+    assert.equal(calls.urls.length, 1);
+    assert.equal(countTimers(), timersBefore);
+  });
+
+  await t.test('the deadline and the caller\'s abort are never retried, even when the transport answers them with a transient-looking error', async () => {
+    const abortedAs = (code) => async (url, { signal }) => new Promise((_, reject) => {
+      signal.addEventListener('abort', () => reject(new TypeError('fetch failed', { cause: Object.assign(new Error(code), { code }) })), { once: true });
+    });
+    for (const code of ['ETIMEDOUT', 'UND_ERR_SOCKET']) {
+      const seen = [];
+      const transport = async (url, options) => { seen.push(url); return abortedAs(code)(url, options); };
+      assert.equal((await rejection(download({ transport, deadlineMs: DEADLINE_MS, retryDelaysMs: NO_WAIT }))).cause, 'download-timeout');
+      assert.equal(seen.length, 1, `deadline answered with ${code}`);
+      const controller = new AbortController();
+      const running = rejection(download({ transport, signal: controller.signal, retryDelaysMs: NO_WAIT }));
+      await nextTurn();
+      controller.abort();
+      assert.equal((await running).cause, 'interrupted');
+      assert.equal(seen.length, 2, `abort answered with ${code}`);
+    }
+  });
+
+  await t.test('a wait is measured against the time left, not the whole deadline', async () => {
+    const { transport, calls } = sequenceTransport([{ status: 503 }, good]);
+    const slow = async (url, options) => { if (calls.urls.length === 0) await new Promise((resolve) => { setTimeout(resolve, 200); }); return transport(url, options); };
+    const error = await rejection(download({ transport: slow, deadlineMs: 300, retryDelaysMs: [150] }));
+    assert.equal(error.cause, 'download-http-failure');
+    assert.equal(calls.urls.length, 1);
+  });
+});

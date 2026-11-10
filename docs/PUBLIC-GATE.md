@@ -325,12 +325,18 @@ Library code and an installer. The secret scan runs the scanner through `run-bou
   Redirects are followed by hand, https only, at most 5. A reply that arrives after the download ended is discarded and released.
   Every failure after the file exists removes it, with its own cause (`download-too-large`, `-timeout`, `-http-failure`, `-truncated`,
   `-checksum-mismatch`, `-redirect-refused`, `-too-many-redirects`, `-destination-exists`, `-failed`, or `interrupted`).
+  With `retryDelaysMs`, an HTTP 429 or 5xx, or a connection that closed, reset or timed out while connecting or looking up the host,
+  is tried again from the first address after each listed wait. The deadline covers every attempt and wait; a wait that would end
+  at or after it is not taken, and the last failure keeps its own cause. Every attempt has the byte cap and the SHA-256 check; nothing
+  else is tried again. Without `retryDelaysMs` a download is one attempt.
 - **`run-bounded.mjs`.** Runs a command in its own process group under a deadline and an output cap. Past either, or on an abort, it
   stops collecting output, sends SIGTERM to the group and SIGKILL after 2 s, and rejects once with `subprocess-timeout`,
   `subprocess-output-limit` or `interrupted` after the child has exited. A child that exits on its own resolves with its status.
 - **`install-gitleaks.mjs --dir <folder>`.** Installs gitleaks 8.30.1 (linux x64, URL and SHA-256 in `GITLEAKS_PIN`) as
   `<folder>/gitleaks`: only a matching archive is extracted, only its `gitleaks` file, which must be a regular file reporting the
-  pinned version. An existing binary is refused (`install-exists`), never trusted. Exit 0 installed, 2 refused with one cause line.
+  pinned version. An existing binary is refused (`install-exists`), never trusted. A transient download failure is tried again
+  after 2 s and then 6 s (`DOWNLOAD_RETRY_DELAYS_MS`), inside the download's 120 s deadline. Exit 0 installed, 2 refused with one
+  cause line.
 
 ## The gate workflow
 
