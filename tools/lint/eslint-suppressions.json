@@ -148,11 +148,6 @@
       "count": 1
     }
   },
-  "http-mcp/test/helpers/seller-write-batch-mutants.mjs": {
-    "no-unused-vars": {
-      "count": 3
-    }
-  },
   "http-mcp/test/helpers/showcase-safety-fixture.mjs": {
     "no-unused-vars": {
       "count": 1
