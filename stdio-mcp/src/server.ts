@@ -81,6 +81,9 @@ export const defaultProofFetcher = (fetchImpl: typeof fetch): ProofFetcher => ({
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
+/** Staged tools that never sign (the faucet request). Every other staged kind is refused while the wallet is fenced. */
+const NON_SIGNING_KINDS: ReadonlySet<string> = new Set(['demos_onboard_fund']);
+
 interface PendingAction {
   id: string;
   kind: string;
@@ -560,6 +563,7 @@ export function createServer(deps: Deps): McpServer {
     intent?: PendingAction['intent'],
   ) => {
     checkKill();
+    if (!NON_SIGNING_KINDS.has(kind)) assertNotFenced();
     // every card value is bounded and single-line (counterparty text can be long or hostile)
     const clip = (v: string) => printable(v).slice(0, 200);
     card = { ...card, headline: clip(card.headline), rows: card.rows.map(([k, v]) => [k, clip(v)]), untrusted: card.untrusted?.map(([k, v]) => [k, clip(v)]) };
