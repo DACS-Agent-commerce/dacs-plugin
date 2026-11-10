@@ -48,6 +48,15 @@ test('a type-only client import does not count as reaching the client', t => {
   }
 });
 
+test('a type-only import-equals does not reach the client; an ordinary one does', t => {
+  for (const [line, exitCode] of [[`import type sdk = require('${CLIENT}');`, 1], [`import sdk = require('${CLIENT}');`, 0]]) {
+    const f = fixture(t); f.put('src/server.ts', `${line}\n${names.map(n => `server.registerTool('${n}', {}, () => {});`).join('\n')}`);
+    const r = f.run();
+    assert.equal(r.exitCode, exitCode, line);
+    assert.ok(r.entries.every(e => e.reachesClient === !exitCode), line);
+  }
+});
+
 test('a relative graph with JS-to-TS substitution and a cycle reaches the client', t => {
   const f = fixture(t);
   f.put('src/server.ts', `${names.map(n => `server.registerTool('${n}', {}, () => {});`).join('\n')}\nexport * from './middle.js';`);
