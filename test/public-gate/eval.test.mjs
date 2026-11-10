@@ -112,6 +112,39 @@ test('eval :: "type-only imports and exports are erased by TypeScript, so a name
   assert.deepEqual(await failingSnippets(running, 'ts'), names(running.length).map((name) => name.replace('.mjs', '.ts')));
 });
 
+test('eval :: "a type-only import is erased with its import attributes; an import with a value clause or a side-effect import still counts them"', async () => {
+  const erased = [
+    'import type { A } from "pkg" with { eval: "x" };', 'import type { A } from "pkg" with { "eval": "x" };', 'import type A from "pkg" with { Function: "x" };',
+    'import type * as A from "pkg" with { eval: "x" };', 'import type { A } from "pkg" assert { eval: "x" };',
+  ];
+  assert.deepEqual(await failingSnippets(erased, 'ts'), []);
+  const running = [
+    'import { A } from "pkg" with { eval: "x" };', 'import A from "pkg" with { "eval": "x" };', 'import "pkg" with { eval: "x" };', 'import { type A } from "pkg" with { eval: "x" };',
+    'import type { A } from "pkg" with { type: "json" };\neval("1");',
+  ];
+  assert.deepEqual(await failingSnippets(running, 'ts'), names(running.length).map((name) => name.replace('.mjs', '.ts')));
+});
+
+test('eval :: "type aliases, type parameters, namespace-export declarations and body-less function and method signatures emit nothing, so a name in them counts for nothing; their implementations and values still count"', async () => {
+  const erased = [
+    'type eval = number;', 'type Function = () => void;', 'export type Function<T> = T;', 'type T<eval> = eval[];',
+    'function f<eval>(x: eval) {}', 'class C<Function> {}', 'const f = <eval,>(x: eval) => x;', 'class C { m<Function>(): void {} }',
+    'export as namespace eval;', 'export as namespace Function;',
+    'function eval(): void;\nfunction run(): void {}', 'export function Function(a: string): void;', 'export default function eval(): void;',
+    'function f(eval: string): void;\nfunction f(a: string) {}',
+    'class C { eval(): void; run() {} }', 'class C { Function(a: string): void; }', 'class C { static eval(): void; }', 'abstract class C { abstract eval(): void; }',
+    'class C { m(eval: string): void; m(a: string) {} }', 'const o = class { eval(): void; };',
+  ];
+  assert.deepEqual(await failingSnippets(erased, 'ts'), []);
+  assert.deepEqual(await failingSnippets(['type eval = number;'], 'tsx'), []);
+  const running = [
+    'function eval() {}', 'function eval(): void;\nfunction eval() {}', 'class C { eval() {} }', 'class C { eval(): void;\neval() {} }', 'class C { m(): void;\nm(eval: string) {} }',
+    'function f<T>(eval: T) {}', 'const x = (eval as unknown as number);', 'const T = eval;', 'type T = number;\neval("1");', 'export as namespace N;\neval("1");',
+    'function f(): void;\nfunction f() { eval("1"); }', 'class C { m(): void;\nm() { eval("1"); } }', 'abstract class C { abstract m(): void; run() { eval("1"); } }',
+  ];
+  assert.deepEqual(await failingSnippets(running, 'ts'), names(running.length).map((name) => name.replace('.mjs', '.ts')));
+});
+
 test('eval :: "a global object or timer named only in an erased type counts for nothing; named in code that runs, it still counts"', async () => {
   const typeOnly = [
     'const v = ({} as typeof globalThis)[key];', 'const v = (<typeof window>{})[key];', 'const v = ({} satisfies Partial<typeof self>)[key];', 'const v = (o as Window & typeof globalThis)[key];',

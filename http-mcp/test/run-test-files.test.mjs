@@ -214,7 +214,7 @@ test('appends a GitHub summary and emits notices with file and exact test name',
 function discoveryTree(t) {
   const dir = setup(t);
   for (const folder of ['test/browser', 'test/fixtures', 'test/helpers', 'test/sub/deeper', 'test/sub/fixtures', 'deploy/test']) mkdirSync(join(dir, folder), { recursive: true });
-  for (const file of ['test/unit.test.mjs', 'test/sub/nested.test.mjs', 'test/sub/deeper/leaf.test.mjs', 'test/top.browser.test.mjs', 'test/browser/other.browser.test.mjs']) copyFileSync(join(root, fixture('pass')), join(dir, file));
+  for (const file of ['test/unit.test.mjs', 'test/sub/nested.test.mjs', 'test/sub/deeper/leaf.test.mjs', 'test/top.browser.test.mjs', 'test/browser/other.test.mjs']) copyFileSync(join(root, fixture('pass')), join(dir, file));
   for (const file of ['deploy/test/unit.test.mjs', 'test/dacs-loopback-fixture.test.mjs', 'test/fixtures/fail.test.mjs', 'test/helpers/fail.test.mjs',
     'test/sub/fixtures/fail.test.mjs', 'test/helper.mjs', 'test/old.test.js', 'test/unit.test.mjs.bak', 'test/sub/notes.test.mjs.txt']) copyFileSync(join(root, fixture('fail')), join(dir, file));
   return dir;
@@ -223,13 +223,13 @@ function discoveryTree(t) {
 test('discovery includes browser files only with the browser flag, and test:ci passes it', async (t) => {
   const dir = discoveryTree(t), plain = ['test/sub/deeper/leaf.test.mjs', 'test/sub/nested.test.mjs', 'test/unit.test.mjs'];
   assert.deepEqual(discover(dir, 'test').sort(), plain);
-  assert.deepEqual(discover(dir, 'test', true).sort(), [...plain, 'test/browser/other.browser.test.mjs', 'test/top.browser.test.mjs'].sort());
+  assert.deepEqual(discover(dir, 'test', true).sort(), [...plain, 'test/browser/other.test.mjs', 'test/top.browser.test.mjs'].sort());
   const without = await run(dir, [], { cwd: dir });
   assert.equal(without.code, 0, without.stderr);
   assert.deepEqual(without.rows.map((row) => row.file), plain);
   const withFlag = await run(dir, ['--browser'], { cwd: dir });
   assert.equal(withFlag.code, 0, withFlag.stderr);
-  assert.deepEqual(withFlag.rows.map((row) => row.file), ['test/browser/other.browser.test.mjs', 'test/sub/deeper/leaf.test.mjs', 'test/sub/nested.test.mjs', 'test/top.browser.test.mjs', 'test/unit.test.mjs']);
+  assert.deepEqual(withFlag.rows.map((row) => row.file), ['test/browser/other.test.mjs', 'test/sub/deeper/leaf.test.mjs', 'test/sub/nested.test.mjs', 'test/top.browser.test.mjs', 'test/unit.test.mjs']);
   assert.match(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts['test:ci'], / --browser( |$)/);
 });
 
@@ -246,13 +246,14 @@ test('discovery has one root, test/; a missing root fails', async (t) => {
   assert.equal(existsSync(join(dir, 'deploy/test/unit.test.mjs')), true);
 });
 
-test('the documented discovery count equals the runner\'s discovery with browser files', () => {
+test('the documented discovery counts equal the runner\'s discovery with and without browser files', () => {
   const docs = readFileSync(join(root, 'docs/CI.md'), 'utf8');
-  const count = docs.match(/discovery finds (\d+) files under `test\/`, browser files included/);
-  assert.ok(count, 'document the current number of discovered files');
+  const counts = docs.match(/discovery finds (\d+) files under `test\/`, browser files included\s+\((\d+) without `--browser`\)/);
+  assert.ok(counts, 'document the current numbers of discovered files, with and without browser files');
   const withBrowser = discover(root, 'test', true), without = discover(root, 'test');
   assert.ok(without.length > 0 && withBrowser.length > without.length);
-  assert.equal(Number(count[1]), withBrowser.length);
+  assert.equal(Number(counts[1]), withBrowser.length);
+  assert.equal(Number(counts[2]), without.length);
 });
 
 test('a discovery that finds no test file fails', async (t) => {
@@ -666,8 +667,8 @@ const diagnostic = (missing, { importer = join(root, 'test/a.test.mjs'), subject
 ];
 
 // The events the reporter gets for one file process that ended with these stderr lines.
-function fileEvents(lines, { file = 'test/a.test.mjs', started = false, passed = false } = {}) {
-  const details = passed ? { passed: true } : { passed: false, error: { message: 'test failed', exitCode: 1 } };
+function fileEvents(lines, { file = 'test/a.test.mjs', started = false, passed = false, exitCode = 1 } = {}) {
+  const details = passed ? { passed: true } : { passed: false, error: { message: 'test failed', exitCode } };
   return [
     ...(started ? [{ type: 'test:start', data: { nesting: 1, name: 'an inner test' } }] : []),
     ...lines.map((message) => ({ type: 'test:stderr', data: { file, message } })),
@@ -711,6 +712,12 @@ test('reporter: a pre-test module-load failure yields one structured load-failur
   for (const [name, lines] of Object.entries(refused)) assert.deepEqual(await loadFailuresOf(fileEvents(lines)), [], name);
   assert.deepEqual(await loadFailuresOf(fileEvents(diagnostic(missing), { started: true })), [], 'a test had started');
   assert.deepEqual(await loadFailuresOf(fileEvents(diagnostic(missing), { passed: true })), [], 'the file passed');
+});
+
+test('reporter: a valid load-failure diagnostic yields a record only when the file process exited with status 1', async () => {
+  const events = (exitCode) => fileEvents(diagnostic(join(root, NOT_CARRIED)), { exitCode });
+  assert.deepEqual(await loadFailuresOf(events(1)), [{ type: 'test:load-failure', path: NOT_CARRIED }], 'exit status 1');
+  for (const exitCode of [0, 2, 7, 127, null]) assert.deepEqual(await loadFailuresOf(events(exitCode)), [], `exit status ${exitCode}`);
 });
 
 test('record keeps a load-failure path apart from results and refuses an unsafe one', () => {

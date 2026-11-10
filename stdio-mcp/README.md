@@ -302,9 +302,18 @@ is launched from.
 - Signatures follow CORE §B.7: `domain_separator || artifact_hash_hex`, with
   ed25519 values in unpadded Base64URL (SIG-6). The decoder is strict:
   padding, the standard alphabet, hex and residual bits are all rejected.
-- Key resolution is offline for `key:<hex>` claims only. A Demos wallet's claim
-  is `key:<address without 0x>`. Any other scheme (`did:`, `cci-xm:`, …) gives
-  `indeterminate` and is never accepted.
+- Key resolution is offline for `key:<hex>` and `did:demos:agent:<hex>` claims,
+  where `<hex>` is the 64 lowercase hex of the ed25519 public key (the HTTP
+  plugin signs Listings with the `did:demos:agent:` form). A Demos wallet's
+  claim is `key:<address without 0x>`. Signatures by either form verify
+  wherever a claim signs (Listings, offers, Agreements, bundles, settlement
+  evidence, bundle bindings and receipts). Both forms of one key are one
+  party: a document cannot list them as two parties, and one key cannot sign
+  as two. An expected signer, issuer or holder you pass to a check (for
+  example `expected_signer`) must use the same claim form as the document. A payee address still comes only from a `key:` claim or the offer's
+  payout bindings, so a `did:demos:agent` Listing verifies without a
+  `logical_address`. Any other scheme (other
+  `did:` methods, `cci-xm:`, …) gives `indeterminate` and is never accepted.
 - Bundles: the hash omits `signatures` and `anchoredByRole`. The verifier
   applies the required-signer rule (buyer + seller, plus a distinct
   orchestrator) and lets aborted outcomes carry a single signature. On a
@@ -319,7 +328,7 @@ is launched from.
 
 Not covered yet: mandate-based unattended approval (designed, see docs/MANDATES.md), MCP URL-mode elicitation as an approval channel, extended-pointer bundles (the verifier asks for the
 dereferenced bundle), ecdsa-secp256k1 and sr1-aggregate signatures, DACS-2
-claim resolution for non-`key:` schemes, rfq and sealed-envelope offers, and
+claim resolution for schemes other than `key:` and `did:demos:agent:`, rfq and sealed-envelope offers, and
 anchoring artifacts to SR-2 from the server.
 
 ## Layout

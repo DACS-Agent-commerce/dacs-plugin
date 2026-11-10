@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 import { CODE_EXTENSIONS, textOf, viewsOf } from './rules-address.mjs';
+import { isHtmlExtension } from './rules-eval.mjs';
 import { createPrivateMatcher } from './rules-private.mjs';
 
 /** Id of the rule that refuses internal reports in reports. */
@@ -208,8 +209,17 @@ const CLAUSE_DELIMITER = /([.!?](?=\s|$)|[;()])/;
 const SHELL_LANGUAGES = new Set(['sh', 'bash', 'shell', 'console', 'zsh', 'powershell', 'cmd']);
 /** Characters that never reach the matcher: invisible format characters and Markdown emphasis. */
 const IGNORED_CHARACTERS = /[\p{Cf}*_`]/gu;
-/** A numeric or named character reference, with or without its `;`. Only the six KNOWN_REFERENCES are read; a text holding any other is refused. */
-const CHARACTER_REFERENCE = /&(?:#[\da-zA-Z]*|[A-Za-z][\da-zA-Z]*);?/g;
+/** The 106 legacy named character references that HTML5 decodes without a `;`: the entries of the WHATWG HTML Standard's named character reference table
+ * that appear both with and without the semicolon. Case-sensitive. Data only; never fetched. */
+const LEGACY_REFERENCE_NAMES = ('AElig AMP Aacute Acirc Agrave Aring Atilde Auml COPY Ccedil ETH Eacute Ecirc Egrave Euml GT Iacute Icirc Igrave Iuml LT Ntilde Oacute Ocirc Ograve Oslash Otilde Ouml '
+  + 'QUOT REG THORN Uacute Ucirc Ugrave Uuml Yacute aacute acirc acute aelig agrave amp aring atilde auml brvbar ccedil cedil cent copy curren deg divide eacute ecirc egrave eth euml '
+  + 'frac12 frac14 frac34 gt iacute icirc iexcl igrave iquest iuml laquo lt macr micro middot nbsp not ntilde oacute ocirc ograve ordf ordm oslash otilde ouml para plusmn pound quot raquo reg '
+  + 'sect shy sup1 sup2 sup3 szlig thorn times uacute ucirc ugrave uml uuml yacute yen yuml').split(' ');
+/** A numeric or named character reference with its `;`, or without it when numeric (`&#` and digits, `&#x` and hex digits) or starting with a legacy name (the longest
+ * one that is a prefix of the text, as HTML5 reads it). Any other `&` is literal text. Only the six KNOWN_REFERENCES are read; a text holding any other is refused. */
+const CHARACTER_REFERENCE = new RegExp(String.raw`&(?:#[\da-zA-Z]*;|[A-Za-z][\da-zA-Z]*;|#\d+|#[xX][\da-fA-F]+|(?:${[...LEGACY_REFERENCE_NAMES].sort((first, second) => second.length - first.length).join('|')}))`, 'g');
+/** HTML and SVG blobs also refuse unterminated references, preserving their existing checks. */
+const HTML_CHARACTER_REFERENCE = /&(?:#[\da-zA-Z]*|[A-Za-z][\da-zA-Z]*);?/g;
 const KNOWN_REFERENCES = new Map([['&amp;', '&'], ['&lt;', '<'], ['&gt;', '>'], ['&quot;', '"'], ['&#39;', "'"], ['&nbsp;', ' ']]);
 /** Markup not shown as written, read left to right: an HTML comment, a tag with its attributes, a Markdown reference definition, link destination,
  * reference label or link bracket, block-quote marks, an escaping backslash and a character reference. One never closed runs to the end of the text. */
@@ -302,14 +312,14 @@ function hasUnapprovedStatus(paragraph) {
 }
 
 /** Whether `line` holds a character reference other than the six known ones; the matches are read one at a time, so a line of many references costs no memory. */
-function hasUnknownReference(line) {
-  for (const [reference] of line.matchAll(CHARACTER_REFERENCE)) if (!KNOWN_REFERENCES.has(reference)) return true;
+function hasUnknownReference(line, references) {
+  for (const [reference] of line.matchAll(references)) if (!KNOWN_REFERENCES.has(reference)) return true;
   return false;
 }
 
 /** The lines of `text` holding a character reference other than the six known ones. */
-const unknownReferenceLines = (text) => (text.includes('&')
-  ? text.split(LINE_BREAK).flatMap((line, index) => (hasUnknownReference(line) ? [index + 1] : [])) : []);
+const unknownReferenceLines = (text, references = CHARACTER_REFERENCE) => (text.includes('&')
+  ? text.split(LINE_BREAK).flatMap((line, index) => (hasUnknownReference(line, references) ? [index + 1] : [])) : []);
 
 /** The shortest text that can hold a status phrase: two words and a gap of one character. */
 const MIN_STATUS_LENGTH = 'security review'.length;
@@ -329,8 +339,8 @@ function hasUnapprovedStatusInToken(source) {
 
 /** The lines of prose `text` holding a character reference other than the six known ones, or starting a paragraph one of whose views states a status other than the
  * approved clause or, outside a fenced shell command, holds a list entry not wholly inside an approved clause or a disclaimer of that view. */
-function proseFindingLines(text, wordingMatcher) {
-  const lines = unknownReferenceLines(text);
+function proseFindingLines(text, wordingMatcher, references = CHARACTER_REFERENCE) {
+  const lines = unknownReferenceLines(text, references);
   for (const { line, source, isCommand } of paragraphsOf(text)) {
     const [asWritten, ...rendered] = viewsThrough(source, BLOB_READINGS);
     const statusViews = rendered.length === 0 ? [asWritten] : [...rendered];
@@ -374,7 +384,8 @@ export function scanWording({ entries, wordingMatcher, limits }) {
   for (const entry of entries.filter((candidate) => candidate.path !== null)) {
     const [text, extension] = [textOf(entry), path.posix.extname(entry.path).toLowerCase()];
     if (text === null || SOURCE_EXTENSIONS.has(extension)) continue;
-    const lines = extension === '.json' ? manifestFindingLines(text, wordingMatcher) : proseFindingLines(text, wordingMatcher);
+    const references = isHtmlExtension(extension) || extension === '.svg' ? HTML_CHARACTER_REFERENCE : CHARACTER_REFERENCE;
+    const lines = extension === '.json' ? manifestFindingLines(text, wordingMatcher) : proseFindingLines(text, wordingMatcher, references);
     for (const line of [...lines].sort((first, second) => first - second)) add({ kind: 'content', entry, line });
   }
   return findings;

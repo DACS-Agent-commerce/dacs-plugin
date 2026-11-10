@@ -244,19 +244,43 @@ export class DemosChain implements ChainReader {
     } catch {
       tx = null;
     }
-    // a transport failure is not "not found": surface it instead of reporting absence
-    // The SDK's call() never throws: a transport failure comes back as a {result: 500, require_reply}
-    // envelope. A transport failure is not "not found": surface it instead of reporting absence.
+    // The SDK's call() never throws: an error reply comes back as a {result, response, require_reply} envelope.
+    // For an HTTP error status that envelope is {result: 500, response: TransportError}, and the node's real
+    // status and body are on the error's cause (the axios error's response).
     const isEnvelope = (x: any) => x && typeof x === 'object' && typeof x.result === 'number' && x.result >= 400 && 'require_reply' in x;
+    const replyOf = (x: any): { status: number; body: any } => {
+      const httpReply = x.response instanceof Error ? (x.response as any).cause?.response : undefined;
+      if (httpReply && typeof httpReply.status === 'number') {
+        const data = httpReply.data;
+        return { status: httpReply.status, body: data && typeof data === 'object' && 'response' in data ? data.response : data };
+      }
+      return { status: x.result, body: x.response };
+    };
+    // Only a 404 whose body says what the node searched is "no such transaction": getTransactionStatus answers
+    // {state: "unknown", checkedThroughBlock}, getTxByHash {checkedThroughBlock}. Any other error reply (a transport
+    // failure, a 500 lookup_failed, a 404 "Unknown message" for a missing handler) says nothing about the hash.
+    const searchedAbsent = (x: any) => {
+      const { status, body } = replyOf(x);
+      if (status !== 404 || !body || typeof body !== 'object' || body instanceof Error) return false;
+      return typeof body.checkedThroughBlock === 'number' || body.state === 'unknown' || body.state === 'not_found';
+    };
+    const envelopeError = (x: any) => (x.response instanceof Error ? x.response : new Error(`node returned result ${x.result}`));
+    let txErr: unknown = null;
     if (isEnvelope(status)) {
-      statusErr = status.response instanceof Error ? status.response : new Error(`node returned result ${status.result}`);
+      if (!searchedAbsent(status)) statusErr = envelopeError(status);
       status = null;
     }
-    if (isEnvelope(tx)) tx = null;
-    if (statusErr && !tx) throw sanitizeError(statusErr, this.guard);
+    if (isEnvelope(tx)) {
+      if (!searchedAbsent(tx)) txErr = envelopeError(tx);
+      tx = null;
+    }
     const contentRaw = tx?.content;
     const content = typeof contentRaw === 'string' ? (maybeParseJson(contentRaw) as any) : contentRaw;
-    const found = !!content || (status && typeof status === 'object' && typeof status.state === 'string' && status.state !== 'not_found');
+    // The node reports "unknown" (as well as "not_found") for a hash it has never seen, so neither state is evidence
+    // that the transaction exists; only transaction content or a known state is.
+    const found = !!content || (status && typeof status === 'object' && typeof status.state === 'string' && status.state !== 'not_found' && status.state !== 'unknown');
+    // An error on either read is surfaced unless the other read shows the transaction.
+    if (!found && (statusErr || txErr)) throw sanitizeError(statusErr ?? txErr, this.guard);
     return {
       hash,
       found: !!found,
