@@ -2,7 +2,7 @@
 
 **State of this repository.** The workflow described below is
 `.github/workflows/http-mcp-tests.yml`. `deploy/` (including `deploy/test/`) is
-not carried here, and many test files cannot load (see `PROVENANCE.md`, "Not
+not carried here, and many test files cannot load (in a source checkout see `PROVENANCE.md`, "Not
 carried"). `npm run test:ci`
 runs every file under `test/`, browser files included; a file that cannot load
 because a module it imports is not carried fails, unless the baseline holds a
@@ -219,8 +219,8 @@ In the source repository the baseline came from a full no-baseline run of every
 discovered file, checked against a GitHub run, and a full run had to match every
 entry with none stale. That is not the case in this repository (see "State of
 this repository" above). Count the discovered files with the runner's discovery
-rules; in this repository discovery finds 283 files under `test/`, browser files included
-(254 without `--browser`):
+rules; in this repository discovery finds 278 files under `test/`, browser files included
+(249 without `--browser`):
 
 ```sh
 node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test', true).length)"
@@ -241,14 +241,73 @@ module, an `ENOENT` from reading a file while the module is evaluated, an
 assertion failure, a timeout, a second fatal error or any other line the file
 wrote to stderr all stay failures. When
 the file loads again its entry fails the run as a known failure that now
-passes, and is removed. The baseline holds no such entry yet.
+passes, and is removed. The baseline holds 243 carry-over entries; the one other entry is described below.
 
-`test/known-failures.json` holds one entry: the seller-disposition payment-path
-case, recorded in the source repository as observing 7 CREATEs instead of 5.
-It does not describe this repository. The test file needs modules that are not
-carried, so it fails at load here and the entry excuses nothing. It stays
-because `test/run-test-files.test.mjs` reads it. It is not a list of the
+`test/known-failures.json` holds 244 entries: the 243 carry-over entries and one
+other, the seller-disposition payment-path case, recorded in the source
+repository as observing 7 CREATEs instead of 5. That entry does not describe
+this repository. Its test file needs modules that are not carried, so it fails
+at load here and the entry excuses nothing; the file also has a carry-over
+entry, which is the one that matches. The other entry stays because
+`test/run-test-files.test.mjs` reads it. The baseline is not a list of the
 failures in this tree, which are far more numerous.
+
+### Tests owned by the P303 cards
+
+These tests guard approval, custody, seller-evidence or no-resend behaviour. Four
+plan cards, P303a to P303d, own them; each card ports its tests at the public SDK
+boundary. Each of the thirteen files below is kept as it is: not skipped, not
+changed and not excused as dead. Each has a carry-over entry in
+`test/known-failures.json` (see "Carry-over entries"), because each stops at load
+on one module that is not carried; the entry names its card, and that card's PR
+removes the entry. None of the thirteen fails without an entry.
+
+- P303a, `test/seller-policy-delivery-evidence.test.mjs`: seller policy holds concurrent full debits across approval instances that share a ledger. Entry for `src/dacs/seller-agent.mjs`.
+- P303a, `test/devnet-operator-approval-tty-stop.test.mjs`, two cases (terminal approval prompt and stop, and a late approval after stop): the file was deleted earlier with the demo operator it drove, so it has no entry and nothing fails today; card P303a re-creates the two cases.
+- P303b, `test/buyer-chain-readback-unit.test.mjs`: the buyer-chain-readback switch (default off, strict off/on) and a bound Deliverable read back with the Listing seller as the only expected writer. Entry for `src/dacs/buyer-chain-readback.mjs`.
+- P303b, `test/operator-session-lifecycle.test.mjs`: a restart with open access off retires existing keys at startup and periodically, reports failures and keeps delegation disabled. Entry for `src/devnet-demo/operator-sessions.mjs`.
+- P303b, `test/seller-session-concurrent-recheck.test.mjs`: a recheck that started before a concurrent one retained the answer cannot erase that answer. Entry for `src/devnet-demo/operator-sessions.mjs`.
+- P303b, `test/seller-session-delayed-evidence.test.mjs`: a delivery verified after delayed evidence publication still retires its key after the grace period. Entry for `src/devnet-demo/operator-sessions.mjs`.
+- P303b, `test/seller-session-final-readback.test.mjs`: absent, rejected and unavailable fresh reads clear the current delivery, and restoration recovers it. Entry for `src/devnet-demo/operator-sessions.mjs`.
+- P303b, `test/seller-session-key-secrecy.test.mjs`: an unreadable key record is reported with fixed text only, and the sweep never copies key bytes to stderr. Entry for `src/devnet-demo/operator-sessions.mjs`.
+- P303b, `test/seller-session-late-recheck.test.mjs`: a late successful recheck with a seller-signed CREATE of another artifact keeps the retained answer. Entry for `src/devnet-demo/operator-sessions.mjs`.
+- P303b, `test/seller-session-legacy-operator.test.mjs`: a legacy delegated row whose key was already deleted keeps its readback pointer through a transient outage and recovers. Entry for `src/devnet-demo/operator-sessions.mjs`.
+- P303c, `test/browser/overnight-acceptance-widget-click.browser.test.mjs`: repeated clicks on "Open wallet approval" each send exactly one open-link with the returned URL. Entry for `deploy/test/mcp-apps-host.mjs`.
+- P303d, `test/commit-on-signature.test.mjs`: early commitment is off by default, accepts only an explicit on or off, and when on starts both writes before either completes. Entry for `src/dacs/seller-agent.mjs`.
+- P303d, `test/devnet-operator-seller-disposition-prefixed.test.mjs`: the seller disposition wrapper preserves receiver, arguments, result and rejection identity once, with no resend. Entry for `src/devnet-demo/composition.mjs`; the file also holds the one non-carry-over baseline entry above.
+- P303d, `test/seller-native-delivery-lock-fence.test.mjs`: a holder that lost its job lock before the native Deliverable submission submits and retains nothing, and the next request delivers exactly once. Entry for `src/devnet-demo/operator-sessions.mjs` (its helper imports it).
+
+One more file has a carry-over entry but belongs to no P303 card:
+`test/devnet-operator-cli-seller-observer-status-prefixed.test.mjs` checks that the
+public status parser reads a settled status out of the operator CLI output. It
+fails at load only through its helper `test/helpers/devnet-operator-cli-issued-recovery-node2.mjs`,
+whose imports need `src/devnet-demo/operator-custody.mjs` (cards P41b1/P41b2) and
+`src/devnet-demo/operator-network.mjs` (card P42aa). Its entry is for the first
+module Node reports, `src/devnet-demo/operator-custody.mjs`, and is removed in
+P42aa's PR, the last of those cards. The file is kept unchanged.
+
+### Failing tests not covered by the baseline
+
+The runner excuses a file only when it stops at load on exactly one missing
+module (see "Carry-over entries"). These files fail for another reason, so they
+have no entry and stay failing until the named card makes them pass. Each card
+names its file as an acceptance test. The failing line is the first one in the
+file's own output.
+
+- `test/config-equivalence.test.mjs` (P46): `ENOENT: no such file or directory, open 'deploy/env-contract.json'`, read while the test runs; the deploy folder is not carried.
+- `test/showcase-receipt-config.test.mjs` (P46): `ENOENT: no such file or directory, open 'deploy/env-contract.json'`.
+- `test/switch-registry-mutants.test.mjs` (P46, four cases): `ENOENT: no such file or directory, open 'deploy/scripts/validate-package.mjs'` (the other three cases: `lstat` of the same path).
+- `test/env-contract-defaults.test.mjs` (P46): `ENOENT: no such file or directory, open 'deploy/env-contract.json'`, raised while the module is evaluated, so no case starts.
+- `test/embedded-wallet-contract.test.mjs` (P41c, one case of seven): `Cannot find module 'src/util/purchase-readback-cache.mjs' imported from 'src/app.mjs'`, in the case "loopback transactionTransport lifecycle".
+- `test/portal-delivery-evidence-label.test.mjs` (P53c2, one case of five): `ENOENT: no such file or directory, open 'src/dacs/dem-delivery-consumer.mjs'`, in the case on the "Delivered" label.
+- `test/tester-quickstart.test.mjs` (P42aa, one case of seven, the loopback startup case): the server it starts stops with `Cannot find module 'src/util/purchase-readback-cache.mjs' imported from 'src/app.mjs'`, so `/health` never answers and the runner reports `Promise resolution is still pending but the event loop has already resolved`. Loopback is available where it was run, so this is not an environment failure.
+- `test/overnight-package.test.mjs` (P42aa, one case of seven, the cold start of the packed tarball): not run with network and loopback allowed. The runner used here reaches the public npm registry only through a proxy, and the test gives its `npm install` a clean environment without proxy settings, so the install ran to the test's 300 s limit and was killed with no output. The case keeps its card.
+
+The seller control of `test/mutant-helper-verdicts.test.mjs` was removed because
+it read `src/devnet-demo/seller-write-batch.mjs`, which is not carried; card P303a
+restores it as mutant controls on the SDK seller write path. The two mutant
+helpers that were deleted stay deleted: no carried card reads them, and P303a
+writes its own controls on the SDK side.
 
 ## Rebuild the baseline after each main merge
 
