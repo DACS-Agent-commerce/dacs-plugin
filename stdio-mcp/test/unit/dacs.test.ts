@@ -183,6 +183,15 @@ test('orchestrator as a distinct party is a required signer', async () => {
   assert.equal((await verifyArtifact(three, null)).decision, 'accept');
 });
 
+test('one key cannot fill two required signer roles by using both claim forms (key: and did:demos:agent:)', async () => {
+  const buyerDid = 'did:demos:agent:' + Buffer.from(buyer.pub).toString('hex');
+  const parties = [...faultBundle().parties, { role: 'orchestrator', bundleHash: H('ob'), primaryClaim: buyerDid }];
+  const doc = faultBundle({ outcome: 'completed', faultedParty: 'none', parties });
+  const signed = signBundle(doc, 'dacs-fault-bundle:v1:', buyer, seller);
+  const again = { ...signed, signatures: [...signed.signatures, { party: buyerDid, algorithm: 'ed25519', value: signed.signatures[0].value }] };
+  assert.notEqual((await verifyArtifact(again, null)).decision, 'accept');
+});
+
 test('bundle binding (BB-4/BB-5) and anchored copy', async () => {
   const b = signBundle(faultBundle({ outcome: 'completed', faultedParty: 'none' }), 'dacs-fault-bundle:v1:', buyer, seller);
   const bh = specHash(b, ['signatures', 'anchoredByRole']);

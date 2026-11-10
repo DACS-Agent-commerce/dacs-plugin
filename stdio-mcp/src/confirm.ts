@@ -185,7 +185,7 @@ export class ConfirmationGate {
     if (this.locked) throw new ConfirmError('writes locked: too many wrong confirmation codes this session (restart the server)', true);
     const e = this.entries.get(preparedId);
     if (!e) throw new ConfirmError('unknown, denied or already-used prepared_id', true);
-    if (this.now() > e.expiresAt) {
+    if (this.now() >= e.expiresAt) {
       this.entries.delete(preparedId);
       this.approval?.revoke(preparedId);
       throw new ConfirmError('confirmation expired; prepare the action again', true);

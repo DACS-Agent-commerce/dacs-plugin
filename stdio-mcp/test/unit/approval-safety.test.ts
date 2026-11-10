@@ -10,6 +10,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ApprovalServer } from '../../src/approval.js';
 import { loadConfig } from '../../src/config.js';
+import { ConfirmationGate, type ConfirmMessage } from '../../src/confirm.js';
+import { SecretGuard } from '../../src/secrets.js';
 
 const card = { headline: 'Approve', rows: [['Amount', '1 DEM']] as Array<[string, string]>, digest: 'a'.repeat(64) };
 
@@ -139,6 +141,20 @@ test('instant table: invalid expiries refuse; a valid one works until expiresAt 
       else assert.notEqual(r.status, 200, `${method} at ${at}`);
       h.setNow(1000);
     }
+  }
+});
+
+test('a typed code is refused at exactly its deadline and accepted one millisecond before', async () => {
+  for (const [at, accepted] of [[1999, true], [2000, false], [2001, false]] as const) {
+    let now = 1000;
+    let code = '';
+    const channel = { name: 'test', deliver: async (m: ConfirmMessage) => ((code = m.code), true) };
+    const gate = new ConfirmationGate([channel], 1000, new SecretGuard(), () => now);
+    await gate.issue('A', card.digest, 'Approve', ['Amount: 1 DEM']);
+    now = at;
+    const verify = () => gate.verify('A', code, card.digest);
+    if (accepted) assert.equal(verify(), 'out-of-band-code', `at ${at}`);
+    else assert.throws(verify, /confirmation expired/, `at ${at}`);
   }
 });
 

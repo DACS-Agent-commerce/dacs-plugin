@@ -301,3 +301,53 @@ for (const key of SMALL_ORDER_KEYS) {
     assert.equal(failedAt(refused), '4-signature');
   });
 }
+
+// ---- a Listing published by the HTTP plugin (did:demos:agent claims) verifies offline ----
+// Same shape as http-mcp's seller: the presented claim and the listing signer are
+// did:demos:agent:<64 lowercase hex>, where the hex is the seller's Ed25519 public key.
+function httpPublishedListing(mutate?: (d: any) => void) {
+  const priv = new Uint8Array(32).fill(81);
+  const claim = 'did:demos:agent:' + Buffer.from(ed.getPublicKey(priv)).toString('hex');
+  const sign = (payload: string) => Buffer.from(ed.sign(new TextEncoder().encode(payload), priv)).toString('base64url');
+  const identity: any = { bundleVersion: '1', presentedBy: claim, presentedAt: NOW - 1000, sessionNonce: sha('n'), claims: [{ ref: claim }] };
+  identity.presentation = { kind: 'per-claim', signatures: [{ ref: claim, signature: sign('dacs-bundle-presentation:v1:' + bundleHash(identity)) }] };
+  const d: any = {
+    dacsVersion: '1', listingVersion: 1, listingId: 'http-published', requiredCapabilities: ['SR-1', 'SR-2'],
+    seller: { identity, displayName: 'HTTP seller', publicEndpoint: 'https://seller.invalid/x' },
+    offering: { title: 't', description: 'd', category: 'services.market-report', tags: [], deliverable: { kind: 'storage-program', schemaUrl: 'urn:x', accessModel: 'public' } },
+    buyerRequirement: { requirementVersion: '1', required: [], preferredPresentation: 'any' },
+    pipeline: [{ kind: 'negotiate-fixed-price' }, { kind: 'commit-payee-bound-agreement' }, { kind: 'pay-dem', parameters: { rail: 'demos-native:DEM' } }, { kind: 'deliver-storage-program' }],
+    pricing: { kind: 'fixed', price: { amount: '1.5', currency: 'DEM' } }, acceptedRails: [{ railId: 'demos-native:DEM', railVersion: 1 }],
+    terms: {}, validity: { notBefore: NOW - 60_000, notAfter: NOW + 3600_000 },
+  };
+  mutate?.(d);
+  d.signature = { algorithm: 'ed25519', signer: claim, value: sign('dacs-listing:v1:' + listingHash(d)) };
+  return { d, claim };
+}
+
+test('a Listing signed and presented by a did:demos:agent claim (HTTP plugin) verifies offline', () => {
+  const { d } = httpPublishedListing();
+  const r = verifyListing(d, { now: NOW, revocation: 'absent' });
+  assert.equal(r.checks.find((c) => c.check === '4-signature')?.decision, 'pass', JSON.stringify(r.checks));
+  assert.equal(r.checks.find((c) => c.check === 'bundle-presentation')?.decision, 'pass', JSON.stringify(r.checks));
+  assert.equal(r.decision, 'accept', JSON.stringify(r.checks));
+});
+
+test('a did:demos:agent Listing signed by a different key is rejected, not indeterminate', () => {
+  const { d } = httpPublishedListing();
+  const other = new Uint8Array(32).fill(82);
+  d.signature.value = Buffer.from(ed.sign(new TextEncoder().encode('dacs-listing:v1:' + listingHash(d)), other)).toString('base64url');
+  const r = verifyListing(d, { now: NOW, revocation: 'absent' });
+  assert.equal(r.decision, 'reject');
+  assert.equal(failedAt(r), '4-signature');
+});
+
+test('did:demos:agent claims that are not 64 lowercase hex stay unresolvable offline', () => {
+  for (const bad of ['did:demos:agent:' + 'AB'.repeat(32), 'did:demos:agent:' + 'ab'.repeat(31), 'did:demos:agent:0x' + 'ab'.repeat(32), 'did:demos:other:' + 'ab'.repeat(32)]) {
+    const { d } = httpPublishedListing();
+    d.signature.signer = bad;
+    d.seller.identity.claims.push({ ref: bad });
+    const r = verifyListing(d, { now: NOW, revocation: 'absent' });
+    assert.notEqual(r.decision, 'accept', bad);
+  }
+});

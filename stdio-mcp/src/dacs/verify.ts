@@ -19,7 +19,7 @@ import { isCanonicalDecimal } from '../amount.js';
 import { printable } from '../confirm-text.js';
 import { RECEIPT_KIND, RECEIPT_SEP, receiptDigest } from '../receipts.js';
 import { canonicalBytes, contentHash, sha256Hex } from './jcs.js';
-import { SEP, verifyDomainSig, type SigDecision } from './sig.js';
+import { claimIdentity, SEP, verifyDomainSig, type SigDecision } from './sig.js';
 
 export type Decision = 'accept' | 'reject' | 'indeterminate';
 
@@ -296,11 +296,12 @@ function verifyPartySignatures(doc: Record<string, any>, sep: string, hash: stri
       checks.push({ check: `signature[${i}]`, decision: 'fail', detail: `signer ${String(s.party)} is not a listed party` });
       continue;
     }
-    if (seen.has(s.party)) {
+    // one key is one party, whichever claim form (key: or did:demos:agent:) names it
+    if (seen.has(claimIdentity(s.party))) {
       checks.push({ check: `signature[${i}]`, decision: 'fail', detail: 'duplicate signature for the same party' });
       continue;
     }
-    seen.add(s.party);
+    seen.add(claimIdentity(s.party));
     const r = verifyDomainSig(sep, hash, s.party, s.algorithm, s.value);
     checks.push({ check: `signature[${i}] (${role})`, decision: r.decision, detail: r.reason });
     if (r.decision === 'pass') passedRoles.add(role);
@@ -551,7 +552,7 @@ export function verifyAgreementStructure(doc: Record<string, any>, t: string, ch
       problems.push(`parties[${i}] (role, primaryClaim, bundleHash, vetRecordRef)`);
     }
   }
-  if (new Set(parties.map((p) => p?.primaryClaim)).size !== parties.length) problems.push('parties (duplicate primaryClaim)');
+  if (new Set(parties.map((p) => claimIdentity(p?.primaryClaim))).size !== parties.length) problems.push('parties (duplicate primaryClaim)');
   const terms = doc.terms;
   if (!isObj(terms)) problems.push('terms');
   else {

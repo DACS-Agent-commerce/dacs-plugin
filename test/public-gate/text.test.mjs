@@ -266,16 +266,76 @@ test('wording: a finding is at the first line of its paragraph, counted in the f
   assert.deepEqual(findingLines('a.md', `a\r\n\r\nb\r\n${TERM}\r\n`), [3]);
 });
 
-test('wording: only the six known character references are decoded; any other, numeric, named, unknown or without its semicolon, is refused at its line', () => {
+test('wording: only the six known terminated character references are decoded; any other terminated reference is refused at its line', () => {
   assert.deepEqual(findingLines('a.md', 'a &amp; b &lt; c &gt; d &quot; e &#39; f &nbsp; g, a & b, a && b, a &= b\n'), []);
   assert.deepEqual(findingLines('a.md', `${FIRST}&nbsp;${SECOND}\n`), [1]);
-  const refused = ['caf&eacute;', 'caf&eacute', '&#233;', '&#233', '&#xe9;', '&#xE9', `${FIRST}&#32;${SECOND}`, '&#x20;', '&#10;', '&#150;', '&#0;', '&#xD800;', '&#1114112;', '&hyphen;', '&constructor;',
-    '&copy2', '&notit', 'AT&T', 'R&D', '&AMP;', '&amp', '&#39', '&#039;', '&#;'];
+  const refused = ['caf&eacute;', '&#233;', '&#xe9;', `${FIRST}&#32;${SECOND}`, '&#x20;', '&#10;', '&#150;', '&#0;', '&#xD800;', '&#1114112;', '&hyphen;', '&constructor;',
+    '&copy2;', '&notit;', '&AMP;', '&#039;', '&#;'];
   for (const reference of refused) {
     for (const name of ['a.md', 'page.html', 'a.txt']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
   }
   assert.deepEqual(findingLines('page.html', '<p title="a&hyphen;b">x</p>', ['unlisted-entry']), [1]);
   assert.deepEqual(findingLines('m.json', JSON.stringify({ description: 'a &#32; b' }, null, 2), ['unlisted-entry']), [2]);
+});
+
+test('wording: an ampersand that starts neither a numeric nor a legacy named reference is literal outside HTML and SVG blobs', () => {
+  const literal = ['R&D', 'AT&T', 'Q&A', 'a&b', '&foo', '&#', '&#x', '&#xyz', '&Copy', '&Nbsp', '&Notit','security&review', '&company=1'];
+  for (const reference of literal) {
+    for (const name of ['a.md', 'a.txt', 'a.xml', 'LICENSE']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [], `${name}: ${reference}`);
+  }
+  for (const reference of ['R&D', 'AT&T', 'Q&A', 'a&b', '&foo']) {
+    for (const name of ['page.html', 'page.htm', 'page.svg', 'PAGE.HTML', 'PAGE.HTM', 'PAGE.SVG']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
+  }
+  assert.deepEqual(findingLines('a.md', `${FIRST}&D ${SECOND}`), []);
+  assert.deepEqual(findingLines('a.md', 'R&D tool', ['R&D tool']), [1]);
+});
+
+test('wording: a numeric reference or a legacy named reference counts without its semicolon, as the longest legacy name that is a prefix of the text', () => {
+  const counted = ['caf&eacute', '&#233', '&#xE9', '&#XE9', '&#102larn', '&#x66', '&copy2', '&notit', '&amp', '&#39', 'security&nbspreview', '?x=1&copy=2', '&copyright', '&nbspquux', '&ampere', '&sup2x'];
+  for (const reference of counted) {
+    for (const name of ['a.md', 'a.txt', 'a.xml', 'LICENSE', 'page.html', 'page.svg']) assert.deepEqual(findingLines(name, `fine\n\nx ${reference} y\n`, ['unlisted-entry']), [3], `${name}: ${reference}`);
+  }
+});
+
+test('wording: raw HTML in Markdown with a reference without its semicolon is refused at its line', () => {
+  assert.deepEqual(findingLines('a.md', '<div>\nflarn&nbspquux\n</div>\n', ['unlisted-entry']), [2]);
+  assert.deepEqual(findingLines('a.md', '<p>&#102larn quux</p>\n', ['unlisted-entry']), [1]);
+});
+
+test('wording: the legacy name list holds the 106 names HTML5 decodes without a semicolon, and each counts as a prefix', () => {
+  const names = ['AElig', 'AMP', 'Aacute', 'Acirc', 'Agrave', 'Aring', 'Atilde', 'Auml', 'COPY', 'Ccedil', 'ETH', 'Eacute', 'Ecirc', 'Egrave', 'Euml', 'GT', 'Iacute', 'Icirc', 'Igrave', 'Iuml',
+    'LT', 'Ntilde', 'Oacute', 'Ocirc', 'Ograve', 'Oslash', 'Otilde', 'Ouml', 'QUOT', 'REG', 'THORN', 'Uacute', 'Ucirc', 'Ugrave', 'Uuml', 'Yacute', 'aacute', 'acirc', 'acute', 'aelig',
+    'agrave', 'amp', 'aring', 'atilde', 'auml', 'brvbar', 'ccedil', 'cedil', 'cent', 'copy', 'curren', 'deg', 'divide', 'eacute', 'ecirc', 'egrave', 'eth', 'euml', 'frac12', 'frac14',
+    'frac34', 'gt', 'iacute', 'icirc', 'iexcl', 'igrave', 'iquest', 'iuml', 'laquo', 'lt', 'macr', 'micro', 'middot', 'nbsp', 'not', 'ntilde', 'oacute', 'ocirc', 'ograve', 'ordf', 'ordm',
+    'oslash', 'otilde', 'ouml', 'para', 'plusmn', 'pound', 'quot', 'raquo', 'reg', 'sect', 'shy', 'sup1', 'sup2', 'sup3', 'szlig', 'thorn', 'times', 'uacute', 'ucirc', 'ugrave', 'uml',
+    'uuml', 'yacute', 'yen', 'yuml'];
+  assert.equal(names.length, 106);
+  assert.equal(new Set(names).size, 106);
+  for (const name of names) assert.deepEqual(findingLines('a.md', `x &${name}q y\n`, ['unlisted-entry']), [1], name);
+});
+
+test('wording: JSON query strings keep literal ampersands in keys and nested values', () => {
+  const text = JSON.stringify({ '?x=1&company=2': { urls: ['?x=1&company=2', '?q=R&D&company=AT&T'] } }, null, 2);
+  assert.deepEqual(findingLines('.claude-plugin/plugin.json', text, ['unlisted-entry']), []);
+});
+
+test('wording: YAML anchors and aliases keep literal ampersands', () => {
+  const text = 'defaults: &defaults\n  team: R&D\n  company: AT&T\nbase: &base\n  <<: *defaults\n';
+  for (const name of ['manifest.yml', 'manifest.yaml']) assert.deepEqual(findingLines(name, text, ['unlisted-entry']), [], name);
+});
+
+test('wording: a YAML anchor that starts with a legacy name is still read as a reference and refused', () => {
+  const text = 'defaults: &eth_mainnet\n  team: R&D\nbase: &params\n  <<: *params\n';
+  for (const name of ['manifest.yml', 'manifest.yaml']) assert.deepEqual(findingLines(name, text, ['unlisted-entry']), [1, 3], name);
+});
+
+test('wording: a JSON query string key or value that starts with a legacy name is still read as a reference and refused', () => {
+  const text = JSON.stringify({ '?a=1&param=2': { urls: ['https://example.test/?a=1&region=eu', 'BTC&ETH'] } }, null, 2);
+  assert.deepEqual(findingLines('.claude-plugin/plugin.json', text, ['unlisted-entry']), [2, 4, 5]);
+});
+
+test('wording: a Markdown link query that starts with a legacy name is still read as a reference and refused', () => {
+  assert.deepEqual(findingLines('README.md', 'fine\n\n[docs](https://example.test/page?a=1&section=2)\n', ['unlisted-entry']), [3]);
 });
 
 test('wording: a line of a million character references is checked within a small heap, as a blob and as pull-request text', () => {
@@ -285,9 +345,9 @@ test('wording: a line of a million character references is checked within a smal
     const limits = { maxReportEntries: 100 };
     const read = (text) => [scanWording({ entries: [{ path: 'a.md', bytes: Buffer.from(text), oid: 'a'.repeat(40), position: 1 }], wordingMatcher: matcher, limits }).length,
       wordingEntryLines(text, matcher, 100, { readMarkup: true }).length];
-    console.log(JSON.stringify([read('&a'.repeat(1 << 20)), read('&amp;'.repeat(1 << 20))]));`;
+    console.log(JSON.stringify([read('&a'.repeat(1 << 20)), read('&a;'.repeat(1 << 20)), read('&amp;'.repeat(1 << 20))]));`;
   const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  assert.equal(output.trim(), '[[1,1],[0,0]]');
+  assert.equal(output.trim(), '[[0,0],[1,1],[0,0]]');
 });
 
 test('wording: a source file is not read in any source extension that R-EVAL parses, in any case; Markdown, HTML, SVG and text are', () => {
@@ -409,6 +469,13 @@ test('wording: in a blob an entry passes only wholly inside the approved clause 
   assert.deepEqual(findingLines('page.html', `<p>Held. ${HOLD}.</p>`, [REVIEW]), []);
 });
 
+test('wording: a longer entry that crosses the start of a disclaimer fails although a shorter entry ending at the same place lies inside it', () => {
+  const [inside, crossing] = [REVIEW, `is not a ${REVIEW}`];
+  assert.deepEqual(findingLines('a.md', `It is not a ${REVIEW}\n`, [inside]), []);
+  assert.deepEqual(findingLines('a.md', `It is not a ${REVIEW}\n`, [inside, crossing]), [1]);
+  assert.deepEqual(findingLines('a.md', `It is not a ${REVIEW}\n`, [crossing, inside]), [1]);
+});
+
 test('wording: the approved clause passes inside rendered markup', () => {
   for (const page of [`<p>${HOLD}.</p>`, `<p>${HOLD}<!-- x -->.</p>`, `[${HOLD}](u).`, `<p title="Not a ${REVIEW}">${HOLD}.</p>`]) assert.deepEqual(findingLines('page.html', page, ['unlisted-entry']), [], page);
 });
@@ -475,6 +542,26 @@ test('wording list: the flag is required in complete scope and refused in generi
 });
 
 const reportRules = (result) => JSON.parse(result.stdout).findings.map(({ rule }) => rule);
+
+test('history: --pr-text accepts ordinary ampersands in keys and nested values', () => {
+  const history = createHistory([{ files: { 'a.md': 'plain\n' }, message: 'plain' }]);
+  const prText = path.join(makeTempDir('pr'), 'pr.json');
+  writeFileSync(prText, JSON.stringify([{ 'R&D': { title: 'AT&T Q&A', body: 'R&D\n\n?x=1&company=2\n\na&b &foo' } }]));
+  const result = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList([TERM]), '--pr-text', prText], 'main'));
+  assert.equal(result.status, 0, result.stdout || result.stderr);
+  assert.deepEqual(reportRules(result), []);
+});
+
+test('history: --pr-text refuses a numeric or legacy named reference without its semicolon, in raw HTML too', () => {
+  const history = createHistory([{ files: { 'a.md': 'plain\n' }, message: 'plain' }]);
+  for (const body of ['<div>\nflarn&nbspquux\n</div>', '<p>&#102larn quux</p>', 'a &copyright b', 'a &#x66 b']) {
+    const prText = path.join(makeTempDir('pr'), 'pr.json');
+    writeFileSync(prText, JSON.stringify([{ body }]));
+    const result = runHistory(historyArgs(history, writeList(['private-entry']), ['--wording-list', writeList([TERM]), '--pr-text', prText], 'main'));
+    assert.equal(result.status, 1, `${body}: ${result.stdout || result.stderr}`);
+    assert.ok(reportRules(result).length > 0 && reportRules(result).every((rule) => rule === 'R-WORDING'), body);
+  }
+});
 
 test('wording list: a wording entry in prose is an R-WORDING finding and not an R-PRIVATE one, and the reverse; the report names the list by its digest', () => {
   const repo = createRepo([{ path: 'a.md', content: `uses ${TERM}\n` }, { path: 'b.md', content: 'mentions private-entry\n' }]);

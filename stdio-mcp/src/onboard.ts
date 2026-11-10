@@ -489,7 +489,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
         status = res.status;
         const text = await readCapped(res, FAUCET_MAX_REPLY_BYTES);
         try {
-          body = JSON.parse(text);
+          body = JSON.parse(text.replace(/^\uFEFF/, ''));
         } catch {
           body = null;
         }
