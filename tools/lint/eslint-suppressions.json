@@ -118,11 +118,6 @@
       "count": 2
     }
   },
-  "http-mcp/test/helpers/check-public-text-report-mutants.mjs": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
   "http-mcp/test/helpers/claude-node2-current-coverage-fixture.mjs": {
     "no-unused-vars": {
       "count": 1
