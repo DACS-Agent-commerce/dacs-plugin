@@ -83,8 +83,9 @@ test('the excluded paths are absent and tests needed for carried targets are ret
   assert.ok(!trackedFiles.some((file) => /(?:^|\/)(?:carry|removal)[^/]*(?<!\.test)\.(?:mjs|py)$/.test(file)));
 });
 
-// Records that are not carried are not named here: the gate's private list checks every path and every file for them
-// (docs/PUBLIC-GATE.md).
+// Records that are not carried are not named here. This test does not check http-mcp/'s top-level folders: a new
+// tracked folder with no excluded imports passes it. Only a complete-scope run of the gate's private list checks every
+// path and file for them (docs/PUBLIC-GATE.md); pull-request CI runs the generic scope, so that check happens separately.
 test('TESTING and the docs required by retained tests are kept', () => {
   assert.ok(exists('http-mcp/docs/TESTING.md'));
   assert.ok(exists('http-mcp/docs/DEVNET-OPERATOR-CLI-ISSUED-RECOVERY.md'));
