@@ -9,6 +9,10 @@ import (with the reason), or was added. A file changed in this repository after
 the first commit keeps its row, with the blob of its current content and
 the change (`changed here`) added to the reason.
 
+The stdio workflow, `.github/workflows/stdio-mcp.yml`, was written fresh in this
+repository from stdio's workflow tests; no carried source. Its SHA-256 is recorded in
+`test/ci/workflows.test.mjs`, and a change to the workflow updates it in the same commit.
+
 ## Not carried
 
 Files from the earlier repository that are not in this one:
@@ -34,13 +38,15 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
+Files: 752 (verbatim 502, edited 216, changed here 8, added 26).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
+| `.github/workflows/stdio-mcp.yml` | `ca22aadab7ce48e3185b934abe5d5d6eaa320e8a` | added: written fresh from stdio's workflow tests; no carried source |
+| `.gitignore` | `d82b03e30be4d89a5be65cbc8506d7236ba57cf1` | added: ignore rules for dependencies, build output, logs and local environment files |
 | `.gitleaksignore` | `5f6b32b9b0f7f675ea49a6dae958c1f8b0016d90` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
-| `README.md` | `857e78943e5bf734cb2542f4ae8691c0e55259a9` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch |
+| `README.md` | `a4c2d67ecb95d67b52b05a6d70fe6f1a353132e0` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections |
 | `docs/PUBLIC-GATE.md` | `1678668758708b1f5030c78c329067d61202ba85` | added: documentation of the public-content gate |
 | `http-mcp/.dockerignore` | `aae035eb68f5747b0bda683606503b97ca99afdf` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/.env.example` | `61149650b005fca4655a1ba4d338e3b2a5f52f7d` | verbatim |
@@ -701,7 +707,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/wallet-build/package.json` | `6370d54fbf15b44f14e0005bb3471ed93999b52e` | verbatim |
 | `http-mcp/wallet-build/shims.mjs` | `b90f32a3c063bf436cd25a96ab7b27d61491c43c` | verbatim |
 | `package-lock.json` | `02b053fab55700b6fe75742c85076e26dc230628` | added: lockfile of the root package |
-| `package.json` | `eedccf13a875a3ee07878352025deef666941062` | added: root package with the gate scripts and the test command |
+| `package.json` | `386f2e1406304aa7f9d3866a73b8f4118e5bc51b` | added: root package with the gate scripts and the test command; then changed here: the `test:all` script |
 | `public-gate.config.json` | `3339fd400041d3c885564000af90dd88168b053c` | added: gate limits, text extensions and binary dispositions |
 | `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
 | `scripts/public-gate/check-report.mjs` | `d8967e36b2ff00bf63c300eac3520612206cfb64` | added: public-content gate source |
@@ -716,8 +722,8 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `stdio-mcp/.gitignore` | `db95153686d0c7bbbc1ffe2b84468bf9a5f979af` | verbatim |
 | `stdio-mcp/.mcp.json` | `d645db37dc6bab55f3582af16b663e5cf6978fcb` | verbatim |
 | `stdio-mcp/LICENSE` | `7d73a34f494ae4d87e549308c2b4559497dc7ffb` | verbatim |
-| `stdio-mcp/README.md` | `755aa5c5d4c5eb3b8ddb985d35756c4a1e5ce888` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked |
-| `stdio-mcp/SECURITY.md` | `ad8c344d1072dd271788c06664aa635ee1c808cf` | edited: testnet writes and faucet requests are refused in this release; vulnerability reports point to GitHub's private vulnerability reporting; live-run claim marked as made in the source repository; the CI description corrected to this tree |
+| `stdio-mcp/README.md` | `e32b909ffb8289c3718e9061a1109c8143cc590a` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked; then changed here: the note on the CI workflow names the workflow file |
+| `stdio-mcp/SECURITY.md` | `3d58f87836ffea22e1a00d970d9c9f2f9fcd9253` | edited: testnet writes and faucet requests are refused in this release; vulnerability reports point to GitHub's private vulnerability reporting; live-run claim marked as made in the source repository; the CI description corrected to this tree; then changed here: the CI description names the workflow file |
 | `stdio-mcp/adapters/HOSTS.md` | `bb8adfc1574c71436b8ce455afb09a03af360b70` | verbatim |
 | `stdio-mcp/adapters/claude/README.md` | `a83699c03384cb7e060e0a4444babad1042e19c2` | verbatim |
 | `stdio-mcp/adapters/gemini/GEMINI.md` | `5a65f370f8fa8764ed5a282bc46cb215bfd4f1c8` | verbatim |
@@ -775,8 +781,8 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `stdio-mcp/test/unit/onboard.test.ts` | `fc20a5f78039bbbc1b4c1f56ebcdcbc0c10d6cbf` | edited: expects the reserved faucet placeholder; the faucet refusal case uses an explicit mainnet setup, since unlisted testnet RPCs no longer take writes |
 | `stdio-mcp/test/unit/prism.test.ts` | `ac59a60af9c7a9cbda4c63a29f9488b8b231c667` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a header comment reworded to neutral text; no behaviour change |
 | `stdio-mcp/test/unit/spend-and-policy.test.ts` | `9534816425ca70e4e6735189201237ac082c1c20` | edited: testnet RPC example replaced by a reserved .invalid host; adds the sanitized-defaults guard test; adds a regression check that the mainnet opt-in does not open testnet writes |
-| `stdio-mcp/test/unit/workflow-pins.test.ts` | `d0b825c89dc87d986e1abf74ad0757837d5bfaf0` | edited: header comment: internal identifiers removed; skip message and comment reworded |
-| `stdio-mcp/test/unit/workflow-settings.test.ts` | `d30cca6e6e28275e7044eed3e5fe413e1114a654` | edited: header comment: internal identifiers removed; skip message and comment reworded |
+| `stdio-mcp/test/unit/workflow-pins.test.ts` | `3c95e96a4644ac45ee572216ba7947fb3e3eab5d` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the skip wording says "without the workflow file" |
+| `stdio-mcp/test/unit/workflow-settings.test.ts` | `eb1574cba478076e8f10b9e1ae79ceb578da73b0` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the shared-input path filters and the SDK input validation step are expected, with two refusal cases |
 | `stdio-mcp/tsconfig.json` | `3cf94395ce469d74d6c8ba7abcb763df04e51863` | verbatim |
 | `test/ci/carry-state.test.mjs` | `ad09f5acfeaac7b1623e4400bc8e984326a0817d` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/ci/root-script.test.mjs` | `1113534311581054298466b4a169d518b8afc40b` | added: tests of the public-content gate and of the carried-file inventory |

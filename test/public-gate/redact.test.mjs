@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { DIAGNOSTIC_ROUTES } from '../../scripts/public-gate/redact.mjs';
@@ -65,6 +65,14 @@ function sdkInputCheckout() {
 }
 
 const scenarios = {
+  'test-all.stdout': () => {
+    const checkout = sdkInputCheckout();
+    cpSync(path.join(REPO_ROOT, 'scripts'), path.join(checkout, 'scripts'), { recursive: true });
+    const result = spawnSync(process.execPath, [path.join(checkout, 'scripts', 'ci', 'test-all.mjs')], { cwd: checkout, encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /^test-all: stdio typecheck and unit tests: fail \(sdk-input-refused\)$/m);
+    leaksNothing(result.stdout, result.stderr);
+  },
   'sdk-input.stdout': () => {
     const result = spawnSync(process.execPath, [SDK_INPUT, '--repo', sdkInputCheckout(), '--prepare', 'stdio'], { encoding: 'utf8' });
     assert.equal(result.status, 1);

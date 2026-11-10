@@ -65,9 +65,10 @@ run of the write path was made in the source repository before the import. Its
 logs are not carried here, it has not been repeated for this repository, and
 testnet writes are refused in this release.
 
-The CI workflow, which ran the typecheck, the unit tests (mocked SDK, no
-network) and the build, is not in this repository. The workflow-pin and
-workflow-settings unit tests skip without it.
+The CI workflow (`.github/workflows/stdio-mcp.yml`) runs the typecheck, the unit
+tests (mocked SDK, no network) and the build. Nothing has run it yet: Actions
+jobs start once the repository is public. The workflow-pin and workflow-settings
+unit tests skip without the workflow file.
 
 The CF-5 duplicate-member check covers JSON **text** inputs, including escaped
 spellings and deep nesting. Inputs that arrive already parsed as objects cannot
