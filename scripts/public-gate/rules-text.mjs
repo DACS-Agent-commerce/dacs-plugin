@@ -221,10 +221,10 @@ const CHARACTER_REFERENCE = new RegExp(String.raw`&(?:#[\da-zA-Z]*;|[A-Za-z][\da
 /** HTML and SVG blobs also refuse unterminated references, preserving their existing checks. */
 const HTML_CHARACTER_REFERENCE = /&(?:#[\da-zA-Z]*|[A-Za-z][\da-zA-Z]*);?/g;
 const KNOWN_REFERENCES = new Map([['&amp;', '&'], ['&lt;', '<'], ['&gt;', '>'], ['&quot;', '"'], ['&#39;', "'"], ['&nbsp;', ' ']]);
-/** Markup not shown as written, read left to right: an HTML comment, a tag with its attributes, a Markdown reference definition, link destination,
+/** Markup not shown as written, read left to right: an HTML comment, a tag with its attributes, a Markdown reference definition (it goes on past a backslash and line break), link destination,
  * reference label or link bracket, block-quote marks, an escaping backslash and a character reference. One never closed runs to the end of the text. */
 const MARKUP_TOKEN = new RegExp([String.raw`<!--[\s\S]*?(?:-->|$)`, String.raw`<(?:\/?[A-Za-z]|[!?])(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^"'>])*(?:>|$)`,
-  String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:[^\r\n]*`, String.raw`\]\([^)]*(?:\)|$)`, String.raw`\]\[[^\]]*(?:\]|$)`, String.raw`!?\[|\]`,
+  String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:(?:[^\r\n\\]+|\\(?:\r\n|[\r\n])?)*`, String.raw`\]\([^)]*(?:\)|$)`, String.raw`\]\[[^\]]*(?:\]|$)`, String.raw`!?\[|\]`,
   String.raw`(?<![^\r\n])[ \t]*(?:>[ \t]?)+`, String.raw`\\(?=[!-/:-@[-\`{-~]|\r|\n)`, CHARACTER_REFERENCE.source].join('|'), 'g');
 /** A fence line: its marker (backticks with no backtick after them, or tildes) and the text after it. */
 const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)$/;
@@ -323,8 +323,8 @@ const unknownReferenceLines = (text, references = CHARACTER_REFERENCE) => (text.
 
 /** The shortest text that can hold a status phrase: two words and a gap of one character. */
 const MIN_STATUS_LENGTH = 'security review'.length;
-/** A backslash that escapes the punctuation character after it, which a Markdown link or reference title does not show. */
-const ESCAPING_BACKSLASH = /\\(?=[!-/:-@[-`{-~])/g;
+/** A backslash that escapes the punctuation character or line break after it, which a Markdown link or reference title does not show. */
+const ESCAPING_BACKSLASH = /\\(?=[!-/:-@[-`{-~\r\n])/g;
 
 /** Whether a markup token of `source`, read on its own, states a status other than the approved clause. The token is read with the six known references decoded and
  * escaping backslashes dropped, then with invisible characters and emphasis removed and as a space. Tokens are read one at a time, and one too short to hold a status

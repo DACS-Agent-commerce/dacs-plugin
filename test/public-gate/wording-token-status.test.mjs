@@ -35,6 +35,24 @@ for (const [name, token] of tokens) {
   }
 }
 
+for (const [label, lineBreak] of [['line feed', '\n'], ['carriage return', '\r'], ['CRLF', '\r\n']]) {
+  test(`wording token status: a link title with an escaped ${label} between the words is found`, () => {
+    for (const kind of [EXTERNAL, SECURITY]) {
+      assert.deepEqual(findingLines(`Intro.\n\n[label](u "${kind}\\${lineBreak}${REVIEW}: done")\n`, 'a.md'), [3]);
+    }
+  });
+
+  test(`wording token status: a reference title with an escaped ${label} between the words is found`, () => {
+    for (const kind of [EXTERNAL, SECURITY]) {
+      assert.deepEqual(findingLines(`Intro.\n\n[label]: u "${kind}\\${lineBreak}${REVIEW}: done"\n`, 'a.md'), [3]);
+    }
+  });
+}
+
+test('wording token status: a link title with a backslash at the end of a line and no review words is not found', () => {
+  assert.deepEqual(findingLines('[label](u "first\\\nsecond")', 'a.md'), []);
+});
+
 test('wording token status: a data attribute name with an underscore is found', () => {
   assert.deepEqual(findingLines(`<p data-${EXTERNAL}_${REVIEW}="complete">x</p>`), [1]);
 });
