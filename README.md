@@ -47,10 +47,21 @@ whether the row is delivered or still pending.
 A pending row is never credited. `npm run test:all` runs the matrix in order for
 our own runs while the repository is private: it validates each delivered row's
 SDK input, then runs its commands, and prints `test-all: <suite>: <result>` for
-every row. It exits 1 if any suite failed, else 2 if any row is unverifiable (an
-absent suite, an unavailable SDK input or a pending row), else 0. It stops the
+every row. It runs every suite with `CI=true`, as Actions does, so suites that
+refuse to skip in CI do refuse. It exits 1 if any suite failed, else 2 if any row
+is unverifiable, else 0. A row is unverifiable when its suite is absent, its SDK
+input is unavailable, its job runs on a Node major version this run is not on
+(so the stdio row is always unverifiable here: run its commands by hand on the
+other Node version and record that run), or it is pending. It stops the
 suite it is running when interrupted. It installs nothing: run the preparation
 commands of the matrix first.
+
+Two things come from the environment. The root tests need the pinned gitleaks:
+set `GITLEAKS_BIN` to the binary the bounded installer placed, or put it on
+`PATH`; without it the root row fails. The http-mcp row needs a browser: set
+`DACS_TEST_CHROME` as the Actions job does, with
+`export DACS_TEST_CHROME="$(cd http-mcp && node -p "require('playwright-core').chromium.executablePath()")"`;
+without it the row is unverifiable.
 
 ## CI
 
