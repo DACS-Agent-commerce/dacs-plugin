@@ -18,9 +18,9 @@ test('tooling preflight: supported runtime passes; missing registerHooks and old
   assert.match(missing[0], /node:module\.registerHooks is not available/);
   const older = toolingPreflight({ version: '22.13.0', registerHooks: hook });
   assert.equal(older.length, 1);
-  assert.match(older[0], /needs Node >= 22\.15\.0 \(tested on 22\.22\.0\); this is Node 22\.13\.0\. The installed launcher requires Node \^22\.22\.2 \|\| \^24\.15\.0\.$/);
+  assert.match(older[0], /needs Node >= 22\.15\.0 \(historical run on 22\.22\.0\); this is Node 22\.13\.0\. The installed launcher requires Node \^22\.22\.2 \|\| \^24\.15\.0\.$/);
   assert.equal(toolingPreflight({ version: '22.13.0', registerHooks: undefined }).length, 2);
-  // The real runtime running this test (the helper's Node 22.22.0) is supported.
+  // The helper's Node 22.22.0 run is historical; the installed runtime now requires ^22.22.2 || ^24.15.0.
   assert.deepEqual(toolingPreflight(), []);
 });
 

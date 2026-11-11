@@ -26,12 +26,17 @@ workflow runs `node scripts/ci/sdk-input.mjs --prepare root` before its root
 install. A forbidden SDK input (a path, `file:`, `link:` or vendored spec or
 resolution) fails that step with status 1 (`sdk-input-refused`); an input that
 is unavailable or cannot be verified fails it with status 2
-(`sdk-input-unavailable`). Either way no install and no test runs, and the job's
-failure is the validation step's, not a test failure. The three SDK packages
+(`sdk-input-unavailable`). A registry URL with an exact version and integrity can
+pass validation even while the registry returns 404: the http-mcp step then exits
+0 and `npm ci` fails before tests run. The three SDK packages
 `@kynesyslabs/dacs`, `@kynesyslabs/dacs-client` and `@kynesyslabs/dacs-node` are
 pinned in `http-mcp/package-lock.json` by exact version and sha512, with no
-`file:` path, no vendored archive and no bundled dependency. The job
-installs `expect` and `tcl-expect` at `5.45.4-3`,
+`file:` path, no vendored archive and no bundled dependency. The package has
+exact direct pins for `@kynesyslabs/dacs`,
+`@kynesyslabs/dacs-client` and `@kynesyslabs/demosdk`. A tarball install keeps
+those direct versions; its transitive ranges still resolve from the registry
+because the tarball carries no lockfile. The root override keeps one Demos SDK
+copy in this checkout's install. The job installs `expect` and `tcl-expect` at `5.45.4-3`,
 resolving their dependencies only from Ubuntu's signed `20251020T000000Z`
 snapshot with isolated apt sources and lists. The CLI payment and recovery tests
 drive the purchase CLI on a terminal through that driver. Chromium and its system

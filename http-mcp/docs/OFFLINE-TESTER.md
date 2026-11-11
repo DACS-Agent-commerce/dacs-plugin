@@ -420,7 +420,7 @@ the installed-artifact checker verifies this.
   A missing browser is a failure. `--keep` keeps the tarball and install
   project and prints their path.
 
-  The source checker itself needs Node >= 22.15 (tested on 22.22.0). On an
+  The source checker itself needs Node >= 22.15 (the 22.22.0 test was historical and below the installed runtime's current supported range). On an
   older Node it fails with a clear preflight message. The installed launcher
   still runs on Node `^22.22.2 || ^24.15.0`.
 

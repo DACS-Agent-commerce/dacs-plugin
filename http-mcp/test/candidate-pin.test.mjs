@@ -26,7 +26,7 @@ const lock = readJson(join(PACKAGE_ROOT, 'package-lock.json'));
 test('package.json pins the SDK packages to exact candidate versions with no file:, vendor or bundled dependency', async (t) => {
   const specs = DEPENDENCY_SECTIONS.flatMap((section) => Object.entries(pkg[section] ?? {}).map(([name, spec]) => ({ section, name, spec })));
   const sdkSpecs = specs.filter(({ name }) => name.startsWith(SDK_SCOPE));
-  assert.deepEqual(sdkSpecs.filter(({ section }) => section === 'dependencies').map(({ name }) => name).sort(), ['@kynesyslabs/dacs', '@kynesyslabs/dacs-client']);
+  assert.deepEqual(sdkSpecs.filter(({ section }) => section === 'dependencies').map(({ name }) => name).sort(), ['@kynesyslabs/dacs', '@kynesyslabs/dacs-client', '@kynesyslabs/demosdk']);
   for (const { section, name, spec } of sdkSpecs) assert.match(spec, EXACT_VERSION, `${section} ${name}`);
   assert.deepEqual(specs.filter(({ spec }) => /^(file|link|git|https?):|vendor|\//.test(spec)), []);
   assert.equal(pkg.bundleDependencies, undefined);
