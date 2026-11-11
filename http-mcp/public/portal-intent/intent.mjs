@@ -213,7 +213,8 @@ export function intentProfile(terms) {
 // hash. The signing key is the presenter and one of those claims.
 async function verifySellerIdentity(identity, bundleHash, seller, bad) {
   const claims = identity.claims;
-  if (!Array.isArray(claims) || !claims.length || !claims.every((c) => plain(c) && typeof c.ref === 'string')) bad('identity has no well-formed claims');
+  if (['bundleVersion', 'presentedBy', 'presentedAt', 'claims', 'presentation'].some((k) => !Object.hasOwn(identity, k)) || identity.bundleVersion !== '1' || !safeInt(identity.presentedAt)
+    || (identity.sessionNonce !== undefined && typeof identity.sessionNonce !== 'string') || !Array.isArray(claims) || !claims.length || !claims.every((c) => plain(c) && typeof c.ref === 'string')) bad('identity bundle has an unexpected shape');
   const refs = claims.map((c) => c.ref);
   if (new Set(refs).size !== refs.length || !refs.includes(seller)) bad('identity does not name the key that signed the Listing');
   const foreign = refs.find((ref) => !DID.test(ref));
@@ -227,6 +228,18 @@ async function verifySellerIdentity(identity, bundleHash, seller, bad) {
     if (!entry || !await ed25519Valid(ref, `${PRESENTATION_SEPARATOR}${bundleHash}`, entry.signature)) bad('identity presentation does not verify under the seller’s key');
   }
 }
+
+// DACS-1 §6.3.3 BundleRequirement as a reader validates it before matching
+// (PCR-1): known schemes only, a boolean verificationRequired, maxAge and
+// recipeVersion only on verified members, object parameters, no empty oneOf group.
+const SCHEMES = new Set(['key', 'did', 'domain', 'erc8004', 'lei', 'finra-crd', 'sam-uei', 'fedramp', 'naics', 'cmmc', 'stor-cred', 'cci-xm', 'cci-web2', 'cci-pqc', 'cci-ud', 'cci-nomis', 'cci-humanpassport', 'cci-ethos', 'cci-tlsn']);
+const claimRequirement = (c) => plain(c) && SCHEMES.has(c.scheme) && typeof c.verificationRequired === 'boolean'
+  && (c.verificationRequired || (c.maxAge === undefined && c.recipeVersion === undefined))
+  && [c.maxAge, c.recipeVersion].every((n) => n === undefined || (safeInt(n) && n >= 0)) && (c.parameters === undefined || plain(c.parameters));
+const bundleRequirement = (r) => plain(r) && r.requirementVersion === '1' && Array.isArray(r.required) && r.required.every(claimRequirement)
+  && (r.oneOf === undefined || (Array.isArray(r.oneOf) && r.oneOf.every((g) => Array.isArray(g) && g.length > 0 && g.every(claimRequirement))))
+  && (r.preferredPresentation === undefined || ['siwd', 'sr1-root', 'per-claim', 'session-key', 'any'].includes(r.preferredPresentation))
+  && (r.primaryClaimSelector === undefined || SCHEMES.has(r.primaryClaimSelector));
 
 // The pinned Listing, checked against the Listing hash in the terms and signed
 // by its seller (DACS-1 §6.3.4), and the Agreement material derived from it
@@ -242,6 +255,10 @@ async function listingTerms(listing, t, seller) {
   if (listing.listingId !== t.listing.listingId || listing.listingVersion !== t.listing.version) bad('is another Listing or version');
   const identity = listing.seller?.identity;
   if (!plain(identity) || identity.presentedBy !== seller) bad('belongs to another seller');
+  // The DACS major version this wallet reads, and a member it must act on but cannot:
+  // a revocationState needs the revocation check (RSC-10), which a wallet does not run.
+  if (listing.dacsVersion !== '1') bad('uses a DACS version this wallet does not support');
+  if (Object.hasOwn(listing, 'revocationState')) bad('needs a revocation check this wallet cannot make');
   // Exactly one ed25519 signature, by the seller, over "dacs-listing:v1:" || Listing hash.
   const signature = listing.signature;
   if (Object.hasOwn(listing, 'signatures') || (Array.isArray(signature) && signature.length > 1)) bad('carries more than one signature');
@@ -252,6 +269,7 @@ async function listingTerms(listing, t, seller) {
   if (!await ed25519Valid(signature.signer, `${LISTING_SEPARATOR}${listingHash}`, signature.value)) bad('signature does not verify for its seller, or the Listing was changed after it was signed');
   const sellerBundleHash = await sha256Hex(canonicalJson(withoutKeys(identity, ['presentation'])));
   await verifySellerIdentity(identity, sellerBundleHash, seller, bad);
+  if (!bundleRequirement(listing.buyerRequirement)) bad('has a malformed buyer requirement');
   const pipeline = listing.pipeline;
   if (!Array.isArray(pipeline) || canonicalJson(pipeline.map((x) => x?.kind ?? null)) !== canonicalJson(SUPPORTED_PIPELINE) || pipeline[PAYMENT_PHASE_INDEX].parameters?.rail !== DEM_RAIL) bad('is not the fixed-price pay-dem pipeline');
   const price = listing.pricing?.price;

@@ -236,3 +236,70 @@ test('a seller identity with a presentation kind this browser cannot verify is r
     await refuses(s.run(), 'listing', new RegExp(`presentation of kind ${presentation.kind} cannot be verified in this browser`));
   }
 });
+
+// ---------------------------------------------------------------------------
+// Check 4: version and shape gates
+// ---------------------------------------------------------------------------
+
+test('a DACS version the wallet does not support is refused', async () => {
+  for (const dacsVersion of ['2', '0', 1, undefined]) {
+    const s = await scenario({ mutate: (listing, seller) => resign({ ...listing, dacsVersion }, seller) });
+    await refuses(s.run(), 'listing', /uses a DACS version this wallet does not support/);
+  }
+});
+
+test('a signed Listing carrying a revocationState is refused: the wallet cannot make that check', async () => {
+  const s = await scenario({ mutate: (listing, seller) => resign({ ...listing, revocationState: { anchor: ANCHOR, contentHash: 'a'.repeat(64) } }, seller) });
+  await refuses(s.run(), 'listing', /needs a revocation check this wallet cannot make/);
+});
+
+test('a malformed identity bundle is refused', async () => {
+  const unsigned = (listing) => (({ presentation, ...bundle }) => bundle)(listing.seller.identity);
+  const cases = {
+    'bundle version 2': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, bundleVersion: '2' })),
+    'presentedAt as a string': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, presentedAt: '1' })),
+    'presentedAt as a fraction': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, presentedAt: 1.5 })),
+    'empty claims': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, claims: [] })),
+    'claims not a list': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, claims: { ref: seller.claim } })),
+    'a claim without a ref': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, claims: [{ ...b.claims[0], ref: undefined }] })),
+    'session nonce as a number': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, sessionNonce: 7 })),
+    'no presenter': (listing, seller) => withIdentity(listing, seller, (b) => { delete b.presentedBy; return b; }),
+    'no presentation': (listing, seller) => resign({ ...listing, seller: { ...listing.seller, identity: unsigned(listing) } }, seller),
+  };
+  for (const [name, mutate] of Object.entries(cases)) {
+    const s = await scenario({ mutate });
+    await assert.rejects(s.run(), (error) => error instanceof IntentMismatch && error.field === 'listing' && /identity bundle has an unexpected shape|belongs to another seller/.test(error.message), name);
+  }
+});
+
+// presence-only-claim-requirement-v0.7 (DACS-1 §6.3.3 PCR-1..PCR-6): the
+// buyerRequirement of each named vector. An `error` vector is a malformed
+// requirement and is refused; the others are well-formed and are accepted
+// (matching them is the seller's and Vet's job, not this wallet's).
+const REQUIREMENT_VECTORS = ['required-presence-key-with-issued-at', 'required-presence-key-without-issued-at', 'presence-max-age-is-invalid', 'presence-recipe-version-is-invalid',
+  'verification-required-must-be-boolean', 'empty-member-collections-are-vacuously-satisfied', 'empty-oneof-group-is-invalid', 'oneof-passing-member-cannot-mask-unknown-scheme',
+  'presence-parameters-must-be-an-object', 'presence-parameters-match', 'oneof-presence-alternative-passes', 'mixed-required-presence-and-verified-pass', 'verified-member-cannot-use-bare-presence',
+  'selector-unrelated-cosigner-is-uncontrolled'];
+
+test('buyer requirements: the Standard vectors', async (t) => {
+  const byName = new Map(vectors('presence-only-claim-requirement-v0.7.json').vectors.map((v) => [v.name, v]));
+  for (const name of REQUIREMENT_VECTORS) {
+    await t.test(name, async () => {
+      const v = byName.get(name);
+      assert.ok(v, 'vector exists');
+      const s = await scenario({ mutate: (listing, seller) => resign({ ...listing, buyerRequirement: structuredClone(v.requirement) }, seller) });
+      if (v.expected === 'error') await refuses(s.run(), 'listing', /has a malformed buyer requirement/);
+      else assert.equal((await s.run()).price.amount, '2.5');
+    });
+  }
+});
+
+test('buyer requirements that break the shape are refused', async () => {
+  const bad = [undefined, null, [], { requirementVersion: '2', required: [] }, { requirementVersion: '1' }, { requirementVersion: '1', required: {} },
+    { requirementVersion: '1', required: [], oneOf: {} }, { requirementVersion: '1', required: [], preferredPresentation: 'pigeon' }, { requirementVersion: '1', required: [], primaryClaimSelector: 'nonesuch' },
+    { requirementVersion: '1', required: [{ scheme: 'key', verificationRequired: true, maxAge: -1 }] }, { requirementVersion: '1', required: [{ scheme: 'key', verificationRequired: true, recipeVersion: 1.5 }] }];
+  for (const buyerRequirement of bad) {
+    const s = await scenario({ mutate: (listing, seller) => resign({ ...listing, buyerRequirement }, seller) });
+    await refuses(s.run(), 'listing', /has a malformed buyer requirement/);
+  }
+});
