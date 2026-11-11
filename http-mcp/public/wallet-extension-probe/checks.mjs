@@ -1,3 +1,4 @@
+import { txSignatureText } from './tx-signature.mjs';
 import { assertProbeTransaction } from './vectors.mjs';
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 export const hasKeys = (v, keys) => object(v) && Object.keys(v).length === keys.length && keys.every((k) => Object.hasOwn(v, k));
@@ -172,17 +173,12 @@ export function diffSummary(diffs, signed, address, requested) {
 }
 // What a transaction signature covers follows the configured node's own
 // getNetworkInfo answer, which the probe reads independently of the wallet: the
-// bare hash while its signatureDomain fork is inactive, "demos-tx:v1:<chainId>:<hash>"
+// bare hash while its signatureDomain fork is inactive or absent, "demos-tx:v1:<chainId>:<hash>"
 // once it is active. An answer that does not say which, or gives no safe chain
 // id when active, selects nothing (null): no signature verifies, and no other
 // form is tried. Message checks (verifyExact on the message text) are unchanged.
-export function txSignatureText(networkInfo, hash) {
-  const fork = object(networkInfo) && object(networkInfo.forks) ? networkInfo.forks.signatureDomain : null;
-  if (!object(fork) || typeof fork.activated !== 'boolean') return null;
-  if (!fork.activated) return hash;
-  return Number.isSafeInteger(networkInfo.chainId) && networkInfo.chainId >= 0 ? `demos-tx:v1:${networkInfo.chainId}:${hash}` : null;
-}
-export async function checkSignedTransaction(requested, signed, address, networkInfo = null) {
+export { txSignatureText };
+export async function checkSignedTransaction(requested, signed, address, networkInfo = null, activatedChains = new Set()) {
   await assertProbeTransaction(requested);
   const compared = jsonCopy(signed);
   if (object(compared)) {
@@ -194,7 +190,7 @@ export async function checkSignedTransaction(requested, signed, address, network
   const computedHash = object(signed?.content) ? await sha256(JSON.stringify(signed.content)) : null;
   const hashValid = /^[0-9a-f]{64}$/.test(signed?.hash ?? '') && signed.hash === computedHash;
   const hashMatchesRequested = signed?.hash === requestedHash;
-  const text = typeof signed?.hash === 'string' ? txSignatureText(networkInfo, signed.hash) : null;
+  const text = typeof signed?.hash === 'string' ? txSignatureText(networkInfo, signed.hash, activatedChains) : null;
   const signatureValid = text !== null && hasKeys(signed?.signature, ['type', 'data']) && signed.signature.type === 'ed25519'
     && await verifyExact(address, text, signed.signature.data);
   return { ok: diffs.length === 0 && hashValid && hashMatchesRequested && signatureValid, diffs, diffSummary: diffSummary(diffs, compared, address, requested), requestedHash, computedHash, hashValid, hashMatchesRequested, signatureValid };

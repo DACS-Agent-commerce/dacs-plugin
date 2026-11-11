@@ -81,7 +81,7 @@ test('a record signed for another chain id is invalid on an active-fork chain', 
 
 test('an unreadable node answer reports signature authority unavailable, not corruption', (t) => {
   const s = withTransfer(t, ACTIVE);
-  for (const answer of [undefined, null, 'down', [], {}, { chainId: 7, forks: {} }, { chainId: 7, forks: { signatureDomain: { activated: 'true' } } },
+  for (const answer of [undefined, null, 'down', [], {}, { chainId: 7, forks: { signatureDomain: { activated: 'true' } } },
     { forks: { signatureDomain: { activated: true } } }, { chainId: -1, forks: { signatureDomain: { activated: true } } }, { chainId: 1.5, forks: { signatureDomain: { activated: true } } }]) {
     const report = health(s, answer);
     assert.equal(report.signatureAuthorityUnavailable.length, 2, JSON.stringify(answer));
@@ -193,4 +193,23 @@ test('command line: the node is not needed when no retained failed transfer need
   const out = await cli(s);
   assert.equal(out.status, 0, out.stderr);
   assert.deepEqual(JSON.parse(out.stdout).signatureAuthorityUnavailable, []);
+});
+
+import { transactionDomainCases } from './helpers/transaction-domain-cases.mjs';
+transactionDomainCases('transaction verifier', async () => {
+  const { verifyDemosTransactionSignature } = await import('../src/wallet/demos-transaction-signature.mjs');
+  const activatedChains = new Set(), wallet = createEphemeralWallet(), hash = sha('guard transaction');
+  return async (networkInfo, form) => {
+    const verdict = verifyDemosTransactionSignature({ networkInfo, hash, publicKey: wallet.address, activatedChains,
+      signature: wallet.signHex(form === 'domain' ? `demos-tx:v1:${networkInfo.chainId}:${hash}` : hash) });
+    assert.ok(activatedChains.size <= 16, 'bounded run record');
+    return verdict;
+  };
+});
+
+test('health: a missing member selects only the bare hash in a fresh run', (t) => {
+  const missing = { chainId: 7, forks: {} };
+  assert.equal(health(withTransfer(t, ACTIVE), ACTIVE).healthy, true);
+  assert.equal(health(withTransfer(t, INACTIVE), missing).healthy, true);
+  assert.throws(() => health(withTransfer(t, ACTIVE), missing), /could not read valid state/);
 });

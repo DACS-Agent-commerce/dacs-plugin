@@ -39,6 +39,7 @@ export function createWalletExtensionProbeRouter({ config, authServer, accounts,
   });
   const dir=fileURLToPath(new URL('../../public/wallet-extension-probe/',import.meta.url));
   router.get('/',(_req,res)=>res.type('html').send(readFileSync(`${dir}index.html`,'utf8')));
+  router.get('/assets/tx-signature.mjs',(_req,res)=>res.sendFile(fileURLToPath(new URL('../../public/portal/embedded-wallet/tx-signature.mjs',import.meta.url))));
   router.use('/assets',express.static(dir,{index:false,fallthrough:false,maxAge:0}));
   router.get('/nonce/:address',async(req,res)=>{
     try {

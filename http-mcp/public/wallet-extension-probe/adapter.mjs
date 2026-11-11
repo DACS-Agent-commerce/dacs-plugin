@@ -1,4 +1,4 @@
-import { addressOf, checkSignedTransaction, hasKeys, jsonCopy, messageSignature, publicView, verifyExact } from './checks.mjs';
+import { txSignatureText, addressOf, checkSignedTransaction, hasKeys, jsonCopy, messageSignature, publicView, verifyExact } from './checks.mjs';
 import { PROBE_MAX_BALANCE_OS, assertProbeTransaction } from './vectors.mjs';
 
 async function readAccountState(address) {
@@ -29,7 +29,7 @@ const sameAccount = (value, connected) => { try { return addressOf(value) === co
 const REQUEST_METHODS = Object.freeze(['connect', 'sign', 'signTransaction']);
 export function createExtensionProbeAdapter({ windowObject = window, discoveryTimeoutMs = 3000, requestTimeoutMs = 60000, now = () => Date.now(), readAccount = readAccountState, readNetwork = readNetworkInfo } = {}) {
   let provider = null, address = null, busy = false, timedOut = false, popupIssued = false;
-  const records = [];
+  const records = [], activatedChains = new Set();
   const record = (probe, result) => { records.push({ probe, at: new Date(now()).toISOString(), ...jsonCopy(result) }); return result; };
   // `reserved` means the caller already holds the session fence and releases it.
   async function call(method, params, reserved = false) {
@@ -106,13 +106,14 @@ export function createExtensionProbeAdapter({ windowObject = window, discoveryTi
         await assertProbeTransaction(requested);
         assertSignable(await readAccount(connected), requested.content.nonce);
         const networkInfo = await readNetwork();
+        txSignatureText(networkInfo, '', activatedChains);
         // The SDK signs as the extension's active account. A switch since connect
         // would sign with an account whose nonce and balance were never read.
         // A switch after this read and before the wallet signs is not detected.
         const active = await call('accounts', undefined, true);
         if (!hasKeys(active, ['code', 'data']) || active.code !== 200 || !sameAccount(active.data, connected)) throw new Error('connected_account_changed');
         const signed = await call('signTransaction', [requested], true);
-        const result = await checkSignedTransaction(requested, signed, connected, networkInfo);
+        const result = await checkSignedTransaction(requested, signed, connected, networkInfo, activatedChains);
         return record(requested.content.type === 'native' ? 'P4' : 'P5', { method: 'signTransaction', ...result });
       } finally { busy = false; }
     },

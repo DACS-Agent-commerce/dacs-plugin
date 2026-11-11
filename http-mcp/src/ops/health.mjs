@@ -514,7 +514,7 @@ function failedTransfer(key,value,purchases,authority){
   if(value?.stage!=='failed')return false;
   const tx=value.signedTransaction,c=tx?.content,n=value.networkBinding,f=value.failure;
   const badSignature=()=>{
-    const verdict=verifyDemosTransactionSignature({networkInfo:authority.networkInfo,hash:tx.hash,signature:tx.signature.data,publicKey:c.from});
+    const verdict=verifyDemosTransactionSignature({networkInfo:authority.networkInfo,activatedChains:authority.activatedChains,hash:tx.hash,signature:tx.signature.data,publicKey:c.from});
     if(verdict==='unavailable')authority.unavailable.push({source:'node2-transport.sqlite',recordId:sha(key)});
     return verdict==='invalid';
   };
@@ -633,7 +633,7 @@ export function opsHealth({databasePath,operatorState=null,logPath=null,now=Date
     timeline.sort((a,b)=>a.timestampMs-b.timestampMs);
     return {purchaseId:row.purchaseId,stage:row.stage,ageMs:Math.max(0,now-row.enteredAt),outcome:outcome(row),...(row.lastAttemptDispatched===false?{lastAttemptDispatched:false}:{}),...(sellerFailureCause(row.causeCode)?{causeCode:row.causeCode}:{}),unresolvedWrites:row.writes,timeline:timeline.map((event,i)=>({stage:event.stage,lane:event.lane,source:event.source,at:new Date(event.timestampMs).toISOString(),gapMs:i?Math.max(0,event.timestampMs-timeline[i-1].timestampMs):0}))};
   });
-  const authority={networkInfo,unavailable:[]};
+  const authority={networkInfo,activatedChains:new Set(),unavailable:[]};
   const {journals,unconfirmed}=sellerWrites(operatorState,present,rows.map(row=>row.seller),new Set(rows.map(row=>row.buyer).filter(value=>/^0x[0-9a-f]{64}$/.test(value??''))),stateRoots,new Map(rows.map(row=>[row.purchaseId,row])),authority);
   return {format:'dacs-ops-health/v2',legacyPublications,at:new Date(now).toISOString(),healthy:stuck.length===0&&unconfirmed.length===0&&authority.unavailable.length===0&&!legacyPublications.some(row=>OPEN_PUBLICATIONS.has(row.status)),purchases,stuck,seller:{journals,unconfirmed},signatureAuthorityUnavailable:authority.unavailable,thresholdsMs:configured};
 }

@@ -103,7 +103,6 @@ test('CREATE, fork active: a signature for another chain id is refused before co
 });
 
 for (const [label, domain] of [
-  ['the signatureDomain member is missing', { active: false, chainId: 7, answer: undefined }],
   ['the signatureDomain member is not an object', { active: false, chainId: 7, answer: 'inactive' }],
   ['the fork status is not a boolean', { active: false, chainId: 7, answer: { activated: 'false' } }],
   ['the fork status is absent', { active: false, chainId: 7, answer: {} }],
@@ -180,7 +179,7 @@ async function nativeSession(t, { DemosCtor = Demos, domain } = {}) {
   const session = createSdkWalletSession({ DemosCtor, IdentitiesCtor: Identities, validateMnemonic, transactionTransport: transport, approve: async (request) => { approvals.push(request); return true; } });
   const { address } = await session.create();
   t.after(() => session.lock());
-  const send = () => session.request({ method: 'sendTransaction', params: [{ content: { type: 'native', from: address, to: PAYEE, amount: '2500000000', nonce: 1, data: ['native', { nativeOperation: 'send', args: [PAYEE, '2500000000'] }] },
+  const send = () => session.request({ method: 'sendTransaction', params: [{ content: { type: 'native', from: address, to: PAYEE, amount: '2500000000', nonce: chain.nonceOf(address) + 1, data: ['native', { nativeOperation: 'send', args: [PAYEE, '2500000000'] }] },
     signature: null, hash: '', status: '', blockNumber: null }] });
   return { chain, session, address, phases, rpcAuth, approvals, send };
 }
@@ -214,7 +213,6 @@ test('native send, fork active: a signature for another chain id is refused befo
 });
 
 for (const [label, domain] of [
-  ['the signatureDomain member is missing', { active: false, chainId: 7, answer: undefined }],
   ['the fork status is not a boolean', { active: false, chainId: 7, answer: { activated: 1 } }],
   ['active with no chain id', { active: true, chainId: undefined }],
   ['active with a negative chain id', { active: true, chainId: -3 }],
@@ -249,3 +247,41 @@ test('ordinary messages still sign and verify under SDK 4.0.20, and a page reque
   assert.equal(domainForm.error.code, 'transaction_preimage_refused');
   assert.equal(w.approvals.length, 1, 'only the ordinary message reached consent');
 });
+
+import { transactionDomainCases } from './helpers/transaction-domain-cases.mjs';
+transactionDomainCases('browser provider', async (t) => {
+  const domain = { active: false, chainId: 1 };
+  let form = 'bare';
+  class SelectedForm extends Demos {
+    async getNetworkInfo(...args) { this._cachedNetworkInfo = null; return super.getNetworkInfo(...args); }
+    async _isSignatureDomainActiveCached() { await this.getNetworkInfo(); return form === 'domain'; }
+    async _chainIdCached() { return (await this.getNetworkInfo()).chainId; }
+  }
+  const w = await nativeSession(t, { DemosCtor: SelectedForm, domain });
+  return async (answer, signedForm) => {
+    form = signedForm;
+    domain.active = signedForm === 'domain';
+    domain.chainId = answer.chainId;
+    domain.answer = answer.forks.signatureDomain;
+    const before = w.chain.broadcasts.length;
+    const result = await w.send();
+    if (result.success) return 'valid';
+    assert.equal(result.error.code, 'payload_mismatch', JSON.stringify(result));
+    assert.equal(w.chain.broadcasts.length, before, 'refusal sends nothing');
+    return 'invalid';
+  };
+});
+
+for (const [label, DemosCtor, success] of [
+  ['bare hash verifies', Demos, true],
+  ['domain form refuses', class extends Demos {
+    async _isSignatureDomainActiveCached() { await this.getNetworkInfo(); return true; }
+  }, false],
+]) {
+  test(`CREATE: missing signatureDomain member, ${label}`, async (t) => {
+    const w = await createSession(t, { DemosCtor, domain: { active: false, chainId: 7, answer: undefined } });
+    const result = await sendCreate(w);
+    if (success) assert.equal(result.success, true, JSON.stringify(result));
+    else refusedBeforeAnyEffect(w, result);
+  });
+}

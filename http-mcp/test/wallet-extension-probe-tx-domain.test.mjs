@@ -73,7 +73,7 @@ test('inactive fork: the bare-hash control is reported valid, and the domain for
 
 const UNREADABLE = [
   ['null', null], ['undefined', undefined], ['a string', 'active'], ['an array', []], ['an empty object', {}],
-  ['forks without the fork', { chainId: 7, forks: {} }], ['the fork is not an object', { chainId: 7, forks: { signatureDomain: true } }],
+  ['the fork is not an object', { chainId: 7, forks: { signatureDomain: true } }],
   ['the fork has no status', { chainId: 7, forks: { signatureDomain: {} } }],
   ['the status is a string', { chainId: 7, forks: { signatureDomain: { activated: 'true' } } }],
   ['the status is a number', { chainId: 7, forks: { signatureDomain: { activated: 1 } } }],
@@ -130,7 +130,7 @@ test('message checks stay exact-text on an active-fork chain', async () => {
 });
 
 // The page reads the node's answer through the probe's own route, owner only.
-async function network(chain, headers = { authorization: 'Bearer owner' }) {
+async function network(chain, headers = { authorization: 'Bearer owner' }, route = '/network') {
   const owner = { id: 'acct_owner', auth_issuer: 'issuer', auth_subject: 'subject' };
   const router = createWalletExtensionProbeRouter({ chain, logger: { warn() {} }, config: { walletExtensionProbe: true, authMode: 'builtin', walletExtensionProbeOwnerAccount: owner.id, builtinIssuer: 'issuer' },
     accounts: { getAccount: () => owner, walletOwner: () => owner.id }, authServer: null,
@@ -139,8 +139,8 @@ async function network(chain, headers = { authorization: 'Bearer owner' }) {
   const server = http.createServer(app);
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
   try {
-    const res = await fetch(`http://127.0.0.1:${server.address().port}/network`, { headers });
-    return [res.status, await res.json()];
+    const res = await fetch(`http://127.0.0.1:${server.address().port}${route}`, { headers });
+    return [res.status, route.endsWith('.mjs') && res.ok ? await res.text() : await res.json()];
   } finally { await new Promise((done) => { server.close(done); server.closeAllConnections(); }); }
 }
 
@@ -152,4 +152,42 @@ test('the probe\'s network route returns the configured node\'s answer to the ow
   }
   assert.deepEqual(await network({ getNetworkInfo: async () => ACTIVE_NETWORK }, {}), [404, { error: 'not_found' }]);
   assert.deepEqual(await network({ getNetworkInfo: async () => ACTIVE_NETWORK }, { authorization: 'Bearer someone-else' }), [404, { error: 'not_found' }]);
+});
+
+import { transactionDomainCases } from './helpers/transaction-domain-cases.mjs';
+transactionDomainCases('probe checks', async () => {
+  const seen = new Set();
+  return async (answer, form) => {
+    const requested = tx();
+    const signedFor = { chainId: answer.chainId, forks: { signatureDomain: { activated: form === 'domain' } } };
+    const signed = signedTransaction(wallet, requested, undefined, signedFor);
+    const result = await checkSignedTransaction(requested, signed, wallet.address, answer, seen);
+    const text = checks.txSignatureText(answer, signed.hash, seen);
+    assert.ok(seen.size <= 16, 'bounded session record');
+    return text === null ? 'unavailable' : result.signatureValid ? 'valid' : 'invalid';
+  };
+});
+
+for (const [label, later] of [['missing', { chainId: 1, forks: {} }], ['false', { chainId: 1, forks: { signatureDomain: { activated: false } } }]]) {
+  test(`probe adapter session: active chain 1 then ${label} refuses`, async () => {
+    let answer = { chainId: 1, forks: { signatureDomain: { activated: true } } };
+    const fake = fakeExtension({ wallet, signTransaction: (requested) => ({ success: true, data: signedTransaction(wallet, requested, undefined,
+      { chainId: 1, forks: { signatureDomain: { activated: answer.forks.signatureDomain?.activated === true } } }) }) });
+    const adapter = await probe(fake.provider, { readNetwork: async () => answer });
+    assert.equal((await adapter.signTransaction(tx())).signatureValid, true);
+    answer = later;
+    assert.equal((await adapter.signTransaction(tx())).signatureValid, false);
+  });
+}
+
+test('probe serves the shared transaction rule as a browser module through its asset route', async () => {
+  const route = '/assets/tx-signature.mjs';
+  const [status, source] = await network({}, { authorization: 'Bearer owner' }, route);
+  assert.equal(status, 200);
+  const { txSignatureText } = await import('data:text/javascript,' + encodeURIComponent(source));
+  const seen = new Set();
+  assert.equal(txSignatureText({ chainId: 1, forks: {} }, 'hash', seen), 'hash');
+  assert.equal(txSignatureText({ chainId: 1, forks: { signatureDomain: { activated: true } } }, 'hash', seen), 'demos-tx:v1:1:hash');
+  assert.equal(txSignatureText({ chainId: 1, forks: {} }, 'hash', seen), null);
+  assert.deepEqual(await network({}, {}, route), [404, { error: 'not_found' }]);
 });
