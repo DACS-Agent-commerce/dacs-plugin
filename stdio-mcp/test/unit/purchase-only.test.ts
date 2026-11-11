@@ -154,13 +154,17 @@ test('a fenced wallet refuses to stage an identity proof, with no approval sent 
   assert.equal(opens, 0);
 });
 
-test('a staged tool that does not sign is still staged on a fenced wallet', async (t) => {
-  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { fetchImpl: async () => new Response('{}', { status: 200 }) });
+test('a fenced wallet refuses to stage the faucet request too, with no approval sent and no faucet call', async (t) => {
+  let fetches = 0;
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { fetchImpl: async () => (fetches++, new Response('{}', { status: 200 })) });
   t.after(() => rmSync(h.config.stateDir, { recursive: true, force: true }));
   h.config.keystorePath = join(h.config.stateDir, 'wallet.keystore.json');
   writeFileSync(`${h.config.keystorePath}.purchase-only`, '');
   const r = await h.call('demos_onboard_fund');
-  assert.doesNotMatch(r.text, FENCED);
+  assert.equal(r.isError, true, r.text);
+  assert.match(r.text, FENCED);
+  assert.equal(h.channel.messages.length, 0, 'no approval request was sent to the human');
+  assert.equal(fetches, 0, 'the faucet was not called');
 });
 
 test('a marker beside a symlinked keystore path, or beside its target, fences the wallet', () => {
