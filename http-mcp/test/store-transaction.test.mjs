@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { openDatabase, transaction } from '../src/store/database.mjs';
 
 function twoConnections(t) {
@@ -16,7 +17,7 @@ function twoConnections(t) {
   // Fail at once on a held lock instead of waiting the configured 5 s.
   a.exec('PRAGMA busy_timeout = 0');
   b.exec('PRAGMA busy_timeout = 0');
-  t.after(() => { a.close(); b.close(); rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { for (const db of [a, b]) if (db.isOpen) db.close(); rmSync(dir, { recursive: true, force: true }); });
   return { a, b };
 }
 
@@ -52,29 +53,25 @@ test('a transaction that throws after BEGIN rolls back and the next one starts f
   assert.equal(count(a), 0);
   transaction(b, () => insert(b, 'TEST-second'));
   assert.equal(count(a), 1);
-  assert.throws(() => transaction(b, () => Promise.resolve()), /transaction bodies must be synchronous/);
-  assert.equal(b.isTransaction, false);
+  // A deferred result retires the connection (it is closed); the other connection can write again.
+  assert.throws(() => transaction(b, () => Promise.resolve()), (error) => error.code === 'purchase_store_async_result');
+  assert.equal(b.isOpen, false);
+  transaction(a, () => insert(a, 'TEST-after-retired'));
+  assert.equal(count(a), 2);
 });
 
-// wallet_nonce_consumptions was added without a schema bump: a state file
-// written before it (the same schema without that one table) opens unchanged,
-// keeps its schema_version and rows, and gains the empty table.
-test('a state file without wallet_nonce_consumptions keeps its schema_version and gains the table', (t) => {
+// A state file is never repaired on open: a missing table is a refusal, and the table stays missing.
+test('a state file without wallet_nonce_consumptions is refused and not repaired', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'dacs-store-schema-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const path = join(dir, 'state.db');
-  const tables = (db) => db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wallet_nonce_consumptions'").all().length;
-  const version = (db) => db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value;
   const older = openDatabase(path);
   older.exec('DROP TABLE wallet_nonce_consumptions');
   insert(older, 'TEST-kept');
-  const before = version(older);
-  assert.equal(tables(older), 0);
   older.close();
-  const db = openDatabase(path);
-  t.after(() => db.close());
-  assert.equal(version(db), before);
-  assert.equal(tables(db), 1);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM wallet_nonce_consumptions').get().n, 0);
-  assert.equal(count(db), 1);
+  assert.throws(() => openDatabase(path), (error) => error.code === 'purchase_state_schema_mismatch');
+  const inspected = new DatabaseSync(path, { readOnly: true });
+  t.after(() => inspected.close());
+  assert.equal(inspected.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'wallet_nonce_consumptions'").get().n, 0);
+  assert.equal(count(inspected), 1);
 });
