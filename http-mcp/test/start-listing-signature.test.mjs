@@ -67,6 +67,17 @@ const refuses = (promise, field, reason) => assert.rejects(promise, (error) => {
   return true;
 });
 
+// The seller's bundle changed by edit(bundleWithoutPresentation), presented with
+// `presentation` (default: the seller's own per-claim signature over the new
+// bundle hash), and the Listing signed again, so only the identity differs.
+function withIdentity(listing, seller, edit, presentation) {
+  const { presentation: old, ...bundle } = listing.seller.identity;
+  const next = edit(structuredClone(bundle));
+  const value = seller.signBytes(signedBytes('dacs-bundle-presentation:v1:', sha256Hex(canonicalize(next)))).toString('base64url');
+  const identity = { ...next, presentation: presentation ?? { kind: 'per-claim', signatures: [{ ref: seller.claim, signature: value }] } };
+  return resign({ ...listing, seller: { ...listing.seller, identity } }, seller);
+}
+
 // A browser whose WebCrypto lacks Ed25519: digests work, importing an Ed25519 key does not.
 async function withoutEd25519(run) {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
@@ -183,5 +194,45 @@ test('preserve-unknown Listing vectors: hash and signature', async (t) => {
       assert.equal(hashOf(listing), v.want.computedArtifactHash);
       assert.equal(await verifies(listing), v.want.signature === 'valid');
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Check 3: the seller's identity carries the signing key
+// ---------------------------------------------------------------------------
+
+test('a Listing whose seller identity presentation signatures were emptied is refused', async () => {
+  const s = await scenario({ mutate: (listing, seller) => withIdentity(listing, seller, (b) => b, { kind: 'per-claim', signatures: [] }) });
+  await refuses(s.run(), 'listing', /identity presentation does not sign every claim/);
+});
+
+test('a seller identity presentation signed by another key is refused', async () => {
+  const s = await scenario({ mutate: (listing, seller, other) => withIdentity(listing, seller, (b) => b, {
+    kind: 'per-claim', signatures: [{ ref: seller.claim, signature: other.signBytes(signedBytes('dacs-bundle-presentation:v1:', sha256Hex(canonicalize((({ presentation, ...b }) => b)(listing.seller.identity))))).toString('base64url') }] }) });
+  await refuses(s.run(), 'listing', /identity presentation does not verify under the seller’s key/);
+});
+
+test('a seller identity changed after its presentation was signed is refused', async () => {
+  const s = await scenario({ mutate: (listing, seller) => {
+    const { presentation } = listing.seller.identity;
+    return withIdentity(listing, seller, (b) => ({ ...b, presentedAt: b.presentedAt + 1 }), presentation);
+  } });
+  await refuses(s.run(), 'listing', /identity presentation does not verify under the seller’s key/);
+});
+
+test('a seller identity that does not name the signing key is refused', async () => {
+  const s = await scenario({ mutate: (listing, seller, other) => withIdentity(listing, seller, (b) => ({ ...b, claims: [{ ref: other.claim }] })) });
+  await refuses(s.run(), 'listing', /identity does not name the key that signed the Listing/);
+});
+
+test('a seller identity holding a claim this browser cannot verify is refused, naming its kind', async () => {
+  const s = await scenario({ mutate: (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, claims: [...b.claims, { ref: 'lei:529900T8BM49AURSDO55' }] })) });
+  await refuses(s.run(), 'listing', /holds a lei claim, which this wallet cannot verify/);
+});
+
+test('a seller identity with a presentation kind this browser cannot verify is refused', async () => {
+  for (const presentation of [{ kind: 'siwd', message: 'm', signature: 's', address: 'a' }, { kind: 'session-key', key: 'k', signature: 's' }, { kind: 'sr1-root', rootClaim: 'did:demos:agent:' + 'a'.repeat(64), aggregateSignature: 's' }]) {
+    const s = await scenario({ mutate: (listing, seller) => withIdentity(listing, seller, (b) => b, presentation) });
+    await refuses(s.run(), 'listing', new RegExp(`presentation of kind ${presentation.kind} cannot be verified in this browser`));
   }
 });

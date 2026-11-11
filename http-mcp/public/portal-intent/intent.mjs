@@ -207,6 +207,27 @@ export function intentProfile(terms) {
   return null;
 }
 
+// DACS-1 §6.3.2 bundle presentation: every claim in the seller's bundle must be
+// a Demos agent key (the only claim whose control this browser can verify) with
+// its own per-claim signature over "dacs-bundle-presentation:v1:" || bundle
+// hash. The signing key is the presenter and one of those claims.
+async function verifySellerIdentity(identity, bundleHash, seller, bad) {
+  const claims = identity.claims;
+  if (!Array.isArray(claims) || !claims.length || !claims.every((c) => plain(c) && typeof c.ref === 'string')) bad('identity has no well-formed claims');
+  const refs = claims.map((c) => c.ref);
+  if (new Set(refs).size !== refs.length || !refs.includes(seller)) bad('identity does not name the key that signed the Listing');
+  const foreign = refs.find((ref) => !DID.test(ref));
+  if (foreign !== undefined) bad(`identity holds a ${/^[a-z][a-z0-9-]{0,31}(?=:)/.exec(foreign)?.[0] ?? 'malformed'} claim, which this wallet cannot verify`);
+  const presentation = identity.presentation;
+  if (plain(presentation) && presentation.kind !== 'per-claim') bad(`identity presentation of kind ${typeof presentation.kind === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(presentation.kind) ? presentation.kind : 'unknown'} cannot be verified in this browser`);
+  if (!exactKeys(presentation, ['kind', 'signatures']) || !Array.isArray(presentation.signatures) || presentation.signatures.length !== refs.length
+    || !presentation.signatures.every((s) => exactKeys(s, ['ref', 'signature']))) bad('identity presentation does not sign every claim');
+  for (const ref of refs) {
+    const entry = presentation.signatures.find((s) => s.ref === ref);
+    if (!entry || !await ed25519Valid(ref, `${PRESENTATION_SEPARATOR}${bundleHash}`, entry.signature)) bad('identity presentation does not verify under the seller’s key');
+  }
+}
+
 // The pinned Listing, checked against the Listing hash in the terms and signed
 // by its seller (DACS-1 §6.3.4), and the Agreement material derived from it
 // exactly as the SDK's deriveFixedPriceAgreement does: deliverable, price,
@@ -229,6 +250,8 @@ async function listingTerms(listing, t, seller) {
   if (signature.algorithm !== 'ed25519') bad('is signed with an algorithm this wallet cannot check');
   if (signature.signer !== seller) bad('is signed by someone other than its seller');
   if (!await ed25519Valid(signature.signer, `${LISTING_SEPARATOR}${listingHash}`, signature.value)) bad('signature does not verify for its seller, or the Listing was changed after it was signed');
+  const sellerBundleHash = await sha256Hex(canonicalJson(withoutKeys(identity, ['presentation'])));
+  await verifySellerIdentity(identity, sellerBundleHash, seller, bad);
   const pipeline = listing.pipeline;
   if (!Array.isArray(pipeline) || canonicalJson(pipeline.map((x) => x?.kind ?? null)) !== canonicalJson(SUPPORTED_PIPELINE) || pipeline[PAYMENT_PHASE_INDEX].parameters?.rail !== DEM_RAIL) bad('is not the fixed-price pay-dem pipeline');
   const price = listing.pricing?.price;
@@ -248,7 +271,7 @@ async function listingTerms(listing, t, seller) {
     rail,
     deadlineAfterMs: seconds * 1000,
     validity: { notBefore: validity.notBefore, ...(validity.notAfter === undefined ? {} : { notAfter: validity.notAfter }) },
-    sellerBundleHash: await sha256Hex(canonicalJson(withoutKeys(identity, ['presentation']))),
+    sellerBundleHash,
   });
 }
 
