@@ -20,13 +20,50 @@ call MCP tools; the human holds the wallet. The design goal is:
 | Emergency stop | `~/.demos-mcp/KILL` refuses every prepare and submit while it exists. |
 | Model guesses the code | 40-bit code from a CSPRNG; HMAC-stored with a per-process key, constant-time compare; 3 attempts per action, then void; 10 failures lock writes for the process. |
 | Approval for a benign action reused for a malicious one | Each approval (page link or code) is bound to `(prepared_id, action digest)`. The digest covers kind, network, RPC, from, to, amount and fee quote. At submit, the signed bytes must match those approved fields before they are transmitted. Approvals are single use. A new prepare voids any older pending action, including under concurrent prepares; only the newest survives. A decision made while channels are still delivering is kept, and a deny voids the action. |
-| Overspend | Daily cap (amount + quoted fee) is checked at prepare and reserved at submit under a cross-process lock file. The unused part is released only when it provably never left the process. The ledger is persisted; a corrupt ledger blocks writes. Optional recipient allow-list. |
+| Overspend | Daily cap (amount + quoted fee) is checked at prepare and reserved at submit under a cross-process lock file. Each reservation is recorded with its own price, network fee and storage fee, and a release frees only that reservation's parts. A write that completed, or failed with a known fee, keeps the price and the fee paid and frees the rest of the quoted fee; a write that is pending or whose outcome is unknown keeps its whole reservation. The ledger is persisted; a corrupt ledger, or open reservations that add up to more than their day's total, block writes until the human fixes the ledger (see "Clearing an open reservation" below). A lock held by a running process is never removed because of its age; after a crash, the human removes `spend-ledger.json.lock` from the state directory. Optional recipient allow-list. |
 | Accidental mainnet use | Testnet default. Mainnet needs `DEMOS_NETWORK=mainnet` + `DEMOS_ALLOW_MAINNET=1` + explicit RPC. Testnet writes and faucet requests are refused in this release. |
 | Key material in outputs | Keys load only from an encrypted keystore or chmod-600 file named by the operator — never from tool arguments. Mnemonic, derived private key, passphrase and codes are registered with `SecretGuard`; every tool result and error string is scanned and blocked on a match (full secret, 24-char fragments of key hex/base64, any 4-word run of the mnemonic, or key-named JSON fields). SDK console output is redirected to stderr and redacted. Tool error messages pass through the guard; MCP schema errors are written so they do not echo input values. |
 | Double spend on broadcast timeout | The server never re-signs or re-broadcasts. An ambiguous broadcast outcome (timeout, transport error, non-200) is reported as `pending` after polling the same hash, never as `failed`. Note: the SDK transport itself may retry the *same* signed transaction on 5xx; that cannot spend twice (same hash and nonce). |
 | Displayed action differs from the signed one | The card shows the approved intent (type, sender, recipient, amount) and a maximum fee quote. At submit, the locally signed bytes must match that intent, with a hash-covered fee at or below the quote, before they are transmitted. The node's confirmation must echo the same hash and fee. Any mismatch refuses. |
 | Malformed / hostile DACS artifacts | Strict SIG-6 decoding, domain separation, required-signer rules, CD-1 prices, discriminator checks, CF-5 duplicate-member rejection for JSON text; unresolvable keys, missing session context and Demos not-found are `indeterminate`, never `accept`. |
 | Forged lines in the out-of-band message | Control characters (newlines, ANSI escapes, bidi overrides) are replaced in every confirmation line, so model-supplied text (memo, URLs, claims) cannot add or overwrite summary lines; memo and job_id are printable ASCII only. |
+
+### Clearing an open reservation
+
+A reservation left open by a write that ended `pending` or `unknown` is never
+settled or released by the plugin. It stays in the ledger, and its whole quoted
+amount stays charged to the day it was made on, until the human clears it. The
+plugin has no tool that releases or settles a reservation by hand; the only way
+is to edit the ledger file, as follows.
+
+1. **See it.** Open `spend-ledger.json` in the state directory (`DEMOS_STATE_DIR`,
+   default `~/.demos-mcp`). Each open reservation is an entry in `reservations`
+   with its `id`, `day` and its three parts in OS (`priceOs`, `networkFeeOs`,
+   `storageFeeOs`); `days` holds each day's total in OS. The entry does not hold the
+   transaction hash. Find the hash in the `demos_tx_submit` result of that write
+   (for an `unknown` outcome it is the locally computed hash) and match the entry by
+   its day and amounts.
+2. **Check what really happened.** Call `demos_tx_get` with that hash. `included`
+   or `failed` is final. `pending` means wait and ask again. `not_found` and
+   `unknown` are not proof that the transaction will never land, so ask again
+   later, and check the account's balance and history with another source, before
+   treating the write as not sent.
+3. **Release or settle it.** Only once the outcome is final. Stop every demos-mcp
+   process that uses the state directory and keep a copy of `spend-ledger.json`.
+   Then remove the entry from `reservations`, and lower `days[<day>]` by the
+   part of the entry that was not spent. That is all three parts if the write
+   never landed. If it was `included` or `failed` with a fee paid, it is the entry's total
+   minus the price and fee paid, which stay charged. Keep the numbers as decimal
+   strings. Removing the entry without lowering the day's total is also safe: the
+   whole amount then stays charged as older debit.
+4. **Do not** delete the ledger file (that resets the cap and is the opposite of
+   a fix), or release a reservation for a write that may still land: it could then
+   be spent twice against the cap.
+
+If the ledger is refused because open reservations add up to more than their
+day's total, the day named in the error is the one to fix: the total must be at
+least the sum of that day's open reservations, so either remove the entries that
+are settled (step 3) or correct the total.
 
 ## Signing happens only after approval, and is checked before it leaves
 
