@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "status": "violation",
+  "exitCode": 1,
+  "summary": {
+    "graph": {
+      "violations": 1,
+      "unverifiable": 0,
+      "status": "violation",
+      "rules": {
+        "local-protocol-primitive": 1
+      }
+    },
+    "inventory": {
+      "violations": 0,
+      "unverifiable": 0,
+      "status": "pass",
+      "rules": {}
+    },
+    "overall": {
+      "violations": 1,
+      "unverifiable": 0,
+      "status": "violation",
+      "exitCode": 1
+    }
+  },
+  "entries": [
+    {
+      "name": "dacs_search",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    },
+    {
+      "name": "dacs_get_listing",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    },
+    {
+      "name": "dacs_buy_prepare",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    },
+    {
+      "name": "dacs_buy",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    },
+    {
+      "name": "dacs_purchase_status",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    }
+  ],
+  "modules": [
+    "src/server.ts"
+  ],
+  "edges": [
+    {
+      "from": "src/server.ts",
+      "to": "node_modules/@kynesyslabs/dacs-client/index.js",
+      "kind": "package",
+      "typeOnly": false
+    }
+  ],
+  "violations": [
+    {
+      "rule": "local-protocol-primitive",
+      "file": "src/server.ts",
+      "line": 9,
+      "detail": "job-id:deriveJobId",
+      "entry": "dacs_search",
+      "chain": [
+        "src/server.ts"
+      ],
+      "chainKind": "import"
+    }
+  ],
+  "unverifiable": [],
+  "waivers": [
+    {
+      "file": "src/server.ts",
+      "line": 8,
+      "primitive": "canonical-json",
+      "reason": "display-only text, never signed"
+    }
+  ],
+  "skipped": []
+}

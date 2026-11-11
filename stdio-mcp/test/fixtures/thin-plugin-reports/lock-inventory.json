@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "status": "violation",
+  "exitCode": 1,
+  "summary": {
+    "graph": {
+      "violations": 0,
+      "unverifiable": 0,
+      "status": "pass",
+      "rules": {}
+    },
+    "inventory": {
+      "violations": 6,
+      "unverifiable": 0,
+      "status": "violation",
+      "rules": {
+        "non-registry-lock-resolution": 1,
+        "entry-does-not-reach-client": 5
+      }
+    },
+    "overall": {
+      "violations": 6,
+      "unverifiable": 0,
+      "status": "violation",
+      "exitCode": 1
+    }
+  },
+  "entries": [
+    {
+      "name": "dacs_search",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": false
+    },
+    {
+      "name": "dacs_get_listing",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": false
+    },
+    {
+      "name": "dacs_buy_prepare",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": false
+    },
+    {
+      "name": "dacs_buy",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": false
+    },
+    {
+      "name": "dacs_purchase_status",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": false
+    }
+  ],
+  "modules": [
+    "node_modules/@kynesyslabs/dacs-client/index.js",
+    "src/server.ts"
+  ],
+  "edges": [
+    {
+      "from": "src/server.ts",
+      "to": "node_modules/@kynesyslabs/dacs-client/index.js",
+      "kind": "local",
+      "typeOnly": false
+    }
+  ],
+  "violations": [
+    {
+      "rule": "non-registry-lock-resolution",
+      "file": "package-lock.json",
+      "line": 0,
+      "detail": "packages[\"node_modules/@kynesyslabs/dacs-client\"] (@kynesyslabs/dacs-client)",
+      "chainKind": "inventory",
+      "chain": [
+        "dependency/entry inventory",
+        "package-lock.json"
+      ],
+      "entry": null
+    },
+    {
+      "rule": "entry-does-not-reach-client",
+      "file": ".",
+      "line": 0,
+      "detail": "dacs_search:src/server.ts",
+      "chainKind": "inventory",
+      "chain": [
+        "dependency/entry inventory",
+        "."
+      ],
+      "entry": null
+    },
+    {
+      "rule": "entry-does-not-reach-client",
+      "file": ".",
+      "line": 0,
+      "detail": "dacs_get_listing:src/server.ts",
+      "chainKind": "inventory",
+      "chain": [
+        "dependency/entry inventory",
+        "."
+      ],
+      "entry": null
+    },
+    {
+      "rule": "entry-does-not-reach-client",
+      "file": ".",
+      "line": 0,
+      "detail": "dacs_buy_prepare:src/server.ts",
+      "chainKind": "inventory",
+      "chain": [
+        "dependency/entry inventory",
+        "."
+      ],
+      "entry": null
+    },
+    {
+      "rule": "entry-does-not-reach-client",
+      "file": ".",
+      "line": 0,
+      "detail": "dacs_buy:src/server.ts",
+      "chainKind": "inventory",
+      "chain": [
+        "dependency/entry inventory",
+        "."
+      ],
+      "entry": null
+    },
+    {
+      "rule": "entry-does-not-reach-client",
+      "file": ".",
+      "line": 0,
+      "detail": "dacs_purchase_status:src/server.ts",
+      "chainKind": "inventory",
+      "chain": [
+        "dependency/entry inventory",
+        "."
+      ],
+      "entry": null
+    }
+  ],
+  "unverifiable": [],
+  "waivers": [],
+  "skipped": []
+}
