@@ -217,7 +217,7 @@ test('a newer Start during a durable signature claim makes no SDK request', asyn
 async function withListing(mutate) {
   const f = await facts(); f.view.start.listing = structuredClone(f.p.listing); mutate(f.view.start.listing);
   // The changed Listing is signed again by its seller, so only the change is under test.
-  const { signature: _unsigned, ...draft } = f.view.start.listing;
+  const draft = Object.fromEntries(Object.entries(f.view.start.listing).filter(([key]) => key !== 'signature'));
   f.view.start.listing = { ...draft, signature: { algorithm: 'ed25519', signer: f.p.seller.claim, value: f.p.seller.signBytes(signedBytes('dacs-listing:v1:', contentHash(draft))).toString('base64url') } };
   f.view.terms.listing.contentHash = contentHash(f.view.start.listing); f.view.termsHash = sha256Hex(canonicalize(f.view.terms));
   return f;
@@ -246,7 +246,7 @@ test('Start accepts urn: and https: deliverable schemas', async () => {
 test('the dialog shows the deliverable, generation time and both identity hashes', async () => {
   const f = await facts(); const lines = describeIntent(f.intent).split('\n');
   const deliverable = f.p.listing.offering.deliverable;
-  const { presentation: _presentation, ...sellerIdentity } = f.p.listing.seller.identity;
+  const sellerIdentity = Object.fromEntries(Object.entries(f.p.listing.seller.identity).filter(([key]) => key !== 'presentation'));
   for (const line of [
     `Deliverable: ${deliverable.kind} (schema ${deliverable.schemaUrl}), hash ${sha256Hex(canonicalize(deliverable))}`,
     `Agreement generated at: ${new Date(now).toISOString()}`,

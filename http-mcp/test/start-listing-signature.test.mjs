@@ -22,11 +22,14 @@ const vectors = (file) => JSON.parse(readFileSync(new URL(`./fixtures/standard-v
 
 // DACS-1 §6.3.4: the CF-1 canonical form with the top-level signature member
 // omitted, every other member kept, hashed with SHA-256.
-const listingHash = ({ signature, ...rest }) => sha256Hex(canonicalize(rest));
+// A copy of an object without the named members.
+const omit = (object, ...keys) => Object.fromEntries(Object.entries(object).filter(([key]) => !keys.includes(key)));
+
+const listingHash = (listing) => sha256Hex(canonicalize(omit(listing, 'signature')));
 
 // Signs the Listing as its seller does: "dacs-listing:v1:" || Listing hash.
 function resign(listing, signer, as = signer.claim) {
-  const { signature, ...draft } = listing;
+  const draft = omit(listing, 'signature');
   const value = signer.signBytes(signedBytes('dacs-listing:v1:', listingHash(draft))).toString('base64url');
   return { ...draft, signature: { algorithm: 'ed25519', signer: as, value } };
 }
@@ -71,7 +74,7 @@ const refuses = (promise, field, reason) => assert.rejects(promise, (error) => {
 // `presentation` (default: the seller's own per-claim signature over the new
 // bundle hash), and the Listing signed again, so only the identity differs.
 function withIdentity(listing, seller, edit, presentation) {
-  const { presentation: old, ...bundle } = listing.seller.identity;
+  const bundle = omit(listing.seller.identity, 'presentation');
   const next = edit(structuredClone(bundle));
   const value = seller.signBytes(signedBytes('dacs-bundle-presentation:v1:', sha256Hex(canonicalize(next)))).toString('base64url');
   const identity = { ...next, presentation: presentation ?? { kind: 'per-claim', signatures: [{ ref: seller.claim, signature: value }] } };
@@ -114,7 +117,7 @@ test('control: a correctly signed Listing is accepted and the dialog shows its t
 });
 
 test('a Listing with no signature is refused', async () => {
-  const s = await scenario({ mutate: ({ signature, ...listing }) => listing });
+  const s = await scenario({ mutate: (listing) => omit(listing, 'signature') });
   await refuses(s.run(), 'listing', /is not signed/);
 });
 
@@ -224,7 +227,7 @@ test('a Listing whose seller identity presentation signatures were emptied is re
 
 test('a seller identity presentation signed by another key is refused', async () => {
   const s = await scenario({ mutate: (listing, seller, other) => withIdentity(listing, seller, (b) => b, {
-    kind: 'per-claim', signatures: [{ ref: seller.claim, signature: other.signBytes(signedBytes('dacs-bundle-presentation:v1:', sha256Hex(canonicalize((({ presentation, ...b }) => b)(listing.seller.identity))))).toString('base64url') }] }) });
+    kind: 'per-claim', signatures: [{ ref: seller.claim, signature: other.signBytes(signedBytes('dacs-bundle-presentation:v1:', sha256Hex(canonicalize(omit(listing.seller.identity, 'presentation'))))).toString('base64url') }] }) });
   await refuses(s.run(), 'listing', /identity presentation does not verify under the seller’s key/);
 });
 
@@ -270,7 +273,7 @@ test('a signed Listing carrying a revocationState is refused: the wallet cannot 
 });
 
 test('a malformed identity bundle is refused', async () => {
-  const unsigned = (listing) => (({ presentation, ...bundle }) => bundle)(listing.seller.identity);
+  const unsigned = (listing) => omit(listing.seller.identity, 'presentation');
   const cases = {
     'bundle version 2': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, bundleVersion: '2' })),
     'presentedAt as a string': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, presentedAt: '1' })),
@@ -327,7 +330,7 @@ test('buyer requirements that break the shape are refused', async () => {
 const logicalAddress = (claim, id, version) => `dacs1:${claim.replace(/:/g, '%3A')}:${id}:v${version}`;
 
 test('terms that name no SR-2 anchor are refused', async () => {
-  const s = await scenario({ listingRef: ({ anchor, ...ref }) => ref });
+  const s = await scenario({ listingRef: (ref) => omit(ref, 'anchor') });
   assert.equal(s.terms.listing.anchor, undefined);
   await refuses(s.run(), 'anchor', /name no SR-2 anchor/);
 });
@@ -335,7 +338,7 @@ test('terms that name no SR-2 anchor are refused', async () => {
 test('terms that name a malformed anchor are refused', async () => {
   for (const anchor of [null, 'stor-' + 'a'.repeat(40), { kind: 'storage-program' }, { locator: ANCHOR.locator }, { kind: 'ipfs', locator: ANCHOR.locator },
     { kind: 'storage-program', locator: 7 }, { ...ANCHOR, extra: true }]) {
-    const s = await scenario({ listingRef: ({ anchor: old, ...ref }) => ({ ...ref, anchor }) });
+    const s = await scenario({ listingRef: (ref) => ({ ...omit(ref, 'anchor'), anchor }) });
     await refuses(s.run(), 'anchor', /name no SR-2 anchor/);
   }
 });
