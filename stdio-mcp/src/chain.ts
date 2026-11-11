@@ -134,8 +134,10 @@ function feeFieldToOs(v: unknown, osActive: boolean): bigint {
   if (typeof v === 'bigint') return v;
   if (typeof v === 'number') {
     if (!Number.isFinite(v) || v < 0) throw new Error('unparseable fee');
-    // JSON numbers are OS after the fork, DEM before it.
-    return BigInt(Math.round(osActive ? v : v * 1e9));
+    // Same rule as the SDK's runner (feeFieldToOs): a JSON number is DEM (pre-fork wire shape).
+    // Live post-fork confirm responses carry integer OS strings, which the string branch handles.
+    void osActive;
+    return BigInt(Math.round(v * 1e9));
   }
   if (typeof v === 'string') {
     const s = v.trim();

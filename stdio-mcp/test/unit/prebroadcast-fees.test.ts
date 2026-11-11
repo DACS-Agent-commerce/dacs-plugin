@@ -12,7 +12,6 @@ const CASES = [
   ['null additional_fee is zero', { network_fee: '1', rpc_fee: '2', additional_fee: null }],
   ['absent additional_fee is zero', { network_fee: '1', rpc_fee: '2' }],
   ['decimal strings retain DEM parsing', { network_fee: '0.000000001', rpc_fee: '0.000000002', additional_fee: '0.0' }],
-  ['JSON numbers are OS', { network_fee: 1, rpc_fee: 2, additional_fee: 0 }],
 ] as const;
 
 for (const [name, fees] of CASES) {
@@ -24,10 +23,16 @@ for (const [name, fees] of CASES) {
   }
 
   test(`post-fork preparePay before broadcast: ${name}`, async (t) => {
+    await preparePayWithFees(t, fees, { network_fee: '1', rpc_fee: '2', additional_fee: '0' }, 3n);
+  });
+}
+
+async function preparePayWithFees(t: any, fees: unknown, signedFee: unknown, expectedFee: bigint) {
+  {
     const content = {
       type: 'native', from: FROM, to: ADDR_B, amount: '5000000000', nonce: '4',
       data: ['native', { nativeOperation: 'send', args: [ADDR_B, '5000000000'] }],
-      transaction_fee: typeof fees.network_fee === 'number' ? fees : { network_fee: '1', rpc_fee: '2', additional_fee: '0' }, gcr_edits: [],
+      transaction_fee: signedFee, gcr_edits: [],
     };
     const hash = createHash('sha256').update(denomination.serializeTransactionContent(content as any, true), 'utf8').digest('hex');
     const tx = { hash, content, signature: { data: 'signed' } };
@@ -52,13 +57,27 @@ for (const [name, fees] of CASES) {
     });
     t.mock.method(Demos.prototype, 'broadcast', async () => { broadcasts++; throw new Error('unexpected broadcast'); });
     const wallet = await new DemosChain('http://127.0.0.1:1', new SecretGuard()).openWallet(MNEMONIC);
-    const prepared = await wallet.preparePay(ADDR_B, 5_000_000_000n, 3n);
+    const prepared = await wallet.preparePay(ADDR_B, 5_000_000_000n, expectedFee);
     assert.equal(prepared.hash, hash);
-    assert.equal(prepared.feeOs, 3n);
+    assert.equal(prepared.feeOs, expectedFee);
     assert.equal(confirms, 1);
     assert.equal(broadcasts, 0);
+  }
+}
+
+for (const source of ['gas_operation', 'transaction'] as const) {
+  test(`post-fork feeFromValidity (${source}): a JSON number fee is DEM before broadcast`, () => {
+    const fees = { network_fee: 5 };
+    const data = source === 'gas_operation' ? { gas_operation: { fees } } : { transaction: { content: { transaction_fee: fees } } };
+    assert.equal(feeFromValidity({ response: { data } }, true), 5_000_000_000n);
+    assert.equal(feeFromValidity({ response: { data } }, false), 5_000_000_000n);
   });
 }
+
+test('post-fork preparePay before broadcast: a JSON number confirm fee is DEM', async (t) => {
+  const fees = { network_fee: 5 };
+  await preparePayWithFees(t, fees, { network_fee: '5000000000', rpc_fee: '0', additional_fee: '0' }, 5_000_000_000n);
+});
 
 test('post-fork feeFromValidity retains trimmed strings, leading zeros and bigint fees', () => {
   const fees = { network_fee: ' 01 ', rpc_fee: 2n, additional_fee: null };
