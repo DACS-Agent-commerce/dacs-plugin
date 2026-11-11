@@ -18,8 +18,9 @@ inputs). It runs on the
 container declared in the workflow, Node `22.23.3` and
 `npm ci --ignore-scripts --omit=optional --no-audit --no-fund` in `http-mcp/` (the
 optional cross-chain bridge packages of the Demos SDK are not installed), and in
-`http-mcp/wallet-build/` (the pinned Demos SDK the embedded wallet's payment and
-broadcast tests need). Before each of those two installs the job runs
+`http-mcp/wallet-build/` without `--omit=optional` (the pinned Demos SDK the
+embedded wallet's payment and broadcast tests need; esbuild's platform binary is an
+optional package). Before each of those two installs the job runs
 `node ../scripts/ci/sdk-input.mjs --prepare http-mcp`, and the `public-gate`
 workflow runs `node scripts/ci/sdk-input.mjs --prepare root` before its root
 install. A forbidden SDK input (a path, `file:`, `link:` or vendored spec or

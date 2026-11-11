@@ -6,10 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const flag = /--omit=optional(?:[\s'"\],;&|]|$)/;
+// The wallet-build install is the one install that must keep optional packages:
+// esbuild's platform binary is an optional dependency.
+const walletBuildStep = /^( *)- run: [^\n]*\n\1 {2}working-directory: http-mcp\/wallet-build\n/gm;
 
 function missingFlags(file, source) {
   // Preserve offsets for diagnostics, including continued shell commands.
   const code = source.replace(/^\s*(?:\/\/|#)[^\n]*/gm, (s) => s.replace(/[^\n]/g, ' '))
+    .replace(walletBuildStep, (s) => s.replace(/[^\n]/g, ' '))
     .replace(/\\\r?\n/g, (s) => ' '.repeat(s.length));
   const commands = /\b(installOffline)\([^,]*,\s*\[[^\]]*\]|\bnpm\s+(?:ci|install)\b[^\n;&|`'"]*|\[\s*(?:npmCli\(['"]npm['"]\)\s*,\s*)?['"](?:ci|install)['"][^\]]*\]/g;
   return [...code.matchAll(commands)].filter(([command, helper]) => !helper && !flag.test(command))
@@ -41,6 +45,27 @@ test('http-mcp installs always pass --omit=optional', () => {
   const helper = readFileSync(join(root, 'http-mcp/scripts/candidate-archives.mjs'), 'utf8');
   assert.match(helper, /export const installOffline\b[^;]*\.\.\.npmArgs[^;]*['"]--omit=optional['"]/);
   assert.equal(existsSync(join(root, 'http-mcp/.npmrc')), false);
+});
+
+test('wallet-build installs keep optional packages so esbuild finds its platform binary', () => {
+  const lock = JSON.parse(readFileSync(join(root, 'http-mcp/wallet-build/package-lock.json'), 'utf8'));
+  assert.equal(lock.packages['node_modules/@esbuild/linux-x64'].optional, true);
+  const workflow = readFileSync(join(root, '.github/workflows/http-mcp-tests.yml'), 'utf8');
+  const installs = [...workflow.matchAll(/^ *- run: (npm (?:ci|install)[^\n]*)\n *working-directory: http-mcp\/wallet-build\n/gm)];
+  assert.equal(installs.length, 1);
+  assert.doesNotMatch(installs[0][1], /--omit=optional/);
+  const instructions = readFileSync(join(root, 'http-mcp/docs/EMBEDDED-WALLET-SDK.md'), 'utf8');
+  const buildInstall = instructions.match(/^cd wallet-build\n(npm (?:ci|install)[^\n]*)\n/m);
+  assert.ok(buildInstall, 'the build instructions show the wallet-build install');
+  assert.doesNotMatch(buildInstall[1], /--omit=optional/);
+});
+
+test('install flag fixture exempts only a workflow step that runs in wallet-build', () => {
+  const step = (directory) => `    steps:\n      - run: npm ci --ignore-scripts\n        working-directory: ${directory}\n`;
+  assert.deepEqual(missingFlags('workflow.yml', step('http-mcp/wallet-build')), []);
+  assert.deepEqual(missingFlags('workflow.yml', step('http-mcp')), [
+    'workflow.yml:2: install requires --omit=optional',
+  ]);
 });
 
 test('install flag fixture reports the file and line of each missing flag', () => {
