@@ -4,14 +4,53 @@
  * fee immediately before broadcast. The ledger is persisted so a restart does
  * not reset the cap; an unreadable ledger blocks writes (fail closed).
  * Days are UTC.
+ *
+ * Each day has a debit total. Every open reservation is also a record of its own
+ * (price, network fee and storage fee) charged to the day it was made, so a release
+ * frees only that record's parts, whenever and in whichever process it runs.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, openSync, closeSync, unlinkSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, openSync, closeSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { osToDem } from './amount.js';
+
+/** The parts of one reservation, in OS. Together they are the approved maximum. */
+export interface ReservationParts {
+  priceOs: bigint;
+  networkFeeOs: bigint;
+  storageFeeOs: bigint;
+}
+
+const PART_KEYS = ['priceOs', 'networkFeeOs', 'storageFeeOs'] as const;
+const DECIMAL = /^[0-9]+$/;
+const UTC_DAY = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
+
+/** An open reservation as stored: its parts are decimal strings. */
+interface ReservationRecord {
+  id: string;
+  day: string;
+  priceOs: string;
+  networkFeeOs: string;
+  storageFeeOs: string;
+}
 
 interface LedgerFile {
   version: 1;
   days: Record<string, string>;
+  reservations?: ReservationRecord[];
+}
+
+const partsOf = (r: ReservationRecord): ReservationParts => ({ priceOs: BigInt(r.priceOs), networkFeeOs: BigInt(r.networkFeeOs), storageFeeOs: BigInt(r.storageFeeOs) });
+const totalOs = (p: ReservationParts): bigint => p.priceOs + p.networkFeeOs + p.storageFeeOs;
+const clampOs = (v: bigint, max: bigint): bigint => (v < 0n ? 0n : v > max ? max : v);
+
+const isDecimal = (v: unknown): boolean => typeof v === 'string' && DECIMAL.test(v);
+
+function isReservationRecord(r: unknown): r is ReservationRecord {
+  if (typeof r !== 'object' || r === null) return false;
+  const id: unknown = Reflect.get(r, 'id');
+  const day: unknown = Reflect.get(r, 'day');
+  return typeof id === 'string' && id !== '' && typeof day === 'string' && UTC_DAY.test(day) && PART_KEYS.every((k) => isDecimal(Reflect.get(r, k)));
 }
 
 export class SpendCapError extends Error {
@@ -78,9 +117,32 @@ export class SpendLedger {
       throw new SpendCapError(`spend ledger ${this.path} has an unknown format; writes are blocked`);
     }
     for (const v of Object.values(f.days)) {
-      if (typeof v !== 'string' || !/^[0-9]+$/.test(v)) throw new SpendCapError('spend ledger is corrupted; writes are blocked');
+      if (!isDecimal(v)) throw new SpendCapError('spend ledger is corrupted; writes are blocked');
     }
+    this.checkReservations(f);
     return f;
+  }
+
+  /**
+   * Every reservation record must be well formed with a unique id, and the open
+   * reservations charged to a day must not add up to more than that day's total.
+   * A total above their sum is older debit and stays charged. Nothing is rewritten.
+   */
+  private checkReservations(f: LedgerFile): void {
+    const records: unknown = f.reservations === undefined ? [] : f.reservations;
+    if (!Array.isArray(records)) throw new SpendCapError('spend ledger is corrupted; writes are blocked');
+    const ids = new Set<string>();
+    const openOsByDay = new Map<string, bigint>();
+    for (const r of records) {
+      if (!isReservationRecord(r) || ids.has(r.id)) throw new SpendCapError('spend ledger is corrupted; writes are blocked');
+      ids.add(r.id);
+      openOsByDay.set(r.day, (openOsByDay.get(r.day) ?? 0n) + totalOs(partsOf(r)));
+    }
+    for (const [day, openOs] of openOsByDay) {
+      if (openOs > BigInt(f.days[day] ?? '0')) {
+        throw new SpendCapError(`spend ledger: the open reservations charged to ${day} add up to more than that day's total; ${day} needs reconciliation by the human; writes are blocked`);
+      }
+    }
   }
 
   spentToday(): bigint {
@@ -103,7 +165,10 @@ export class SpendLedger {
     }
   }
 
-  /** Exclusive lock across processes sharing the state dir (O_EXCL lock file, stale after 30 s). */
+  /**
+   * Exclusive lock across processes sharing the state dir (O_EXCL lock file). A held lock is
+   * never removed because of its age; one left behind by a crashed process is removed by the human.
+   */
   private withLock<T>(fn: () => T): T {
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     const lock = `${this.path}.lock`;
@@ -113,12 +178,9 @@ export class SpendLedger {
       try {
         fd = openSync(lock, 'wx', 0o600);
       } catch {
-        try {
-          if (Date.now() - statSync(lock).mtimeMs > 30_000) unlinkSync(lock);
-        } catch {
-          /* raced with another holder */
+        if (Date.now() > until) {
+          throw new SpendCapError(`spend ledger is locked by another process (lock file ${lock}); if it stays locked, remove it if no other process is running`);
         }
-        if (Date.now() > until) throw new SpendCapError('spend ledger is locked by another process; try again');
         const t = Date.now() + 25;
         while (Date.now() < t) {
           /* short spin; reserve is rare and quick */
@@ -137,40 +199,53 @@ export class SpendLedger {
     }
   }
 
-  /** Check and record atomically, under the cross-process lock (call immediately before broadcast). */
-  reserve(os: bigint, what: string): void {
-    this.withLock(() => this.reserveLocked(os, what));
+  /**
+   * Check the cap and record the reservation atomically, under the cross-process lock
+   * (call immediately before broadcast). Returns the reservation's id for `release`.
+   * Throws SpendCapError when the cap is exceeded or the ledger is unreadable or inconsistent.
+   */
+  reserve(parts: ReservationParts, what: string): string {
+    return this.withLock(() => this.reserveLocked(parts, what));
   }
 
-  /** Return an unused reservation (a write that failed before broadcast, or a fee below its quote). */
-  release(os: bigint): void {
-    if (os <= 0n) return;
+  /**
+   * Close a reservation and free its parts except `kept`: the debit that stays charged,
+   * each part limited to what that reservation holds. Frees only this reservation's own
+   * remaining parts from the day it was made on. An id that is not open frees nothing.
+   */
+  release(id: string, kept: Partial<ReservationParts> = {}): void {
     this.withLock(() => {
       const f = this.read();
-      const d = this.day();
-      const cur = BigInt(f.days[d] ?? '0');
-      f.days[d] = (cur > os ? cur - os : 0n).toString();
+      const open = f.reservations ?? [];
+      const record = open.find((r) => r.id === id);
+      if (!record) return;
+      const held = partsOf(record);
+      const keptOs = PART_KEYS.reduce((sum, k) => sum + clampOs(kept[k] ?? 0n, held[k]), 0n);
+      f.days[record.day] = (BigInt(f.days[record.day] ?? '0') - (totalOs(held) - keptOs)).toString();
+      f.reservations = open.filter((r) => r !== record);
       this.write(f);
     });
   }
 
+  /** Persist the ledger, dropping settled days before today: only today and days with an open reservation stay. */
   private write(f: LedgerFile): void {
+    const today = this.day();
+    const openDays = new Set((f.reservations ?? []).map((r) => r.day));
+    for (const d of Object.keys(f.days)) if (d < today && !openDays.has(d)) delete f.days[d];
     const tmp = `${this.path}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(f, null, 2), { mode: 0o600 });
     renameSync(tmp, this.path);
   }
 
-  private reserveLocked(os: bigint, what: string): void {
-    this.check(os, what);
+  private reserveLocked(parts: ReservationParts, what: string): string {
+    if (PART_KEYS.some((k) => parts[k] < 0n)) throw new SpendCapError('negative spend');
+    this.check(totalOs(parts), what);
     const f = this.read();
-    const d = this.day();
-    f.days[d] = (BigInt(f.days[d] ?? '0') + os).toString();
-    // keep 31 days
-    const keys = Object.keys(f.days).sort();
-    for (const k of keys.slice(0, Math.max(0, keys.length - 31))) delete f.days[k];
-    mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
-    const tmp = `${this.path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(f, null, 2), { mode: 0o600 });
-    renameSync(tmp, this.path);
+    const day = this.day();
+    f.days[day] = (BigInt(f.days[day] ?? '0') + totalOs(parts)).toString();
+    const id = randomUUID();
+    f.reservations = [...(f.reservations ?? []), { id, day, priceOs: parts.priceOs.toString(), networkFeeOs: parts.networkFeeOs.toString(), storageFeeOs: parts.storageFeeOs.toString() }];
+    this.write(f);
+    return id;
   }
 }
