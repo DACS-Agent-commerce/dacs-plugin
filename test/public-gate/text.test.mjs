@@ -383,6 +383,17 @@ test('wording: only a closed fence whose language is a shell may hold entries; t
   assert.equal(wordingFindings('a.md', `\`\`\`sh\nThe external ${REVIEW} is complete.\n\`\`\`\n`).length, 1);
 });
 
+test('wording: a reference definition ending in a backslash does not continue onto a fence opener, so the shell block after it keeps its exemption', () => {
+  const fence = `\`\`\`sh\necho ${TERM}\n\`\`\`\n`;
+  for (const [label, lineBreak] of [['line feed', '\n'], ['carriage return', '\r'], ['CRLF', '\r\n']]) {
+    for (const indent of ['', '   ']) {
+      assert.deepEqual(wordingFindings('a.md', `[a]: u\\${lineBreak}${indent}${fence}`), [], `${label}, indent ${indent.length}`);
+    }
+    assert.deepEqual(wordingFindings('a.md', `[a]: u\\${lineBreak}~~~sh\necho ${TERM}\n~~~\n`), [], `${label}, tilde fence`);
+  }
+  assert.deepEqual(wordingFindings('a.md', `[a]: u\n\n${fence}`), []);
+});
+
 test('wording: a file of many closed fences or a million unclosed fence openers is read once per line and still finds an entry after them', { timeout: 60_000 }, () => {
   for (const pair of ['```\n```\n', '~~~\n~~~\n', '```\n~~~\n']) {
     assert.equal(wordingFindings('a.md', `${pair.repeat(60_000)}\n${TERM}\n`).length, 1, JSON.stringify(pair));

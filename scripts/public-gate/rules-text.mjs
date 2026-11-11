@@ -221,10 +221,10 @@ const CHARACTER_REFERENCE = new RegExp(String.raw`&(?:#[\da-zA-Z]*;|[A-Za-z][\da
 /** HTML and SVG blobs also refuse unterminated references, preserving their existing checks. */
 const HTML_CHARACTER_REFERENCE = /&(?:#[\da-zA-Z]*|[A-Za-z][\da-zA-Z]*);?/g;
 const KNOWN_REFERENCES = new Map([['&amp;', '&'], ['&lt;', '<'], ['&gt;', '>'], ['&quot;', '"'], ['&#39;', "'"], ['&nbsp;', ' ']]);
-/** Markup not shown as written, read left to right: an HTML comment, a tag with its attributes, a Markdown reference definition (it goes on past a backslash and line break), link destination,
+/** Markup not shown as written, read left to right: an HTML comment, a tag with its attributes, a Markdown reference definition (it goes on past a backslash and line break, but not onto a line that opens a fence), link destination,
  * reference label or link bracket, block-quote marks, an escaping backslash and a character reference. One never closed runs to the end of the text. */
 const MARKUP_TOKEN = new RegExp([String.raw`<!--[\s\S]*?(?:-->|$)`, String.raw`<(?:\/?[A-Za-z]|[!?])(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^"'>])*(?:>|$)`,
-  String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:(?:[^\r\n\\]+|\\(?:\r\n|[\r\n])?)*`, String.raw`\]\([^)]*(?:\)|$)`, String.raw`\]\[[^\]]*(?:\]|$)`, String.raw`!?\[|\]`,
+  String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:(?:[^\r\n\\]+|\\(?:(?:\r\n|[\r\n])(?! {0,3}(?:\`{3}|~{3})))?)*`, String.raw`\]\([^)]*(?:\)|$)`, String.raw`\]\[[^\]]*(?:\]|$)`, String.raw`!?\[|\]`,
   String.raw`(?<![^\r\n])[ \t]*(?:>[ \t]?)+`, String.raw`\\(?=[!-/:-@[-\`{-~]|\r|\n)`, CHARACTER_REFERENCE.source].join('|'), 'g');
 /** A fence line: its marker (backticks with no backtick after them, or tildes) and the text after it. */
 const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)$/;
