@@ -453,7 +453,7 @@ test('a multi-line failure is excused only by its whole message, as in the payme
 test('the committed baseline cannot excuse missing or changed seller reference artifacts', () => {
   const known = readKnown(join(root, 'test/known-failures.json'));
   for (const file of ['test/agreement-context-integration.test.mjs', 'test/agreement-context-interactions.test.mjs', 'test/dacs-current-broker-interactions.test.mjs']) {
-    assert.equal([...known.values()].some((entry) => entry.file === file), false, file);
+    assert.equal([...known.values()].some((entry) => entry.file === file && entry.class !== 'carry-over'), false, file);
     for (const error of ["ENOENT: no such file or directory, scandir '/missing/seller'", 'unchanged seller reference digest', 'seller reference file count']) {
       const name = 'seller reference interop';
       const result = judge(file, { failures: [{ test: name, error }], passing: [], seen: [name], exit: 1 }, known);

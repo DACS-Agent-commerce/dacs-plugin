@@ -7,6 +7,11 @@ export const MAX_REDIRECTS = 5;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const DIGITS = /^\d+$/;
+/** Network error codes a later attempt can get past: the connection closed or reset, or a connect or name lookup timed out. */
+const TRANSIENT_NETWORK_CODES = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'EAI_AGAIN']);
+
+const transientStatus = (status) => status === 429 || (status >= 500 && status <= 599);
+const transientNetworkError = (error) => TRANSIENT_NETWORK_CODES.has(error?.code) || TRANSIENT_NETWORK_CODES.has(error?.cause?.code);
 
 const refusal = (cause, message) => new GateInputError(cause, message);
 const ignore = () => {};
@@ -30,6 +35,7 @@ async function fetchTransport(url, { signal }) {
 /** One shared stop: it fires on the deadline or the caller's abort, `race` lets it win every tie and `error()` is what it fired with. */
 function createStop({ deadlineMs, signal }) {
   const controller = new AbortController();
+  const started = performance.now();
   let timer;
   let stopError = null;
   let onAbort;
@@ -48,6 +54,7 @@ function createStop({ deadlineMs, signal }) {
   return {
     signal: controller.signal,
     error: () => stopError,
+    remainingMs: () => deadlineMs - (performance.now() - started),
     race: (work) => Promise.race([fired, work]),
     release() {
       clearTimeout(timer);
@@ -115,35 +122,82 @@ async function createNewFile(destination) {
   }
 }
 
+/** Resolves after `ms`, or at once when `signal` aborts; leaves no timer or listener behind either way. */
+function wait(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
+
 /**
- * Downloads `url` (https only, at most `maxRedirects` redirects) to the new file `destination` and checks its SHA-256 against `sha256`.
- * The whole download must end within `deadlineMs` and the body may not pass `maxBytes`, both enforced while it streams.
- * `transport(url, { signal })` defaults to `fetch`, resolves { status, location, contentLength, body, release } and may ignore
- * `signal`; what it delivers after the download ended is discarded. `signal` interrupts. Resolves { bytes, sha256 } for a complete,
- * verified file. Throws GateInputError with a cause download-too-large, download-timeout, interrupted, download-http-failure,
- * download-truncated, download-checksum-mismatch, download-redirect-refused, download-too-many-redirects,
- * download-destination-exists or download-failed; a failure after the file was created removes it.
+ * One attempt from `address`: resolves { result } for a complete, verified file, or { failure, transient } where `failure` is the
+ * GateInputError to report and `transient` says a later attempt could succeed (HTTP 429 or 5xx, or a network error in
+ * TRANSIENT_NETWORK_CODES, and the stop has not fired). The response is released and a partial file removed before it resolves.
  */
-export async function fetchBounded({ url, destination, sha256, maxBytes, deadlineMs, maxRedirects = MAX_REDIRECTS, transport = fetchTransport, signal }) {
-  const stop = createStop({ deadlineMs, signal });
+async function downloadOnce({ address, destination, sha256, maxBytes, maxRedirects, transport, stop }) {
   let response;
   let file;
+  let transient = false;
   try {
-    response = await followRedirects({ address: url, maxRedirects, transport, stop });
-    if (response.status !== 200) throw refusal('download-http-failure', `the server answered HTTP ${response.status}`);
+    response = await followRedirects({ address, maxRedirects, transport, stop });
+    if (response.status !== 200) {
+      transient = transientStatus(response.status);
+      throw refusal('download-http-failure', `the server answered HTTP ${response.status}`);
+    }
     if (response.contentLength > maxBytes) throw refusal('download-too-large', `the server announced more than ${maxBytes} bytes`);
     file = await createNewFile(destination);
     const { received, digest } = await streamToFile({ body: response.body, file, maxBytes, stop });
     if (response.contentLength !== null && received !== response.contentLength) throw refusal('download-truncated', `the body held ${received} bytes, not the announced ${response.contentLength}`);
     if (digest !== sha256) throw refusal('download-checksum-mismatch', 'the download does not match its SHA-256');
     await file.close();
-    return { bytes: received, sha256: digest };
+    return { result: { bytes: received, sha256: digest } };
   } catch (error) {
-    const failure = stop.error() ?? (error instanceof GateInputError ? error : refusal('download-failed', `the download failed (${error.code ?? error.name})`));
+    const stopped = stop.error();
+    const failure = stopped ?? (error instanceof GateInputError ? error : refusal('download-failed', `the download failed (${error.code ?? error.name})`));
     await removePartial(file, destination);
-    throw failure;
+    return { failure, transient: !stopped && (transient || transientNetworkError(error)) };
+  } finally {
+    response?.release();
+  }
+}
+
+/**
+ * Downloads `url` (https only, at most `maxRedirects` redirects) to the new file `destination` and checks its SHA-256 against `sha256`.
+ * The whole download must end within `deadlineMs` and the body may not pass `maxBytes`, both enforced while it streams.
+ * `retryDelaysMs` (default none) lists the waits before each further attempt: an attempt is repeated, from `url`, only after an
+ * HTTP 429 or 5xx or a network error in TRANSIENT_NETWORK_CODES, and only while the wait ends before the deadline, which covers
+ * every attempt and wait; otherwise that attempt's failure is reported. Every attempt keeps the byte cap and the SHA-256 check.
+ * `transport(url, { signal })` defaults to `fetch`, resolves { status, location, contentLength, body, release } and may ignore
+ * `signal`; what it delivers after the download ended is discarded. `signal` interrupts. Resolves { bytes, sha256 } for a complete,
+ * verified file. Throws GateInputError with a cause download-too-large, download-timeout, interrupted, download-http-failure,
+ * download-truncated, download-checksum-mismatch, download-redirect-refused, download-too-many-redirects,
+ * download-destination-exists or download-failed; a failure after the file was created removes it.
+ */
+export async function fetchBounded({
+  url, destination, sha256, maxBytes, deadlineMs, maxRedirects = MAX_REDIRECTS, retryDelaysMs = [], transport = fetchTransport, signal,
+}) {
+  const stop = createStop({ deadlineMs, signal });
+  try {
+    for (let attempt = 0; ; attempt += 1) {
+      const { result, failure, transient } = await downloadOnce({ address: url, destination, sha256, maxBytes, maxRedirects, transport, stop });
+      if (result) return result;
+      const delay = retryDelaysMs[attempt];
+      if (!transient || delay === undefined || delay >= stop.remainingMs()) throw failure;
+      await stop.race(wait(delay, stop.signal));
+    }
+  } catch (error) {
+    throw stop.error() ?? error;
   } finally {
     stop.release();
-    response?.release();
   }
 }

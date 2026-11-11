@@ -1,6 +1,6 @@
 # Offline test replay (source checkout)
 
-**State of this repository.** These steps describe the source tree this package was imported from. Here `npm ci` stops because the vendored SDK archive is not carried, `deploy/` is not carried, and about half of the test files fail when they load the modules that are not carried. See `PROVENANCE.md` at the repository root, "Not carried".
+**State of this repository.** These steps describe the source tree this package was imported from. Here `npm ci` stops because the vendored SDK archive is not carried, `deploy/` is not carried, and about half of the test files fail when they load the modules that are not carried. In a source checkout, see `PROVENANCE.md` at the repository root, "Not carried".
 
 These instructions are for a **source checkout** of the plugin. The installed package does not include the `test/` or `deploy/` directories, so none of these commands can run from an installed tarball.
 

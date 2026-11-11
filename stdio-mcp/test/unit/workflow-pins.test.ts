@@ -16,7 +16,7 @@ import path from 'node:path';
 
 const WORKFLOW = path.join(import.meta.dirname, '../../../.github/workflows/stdio-mcp.yml');
 /** Without the CI workflow in the checkout there is nothing to check. CI always has it. */
-const skip = !fs.existsSync(WORKFLOW) && !process.env.GITHUB_ACTIONS ? 'without the CI workflow' : false;
+const skip = !fs.existsSync(WORKFLOW) && !process.env.GITHUB_ACTIONS ? 'without the workflow file' : false;
 const PINNED = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/;
 
 /**

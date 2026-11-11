@@ -118,11 +118,6 @@
       "count": 2
     }
   },
-  "http-mcp/test/helpers/check-public-text-report-mutants.mjs": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
   "http-mcp/test/helpers/claude-node2-current-coverage-fixture.mjs": {
     "no-unused-vars": {
       "count": 1
@@ -151,11 +146,6 @@
   "http-mcp/test/helpers/public-sr2-projection-flow.mjs": {
     "no-unused-vars": {
       "count": 1
-    }
-  },
-  "http-mcp/test/helpers/seller-write-batch-mutants.mjs": {
-    "no-unused-vars": {
-      "count": 3
     }
   },
   "http-mcp/test/helpers/showcase-safety-fixture.mjs": {

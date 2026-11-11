@@ -3,7 +3,7 @@
  * capturing confirmation channel (stands in for the human's out-of-band
  * channel), and an in-memory MCP client wired to createServer().
  */
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as ed from '@noble/ed25519';
@@ -193,6 +193,19 @@ export async function harness(env: Record<string, string> = {}, opts: { beforeSe
       return { text, isError: !!r.isError, json };
     },
   };
+}
+
+export interface LedgerReservation {
+  id: string;
+  day: string;
+  priceOs: string;
+  networkFeeOs: string;
+  storageFeeOs: string;
+}
+
+/** The spend ledger file as stored, parsed. */
+export function readLedgerFile(stateDir: string): { version: number; days: Record<string, string>; reservations?: LedgerReservation[] } {
+  return JSON.parse(readFileSync(join(stateDir, 'spend-ledger.json'), 'utf8'));
 }
 
 export const ADDR_B = keypair(9).address;

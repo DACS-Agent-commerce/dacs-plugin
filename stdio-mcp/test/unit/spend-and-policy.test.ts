@@ -31,7 +31,7 @@ test('cap is re-checked at submit (another write may have spent in between)', as
   const h = await harness({ DEMOS_DAILY_CAP_DEM: '6' });
   const a = await h.call('demos_tx_prepare', { to: ADDR_B, amount_dem: '3' }); // 5
   const code = h.channel.last().code;
-  h.ledger.reserve(2_000_000_000n, 'external'); // simulate spend recorded meanwhile
+  h.ledger.reserve({ priceOs: 2_000_000_000n, networkFeeOs: 0n, storageFeeOs: 0n }, 'external'); // simulate spend recorded meanwhile
   const r = await h.call('demos_tx_submit', { prepared_id: a.json.prepared_id, confirmation_code: code });
   assert.equal(r.isError, true);
   assert.match(r.text, /cap/);

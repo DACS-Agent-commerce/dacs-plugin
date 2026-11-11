@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { DIAGNOSTIC_ROUTES } from '../../scripts/public-gate/redact.mjs';
@@ -65,6 +65,14 @@ function sdkInputCheckout() {
 }
 
 const scenarios = {
+  'test-all.stdout': () => {
+    const checkout = sdkInputCheckout();
+    cpSync(path.join(REPO_ROOT, 'scripts'), path.join(checkout, 'scripts'), { recursive: true });
+    const result = spawnSync(process.execPath, [path.join(checkout, 'scripts', 'ci', 'test-all.mjs')], { cwd: checkout, encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /^test-all: stdio typecheck and unit tests: fail \(sdk-input-refused\)$/m);
+    leaksNothing(result.stdout, result.stderr);
+  },
   'sdk-input.stdout': () => {
     const result = spawnSync(process.execPath, [SDK_INPUT, '--repo', sdkInputCheckout(), '--prepare', 'stdio'], { encoding: 'utf8' });
     assert.equal(result.status, 1);
@@ -100,12 +108,15 @@ const scenarios = {
     leaksNothing(result.stdout, result.stderr);
     assert.ok(!result.stderr.includes(PRIVATE_VALUE.slice(0, 4)) && !result.stderr.includes('fatal'));
   },
-  'install-gitleaks.stderr': () => {
+  'install-gitleaks.stderr': async () => {
+    // The installer refuses any platform but its pinned archive's before it touches the folder, so the cause depends on where this runs.
+    const { GITLEAKS_PIN } = await import('../../scripts/ci/install-gitleaks.mjs');
+    const pinned = process.platform === GITLEAKS_PIN.platform && process.arch === GITLEAKS_PIN.arch;
     const blocker = path.join(makeTempDir('install-blocker'), PRIVATE_VALUE);
     writeFileSync(blocker, 'a file where a folder is needed\n');
     const result = spawnSync(process.execPath, [INSTALLER, '--dir', path.join(blocker, 'bin')], { encoding: 'utf8' });
     assert.equal(result.status, 2);
-    assert.equal(result.stderr, 'install-dir-unwritable: the install folder cannot be prepared\n');
+    assert.equal(result.stderr, pinned ? 'install-dir-unwritable: the install folder cannot be prepared\n' : 'unsupported-platform: the pinned gitleaks archive is not for this platform\n');
     leaksNothing(result.stdout, result.stderr);
   },
   'rules-eval-child.stderr': () => {

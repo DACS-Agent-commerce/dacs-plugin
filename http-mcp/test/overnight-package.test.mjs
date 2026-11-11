@@ -96,12 +96,12 @@ test('range check: accepting and refusing controls for the forms in the lockfile
   assert.throws(() => admits('latest', '22.13.0'), /unsupported range token/);
 });
 
-test('the documented Node floor is the same in package.json, the lockfile root, both images and the tester docs', () => {
+test('the documented Node floor is the same in package.json, the lockfile root, the image and the tester docs', () => {
   const pkg = json('package.json');
   const lock = json('package-lock.json');
   assert.equal(pkg.engines?.node, `>=${DOCUMENTED_FLOOR}`);
   assert.equal(lock.packages?.['']?.engines?.node, pkg.engines.node, 'package-lock.json root engines');
-  for (const [file, re] of [['Dockerfile', /^FROM\s+node:(\d+\.\d+\.\d+)-/m], ['deploy/Dockerfile', /^ARG\s+NODE_IMAGE=node:(\d+\.\d+\.\d+)-/m]]) {
+  for (const [file, re] of [['Dockerfile', /^FROM\s+node:(\d+\.\d+\.\d+)-/m]]) {
     const version = re.exec(readFileSync(join(PACKAGE_ROOT, file), 'utf8'))?.[1];
     assert.ok(version, `${file} names a node:<x.y.z> base image`);
     assert.equal(version.split('.')[0], '22', `${file} stays on Node 22`);
