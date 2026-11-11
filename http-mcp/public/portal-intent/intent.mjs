@@ -150,15 +150,24 @@ export function decodeSignatureValue(value) {
   return base64url(bytes) === value ? bytes : null;
 }
 
+// A public key of small order has no private key, and WebCrypto's verify accepts
+// a signature made without one. Its y is 0, 1, -1 or one of the two order-8
+// values, taken mod p so the non-canonical y + p and sign-bit encodings count too.
+const P25519 = 2n ** 255n - 19n;
+const SMALL_ORDER_Y = new Set([0n, 1n, P25519 - 1n, 0x05fc536d880238b13933c6d305acdfd5f098eff289f4c345b027b2c28f95e826n, 0x7a03ac9277fdc74ec6cc392cfa53202a0f67100d760b3cba4fd84d3d706a17c7n]);
+const smallOrderKey = (bytes) => SMALL_ORDER_Y.has((bytes.reduceRight((y, b) => (y << 8n) | BigInt(b), 0n) & (2n ** 255n - 1n)) % P25519);
+
 // Ed25519 over the UTF-8 bytes of message, by the key a did:demos:agent names,
 // through WebCrypto. A browser without Ed25519 refuses: the check is never skipped.
 export async function ed25519Valid(did, message, value) {
   if (typeof value !== 'string' || value.length !== 86) return false;
   const signature = decodeSignatureValue(value);
   if (signature?.length !== 64 || !DID.test(did)) return false;
+  const publicKey = Uint8Array.from(did.slice(DID_PREFIX.length).match(/../g), (h) => parseInt(h, 16));
+  if (smallOrderKey(publicKey)) return false;
   const subtle = globalThis.crypto?.subtle;
   try {
-    const key = await subtle.importKey('raw', Uint8Array.from(did.slice(DID_PREFIX.length).match(/../g), (h) => parseInt(h, 16)), { name: 'Ed25519' }, false, ['verify']);
+    const key = await subtle.importKey('raw', publicKey, { name: 'Ed25519' }, false, ['verify']);
     return await subtle.verify({ name: 'Ed25519' }, key, signature, new TextEncoder().encode(message));
   } catch (error) {
     if (error?.name === 'DataError') return false;
@@ -214,7 +223,7 @@ export function intentProfile(terms) {
 // hash. The signing key is the presenter and one of those claims.
 async function verifySellerIdentity(identity, bundleHash, seller, bad) {
   const claims = identity.claims;
-  if (['bundleVersion', 'presentedBy', 'presentedAt', 'claims', 'presentation'].some((k) => !Object.hasOwn(identity, k)) || identity.bundleVersion !== '1' || !safeInt(identity.presentedAt)
+  if (['bundleVersion', 'presentedBy', 'presentedAt', 'claims', 'presentation'].some((k) => !Object.hasOwn(identity, k)) || identity.bundleVersion !== '1' || !safeInt(identity.presentedAt) || identity.presentedAt < 0
     || (identity.sessionNonce !== undefined && typeof identity.sessionNonce !== 'string') || !Array.isArray(claims) || !claims.length || !claims.every((c) => plain(c) && typeof c.ref === 'string')) bad('identity bundle has an unexpected shape');
   const refs = claims.map((c) => c.ref);
   if (new Set(refs).size !== refs.length || !refs.includes(seller)) bad('identity does not name the key that signed the Listing');
@@ -233,10 +242,10 @@ async function verifySellerIdentity(identity, bundleHash, seller, bad) {
 // DACS-1 §6.3.3 BundleRequirement as a reader validates it before matching
 // (PCR-1): known schemes only, a boolean verificationRequired, maxAge and
 // recipeVersion only on verified members, object parameters, no empty oneOf group.
-const SCHEMES = new Set(['key', 'did', 'domain', 'erc8004', 'lei', 'finra-crd', 'sam-uei', 'fedramp', 'naics', 'cmmc', 'stor-cred', 'cci-xm', 'cci-web2', 'cci-pqc', 'cci-ud', 'cci-nomis', 'cci-humanpassport', 'cci-ethos', 'cci-tlsn']);
+const SCHEMES = new Set(['key', 'did', 'domain', 'erc8004', 'substrate-validator-set', 'lei', 'finra-crd', 'sam-uei', 'fedramp', 'naics', 'cmmc', 'stor-cred', 'cci-xm', 'cci-web2', 'cci-pqc', 'cci-ud', 'cci-nomis', 'cci-humanpassport', 'cci-ethos', 'cci-tlsn']);
 const claimRequirement = (c) => plain(c) && SCHEMES.has(c.scheme) && typeof c.verificationRequired === 'boolean'
   && (c.verificationRequired || (c.maxAge === undefined && c.recipeVersion === undefined))
-  && [c.maxAge, c.recipeVersion].every((n) => n === undefined || (safeInt(n) && n >= 0)) && (c.parameters === undefined || plain(c.parameters));
+  && (c.maxAge === undefined || (safeInt(c.maxAge) && c.maxAge >= 0)) && (c.recipeVersion === undefined || (safeInt(c.recipeVersion) && c.recipeVersion >= 1)) && (c.parameters === undefined || plain(c.parameters));
 const bundleRequirement = (r) => plain(r) && r.requirementVersion === '1' && Array.isArray(r.required) && r.required.every(claimRequirement)
   && (r.oneOf === undefined || (Array.isArray(r.oneOf) && r.oneOf.every((g) => Array.isArray(g) && g.length > 0 && g.every(claimRequirement))))
   && (r.preferredPresentation === undefined || ['siwd', 'sr1-root', 'per-claim', 'session-key', 'any'].includes(r.preferredPresentation))
@@ -410,7 +419,8 @@ export function describeIntent(intent) {
     '',
     `Listing: ${intent.listing.listingId}, version ${intent.listing.version}`,
     `Listing hash: ${intent.listing.contentHash}`,
-    `Listing anchor (SR-2): ${intent.anchor.locator}`,
+    // A storage locator is checked for form only; only a logical address is bound to the Listing.
+    `${intent.anchor.locator.startsWith('stor-') ? 'Storage anchor (form checked only)' : 'Listing anchor (SR-2)'}: ${intent.anchor.locator}`,
     `Seller: ${intent.seller.address}`,
     `Seller DID: ${intent.seller.did}`,
     `Price: ${intent.price.amount} ${intent.price.asset} (${intent.price.amountOs} OS), paid later in a separate approval`,

@@ -137,8 +137,64 @@ test('control: a correctly signed Listing is accepted and the dialog shows its t
   assert.deepEqual({ ...intent.anchor }, ANCHOR);
   assert.deepEqual(Object.keys(intent.listing), ['listingId', 'version', 'contentHash'], 'the Listing reference the Agreement and delegation carry is unchanged');
   const dialog = describeIntent(intent);
-  for (const shown of [`Listing anchor (SR-2): ${ANCHOR.locator}`, 'Price: 2.5 DEM (2500000000 OS)', `Deliverable: storage-program (schema urn:fixture), hash ${intent.agreement.deliverable.hash}`,
+  assert.ok(!dialog.includes('Listing anchor (SR-2)'), 'a storage locator is not labelled as checked against the Listing');
+  for (const shown of [`Storage anchor (form checked only): ${ANCHOR.locator}`, 'Price: 2.5 DEM (2500000000 OS)', `Deliverable: storage-program (schema urn:fixture), hash ${intent.agreement.deliverable.hash}`,
     `Delivery deadline: ${new Date(NOW + 3_600_000).toISOString()} (1 hour(s) after generation, from the Listing)`]) assert.ok(dialog.includes(shown), shown);
+});
+
+// The eight Ed25519 torsion points (little-endian y, sign bit in the last byte)
+// and the non-canonical encodings that decode to them: y + p, and the sign bit
+// set on a point whose x is 0.
+const ff = (n) => 'ff'.repeat(n);
+const TORSION = {
+  'y = 0, x even': '00'.repeat(32),
+  'y = 0, x odd': `${'00'.repeat(31)}80`,
+  'the identity point': `01${'00'.repeat(31)}`,
+  'y = -1': `ec${ff(30)}7f`,
+  'order 8, first': '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
+  'order 8, first, x odd': '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85',
+  'order 8, second': 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a',
+  'order 8, second, x odd': 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa',
+};
+const NON_CANONICAL = {
+  'the identity point with the sign bit': `01${'00'.repeat(30)}80`,
+  'y = -1 with the sign bit': `ec${ff(31)}`,
+  'y = 0 as y + p, x even': `ed${ff(30)}7f`,
+  'y = 0 as y + p, x odd': `ed${ff(31)}`,
+  'the identity as y + p, x even': `ee${ff(30)}7f`,
+  'the identity as y + p, x odd': `ee${ff(31)}`,
+};
+
+// R || 0 for a torsion point R and a message, found by trying messages until
+// WebCrypto accepts it: a "signature" made with no private key.
+async function forgedBy(keyHex) {
+  const key = await globalThis.crypto.subtle.importKey('raw', Buffer.from(keyHex, 'hex'), { name: 'Ed25519' }, false, ['verify']).catch(() => null);
+  if (!key) return null;
+  for (let i = 0; i < 64; i++) {
+    const message = `dacs-listing:v1:${i.toString(16).padStart(64, '0')}`;
+    for (const r of Object.values(TORSION)) {
+      const signature = Buffer.concat([Buffer.from(r, 'hex'), Buffer.alloc(32)]);
+      if (await globalThis.crypto.subtle.verify({ name: 'Ed25519' }, key, signature, Buffer.from(message))) return { message, value: signature.toString('base64url') };
+    }
+  }
+  return null;
+}
+
+test('a small-order seller key is refused although WebCrypto verifies a signature made with no private key', async (t) => {
+  for (const [name, keyHex] of Object.entries({ ...TORSION, ...NON_CANONICAL })) {
+    await t.test(name, async () => {
+      const forged = await forgedBy(keyHex);
+      if (name in TORSION) assert.ok(forged, 'WebCrypto verifies a forged signature for this key');
+      assert.equal(await wallet.ed25519Valid(`did:demos:agent:${keyHex}`, forged?.message ?? 'dacs-listing:v1:x', forged?.value ?? 'A'.repeat(86)), false);
+    });
+  }
+});
+
+test('a real seller key still verifies through the same check', async () => {
+  const signer = createEphemeralWallet();
+  const hash = 'a'.repeat(64);
+  const value = signer.signBytes(signedBytes('dacs-listing:v1:', hash)).toString('base64url');
+  assert.equal(await wallet.ed25519Valid(signer.claim, `dacs-listing:v1:${hash}`, value), true);
 });
 
 test('a Listing with no signature is refused', async () => {
@@ -303,6 +359,7 @@ test('a malformed identity bundle is refused', async () => {
     'bundle version 2': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, bundleVersion: '2' })),
     'presentedAt as a string': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, presentedAt: '1' })),
     'presentedAt as a fraction': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, presentedAt: 1.5 })),
+    'presentedAt below zero': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, presentedAt: -1 })),
     'empty claims': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, claims: [] })),
     'claims not a list': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, claims: { ref: seller.claim } })),
     'a claim without a ref': (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, claims: [{ ...b.claims[0], ref: undefined }] })),
@@ -348,6 +405,44 @@ test('buyer requirements that break the shape are refused', async () => {
   }
 });
 
+// DACS-1 §6.3.1 "Registered schemes (v0.1)" and "Composition and low-stakes
+// schemes", with lei, finra-crd, sam-uei, fedramp, naics and cmmc as live scheme
+// names (the six native contexts are deferred, not the schemes).
+const STANDARD_SCHEMES = ['key', 'did', 'domain', 'erc8004', 'substrate-validator-set', 'lei', 'finra-crd', 'sam-uei', 'fedramp', 'naics', 'cmmc', 'stor-cred',
+  'cci-xm', 'cci-web2', 'cci-pqc', 'cci-ud', 'cci-nomis', 'cci-humanpassport', 'cci-ethos', 'cci-tlsn'];
+
+test('a signed Listing whose buyer requirement names each scheme of the Standard is accepted', async (t) => {
+  for (const scheme of STANDARD_SCHEMES) {
+    await t.test(scheme, async () => {
+      const buyerRequirement = { requirementVersion: '1', required: [{ scheme, verificationRequired: false }], primaryClaimSelector: scheme };
+      const s = await scenario({ mutate: (listing, seller) => resign({ ...listing, buyerRequirement }, seller) });
+      assert.equal((await s.run()).price.amount, '2.5');
+    });
+  }
+});
+
+test('a signed Listing whose buyer requirement names an unknown scheme is still refused', async () => {
+  for (const buyerRequirement of [{ requirementVersion: '1', required: [{ scheme: 'nonesuch', verificationRequired: false }] },
+    { requirementVersion: '1', required: [], oneOf: [[{ scheme: 'substrate-validator-sets', verificationRequired: false }]] }]) {
+    const s = await scenario({ mutate: (listing, seller) => resign({ ...listing, buyerRequirement }, seller) });
+    await refuses(s.run(), 'listing', /has a malformed buyer requirement/);
+  }
+});
+
+test('recipeVersion must be a positive integer and presentedAt may be zero but not negative', async () => {
+  const verified = (extra) => ({ requirementVersion: '1', required: [{ scheme: 'key', verificationRequired: true, ...extra }] });
+  for (const recipeVersion of [0, -1]) {
+    const s = await scenario({ mutate: (listing, seller) => resign({ ...listing, buyerRequirement: verified({ recipeVersion }) }, seller) });
+    await refuses(s.run(), 'listing', /has a malformed buyer requirement/);
+  }
+  for (const extra of [{ recipeVersion: 1 }, { maxAge: 0 }]) {
+    const s = await scenario({ mutate: (listing, seller) => resign({ ...listing, buyerRequirement: verified(extra) }, seller) });
+    assert.equal((await s.run()).price.amount, '2.5');
+  }
+  const zero = await scenario({ mutate: (listing, seller) => withIdentity(listing, seller, (b) => ({ ...b, presentedAt: 0 })) });
+  assert.equal((await zero.run()).price.amount, '2.5');
+});
+
 // ---------------------------------------------------------------------------
 // Check 5: the SR-2 anchor is named, bound and shown
 // ---------------------------------------------------------------------------
@@ -388,6 +483,7 @@ test('the Listing’s own logical address is accepted as its anchor, bound and s
   const intent = await s.run();
   assert.equal(intent.anchor.locator, s.terms.listing.anchor.locator);
   assert.ok(describeIntent(intent).includes(`Listing anchor (SR-2): ${s.terms.listing.anchor.locator}`));
+  assert.ok(!describeIntent(intent).includes('Storage anchor'));
   assert.ok(Object.isFrozen(intent.anchor));
 });
 
