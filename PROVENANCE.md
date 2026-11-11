@@ -52,7 +52,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 756 (verbatim 491, edited 215, changed here 12, added 38).
+Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -69,7 +69,7 @@ Files: 756 (verbatim 491, edited 215, changed here 12, added 38).
 | `http-mcp/README.md` | `5e6379298817040a1d8b4da1b537e621ba07e1a0` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a "state of this repository" section; install directory corrected; no private commit id or planned tag; Community source license and re-implementation stated; then changed here: two mentions of the provenance file say "source checkout" |
 | `http-mcp/bin/dacs-chatgpt-offline-test.mjs` | `a7d035520a1632b822cb03c05fd589f19a9052ea` | verbatim |
 | `http-mcp/bin/dacs-chatgpt-plugin.mjs` | `7352d9ac1f5c9aa79a7591a4f52a6bb27b2744e1` | verbatim |
-| `http-mcp/bin/dacs-ops-health.mjs` | `d810f962214eed50e5508386aad630c29f4f3357` | changed here after a verbatim import: reads the configured node's network answer (size and deadline bounded) and adds exit code 3 |
+| `http-mcp/bin/dacs-ops-health.mjs` | `2438240b572b4152d7c53aa53758f2b3e761a127` | changed here after a verbatim import: reads the configured node's network answer (size and deadline bounded) and adds exit code 3 |
 | `http-mcp/bin/offline-fixtures/chain.mjs` | `bc48907fd3c33c3b3556b8ba53ddffb14316fc2f` | verbatim |
 | `http-mcp/bin/offline-fixtures/directory.mjs` | `b29f7594f5b3808893884c5b3eb525c574165e67` | verbatim |
 | `http-mcp/bin/offline-fixtures/http.mjs` | `4105797c95ee2080de97ddb6c9f2b2f5e3673d89` | verbatim |
@@ -101,8 +101,8 @@ Files: 756 (verbatim 491, edited 215, changed here 12, added 38).
 | `http-mcp/docs/DURABLE-WALLET-JOURNAL.md` | `4a48ffad0a2593dc55d3322adf517924cd12ad88` | edited: fixture path renamed |
 | `http-mcp/docs/EMBEDDED-WALLET-FLOW-COVERAGE.md` | `27798c78872f503dba182cbad06176634e764381` | edited: public wording: internal review, process, PR and private-path references removed or reworded; directory name in a column header corrected; digests of internal run logs and a source manifest removed |
 | `http-mcp/docs/EMBEDDED-WALLET-INTEGRATION.md` | `d5894a9ff7498d9e86e98500bdd5f6fb1220bfb5` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
-| `http-mcp/docs/EMBEDDED-WALLET-PACKAGING.md` | `ce5df812fa4b2dabd51b77e09c26b930efc62624` | edited: exclusion wording follows the renamed label; then changed here: the working-notes file names are marked as a source checkout's
-| `http-mcp/docs/EMBEDDED-WALLET-SDK.md` | `d0e9de74cee91283ecc550c6b5ffd5a0e2f35398` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; build and test commands written as plain npm and node commands; then changed here: the not-claimed list uses disclaimer forms, as the public-gate wording rule requires; the `sign` row names the transaction-form refusal and the `transaction_preimage_refused` code |
+| `http-mcp/docs/EMBEDDED-WALLET-PACKAGING.md` | `1cf4a67dfae51cf8aaabf2299b395334a7b5c322` | edited: exclusion wording follows the renamed label; then changed here: the working-notes file names are marked as a source checkout's
+| `http-mcp/docs/EMBEDDED-WALLET-SDK.md` | `76e2938472a48528dbc691d39a47a8b3bf09367b` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; build and test commands written as plain npm and node commands; then changed here: the not-claimed list uses disclaimer forms, as the public-gate wording rule requires; the `sign` row names the transaction-form refusal and the `transaction_preimage_refused` code |
 | `http-mcp/docs/EMBEDDED-WALLET-TESTER.md` | `8c9fa22eb95a036b42bde35227d8d2004d77ba6d` | edited: public wording: internal review, process, PR and private-path references removed or reworded; status given in the exact public sentence; directory name in a command corrected; public wording: internal process and layout references reworded; then changed here: the last prohibition no longer names the review, as the public-gate wording rule requires |
 | `http-mcp/docs/EMBEDDED-WALLET-UI.md` | `ef559cc6f95a207be660285391a0451d2b1ec348` | edited: public wording: internal review, process, PR and private-path references removed or reworded; public wording: internal process and layout references reworded |
 | `http-mcp/docs/FEE-APPROVAL-RECOVERY-CONTRACT.md` | `66133790dbd106b2453a777e554540e437b928de` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -113,7 +113,7 @@ Files: 756 (verbatim 491, edited 215, changed here 12, added 38).
 | `http-mcp/docs/NODE2-STORAGE-PROVENANCE-COMPATIBILITY.md` | `b79d1bf05c4c776301daf8bac2c0eef97a0cf741` | verbatim |
 | `http-mcp/docs/OFFLINE-BROWSER-AGREEMENT.md` | `9fb5e7d651b8b22997952ab8a705c7c5e2adab29` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/OFFLINE-TESTER.md` | `2a4cc59889c663d6bcb3b3f109bff17775954f2f` | edited: public wording: internal review, process, PR and private-path references removed or reworded; public wording: internal process and layout references reworded |
-| `http-mcp/docs/OPS-HEALTH.md` | `97551595402c9aa04d0cb4a02771cbac05b31d09` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a private commit id removed |
+| `http-mcp/docs/OPS-HEALTH.md` | `f9319fad31fb4ed54e09e1826f0ff139857ae848` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a private commit id removed |
 | `http-mcp/docs/OVERNIGHT-CORE.md` | `42cc2c63e09a139373593cea786f42ccd2c523e4` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/OVERNIGHT-FUNCTIONAL-TESTS.md` | `7d116a6efc859d82fb212eb47b7687c5c9de25b9` | edited: test-run result logs removed; public wording |
 | `http-mcp/docs/OVERNIGHT-PACKAGING.md` | `bdacedbcb12741f55de173c81671d6898685a635` | edited: directory name in a column header corrected; exclusion wording follows the renamed label |
@@ -236,7 +236,7 @@ Files: 756 (verbatim 491, edited 215, changed here 12, added 38).
 | `http-mcp/src/mcp/showcase-start.mjs` | `5f9f4f6f12f500f31d3e83626cd22aed7f344992` | verbatim |
 | `http-mcp/src/mcp/ui.mjs` | `09bb1873381c742b3a0d5bbec9e7ea17288807bf` | verbatim |
 | `http-mcp/src/operations.mjs` | `04016e7459b47fa4e3070d823c908d51ab17f8ec` | verbatim |
-| `http-mcp/src/ops/health.mjs` | `f74ef672b71f0036dc9242fe322edff788026429` | verbatim |
+| `http-mcp/src/ops/health.mjs` | `d459f69a1438bd80d2a5fddb0388d45b718d220e` | changed here after a verbatim import: checks a retained failed transfer's signature against the configured node's answer and lists one signed in the other form |
 | `http-mcp/src/ops/purchase-timeline.mjs` | `0762ca4d2bf7892f1e63a6725cdb695a9cb5e11c` | verbatim |
 | `http-mcp/src/portal/auto-advance-assets.mjs` | `c3865316bb72ef15b5144add5cc1639ee7db269e` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/src/portal/intent-hooks.mjs` | `32ff5094e0fefc710c722169cb5230141e3b6acf` | verbatim |
