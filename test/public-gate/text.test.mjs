@@ -126,9 +126,9 @@ const lockfileRow = (lockfilePath, blob, name, line, value) => ({
   path: lockfilePath, blob, field: `packages["node_modules/${name}"].deprecated`, line, valueSha256: DEPRECATED_VALUE_SHA256[value], reason: DISPOSITION_REASON,
 });
 const LOCKFILE_DISPOSITIONS = [
-  lockfileRow(LOCKFILE_PATHS[0], 'dd3438e7c9cc8ab4e146cf2afa70842af411395a', '@confio/ics23', 1221, 'ics23'),
-  lockfileRow(LOCKFILE_PATHS[0], 'dd3438e7c9cc8ab4e146cf2afa70842af411395a', '@cosmjs/crypto', 1349, 'crypto'),
-  lockfileRow(LOCKFILE_PATHS[0], 'dd3438e7c9cc8ab4e146cf2afa70842af411395a', 'request', 16415, 'request'),
+  lockfileRow(LOCKFILE_PATHS[0], '927751aaec8175b96aa72bcf70ad8605dbf9eb25', '@confio/ics23', 1221, 'ics23'),
+  lockfileRow(LOCKFILE_PATHS[0], '927751aaec8175b96aa72bcf70ad8605dbf9eb25', '@cosmjs/crypto', 1349, 'crypto'),
+  lockfileRow(LOCKFILE_PATHS[0], '927751aaec8175b96aa72bcf70ad8605dbf9eb25', 'request', 16415, 'request'),
   lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@confio/ics23', 1167, 'ics23'),
   lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@cosmjs/crypto', 1295, 'crypto'),
   lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', 'request', 15700, 'request'),
