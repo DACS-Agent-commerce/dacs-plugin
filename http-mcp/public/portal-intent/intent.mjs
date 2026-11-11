@@ -36,6 +36,7 @@ const VET_NOT_PERFORMED = 'dacs-chatgpt-plugin/vet-not-performed/v1';
 const PRESENTATION_SEPARATOR = 'dacs-bundle-presentation:v1:';
 const AGREEMENT_SEPARATOR = 'dacs-payee-bound-agreement:v1:';
 const FIXTURE_WRITE_PREFIX = 'dacs-chatgpt-plugin/fixture-sr2-write/v1:';
+const LISTING_SEPARATOR = 'dacs-listing:v1:';
 const SESSION_DELEGATION_PREFIX = 'dacs-chatgpt-plugin:seller-session-delegation:v1:';
 export const DEVNET_CREATE_KIND = 'devnet-agreement-storage-create';
 const BROKER_PURPOSE = 'offline-agreement-browser-session';
@@ -137,6 +138,33 @@ export async function sha256Hex(text) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+const base64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+// CORE SIG-6: an unpadded Base64URL string that re-encodes to exactly itself,
+// or null. Padding, whitespace, + and /, impossible lengths and stray residual
+// bits are all refused before any cryptography.
+export function decodeSignatureValue(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) return null;
+  let bytes;
+  try { bytes = Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)); } catch { return null; }
+  return base64url(bytes) === value ? bytes : null;
+}
+
+// Ed25519 over the UTF-8 bytes of message, by the key a did:demos:agent names,
+// through WebCrypto. A browser without Ed25519 refuses: the check is never skipped.
+export async function ed25519Valid(did, message, value) {
+  const signature = decodeSignatureValue(value);
+  if (signature?.length !== 64 || !DID.test(did)) return false;
+  const subtle = globalThis.crypto?.subtle;
+  try {
+    const key = await subtle.importKey('raw', Uint8Array.from(did.slice(DID_PREFIX.length).match(/../g), (h) => parseInt(h, 16)), { name: 'Ed25519' }, false, ['verify']);
+    return await subtle.verify({ name: 'Ed25519' }, key, signature, new TextEncoder().encode(message));
+  } catch (error) {
+    if (error?.name === 'DataError') return false;
+    return refuse('listing', 'this browser cannot check Ed25519 signatures, so the Listing’s signature cannot be trusted');
+  }
+}
+
 // DACS-2 composite address segment encoding (SDK encodeAddressSegment).
 const segment = (value) => value.replace(/[:?&=%]/g, (c) => ({ ':': '%3A', '?': '%3F', '&': '%26', '=': '%3D', '%': '%25' })[c]);
 const compositeAddress = (jobId, party) => `dacs2:composite:${segment(jobId)}:${segment(party)}`;
@@ -179,17 +207,28 @@ export function intentProfile(terms) {
   return null;
 }
 
-// The pinned Listing, checked against the Listing hash in the terms, and the
-// Agreement material derived from it exactly as the SDK's
-// deriveFixedPriceAgreement does: deliverable, price, rail, deadline term,
-// validity window and the seller identity hash.
+// The pinned Listing, checked against the Listing hash in the terms and signed
+// by its seller (DACS-1 §6.3.4), and the Agreement material derived from it
+// exactly as the SDK's deriveFixedPriceAgreement does: deliverable, price,
+// rail, deadline term, validity window and the seller identity hash.
 async function listingTerms(listing, t, seller) {
   const bad = (reason) => refuse('listing', `the pinned Listing ${reason}`);
   if (!plain(listing)) bad('is missing from the purchase start');
-  if (await sha256Hex(canonicalJson(withoutKeys(listing, ['signature', 'signatures']))) !== t.listing.contentHash) bad('does not match the Listing hash of this purchase');
+  // Only the top-level signature member is left out of the hash; every other
+  // member, known or not, is signed (CORE SIG-5).
+  const listingHash = await sha256Hex(canonicalJson(withoutKeys(listing, ['signature'])));
+  if (listingHash !== t.listing.contentHash) bad('does not match the Listing hash of this purchase');
   if (listing.listingId !== t.listing.listingId || listing.listingVersion !== t.listing.version) bad('is another Listing or version');
   const identity = listing.seller?.identity;
   if (!plain(identity) || identity.presentedBy !== seller) bad('belongs to another seller');
+  // Exactly one ed25519 signature, by the seller, over "dacs-listing:v1:" || Listing hash.
+  const signature = listing.signature;
+  if (Object.hasOwn(listing, 'signatures') || (Array.isArray(signature) && signature.length > 1)) bad('carries more than one signature');
+  if (signature === undefined || (Array.isArray(signature) && signature.length === 0)) bad('is not signed');
+  if (!exactKeys(signature, ['algorithm', 'signer', 'value'])) bad('has a malformed signature');
+  if (signature.algorithm !== 'ed25519') bad('is signed with an algorithm this wallet cannot check');
+  if (signature.signer !== seller) bad('is signed by someone other than its seller');
+  if (!await ed25519Valid(signature.signer, `${LISTING_SEPARATOR}${listingHash}`, signature.value)) bad('signature does not verify for its seller, or the Listing was changed after it was signed');
   const pipeline = listing.pipeline;
   if (!Array.isArray(pipeline) || canonicalJson(pipeline.map((x) => x?.kind ?? null)) !== canonicalJson(SUPPORTED_PIPELINE) || pipeline[PAYMENT_PHASE_INDEX].parameters?.rail !== DEM_RAIL) bad('is not the fixed-price pay-dem pipeline');
   const price = listing.pricing?.price;
