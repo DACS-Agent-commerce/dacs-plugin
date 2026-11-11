@@ -123,14 +123,19 @@ export interface Wallet {
 
 // ---------------------------------------------------------------------------
 
+function osInteger(v: unknown): bigint {
+  if (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0) return BigInt(v);
+  if (typeof v === 'string' && /^(0|[1-9][0-9]*)$/.test(v)) return BigInt(v);
+  throw new Error('unparseable OS integer');
+}
+
 function feeFieldToOs(v: unknown, osActive: boolean): bigint {
+  if (osActive) return osInteger(v);
   if (v === null || v === undefined) return 0n;
   if (typeof v === 'bigint') return v;
   if (typeof v === 'number') {
     if (!Number.isFinite(v) || v < 0) throw new Error('unparseable fee');
-    // Same rule as the SDK's runner (feeFieldToOs): a JSON number is DEM (pre-fork wire shape).
-    // Live post-fork confirm responses carry integer OS strings, which the string branch handles.
-    void osActive;
+    // Pre-fork JSON numbers are DEM.
     return BigInt(Math.round(v * 1e9));
   }
   if (typeof v === 'string') {
@@ -214,7 +219,18 @@ function judgeExecution(tx: any, hash: string, blockNumber: unknown, approved?: 
   if ((Array.isArray(c.gcr_edits) && c.gcr_edits.length > READ_MAX_ITEMS) || (Array.isArray(c.data) && c.data.length > READ_MAX_ITEMS)) return no('stored transaction content over the collection limit');
   const a = approved.content;
   const lc = (v: unknown) => String(v).toLowerCase();
-  const amount = typeof c.amount === 'string' && /^[0-9]+$/.test(c.amount) ? BigInt(c.amount) : typeof c.amount === 'number' && Number.isFinite(c.amount) ? amountToOs(c.amount, osActive) : -1n;
+  let amount = -1n;
+  let nonce: string | null = null;
+  try {
+    amount = osActive ? osInteger(c.amount) : typeof c.amount === 'string' && /^[0-9]+$/.test(c.amount) ? BigInt(c.amount) : typeof c.amount === 'number' && Number.isFinite(c.amount) ? amountToOs(c.amount, false) : -1n;
+  } catch {
+    /* unreadable amount stays -1 and mismatches */
+  }
+  try {
+    nonce = osActive ? osInteger(c.nonce).toString() : String(c.nonce);
+  } catch {
+    /* unreadable nonce stays null and mismatches */
+  }
   let fee = -1n;
   try {
     const f = c.transaction_fee;
@@ -233,7 +249,7 @@ function judgeExecution(tx: any, hash: string, blockNumber: unknown, approved?: 
     ['sender', lc(c.from) === lc(a.from)],
     ['recipient', lc(c.to) === lc(a.to)],
     ['amount', amount === a.amountOs],
-    ['nonce', String(c.nonce) === a.nonce],
+    ['nonce', nonce === a.nonce],
     ['data', dataOk],
     ['fee', fee === approved.feeOs],
   ].filter(([, same]) => !same).map(([field]) => field);
