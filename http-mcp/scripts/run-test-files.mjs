@@ -68,7 +68,7 @@ export function readExpected(path, known = new Map()) {
     if (!entry || typeof entry !== 'object' || Object.keys(entry).sort().join(',') !== EXPECTED_FIELDS.join(',') ||
       !EXPECTED_FIELDS.every((field) => typeof entry[field] === 'string' && entry[field].trim()) ||
       !isRunPath(entry.file) || SENTINELS.includes(entry.test) || /[\r\n]/.test(entry.reason) ||
-      !/^P\d+[a-z0-9]*$/.test(entry.card) || !/^#\d+$/.test(entry.issue) ||
+      !/^P\d+[a-z0-9]*$/.test(entry.card) || !/^[A-Za-z0-9-]+\/[\w.-]+#\d+$/.test(entry.issue) ||
       /[\r\n]/.test(entry.expect) || ABSOLUTE_PATH.test(entry.expect) || entry.expect.length < 30 || !CAUSE_TOKEN.test(entry.expect))
       throw new Error('Invalid expected-until-card entry');
     const id = key(entry.file, entry.test);

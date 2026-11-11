@@ -818,7 +818,7 @@ test('runner: a test that fails reading an absent file at module evaluation (ENO
 });
 
 const expectedCause = "ENOENT: no such file or directory, open 'deploy/env-contract.json'";
-const expectedEntry = (file, name, expect = expectedCause) => ({ file, test: name, expect, card: 'P46', issue: '#323', reason: 'The deploy contract is absent.' });
+const expectedEntry = (file, name, expect = expectedCause) => ({ file, test: name, expect, card: 'P46', issue: 'DACS-Agent-commerce/dacs-plugin#323', reason: 'The deploy contract is absent.' });
 
 test('a listed failure with its cause is expected after absolute prefixes are removed', () => {
   const file = 'test/example.test.mjs', name = 'reads contract', dir = '/work/http-mcp';
@@ -902,10 +902,12 @@ test('readExpected rejects malformed entries and overlap with known failures', (
   assert.equal(read([valid]).size, 1);
   assert.throws(() => read({}), /Invalid expected-until-card entry/, 'not an array');
   const cases = [
-    ['missing field', (({ reason, ...rest }) => rest)(valid)],
+    ['missing field', Object.fromEntries(Object.entries(valid).filter(([field]) => field !== 'reason'))],
     ['extra field', { ...valid, extra: true }],
     ['bad card', { ...valid, card: 'P46-x' }],
     ['bad issue', { ...valid, issue: '323' }],
+    ['bare number-sign issue', { ...valid, issue: `#${323}` }],
+    ['issue without a number', { ...valid, issue: 'DACS-Agent-commerce/dacs-plugin#' }],
     ['placeholder title', { ...valid, test: PROCESS }],
     ['newline in expect', { ...valid, expect: `${expectedCause}\nother` }],
     ['absolute expect', { ...valid, expect: '/work/http-mcp/deploy/env-contract.json' }],
@@ -938,7 +940,7 @@ test('readExpected refuses an absolute path anywhere in expect and names the cau
 test('CI failing-test list matches expected JSON in both directions', () => {
   const entries = JSON.parse(readFileSync(join(root, 'test/expected-until-card.json'), 'utf8'));
   const section = readFileSync(join(root, 'docs/CI.md'), 'utf8').split('### Failing tests not covered by the baseline\n')[1].split(/\n#{2,3} /)[0];
-  const bullets = [...section.matchAll(/^- `([^`]+)` — (.+) — (P\d+[a-z0-9]*) — (#\d+)$/gm)]
+  const bullets = [...section.matchAll(/^- `([^`]+)` — (.+) — (P\d+[a-z0-9]*) — ([A-Za-z0-9-]+\/[\w.-]+#\d+)$/gm)]
     .map(([, file, title, card, issue]) => [file, title, card, issue]);
   assert.deepEqual(bullets.sort(), entries.map(({ file, test, card, issue }) => [file, test, card, issue]).sort());
 });

@@ -293,17 +293,17 @@ runner removes the absolute run-directory prefix from failure messages before
 matching each entry's cause. A matching failure is expected until its card
 lands. A passing case, a different failure, or a missing case fails the gate.
 
-- `test/config-equivalence.test.mjs` — the nine converted switches keep the v1 baseline's values, defaults, deploy values, held messages, errors and order — P46 — #323
-- `test/showcase-receipt-config.test.mjs` — switch default, strict off/on, env names, contract entry and example — P46 — #323
-- `test/env-contract-defaults.test.mjs` — static env contract defaults and values agree with loadConfig — P46 — #323
-- `test/switch-registry-mutants.test.mjs` — switch mutation anchors match exactly once outside mutant behavior tests — P46 — #324
-- `test/switch-registry-mutants.test.mjs` — missing mutation anchor refuses the CLI before mirror setup or test execution — P46 — #324
-- `test/switch-registry-mutants.test.mjs` — repeated mutation anchor refuses the CLI before mirror setup or test execution — P46 — #324
-- `test/switch-registry-mutants.test.mjs` — a behavior-preserving mutation survives without an anchor freshness false kill — P46 — #324
-- `test/embedded-wallet-contract.test.mjs` — loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated] — P41c — #322
-- `test/portal-delivery-evidence-label.test.mjs` — "Delivered" claims only the verified report, and delivery evidence is shown separately for every server state — P53c2 — #325
-- `test/tester-quickstart.test.mjs` — the documented loopback startup answers /health and MCP with honest not_configured results — P42aa — #322
-- `test/overnight-package.test.mjs` — source -> reproducible npm tarball -> clean install -> documented `npx dacs-chatgpt-plugin` cold start, HTTP + MCP, Ctrl-C; bin-shim restart, SIGTERM — P42aa — #326
+- `test/config-equivalence.test.mjs` — the nine converted switches keep the v1 baseline's values, defaults, deploy values, held messages, errors and order — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/showcase-receipt-config.test.mjs` — switch default, strict off/on, env names, contract entry and example — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/env-contract-defaults.test.mjs` — static env contract defaults and values agree with loadConfig — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/switch-registry-mutants.test.mjs` — switch mutation anchors match exactly once outside mutant behavior tests — P46 — DACS-Agent-commerce/dacs-plugin#324
+- `test/switch-registry-mutants.test.mjs` — missing mutation anchor refuses the CLI before mirror setup or test execution — P46 — DACS-Agent-commerce/dacs-plugin#324
+- `test/switch-registry-mutants.test.mjs` — repeated mutation anchor refuses the CLI before mirror setup or test execution — P46 — DACS-Agent-commerce/dacs-plugin#324
+- `test/switch-registry-mutants.test.mjs` — a behavior-preserving mutation survives without an anchor freshness false kill — P46 — DACS-Agent-commerce/dacs-plugin#324
+- `test/embedded-wallet-contract.test.mjs` — loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated] — P41c — DACS-Agent-commerce/dacs-plugin#322
+- `test/portal-delivery-evidence-label.test.mjs` — "Delivered" claims only the verified report, and delivery evidence is shown separately for every server state — P53c2 — DACS-Agent-commerce/dacs-plugin#325
+- `test/tester-quickstart.test.mjs` — the documented loopback startup answers /health and MCP with honest not_configured results — P42aa — DACS-Agent-commerce/dacs-plugin#322
+- `test/overnight-package.test.mjs` — source -> reproducible npm tarball -> clean install -> documented `npx dacs-chatgpt-plugin` cold start, HTTP + MCP, Ctrl-C; bin-shim restart, SIGTERM — P42aa — DACS-Agent-commerce/dacs-plugin#326
 
 The seller control of `test/mutant-helper-verdicts.test.mjs` was removed because
 it read `src/devnet-demo/seller-write-batch.mjs`, which is not carried; card P303a
