@@ -853,7 +853,11 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
     }
     // A transaction is authorised by a signature over its hash, or over
     // "demos-tx:v1:<chainId>:<hash>". Message signing never produces either.
-    if (TX_HASH_MESSAGE.test(message) || message.startsWith(TX_DOMAIN_PREFIX)) {
+    // The SDK signs the text TextDecoder(TextEncoder(message)), which drops one
+    // leading U+FEFF, so the checks run on that text. A U+FEFF still leading it
+    // would be dropped again by a later decode: refused too.
+    const signedText = new TextDecoder().decode(new TextEncoder().encode(message));
+    if (signedText.startsWith('\uFEFF') || TX_HASH_MESSAGE.test(signedText) || signedText.startsWith(TX_DOMAIN_PREFIX)) {
       throw new EmbeddedWalletError('transaction_preimage_refused', 'a transaction hash or transaction signing string is not signed as a message');
     }
     const { address } = live;
