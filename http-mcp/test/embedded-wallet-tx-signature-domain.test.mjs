@@ -127,6 +127,27 @@ test('CREATE, fork inactive: the bare-hash control still verifies and is sent on
   assert.equal(verifiesOver(w.address, out.data.hash, w.chain.record.accepted[0].signature.data), true);
 });
 
+test('CREATE: the check uses the network answer the SDK signed with, not a later read of the node', async (t) => {
+  // The node says "inactive" while the SDK signs; right after, its answer (and the SDK's
+  // cached copy) says "active". The signature is over the bare hash, as the answer the
+  // SDK used called for, so it verifies and is sent once (the node itself still accepts
+  // the bare hash). A check that read the node again would see "active" and refuse.
+  const domain = { active: false, chainId: 7 };
+  const FlipsAfterSign = class extends Demos {
+    async sign(tx, options) {
+      const signed = await super.sign(tx, options);
+      domain.answer = { activated: true, activationHeight: 0 };
+      this._cachedNetworkInfoAt = 0;
+      return signed;
+    }
+  };
+  const w = await createSession(t, { DemosCtor: FlipsAfterSign, domain });
+  const out = await sendCreate(w);
+  assert.equal(out.success, true, JSON.stringify(out));
+  assert.deepEqual(w.chain.record.broadcastAttempts, [out.data.hash]);
+  assert.equal(verifiesOver(w.address, out.data.hash, w.chain.record.accepted[0].signature.data), true);
+});
+
 test('CREATE, fork inactive: a signature over the domain form is refused (no second form is tried)', async (t) => {
   const SignsDomain = class extends Demos {
     async _isSignatureDomainActiveCached() { return true; }
