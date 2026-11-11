@@ -10,10 +10,10 @@ Nothing here is security approval, v0.1 acceptance or a version bump.
 | File | Role |
 | --- | --- |
 | `public/portal/embedded-wallet/sdk-provider.mjs` | `createSdkWalletSession` adapter over the Demos SDK |
-| `public/portal/embedded-wallet/demos-runtime.mjs` | GENERATED stable entry of the browser build of upstream `@kynesyslabs/demosdk` 4.0.16; re-exports the built entry chunk and carries the third-party notices |
+| `public/portal/embedded-wallet/demos-runtime.mjs` | GENERATED stable entry of the browser build of upstream `@kynesyslabs/demosdk` 4.0.20; re-exports the built entry chunk and carries the third-party notices |
 | `public/portal/embedded-wallet/runtime-chunks/*.mjs` | GENERATED content-named esbuild chunks of the same build (eager and lazily imported) |
 | `public/portal/embedded-wallet/runtime-manifest.json` | GENERATED public list of every graph file: bytes, SHA-256, local static/dynamic imports, SDK/esbuild identity |
-| `wallet-build/package.json` | isolated build package, exactly `{"@kynesyslabs/demosdk":"4.0.16","esbuild":"0.25.12"}`, no scripts |
+| `wallet-build/package.json` | isolated build package, exactly `{"@kynesyslabs/demosdk":"4.0.20","esbuild":"0.25.12"}`, no scripts |
 | `wallet-build/entry.mjs`, `shims.mjs`, `build.mjs` | build inputs and the reproducible build |
 | `scripts/embedded-wallet-runtime.mjs` | shared graph-manifest helper: serializer, specifier scanner, closure check |
 | `test/embedded-wallet-sdk.test.mjs` | functional tests against the installed SDK and the built runtime |
@@ -25,7 +25,7 @@ separate package and is not part of the runtime package.
 
 ## Runtime label
 
-`demos-runtime.mjs` is the unmodified public npm `@kynesyslabs/demosdk@4.0.16`
+`demos-runtime.mjs` is the unmodified public npm `@kynesyslabs/demosdk@4.0.20`
 bundled by esbuild 0.25.12 for `platform: browser`, ESM, es2022, minified,
 with code splitting (`splitting: true`). It
 is NOT the V2 `kynesyslabs-demosdk-v2-runtime-4.0.16.tgz` server-only profile.
@@ -230,7 +230,7 @@ simulation header (writes only after it was observed), never answers
 502/503/504 (statuses the SDK's `_doPost` retries automatically) and logs no
 bodies or headers. CSP stays `connect-src 'self'`; no axios or SDK change.
 
-Upstream methods actually used, in order (all public SDK 4.0.16 API):
+Upstream methods actually used, in order (all public SDK 4.0.20 API):
 
 - payment: `connect`, `nodeCall("getNetworkParameters")`, approval of the
   complete debit, `sign(serverPayload, {nonce})`, `confirm(signed)`,

@@ -206,7 +206,7 @@ test('runtime graph: the entry banner is required, and an absent runtime is name
   const unlabelled = runtimeGraphFixture({ ...GRAPH_SOURCES, 'demos-runtime.mjs': '/* hand-made */\nexport * from "./runtime-chunks/entry-AAAAAAAA.mjs";\n' });
   assert.deepEqual(checkRuntimeGraphFiles(sourceFixture(unlabelled)), [
     'runtime banner missing (not the generated wallet-build output)',
-    'runtime banner does not name the pinned upstream SDK 4.0.16',
+    'runtime banner does not name the pinned upstream SDK 4.0.20',
   ]);
   assert.deepEqual(checkRuntimeGraphFiles(new Map()), ['runtime entry demos-runtime.mjs missing', 'runtime-manifest.json missing']);
 });

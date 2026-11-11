@@ -1,5 +1,5 @@
 // Reproducible build of the embedded wallet SDK runtime from the exact pinned
-// upstream @kynesyslabs/demosdk 4.0.16 using esbuild 0.25.12.
+// upstream @kynesyslabs/demosdk 4.0.20 using esbuild 0.25.12.
 //
 // Run from chatgpt/wallet-build after an `npm install --ignore-scripts`:
 //   node build.mjs
@@ -31,7 +31,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const walletDir = join(here, '..', 'public', 'portal', 'embedded-wallet');
 const chunkDir = join(walletDir, RUNTIME_CHUNK_DIR);
-const EXPECTED = { '@kynesyslabs/demosdk': '4.0.16', esbuild: '0.25.12' };
+const EXPECTED = { '@kynesyslabs/demosdk': '4.0.20', esbuild: '0.25.12' };
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -131,7 +131,7 @@ const result = await esbuild.build({
   entryNames: `${RUNTIME_CHUNK_DIR}/[name]-[hash]`,
   chunkNames: `${RUNTIME_CHUNK_DIR}/chunk-[hash]`,
   outExtension: { '.js': '.mjs' },
-  banner: { js: '/* Generated chunk of demos-runtime.mjs (upstream @kynesyslabs/demosdk 4.0.16, esbuild 0.25.12); third-party notices are at the end of ../demos-runtime.mjs. */' },
+  banner: { js: '/* Generated chunk of demos-runtime.mjs (upstream @kynesyslabs/demosdk 4.0.20, esbuild 0.25.12); third-party notices are at the end of ../demos-runtime.mjs. */' },
   inject: ['shims.mjs'],
   define: { global: 'globalThis', 'process.env.NODE_ENV': '"production"' },
   plugins: [nodeBuiltinStub],
@@ -196,7 +196,7 @@ const notices = roots.map(noticeFor);
 const banner = [
   '/*',
   ' * demos-runtime.mjs — GENERATED, do not edit. Experimental, default-off.',
-  ' * Browser bundle of the unmodified upstream @kynesyslabs/demosdk 4.0.16 (public npm,',
+  ' * Browser bundle of the unmodified upstream @kynesyslabs/demosdk 4.0.20 (public npm,',
   ' * license "MIT" declared in its package.json, author Kynesys Labs; the package ships no',
   ' * LICENSE file) built with esbuild 0.25.12 from chatgpt/wallet-build (entry.mjs, build.mjs).',
   ' * Not the V2 server-only modified runtime. No CDN imports; no network work on import.',

@@ -1,4 +1,4 @@
-// Source-aware offline compatibility evidence. Real packaged demosdk 4.0.16
+// Source-aware offline compatibility evidence. Real packaged demosdk 4.0.20
 // signing through the unchanged real plugin relay to a test-owned SDK-wire
 // fixture. Approval callbacks here are test adapters; browser proof is separate.
 import test from 'node:test';
@@ -43,7 +43,7 @@ function failed(result, code) {
 }
 
 test('explicit anchor kind: actual SDK signing, independent owner, exact bytes and complete debit; pre/post fork controls', async (t) => {
-  assert.equal(JSON.parse(readFileSync(new URL('../public/portal/embedded-wallet/runtime-manifest.json', import.meta.url))).sdk.version, '4.0.16');
+  assert.equal(JSON.parse(readFileSync(new URL('../public/portal/embedded-wallet/runtime-manifest.json', import.meta.url))).sdk.version, '4.0.20');
   assert.equal(shipped.DACS_STORAGE_ANCHOR_CHAIN_IDENTITY, FIXTURE_IDENTITY);
   for (const postFork of [true, false]) await t.test(postFork ? 'post-fork OS strings' : 'pre-fork whole DEM', async (s) => {
     const w = await setup(s, { fixture: { postFork } });

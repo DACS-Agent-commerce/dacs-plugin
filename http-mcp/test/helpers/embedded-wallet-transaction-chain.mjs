@@ -23,7 +23,10 @@ function ed25519Verify(publicKeyHex, message, signatureHex) {
   return verify(null, Buffer.from(message, 'utf8'), key, sig);
 }
 
-export async function startSdkChainFixture({ osDenominationActivated = true, networkFee = 1, rpcFee = 0 } = {}) {
+// domain: the node's signature-domain fork. Its getNetworkInfo says so (answer
+// overrides what it says, undefined leaves the member out) and it verifies a
+// signature over "demos-tx:v1:<chainId>:<hash>" when active, over the bare hash otherwise.
+export async function startSdkChainFixture({ osDenominationActivated = true, networkFee = 1, rpcFee = 0, domain = { active: false, chainId: 7 } } = {}) {
   const nonces = new Map();
   const storage = new Map();
   const txs = new Map();
@@ -53,7 +56,7 @@ export async function startSdkChainFixture({ osDenominationActivated = true, net
     const content = tx?.content;
     if (!content || typeof tx.hash !== 'string') return 'malformed transaction';
     if (sha256(JSON.stringify(content)) !== tx.hash) return 'hash does not match the content';
-    if (tx.signature?.type !== 'ed25519' || !ed25519Verify(content.from, tx.hash, tx.signature.data)) return 'invalid signature';
+    if (tx.signature?.type !== 'ed25519' || !ed25519Verify(content.from, domain.active ? `demos-tx:v1:${domain.chainId}:${tx.hash}` : tx.hash, tx.signature.data)) return 'invalid signature';
     if (strip(content.from_ed25519_address) !== strip(content.from)) return 'sender mismatch';
     const from = `0x${strip(content.from)}`;
     if (content.nonce !== (nonces.get(from) ?? 0) + 1) return `nonce ${content.nonce} is not the next nonce`;
@@ -94,7 +97,8 @@ export async function startSdkChainFixture({ osDenominationActivated = true, net
   function nodeCall(message, data) {
     switch (message) {
       case 'getNetworkInfo':
-        return { forks: { osDenomination: { activated: osDenominationActivated } } };
+        return { chainId: domain.chainId, forks: { osDenomination: { activated: osDenominationActivated },
+          ...('answer' in domain ? (domain.answer === undefined ? {} : { signatureDomain: domain.answer }) : { signatureDomain: { activated: domain.active } }) } };
       case 'getNetworkParameters':
         return { networkFee, rpcFee };
       case 'getAddressNonce':

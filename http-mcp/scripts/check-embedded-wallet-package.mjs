@@ -201,7 +201,7 @@ export function checkRuntimeGraphFiles(files) {
   const problems = [];
   const head = entry.subarray(0, 1024).toString('utf8');
   if (!head.includes(RUNTIME_BANNER)) problems.push('runtime banner missing (not the generated wallet-build output)');
-  if (!head.includes(RUNTIME_SDK_LABEL)) problems.push('runtime banner does not name the pinned upstream SDK 4.0.16');
+  if (!head.includes(RUNTIME_SDK_LABEL)) problems.push('runtime banner does not name the pinned upstream SDK 4.0.20');
   return [...problems, ...checkRuntimeGraph(graph)];
 }
 

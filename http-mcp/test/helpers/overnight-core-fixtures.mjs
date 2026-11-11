@@ -116,7 +116,7 @@ export async function startOvernightChain({ networkFee = 0, rpcFee = 0, osDenomi
   function nodeCall(message, data) {
     switch (message) {
       case 'getNetworkInfo':
-        return { network: 'overnight-core-fixture', simulated: true, forks: { osDenomination: { activated: osDenominationActivated } } };
+        return { network: 'overnight-core-fixture', simulated: true, chainId: 7, forks: { osDenomination: { activated: osDenominationActivated }, signatureDomain: { activated: false } } };
       case 'getNetworkParameters':
         return { networkFee, rpcFee };
       case 'getAddressNonce':

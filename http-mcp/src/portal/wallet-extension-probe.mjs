@@ -50,5 +50,13 @@ export function createWalletExtensionProbeRouter({ config, authServer, accounts,
       res.json({address,currentNonce,nextNonce:currentNonce+1,balanceOs:balance.toString()});
     } catch { res.status(500).json({error:'nonce_unavailable'}); }
   });
+  // The configured node's own network answer, for the form of a transaction signature.
+  router.get('/network',async(_req,res)=>{
+    try {
+      const info=await chain.getNetworkInfo();
+      if(info===null||typeof info!=='object'||Array.isArray(info)) throw new Error('network_unavailable');
+      res.json(info);
+    } catch { res.status(500).json({error:'network_unavailable'}); }
+  });
   return router;
 }

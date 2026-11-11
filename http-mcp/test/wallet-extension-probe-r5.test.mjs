@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { checkSignedTransaction } from '../public/wallet-extension-probe/checks.mjs';
 import { nativeVector, storageVector } from '../public/wallet-extension-probe/vectors.mjs';
 import { createWalletExtensionProbeRouter } from '../src/portal/wallet-extension-probe.mjs';
-import { signedTransaction, installProbeDom } from './helpers/wallet-extension-probe-dom.mjs';
+import { signedTransaction, installProbeDom, INACTIVE_NETWORK } from './helpers/wallet-extension-probe-dom.mjs';
 import { createSdkWallet } from './helpers/wallet-extension-probe-sdk.mjs';
 import { startHarness } from './helpers/harness.mjs';
 import { startTestIssuer } from './fixtures/test-issuer.mjs';
@@ -16,7 +16,7 @@ const fork = (postFork) => postFork ? 'post-fork' : 'pre-fork';
 async function sdkCheck(name, postFork, mutate, quote) {
   const tx = await vectors[name](), real = await wallet.sdkSign(tx, postFork, quote);
   const returned = mutate ? signedTransaction(wallet, tx, (s) => { s.content = structuredClone(real.content); mutate(s.content); }) : real;
-  const result = await checkSignedTransaction(tx, returned, wallet.address);
+  const result = await checkSignedTransaction(tx, returned, wallet.address, INACTIVE_NETWORK);
   assert.equal(result.hashValid, true); assert.equal(result.signatureValid, true); assert.equal(result.ok, false);
   return { real, result, summary: result.diffSummary };
 }

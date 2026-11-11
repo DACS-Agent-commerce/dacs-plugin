@@ -15,7 +15,7 @@ for (const kind of ['native transfer', 'storage anchor']) for (const additionalF
     async nodeCall(message) {
       if (message === 'getNetworkParameters') return { networkFee: 1, rpcFee: 1, additionalFee };
       if (message === 'getAddressNonce') return 0;
-      if (message === 'getNetworkInfo') return { simulated: true, chainIdentity: FIXTURE_IDENTITY, forks: { osDenomination: { activated: true } } };
+      if (message === 'getNetworkInfo') return { simulated: true, chainIdentity: FIXTURE_IDENTITY, chainId: 7, forks: { osDenomination: { activated: true }, signatureDomain: { activated: false } } };
       throw new Error(`unexpected RPC: ${message}`);
     }
     async sign(tx, options) { signatures++; return super.sign(tx, options); }

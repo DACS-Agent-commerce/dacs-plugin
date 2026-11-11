@@ -19,6 +19,7 @@ import { DENIED_UNSIGNED } from '../src/dacs/demos-sr2-adapter.mjs';
 import * as health from '../src/ops/health.mjs';
 const { opsHealth, formatOpsHealth, readOnlySnapshot, STAGE_THRESHOLDS } = health;
 
+const INACTIVE_NETWORK={chainId:7,forks:{osDenomination:{activated:true},signatureDomain:{activated:false}}};
 const NOW=Date.now(),address=`0x${'a'.repeat(64)}`,buyer=`did:demos:agent:${'b'.repeat(64)}`,seller=`did:demos:agent:${'a'.repeat(64)}`;
 const sha=(value)=>createHash('sha256').update(value).digest('hex');
 // A wallet-Agreement purchase's scope on the source transport: its terms.domain
@@ -45,7 +46,8 @@ function fixture(t){
     return ops.createIdempotent({accountId:s.account,kind:'purchase',idempotencyKey:String(counter++),request:{n:counter},status,terms:{buyer:{wallet:s.buyer},seller:{payee:address},...domain,...(protocol||wallet?{protocol:{jobId:s.jobId,...(wallet?{transportBinding:s.transportBinding}:{})}}:{})},termsHash:s.termsHash,expiresAt:new Date(at+3600000).toISOString(),state:protocol||wallet?{protocol:{stage,...(wallet?{planned:{plan:{agreementHash:s.agreementHash}},walletAnchor}:{})}}:{}}).operation;
   };
   let counter=0;
-  const report=(options={})=>opsHealth({databasePath:path,now:NOW,operatorState:root,...options});
+  // The retained failed transfers here are signed over the bare hash, as the node does while its signatureDomain fork is inactive.
+  const report=(options={})=>opsHealth({databasePath:path,now:NOW,operatorState:root,networkInfo:INACTIVE_NETWORK,...options});
   const cli=(args=[])=>spawnSync(process.execPath,['scripts/ops-health.mjs','--database',path,'--operator-state',root,...args],{cwd:resolve('.'),encoding:'utf8',timeout:10000});
   const durable=(file)=>{const j=openDurableWalletJournal({path:join(root,file),mode:'create'});t.after(()=>j.close());return j;};
   return {root,path,db,clock,ops,create,report,cli,durable};

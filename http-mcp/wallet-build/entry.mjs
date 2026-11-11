@@ -1,13 +1,13 @@
 // Browser entry for public/portal/embedded-wallet/demos-runtime.mjs.
 //
-// Re-exports the unmodified upstream @kynesyslabs/demosdk 4.0.16 classes. This
+// Re-exports the unmodified upstream @kynesyslabs/demosdk 4.0.20 classes. This
 // is the public npm package, NOT the V2 server-only modified runtime tarball.
 // Nothing here talks to the network: importing the SDK only defines classes
 // (plus the SDK's own idle `demos` singleton); RPC work happens only when a
 // caller invokes connect()/confirm()/broadcast()/nodeCall() and friends, which
 // the embedded wallet adapter never does.
 //
-// Identities and the SDK word list are imported by file path because 4.0.16
+// Identities and the SDK word list are imported by file path because 4.0.20
 // does not expose them as package subpaths without the heavier barrels.
 //
 // build.mjs bundles this entry with esbuild code splitting into a local module
@@ -20,8 +20,8 @@ export { Demos } from '@kynesyslabs/demosdk/websdk';
 export { Identities } from './node_modules/@kynesyslabs/demosdk/build/abstraction/Identities.js';
 
 export const DEMOS_SDK_PACKAGE = '@kynesyslabs/demosdk';
-export const DEMOS_SDK_VERSION = '4.0.16';
-export const RUNTIME_LABEL = 'upstream-demosdk-4.0.16-browser-bundle';
+export const DEMOS_SDK_VERSION = '4.0.20';
+export const RUNTIME_LABEL = 'upstream-demosdk-4.0.20-browser-bundle';
 
 // Exactly the check Demos.connectWallet applies before treating a string as a
 // mnemonic (bip39.validateMnemonic(masterSeed, wordList)). connectWallet

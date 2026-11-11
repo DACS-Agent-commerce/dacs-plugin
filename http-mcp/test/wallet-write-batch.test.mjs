@@ -464,7 +464,7 @@ async function singleReservationFixture(t) {
     async connect(url) {this.rpc_url=url;return true;}
     async nodeCall(message) {
       if(message==='getAddressNonce')return state.nonce;
-      if(message==='getNetworkInfo')return {simulated:true,chainIdentity,forks:{osDenomination:{activated:true}}};
+      if(message==='getNetworkInfo')return {simulated:true,chainIdentity,chainId:7,forks:{osDenomination:{activated:true},signatureDomain:{activated:false}}};
       if(message==='getNetworkParameters')return {networkFee:2,rpcFee:3};
       throw new Error(`unexpected offline RPC: ${message}`);
     }

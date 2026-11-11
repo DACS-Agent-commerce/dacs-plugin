@@ -16,7 +16,7 @@ and some of them are still open.
 | --- | --- |
 | `public/portal/embedded-wallet/index.html` | `text/html` |
 | `main.mjs`, `ui.mjs`, `stores.mjs`, `vault.mjs`, `approval.mjs`, `dom.mjs`, `sdk-provider.mjs` | `text/javascript` |
-| `demos-runtime.mjs` (generated stable entry of the code-split browser build of upstream `@kynesyslabs/demosdk` 4.0.16) | `text/javascript` |
+| `demos-runtime.mjs` (generated stable entry of the code-split browser build of upstream `@kynesyslabs/demosdk` 4.0.20) | `text/javascript` |
 | `runtime-chunks/*.mjs` (generated, content-named; 7 files: 4 loaded on import, 3 only through the SDK's own `import()`) | `text/javascript` |
 | `runtime-manifest.json` (generated, public: file list, bytes, SHA-256, local import edges, SDK/esbuild identity; no wallet state) | `application/json` |
 | `embedded-wallet.css`, `../portal.css` | `text/css` |
@@ -41,7 +41,7 @@ source, the tarball, the installed package and the HTTP downloads:
 - the re-derived edges must equal the declared edges;
 - the static+dynamic closure from `demos-runtime.mjs` must equal the declared
   set. Lazily imported chunks are therefore required too, and orphans fail;
-- the manifest names `@kynesyslabs/demosdk` 4.0.16, esbuild 0.25.12 and the
+- the manifest names `@kynesyslabs/demosdk` 4.0.20, esbuild 0.25.12 and the
   runtime label, and the entry carries the generated banner.
 
 `wallet-build/` (the esbuild 0.25.12 build tooling, its lockfile and its `node_modules`)

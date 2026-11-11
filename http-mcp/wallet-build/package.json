@@ -6,7 +6,7 @@
   "type": "module",
   "license": "UNLICENSED",
   "dependencies": {
-    "@kynesyslabs/demosdk": "4.0.16",
+    "@kynesyslabs/demosdk": "4.0.20",
     "esbuild": "0.25.12"
   }
 }
