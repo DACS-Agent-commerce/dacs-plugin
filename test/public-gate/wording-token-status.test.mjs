@@ -55,6 +55,18 @@ test('wording token status: a reference title in single quotes is found across a
   assert.deepEqual(findingLines(`Intro.\n\n[label]: C:\\tools\\\n${EXTERNAL}\n${REVIEW}: done\n`, 'a.md'), [3]);
 });
 
+for (const [label, lineBreak] of [['LF', '\n'], ['CRLF', '\r\n']]) {
+  test(`wording token status: a comment that opens on the last line of a continued reference title is found (${label})`, () => {
+    const text = `Intro.${lineBreak}${lineBreak}[a]: u "x\\${lineBreak}y" <!--${lineBreak}${SECURITY} ${REVIEW} passed -->${lineBreak}`;
+    assert.deepEqual(findingLines(text, 'a.md'), [3]);
+  });
+
+  test(`wording token status: a link title that opens on the last line of a continued reference title is found (${label})`, () => {
+    const text = `Intro.${lineBreak}${lineBreak}[a]: u "x\\${lineBreak}y" [l](v "${lineBreak}${SECURITY} ${REVIEW} passed")${lineBreak}`;
+    assert.deepEqual(findingLines(text, 'a.md'), [3]);
+  });
+}
+
 test('wording token status: a link title with a backslash at the end of a line and no review words is not found', () => {
   assert.deepEqual(findingLines('[label](u "first\\\nsecond")', 'a.md'), []);
 });
