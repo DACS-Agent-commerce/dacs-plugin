@@ -902,6 +902,24 @@ test('readExpected rejects malformed entries and overlap with known failures', (
   assert.throws(() => read([valid], new Map([[JSON.stringify([valid.file, valid.test]), entry(valid.file, valid.test)]])), /Invalid expected-until-card entry/, 'known overlap');
 });
 
+test('readExpected refuses an absolute path anywhere in expect and names the cause by path or versioned package', (t) => {
+  const dir = setup(t), path = join(dir, 'expected.json'), valid = expectedEntry('test/a.test.mjs', 'reads contract');
+  const read = (expect) => { writeFileSync(path, JSON.stringify([{ ...valid, expect }])); return readExpected(path); };
+  const scoped = "'@kynesyslabs/dacs@0.1.0-alpha.0' is not in this registry";
+  assert.equal(read(scoped).size, 1, 'scoped package with its version');
+  assert.equal(read('x'.repeat(16) + ' deploy/a.json').size, 1, 'exactly 30 characters');
+  assert.equal(readExpected(join(root, 'test/expected-until-card.json')).size, 11, 'the shipped list');
+  const refused = [
+    ['absolute path in the middle', "ENOENT: no such file or directory, open '/work/http-mcp' then 'deploy/env-contract.json'"],
+    ['absolute path after the cause', `${expectedCause} in /work/http-mcp`],
+    ['absolute path in parentheses', `${expectedCause} (/work/http-mcp)`],
+    ['newline after the cause', `${expectedCause}\nsecond line`],
+    ['29 characters', 'x'.repeat(15) + ' deploy/a.json'],
+    ['scoped package without a version', "'@kynesyslabs/dacs' is not in this registry"],
+  ];
+  for (const [label, expect] of refused) assert.throws(() => read(expect), /Invalid expected-until-card entry/, label);
+});
+
 test('CI failing-test list matches expected JSON in both directions', () => {
   const entries = JSON.parse(readFileSync(join(root, 'test/expected-until-card.json'), 'utf8'));
   const section = readFileSync(join(root, 'docs/CI.md'), 'utf8').split('### Failing tests not covered by the baseline\n')[1].split(/\n#{2,3} /)[0];

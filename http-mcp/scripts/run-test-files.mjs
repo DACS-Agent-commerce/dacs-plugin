@@ -16,7 +16,9 @@ const SENTINELS = [TIMEOUT, PROCESS, INCOMPLETE, CARRY_OVER];
 const CLASSES = ['main-defect', 'environment', 'browser', 'carry-over'];
 const FIELDS = ['class', 'expect', 'file', 'reason', 'test'];
 const EXPECTED_FIELDS = ['card', 'expect', 'file', 'issue', 'reason', 'test'];
-const CAUSE_TOKEN = /(?:^|[\s'"(])(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+(?=$|[\s'":,)])|@[\w.-]+\/[\w.-]+@[0-9][\w.+-]*/;
+// A slash that does not follow a name character starts an absolute path.
+const ABSOLUTE_PATH = /(?:^|[^\w.-])\//;
+const CAUSE_TOKEN =/(?:^|[\s'"(])(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+(?=$|[\s'":,)])|@[\w.-]+\/[\w.-]+@[0-9][\w.+-]*/;
 const TEST_ROOT = 'test';
 // Shared fixture modules named *.test.mjs that register no tests.
 const MODULES = ['test/dacs-loopback-fixture.test.mjs'];
@@ -67,7 +69,7 @@ export function readExpected(path, known = new Map()) {
       !EXPECTED_FIELDS.every((field) => typeof entry[field] === 'string' && entry[field].trim()) ||
       !isRunPath(entry.file) || SENTINELS.includes(entry.test) || /[\r\n]/.test(entry.reason) ||
       !/^P\d+[a-z0-9]*$/.test(entry.card) || !/^#\d+$/.test(entry.issue) ||
-      /[\r\n]/.test(entry.expect) || entry.expect.startsWith('/') || entry.expect.length < 30 || !CAUSE_TOKEN.test(entry.expect))
+      /[\r\n]/.test(entry.expect) || ABSOLUTE_PATH.test(entry.expect) || entry.expect.length < 30 || !CAUSE_TOKEN.test(entry.expect))
       throw new Error('Invalid expected-until-card entry');
     const id = key(entry.file, entry.test);
     if (expected.has(id) || known.has(id)) throw new Error('Invalid expected-until-card entry');
