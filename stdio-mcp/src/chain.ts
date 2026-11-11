@@ -14,6 +14,7 @@ import { OS_PER_DEM } from './amount.js';
 import { maybeParseJson } from './json.js';
 import { denomination } from '@kynesyslabs/demosdk';
 import { createHash } from 'node:crypto';
+import { canonicalBytes } from './dacs/jcs.js';
 import type { SecretGuard } from './secrets.js';
 
 export interface NetworkInfo {
@@ -35,8 +36,12 @@ export interface AddressInfo {
 export interface TxInfo {
   hash: string;
   found: boolean;
-  state: string; // included | failed | pending | not_found | unknown
+  state: string; // included | failed | pending | not_found | unknown ("included" only once execution was read back)
   blockNumber?: number;
+  /** True only when the stored transaction's execution was read back and matched this hash and its inclusion block. */
+  executed?: boolean;
+  /** Bounded cause when the node reports inclusion but execution is not established. */
+  detail?: string;
   content?: {
     type?: string;
     from?: string;
@@ -75,7 +80,7 @@ export interface PreparedTx {
   message: string;
   feeOs: bigint;
   referenceBlock?: number;
-  content: { type: string; from: string; to: string; amountOs: bigint; nonce: string };
+  content: { type: string; from: string; to: string; amountOs: bigint; nonce: string; data?: unknown };
   /** Opaque SDK validity data; stays inside the server, never serialized to the model. */
   opaque: unknown;
 }
@@ -165,6 +170,76 @@ function sanitizeError(e: unknown, guard: SecretGuard): Error {
   return new Error(guard.redact(msg).slice(0, 500));
 }
 
+// One deadline, byte cap and collection limit for a status read and the execution read that follows it.
+const READ_DEADLINE_MS = 10_000;
+const READ_MAX_BYTES = 1024 * 1024;
+const READ_MAX_ITEMS = 256;
+
+/**
+ * One node read under the caller's absolute deadline. The SDK offers no streaming hook, so the byte cap applies
+ * to the decoded answer: an oversized or unserializable answer is refused. The read only reads; it never sends.
+ */
+async function boundedRead(read: () => Promise<unknown>, deadlineAt: number): Promise<unknown> {
+  const ms = deadlineAt - Date.now();
+  if (ms <= 0) throw new Error('read deadline reached');
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const v = await Promise.race([read(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('read timed out')), ms); })]);
+    if (v !== undefined && (JSON.stringify(v) ?? '').length > READ_MAX_BYTES) throw new Error('read answer over the size cap');
+    return v;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+type Execution = { state: 'executed' } | { state: 'failed' } | { state: 'unproven'; cause: string };
+
+/**
+ * Inclusion only says where to look. The stored transaction (getTxByHash: hash, blockNumber, status) is the execution
+ * evidence: "confirmed" is executed, "failed" is failed, anything else is unproven. It must carry the requested hash
+ * and the inclusion block, and, for a prepared operation, the approved type, sender, recipient, amount, nonce, data and fee.
+ */
+function judgeExecution(tx: any, hash: string, blockNumber: unknown, approved?: PreparedTx, osActive = false): Execution {
+  const no = (cause: string): Execution => ({ state: 'unproven', cause });
+  const bare = (h: string) => h.replace(/^0x/i, '').toLowerCase();
+  if (!tx || typeof tx !== 'object') return no('execution not readable: no stored transaction');
+  if (typeof tx.hash !== 'string' || bare(tx.hash) !== bare(hash)) return no('execution read answered a different transaction');
+  if (typeof blockNumber !== 'number' || tx.blockNumber !== blockNumber) return no('stored block differs from the inclusion block');
+  if (tx.status === 'failed') return { state: 'failed' };
+  if (tx.status !== 'confirmed') return no(`stored status is ${typeof tx.status === 'string' ? tx.status.slice(0, 32) : 'absent'}, not confirmed`);
+  if (!approved) return { state: 'executed' };
+  const raw = tx.content;
+  const c = typeof raw === 'string' ? (maybeParseJson(raw) as any) : raw;
+  if (!c || typeof c !== 'object') return no('execution not readable: stored transaction has no content');
+  if ((Array.isArray(c.gcr_edits) && c.gcr_edits.length > READ_MAX_ITEMS) || (Array.isArray(c.data) && c.data.length > READ_MAX_ITEMS)) return no('stored transaction content over the collection limit');
+  const a = approved.content;
+  const lc = (v: unknown) => String(v).toLowerCase();
+  const amount = typeof c.amount === 'string' && /^[0-9]+$/.test(c.amount) ? BigInt(c.amount) : typeof c.amount === 'number' && Number.isFinite(c.amount) ? amountToOs(c.amount, osActive) : -1n;
+  let fee = -1n;
+  try {
+    const f = c.transaction_fee;
+    if (f && typeof f === 'object') fee = feeFieldToOs(f.network_fee, osActive) + feeFieldToOs(f.rpc_fee, osActive) + feeFieldToOs(f.additional_fee, osActive);
+  } catch {
+    /* unreadable fee stays -1 and mismatches */
+  }
+  let dataOk = false;
+  try {
+    dataOk = Buffer.compare(canonicalBytes(c.data ?? null), canonicalBytes(a.data ?? null)) === 0;
+  } catch {
+    /* unserializable data mismatches */
+  }
+  const differs = [
+    ['type', c.type === a.type],
+    ['sender', lc(c.from) === lc(a.from)],
+    ['recipient', lc(c.to) === lc(a.to)],
+    ['amount', amount === a.amountOs],
+    ['nonce', String(c.nonce) === a.nonce],
+    ['data', dataOk],
+    ['fee', fee === approved.feeOs],
+  ].filter(([, same]) => !same).map(([field]) => field);
+  return differs.length ? no(`stored ${differs.join(', ')} differs from the approved transaction`) : { state: 'executed' };
+}
+
 export class DemosChain implements ChainReader {
   private demos: Demos | null = null;
   private osActive: boolean | null = null;
@@ -231,18 +306,21 @@ export class DemosChain implements ChainReader {
     const d = await this.client().catch((e) => {
       throw sanitizeError(e, this.guard);
     });
+    const deadlineAt = Date.now() + READ_DEADLINE_MS; // shared by the status read and the execution read
     let status: any = null;
     let statusErr: unknown = null;
     try {
-      status = await d.nodeCall('getTransactionStatus', { hash });
+      status = await boundedRead(() => d.nodeCall('getTransactionStatus', { hash }), deadlineAt);
     } catch (e) {
       statusErr = e;
     }
     let tx: any = null;
+    let txReadErr: unknown = null;
     try {
-      tx = await d.getTxByHash(hash);
-    } catch {
+      tx = await boundedRead(() => d.getTxByHash(hash), deadlineAt);
+    } catch (e) {
       tx = null;
+      txReadErr = e;
     }
     // The SDK's call() never throws: an error reply comes back as a {result, response, require_reply} envelope.
     // For an HTTP error status that envelope is {result: 500, response: TransportError}, and the node's real
@@ -281,10 +359,26 @@ export class DemosChain implements ChainReader {
     const found = !!content || (status && typeof status === 'object' && typeof status.state === 'string' && status.state !== 'not_found' && status.state !== 'unknown');
     // An error on either read is surfaced unless the other read shows the transaction.
     if (!found && (statusErr || txErr)) throw sanitizeError(statusErr ?? txErr, this.guard);
+    let state: string = typeof status?.state === 'string' ? status.state : found ? 'unknown' : 'not_found';
+    let executed = false;
+    let detail: string | undefined;
+    if (state === 'included') {
+      // inclusion is a location hint: success needs the execution read back for this hash and block
+      const ex: Execution = txReadErr
+        ? { state: 'unproven', cause: `execution read failed: ${sanitizeError(txReadErr, this.guard).message.slice(0, 120)}` }
+        : judgeExecution(tx, hash, status.blockNumber);
+      if (ex.state === 'executed') executed = true;
+      else {
+        state = ex.state === 'failed' ? 'failed' : 'pending';
+        detail = ex.state === 'failed' ? 'included, but its execution failed' : `included; execution not established (${ex.cause})`;
+      }
+    }
     return {
       hash,
       found: !!found,
-      state: typeof status?.state === 'string' ? status.state : found ? 'unknown' : 'not_found',
+      state,
+      executed,
+      ...(detail ? { detail } : {}),
       blockNumber: typeof status?.blockNumber === 'number' ? status.blockNumber : tx?.blockNumber,
       content: content
         ? {
@@ -463,7 +557,7 @@ class DemosWallet implements Wallet {
       message: String(data?.message ?? ''),
       feeOs,
       referenceBlock: typeof data?.reference_block === 'number' ? data.reference_block : undefined,
-      content: { type: c.type, from: c.from.toLowerCase(), to: c.to.toLowerCase(), amountOs: BigInt(c.amount), nonce: String(c.nonce ?? '') },
+      content: { type: c.type, from: c.from.toLowerCase(), to: c.to.toLowerCase(), amountOs: BigInt(c.amount), nonce: String(c.nonce ?? ''), data: c.data },
       opaque: validity,
     };
   }
@@ -525,23 +619,36 @@ class DemosWallet implements Wallet {
           .slice(0, 300)
       : undefined;
     const deadline = Date.now() + (accepted ? 60_000 : 20_000);
+    let notExecuted = ''; // why an included transaction is not yet success
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 2_000));
       let st: any = null;
       try {
-        st = await this.d.nodeCall('getTransactionStatus', { hash: p.hash });
+        st = await boundedRead(() => this.d.nodeCall('getTransactionStatus', { hash: p.hash }), deadline);
       } catch {
         continue;
       }
-      if (st?.state === 'included') return { txHash: p.hash, state: 'included', blockNumber: st.blockNumber };
       if (st?.state === 'failed') return { txHash: p.hash, state: 'failed', detail: 'node reported failed' };
+      if (st?.state !== 'included') continue;
+      // inclusion is only a location hint: read the same hash back (never resend) under the same deadline
+      let ex: Execution;
+      try {
+        ex = judgeExecution(await boundedRead(() => this.d.getTxByHash(p.hash), deadline), p.hash, st.blockNumber, p, this.osActive);
+      } catch (e) {
+        ex = { state: 'unproven', cause: `execution read failed: ${sanitizeError(e, this.guard).message.slice(0, 120)}` };
+      }
+      if (ex.state === 'executed') return { txHash: p.hash, state: 'included', blockNumber: st.blockNumber };
+      if (ex.state === 'failed') return { txHash: p.hash, state: 'failed', blockNumber: st.blockNumber, detail: 'included, but its execution failed' };
+      notExecuted = ex.cause;
     }
     return {
       txHash: p.hash,
       state: 'pending',
-      detail: accepted
-        ? 'accepted for propagation; inclusion not observed within 60s — check with demos_tx_get, do not resubmit'
-        : `broadcast outcome unknown (${rejectDetail}); not observed on chain within 20s — check with demos_tx_get before trying again; do not resubmit blindly`,
+      detail: notExecuted
+        ? `included, but execution not established (${notExecuted}) — check with demos_tx_get, do not resubmit`
+        : accepted
+          ? 'accepted for propagation; inclusion not observed within 60s — check with demos_tx_get, do not resubmit'
+          : `broadcast outcome unknown (${rejectDetail}); not observed on chain within 20s — check with demos_tx_get before trying again; do not resubmit blindly`,
     };
   }
 }

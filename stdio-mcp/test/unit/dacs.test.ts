@@ -136,7 +136,7 @@ function signBundle(doc: Record<string, any>, sep: string, ...keys: Array<typeof
 test('fault bundle: permissible faultedParty, anchoredByRole excluded from hash, chain tx check', async () => {
   const b = signBundle(faultBundle(), 'dacs-fault-bundle:v1:', buyer);
   const h = await harness();
-  h.chain.txs.set(H('tx1'), { hash: H('tx1'), found: true, state: 'included', blockNumber: 77 });
+  h.chain.txs.set(H('tx1'), { hash: H('tx1'), found: true, state: 'included', executed: true, blockNumber: 77 });
   // with chain checks on, an unanchored bundle is not accepted
   assert.equal((await verifyArtifact(b, h.chain)).decision, 'indeterminate');
   const anchor = 'stor-' + H('anchor').slice(0, 40);
@@ -209,7 +209,7 @@ test('bundle binding (BB-4/BB-5) and anchored copy', async () => {
   const bindHash = specHash(binding, ['signature']);
   binding.signature = { algorithm: 'ed25519', signer: claim(buyer), value: specSign('dacs-bundle-binding:v1:', bindHash, buyer.priv) };
   const h = await harness();
-  h.chain.txs.set(H('tx1'), { hash: H('tx1'), found: true, state: 'included', blockNumber: 77 });
+  h.chain.txs.set(H('tx1'), { hash: H('tx1'), found: true, state: 'included', executed: true, blockNumber: 77 });
   h.chain.storage.set(native, { storageAddress: native, data: b });
   const ok = await verifyArtifact(b, h.chain, { binding });
   assert.equal(ok.decision, 'accept', JSON.stringify(ok.checks));
@@ -288,13 +288,13 @@ test('settlement evidence needs phase, amount, finality and an authorised signer
     return { ...ev, signature: { algorithm: 'ed25519', signer: claim(orchK), value: specSign('dacs-evidence:v1:', h, orchK.priv) } };
   };
   const h = await harness();
-  h.chain.txs.set(H('paytx'), { hash: H('paytx'), found: true, state: 'included', blockNumber: 5, content: { type: 'native', amount: '1500000000' } });
+  h.chain.txs.set(H('paytx'), { hash: H('paytx'), found: true, state: 'included', executed: true, blockNumber: 5, content: { type: 'native', amount: '1500000000' } });
   assert.equal((await verifyArtifact(mk(), h.chain)).decision, 'indeterminate', 'no session context → not accept');
   assert.equal((await verifyArtifact(mk(), h.chain, { expectedSigner: claim(orchK) })).decision, 'accept');
   assert.equal((await verifyArtifact(mk(), h.chain, { expectedSigner: claim(buyer) })).decision, 'reject');
   assert.equal((await verifyArtifact(mk({ phase: undefined, paymentAmount: undefined }), h.chain, { expectedSigner: claim(orchK) })).decision, 'reject');
   assert.equal((await verifyArtifact(mk({ settlementFinality: undefined }), h.chain, { expectedSigner: claim(orchK) })).decision, 'reject');
-  h.chain.txs.set(H('paytx'), { hash: H('paytx'), found: true, state: 'included', blockNumber: 5, content: { type: 'native', amount: '1' } });
+  h.chain.txs.set(H('paytx'), { hash: H('paytx'), found: true, state: 'included', executed: true, blockNumber: 5, content: { type: 'native', amount: '1' } });
   assert.equal((await verifyArtifact(mk(), h.chain, { expectedSigner: claim(orchK) })).decision, 'reject', 'inclusion is not payment');
 });
 
@@ -315,7 +315,7 @@ test('binding version and fetched-copy signatures are enforced', async () => {
     return bd;
   };
   const h = await harness();
-  h.chain.txs.set(H('tx1'), { hash: H('tx1'), found: true, state: 'included', blockNumber: 77 });
+  h.chain.txs.set(H('tx1'), { hash: H('tx1'), found: true, state: 'included', executed: true, blockNumber: 77 });
   h.chain.storage.set(native, { storageAddress: native, data: b });
   assert.equal((await verifyArtifact(b, h.chain, { binding: mkBinding('2') })).decision, 'reject');
   // the anchored copy has the same hash but a forged signature (signatures are outside the hash)
@@ -359,10 +359,10 @@ test('payment amount is the SUM over the success set; CF-5 on the signing path',
   };
   ev.signature = { algorithm: 'ed25519', signer: claim(orchK), value: specSign('dacs-evidence:v1:', specHash(ev, ['signature']), orchK.priv) };
   const h = await harness();
-  h.chain.txs.set(H('p1'), { hash: H('p1'), found: true, state: 'included', content: { type: 'native', amount: '1000000000' } });
-  h.chain.txs.set(H('p2'), { hash: H('p2'), found: true, state: 'included', content: { type: 'native', amount: '2000000000' } });
+  h.chain.txs.set(H('p1'), { hash: H('p1'), found: true, state: 'included', executed: true, content: { type: 'native', amount: '1000000000' } });
+  h.chain.txs.set(H('p2'), { hash: H('p2'), found: true, state: 'included', executed: true, content: { type: 'native', amount: '2000000000' } });
   assert.equal((await verifyArtifact(ev, h.chain, { expectedSigner: claim(orchK) })).decision, 'accept');
-  h.chain.txs.set(H('p2'), { hash: H('p2'), found: true, state: 'included', content: { type: 'native', amount: '1' } });
+  h.chain.txs.set(H('p2'), { hash: H('p2'), found: true, state: 'included', executed: true, content: { type: 'native', amount: '1' } });
   assert.equal((await verifyArtifact(ev, h.chain, { expectedSigner: claim(orchK) })).decision, 'reject');
 
   const buyerWallet = new MockWallet(keypair(54));
