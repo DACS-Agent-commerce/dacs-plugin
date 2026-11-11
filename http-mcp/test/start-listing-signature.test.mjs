@@ -151,6 +151,18 @@ test('a malformed signature envelope is refused', async () => {
   await refuses(s.run(), 'listing', /malformed signature/);
 });
 
+test('a signature spelled with non-zero residual bits is refused although it decodes to the same bytes', async () => {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const s = await scenario({ mutate: (listing) => {
+    const { value } = listing.signature;
+    // The last of an 86-character value carries 4 unused bits; the canonical spelling has them zero.
+    const spelled = `${value.slice(0, -1)}${alphabet[alphabet.indexOf(value.at(-1)) + 1]}`;
+    assert.deepEqual(Buffer.from(spelled, 'base64url'), Buffer.from(value, 'base64url'));
+    return { ...listing, signature: { ...listing.signature, value: spelled } };
+  } });
+  await refuses(s.run(), 'listing', /does not verify for its seller/);
+});
+
 test('a browser without Ed25519 refuses, it never skips the signature check', async () => {
   const s = await scenario();
   await withoutEd25519(() => refuses(s.run(), 'listing', /cannot check Ed25519 signatures/));
@@ -165,6 +177,8 @@ test('signature value encoding vectors: the conforming verifier path', async (t)
       const decoded = wallet.decodeSignatureValue(v.value);
       const accepted = decoded !== null && decoded.length === 64;
       assert.equal(accepted, v.expected === 'accept');
+      // A wire-stage rejection never yields bytes; an algorithm-stage one decodes and then fails on length.
+      if (v.want.failureStage === 'wire') assert.equal(decoded, null);
       if (v.want.decodedLength !== undefined) assert.equal(decoded?.length, v.want.decodedLength);
     });
     ran.push(v.name);
