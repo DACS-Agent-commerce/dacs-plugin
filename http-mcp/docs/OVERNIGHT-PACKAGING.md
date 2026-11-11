@@ -9,7 +9,7 @@ tarball and image it ran against.
 
 ## Runtime floor and platforms
 
-- `engines.node` is `^22.22.2 || ^24.15.0 || >=26` in `package.json` and the lockfile root. The range
+- `engines.node` is `^22.22.2 || ^24.15.0` in `package.json` and the lockfile root. The range
   comes from the locked production closure; every runtime dependency must
   accept its supported floors. `test/overnight-package.test.mjs` checks this with no exceptions.
   `deploy/scripts/validate-package.mjs` refuses a lower floor while `node:sqlite`

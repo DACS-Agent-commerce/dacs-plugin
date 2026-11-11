@@ -422,7 +422,7 @@ the installed-artifact checker verifies this.
 
   The source checker itself needs Node >= 22.15 (tested on 22.22.0). On an
   older Node it fails with a clear preflight message. The installed launcher
-  still runs on Node `^22.22.2 || ^24.15.0 || >=26`.
+  still runs on Node `^22.22.2 || ^24.15.0`.
 
   The backup step waits for the export to finish (backup text shown with a
   value, wallet not busy) before reading it. It also checks the actual installed

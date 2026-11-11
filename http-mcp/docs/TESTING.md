@@ -8,7 +8,7 @@ Every check here runs against SIMULATED local fixtures: chain, directory and wal
 
 ## Runtime
 
-- Node `^22.22.2 || ^24.15.0 || >=26`; the recorded runs used 22.22.0 with its bundled npm.
+- Node `^22.22.2 || ^24.15.0`; the recorded runs used 22.22.0 with its bundled npm.
 - Install from the lockfile, in `http-mcp/`, with lifecycle scripts disabled:
   `npm ci --ignore-scripts --omit=optional --no-audit --no-fund`
 - Browser checks need a real local Chrome or Chromium binary. Point `DACS_TEST_CHROME` at it; the macOS default path does not exist on Linux. Use the binary that matches the installed `playwright-core`, which records its expected revision in `node_modules/playwright-core/browsers.json`. A missing browser is a BLOCKED skip, never a pass.
@@ -47,7 +47,7 @@ DACS_TEST_CHROME=/path/to/chrome node scripts/check-offline-tester-package.mjs [
   - On an older Node it does not fail with a link error. Its first clause fails
     with a clear message, and it exits 1 before packing anything.
   - This floor applies only to the source checker. The installed package and
-    its launcher still support the documented runtime, Node `^22.22.2 || ^24.15.0 || >=26`.
+    its launcher still support the documented runtime, Node `^22.22.2 || ^24.15.0`.
 - **Browser:** a missing `DACS_TEST_CHROME` browser is a failure, not a skip.
 - **`--keep`:** keeps the task directory (tarball, install project) and prints
   its path.

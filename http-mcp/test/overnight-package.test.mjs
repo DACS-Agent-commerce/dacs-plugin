@@ -25,8 +25,10 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 const PACKAGE_ROOT = realpathSync(fileURLToPath(new URL('..', import.meta.url)));
 const PACKAGE_NAME = '@dacs-agent-commerce/dacs-chatgpt-plugin';
 // The supported release lines come from the locked production closure.
-const DOCUMENTED_RANGE = '^22.22.2 || ^24.15.0 || >=26';
-const DOCUMENTED_FLOORS = ['22.22.2', '24.15.0', '26.0.0'];
+const DOCUMENTED_RANGE = '^22.22.2 || ^24.15.0';
+const DOCUMENTED_FLOORS = ['22.22.2', '24.15.0'];
+// Check each release line's upper bound at its largest stable semver components.
+const DOCUMENTED_TOPS = DOCUMENTED_FLOORS.map((version) => `${version.split('.')[0]}.${Number.MAX_SAFE_INTEGER}.${Number.MAX_SAFE_INTEGER}`);
 const DOCUMENTED_FLOOR = DOCUMENTED_FLOORS[0];
 const EXPECTED_TOOLS = ['cancel_wallet_handoff', 'get_account_status', 'get_identities', 'get_listing', 'get_profile',
   'get_purchase_status', 'prepare_purchase', 'search_agents', 'start_identity_action', 'start_wallet_link',
@@ -86,7 +88,7 @@ export function admits(range, version) {
 
 test('range check: accepting and refusing controls for the forms in the lockfile', () => {
   for (const version of DOCUMENTED_FLOORS) assert.equal(admits(DOCUMENTED_RANGE, version), true);
-  for (const version of ['22.22.1', '23.0.0', '24.14.9', '25.0.0']) assert.equal(admits(DOCUMENTED_RANGE, version), false);
+  for (const version of ['22.22.1', '23.0.0', '24.14.9', '25.0.0', '26.0.0']) assert.equal(admits(DOCUMENTED_RANGE, version), false);
   assert.equal(admits('>=22.22.2', '22.12.9'), false);
   assert.equal(admits('^20.19.0 || >=22.12.0', '22.22.2'), true);
   assert.equal(admits('^20.19.0 || >=22.12.0', '21.7.0'), false);
@@ -118,16 +120,37 @@ test('the documented Node floor is the same in package.json, the lockfile root, 
   assert.match(readFileSync(join(PACKAGE_ROOT, 'Dockerfile'), 'utf8'), /^FROM node:22\.23\.3-bookworm-slim@sha256:3ed98443660ff48413b5af19ecefce3b9d50845a901a43420d47cc63a9fddbe9$/m);
 });
 
-test('every locked runtime dependency admits the documented floor', () => {
-  const lock = json('package-lock.json');
+function checkLockedNodeRanges(lock) {
   const checked = [];
   for (const [key, entry] of Object.entries(lock.packages ?? {})) {
-    if (!key || entry.dev || entry.optional || !entry.engines?.node) continue;
+    if (!key || entry.dev || !entry.engines?.node) continue;
     checked.push(key);
-    for (const floor of DOCUMENTED_FLOORS) {
-      assert.ok(admits(entry.engines.node, floor), `${key} engines.node "${entry.engines.node}" refuses ${floor}`);
+    for (const version of [...DOCUMENTED_FLOORS, ...DOCUMENTED_TOPS]) {
+      assert.ok(admits(entry.engines.node, version), `${key} engines.node "${entry.engines.node}" refuses ${version}`);
     }
   }
+  return checked;
+}
+
+test('locked Node range check rejects a ceiling below the documented top, including optional packages', () => {
+  const key = 'node_modules/range-fixture';
+  for (const optional of [true, false]) {
+    const entry = { optional, engines: { node: '>=22.22.2' } };
+    const fixture = { packages: { [key]: entry } };
+    assert.doesNotThrow(() => checkLockedNodeRanges(fixture));
+    for (const range of ['>=22.22.2 <24', '22.x || >=24.15.0 <24.16.0']) {
+      entry.engines.node = range;
+      assert.throws(() => checkLockedNodeRanges(fixture),
+        /node_modules\/range-fixture engines\.node .* refuses 24\./,
+        `${range}, optional=${optional}`);
+    }
+    entry.engines.node = '22.x || 24.x';
+    assert.doesNotThrow(() => checkLockedNodeRanges(fixture));
+  }
+});
+
+test('every locked runtime dependency admits the documented floor', () => {
+  const checked = checkLockedNodeRanges(json('package-lock.json'));
   assert.ok(checked.includes('node_modules/@kynesyslabs/dacs'), 'the DACS SDK declares an engine range');
   assert.ok(checked.length >= 10, `${checked.length} locked runtime packages declare engines`);
 });
