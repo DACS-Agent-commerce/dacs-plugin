@@ -39,7 +39,7 @@ const keysOf = (r, wallet) => [`devnet/native-transfer/${r.hash}`, `devnet/nativ
 
 // The app database (one cancelled purchase by the transfer's buyer) and the source
 // journal, laid out as the operator keeps them.
-function stateWith(t, wallet, records) {
+function stateWith(t, wallet, records, { stuck = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'ops-health-authority-')), state = join(root, 'state');
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(state, 'app'), { recursive: true });
@@ -52,6 +52,13 @@ function stateWith(t, wallet, records) {
   db.prepare('INSERT INTO operations (id,account_id,kind,idempotency_key,request_hash,status,terms,terms_hash,state,handoff_token_hash,expires_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .run(id, 'TEST-buyer', 'purchase', 'TEST-A', sha('A'), 'cancelled', JSON.stringify(terms), sha('TEST-A'), '{}', sha('handoff'), new Date(Date.now() + 60000).toISOString(), at, at);
   db.prepare('INSERT INTO operation_events (operation_id,seq,at,type,data) VALUES (?,?,?,?,?)').run(id, 1, at, 'created', JSON.stringify({ status: 'cancelled' }));
+  if (stuck) {
+    // A second purchase of the same buyer, in an uncertain payment for an hour.
+    const old = new Date(Date.now() - 3_600_000).toISOString(), second = 'pur_BBBBBBBBBBBBBBBB';
+    db.prepare('INSERT INTO operations (id,account_id,kind,idempotency_key,request_hash,status,terms,terms_hash,state,handoff_token_hash,expires_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(second, 'TEST-buyer', 'purchase', 'TEST-B', sha('B'), 'payment_uncertain', JSON.stringify(terms), sha('TEST-B'), '{}', sha('handoff-b'), new Date(Date.now() + 60000).toISOString(), old, old);
+    db.prepare('INSERT INTO operation_events (operation_id,seq,at,type,data) VALUES (?,?,?,?,?)').run(second, 1, old, 'created', JSON.stringify({ status: 'payment_uncertain' }));
+  }
   db.close();
   const journal = new DatabaseSync(join(state, 'node2-transport.sqlite'));
   const journalId = 'e'.repeat(32), rows = records.map(([key, value], i) => ({ key, seq: i + 1, value: JSON.stringify(value) }));
@@ -62,9 +69,9 @@ function stateWith(t, wallet, records) {
   journal.close();
   return { state, databasePath, journalPath: join(state, 'node2-transport.sqlite') };
 }
-const withTransfer = (t, signedFor, edit = (r) => r) => {
+const withTransfer = (t, signedFor, edit = (r) => r, options) => {
   const wallet = createEphemeralWallet(), record = edit(failedRecord(wallet, signedFor));
-  return { wallet, record, ...stateWith(t, wallet, keysOf(record, wallet).map((k) => [k, record])) };
+  return { wallet, record, ...stateWith(t, wallet, keysOf(record, wallet).map((k) => [k, record]), options) };
 };
 const health = (s, networkInfo) => opsHealth({ databasePath: s.databasePath, operatorState: s.state, ...(networkInfo === undefined ? {} : { networkInfo }) });
 
@@ -81,7 +88,7 @@ test('a record signed for another chain id is invalid on an active-fork chain', 
 
 test('an unreadable node answer reports signature authority unavailable, not corruption', (t) => {
   const s = withTransfer(t, ACTIVE);
-  for (const answer of [undefined, null, 'down', [], {}, { chainId: 7, forks: { signatureDomain: { activated: 'true' } } },
+  for (const answer of [undefined, null, 'down', [], { forks: true }, { chainId: 7, forks: { signatureDomain: { activated: 'true' } } },
     { forks: { signatureDomain: { activated: true } } }, { chainId: -1, forks: { signatureDomain: { activated: true } } }, { chainId: 1.5, forks: { signatureDomain: { activated: true } } }]) {
     const report = health(s, answer);
     assert.equal(report.signatureAuthorityUnavailable.length, 2, JSON.stringify(answer));
@@ -139,7 +146,7 @@ test('verifyDemosTransactionSignature: the form follows the answer, and an answe
   assert.equal(check(ACTIVE, wallet.signHex('x')), 'invalid');
   assert.equal(check(ACTIVE, 'not a signature'), 'invalid');
   assert.equal(verifyDemosTransactionSignature({ networkInfo: ACTIVE, hash: 'ABC', signature: sign(ACTIVE), publicKey: wallet.address }), 'invalid');
-  for (const answer of [undefined, null, {}, 'x', { forks: { signatureDomain: { activated: 'false' } } }, { chainId: 7, forks: { signatureDomain: {} } }, { forks: { signatureDomain: { activated: true } } },
+  for (const answer of [undefined, null, { forks: [] }, 'x', { forks: { signatureDomain: { activated: 'false' } } }, { chainId: 7, forks: { signatureDomain: {} } }, { forks: { signatureDomain: { activated: true } } },
     { chainId: '7', forks: { signatureDomain: { activated: true } } }, { chainId: -1, forks: { signatureDomain: { activated: true } } }, { chainId: 2 ** 53, forks: { signatureDomain: { activated: true } } }]) {
     assert.equal(check(answer, sign(INACTIVE)), 'unavailable', JSON.stringify(answer));
     assert.equal(check(answer, sign(ACTIVE)), 'unavailable', JSON.stringify(answer));
@@ -148,13 +155,15 @@ test('verifyDemosTransactionSignature: the form follows the answer, and an answe
 
 // ---- the command line ------------------------------------------------------
 async function node(answer) {
+  let requests = 0;
   const server = http.createServer(async (req, res) => {
+    requests += 1;
     for await (const _ of req) { /* drain */ }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(answer === 'down' ? 'not json' : JSON.stringify({ result: 200, response: answer }));
   });
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
-  return { url: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((done) => { server.close(done); server.closeAllConnections(); }) };
+  return { url: `http://127.0.0.1:${server.address().port}`, requests: () => requests, close: () => new Promise((done) => { server.close(done); server.closeAllConnections(); }) };
 }
 const cli = (s, env = {}) => new Promise((done) => {
   const child = spawn(process.execPath, ['--import', loader, 'scripts/ops-health.mjs', '--database', s.databasePath, '--operator-state', s.state, '--json'],
@@ -176,7 +185,7 @@ test('command line: the configured node\'s answer decides; unavailable authority
   assert.equal(JSON.parse(ok.stdout).healthy, true);
   assert.equal((await exitWith(bare, ACTIVE)).status, 2, 'a bare-hash record on an active-fork chain is corrupt');
   assert.equal((await exitWith(bare, INACTIVE)).status, 0);
-  for (const answer of ['none', 'down', {}, { forks: { signatureDomain: { activated: 'yes' } } }, { forks: { signatureDomain: { activated: true } } }]) {
+  for (const answer of ['none', 'down', { forks: true }, { forks: { signatureDomain: { activated: 'yes' } } }, { forks: { signatureDomain: { activated: true } } }]) {
     const out = await exitWith(domain, answer);
     assert.equal(out.status, 3, `${JSON.stringify(answer)}: ${out.stderr}`);
     const report = JSON.parse(out.stdout);
@@ -193,6 +202,55 @@ test('command line: the node is not needed when no retained failed transfer need
   const out = await cli(s);
   assert.equal(out.status, 0, out.stderr);
   assert.deepEqual(JSON.parse(out.stdout).signatureAuthorityUnavailable, []);
+});
+
+// The node's whole reply body is exactly `size` bytes.
+const sized = (size) => ({ ...ACTIVE, pad: 'x'.repeat(size - JSON.stringify({ result: 200, response: { ...ACTIVE, pad: '' } }).length) });
+
+test('command line: a node reply over 64 KiB is authority unavailable; one of exactly 64 KiB is read', async (t) => {
+  const domain = withTransfer(t, ACTIVE);
+  assert.equal(JSON.stringify({ result: 200, response: sized(65536) }).length, 65536);
+  const big = await exitWith(domain, sized(65537));
+  assert.equal(big.status, 3, big.stderr + big.stdout);
+  assert.equal(JSON.parse(big.stdout).signatureAuthorityUnavailable.length, 2);
+  assert.equal((await exitWith(domain, sized(2_000_000))).status, 3);
+  const edge = await exitWith(domain, sized(65536));
+  assert.equal(edge.status, 0, edge.stderr + edge.stdout);
+});
+
+test('command line: DACS_CHAIN_TIMEOUT_MS outside the configuration\'s range, or not an integer, refuses before any request', async (t) => {
+  const domain = withTransfer(t, ACTIVE);
+  for (const value of ['-1', '0', '499', '60001', '99999999999', '1.5', 'abc', 'NaN', 'Infinity']) {
+    const server = await node(ACTIVE);
+    try {
+      const out = await cli(domain, { DACS_CHAIN_RPC_URL: server.url, DACS_CHAIN_TIMEOUT_MS: value });
+      assert.equal(out.status, 2, `${value}: ${out.stdout}`);
+      assert.deepEqual(JSON.parse(out.stdout), { format: 'dacs-ops-health/v2', error: 'DACS_CHAIN_TIMEOUT_MS must be an integer in [500, 60000]' }, value);
+      assert.equal(server.requests(), 0, `${value}: no request was made`);
+    } finally { await server.close(); }
+  }
+  for (const value of ['500', '60000']) {
+    const server = await node(ACTIVE);
+    try {
+      const out = await cli(domain, { DACS_CHAIN_RPC_URL: server.url, DACS_CHAIN_TIMEOUT_MS: value });
+      assert.equal(out.status, 0, `${value}: ${out.stdout}${out.stderr}`);
+      assert.equal(server.requests(), 1);
+    } finally { await server.close(); }
+  }
+});
+
+test('command line: a stuck purchase wins over an unavailable authority (exit 1), and the unavailable records are still listed', async (t) => {
+  const s = withTransfer(t, ACTIVE, undefined, { stuck: true });
+  for (const answer of ['none', 'down']) {
+    const out = await exitWith(s, answer);
+    assert.equal(out.status, 1, `${answer}: ${out.stderr}${out.stdout}`);
+    const report = JSON.parse(out.stdout);
+    assert.equal(report.stuck.length, 1);
+    assert.equal(report.signatureAuthorityUnavailable.length, 2);
+  }
+  const answered = await exitWith(s, ACTIVE);
+  assert.equal(answered.status, 1);
+  assert.deepEqual(JSON.parse(answered.stdout).signatureAuthorityUnavailable, []);
 });
 
 import { transactionDomainCases } from './helpers/transaction-domain-cases.mjs';

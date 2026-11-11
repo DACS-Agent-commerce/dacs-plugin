@@ -72,7 +72,7 @@ test('inactive fork: the bare-hash control is reported valid, and the domain for
 });
 
 const UNREADABLE = [
-  ['null', null], ['undefined', undefined], ['a string', 'active'], ['an array', []], ['an empty object', {}],
+  ['null', null], ['undefined', undefined], ['a string', 'active'], ['an array', []], ['forks is true', { chainId: 7, forks: true }], ['forks is an array', { chainId: 7, forks: [] }],
   ['the fork is not an object', { chainId: 7, forks: { signatureDomain: true } }],
   ['the fork has no status', { chainId: 7, forks: { signatureDomain: {} } }],
   ['the status is a string', { chainId: 7, forks: { signatureDomain: { activated: 'true' } } }],
@@ -108,6 +108,15 @@ test('an unreadable network read stops the probe before the wallet is asked to s
   await assert.rejects(adapter.signTransaction(tx()), /network_unavailable/);
   assert.equal(fake.calls.some((c) => c.method === 'signTransaction'), false);
 });
+
+for (const [label, answer] of UNREADABLE) {
+  test(`a malformed network answer stops the probe before the wallet is asked to sign (${label})`, async () => {
+    const fake = extension(ACTIVE_NETWORK);
+    const adapter = await probe(fake.provider, { readNetwork: async () => answer });
+    await assert.rejects(adapter.signTransaction(tx()), /network_unavailable/);
+    assert.equal(fake.calls.some((c) => c.method === 'signTransaction'), false);
+  });
+}
 
 test('storage CREATE: the same rule applies', async () => {
   const requested = await storageVector({ from: wallet.address, nonce: PROBE_NONCE, timestamp: 1234 });
@@ -168,17 +177,25 @@ transactionDomainCases('probe checks', async () => {
   };
 });
 
-for (const [label, later] of [['missing', { chainId: 1, forks: {} }], ['false', { chainId: 1, forks: { signatureDomain: { activated: false } } }]]) {
-  test(`probe adapter session: active chain 1 then ${label} refuses`, async () => {
+for (const [label, later] of [['missing', { chainId: 1, forks: {} }], ['false', { chainId: 1, forks: { signatureDomain: { activated: false } } }], ['no forks member', { chainId: 1 }]]) {
+  test(`probe adapter session: active chain 1 then ${label} refuses before the wallet is asked`, async () => {
     let answer = { chainId: 1, forks: { signatureDomain: { activated: true } } };
     const fake = fakeExtension({ wallet, signTransaction: (requested) => ({ success: true, data: signedTransaction(wallet, requested, undefined,
-      { chainId: 1, forks: { signatureDomain: { activated: answer.forks.signatureDomain?.activated === true } } }) }) });
+      { chainId: 1, forks: { signatureDomain: { activated: answer.forks?.signatureDomain?.activated === true } } }) }) });
     const adapter = await probe(fake.provider, { readNetwork: async () => answer });
     assert.equal((await adapter.signTransaction(tx())).signatureValid, true);
     answer = later;
-    assert.equal((await adapter.signTransaction(tx())).signatureValid, false);
+    await assert.rejects(adapter.signTransaction(tx()), /network_unavailable/);
+    assert.equal(fake.calls.filter((c) => c.method === 'signTransaction').length, 1, 'the wallet was asked once, for the first answer');
   });
 }
+
+test('probe adapter session: an answer with no forks member selects the bare hash', async () => {
+  const none = { chainId: 7 };
+  const fake = fakeExtension({ wallet, signTransaction: (requested) => ({ success: true, data: signedTransaction(wallet, requested, undefined, INACTIVE_NETWORK) }) });
+  const result = await (await probe(fake.provider, { readNetwork: async () => none })).signTransaction(tx());
+  assert.equal(result.signatureValid, true);
+});
 
 test('probe serves the shared transaction rule as a browser module through its asset route', async () => {
   const route = '/assets/tx-signature.mjs';

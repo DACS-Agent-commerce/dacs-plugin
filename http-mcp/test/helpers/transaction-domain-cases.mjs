@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 const active = (chainId) => ({ chainId, forks: { signatureDomain: { activated: true } } });
 const missing = (chainId) => ({ chainId, forks: {} });
+const noForks = (chainId) => ({ chainId });
 export function transactionDomainCases(label, makeCheck) {
   // The provider returns one refusal code; the two verifier APIs expose availability.
   const unavailable = label === 'browser provider' ? 'invalid' : 'unavailable';
@@ -18,6 +19,23 @@ export function transactionDomainCases(label, makeCheck) {
       assert.equal(await check(active(1), 'domain'), 'valid');
       assert.equal(await check(answer, 'bare'), unavailable);
       assert.equal(await check(answer, 'domain'), unavailable);
+    });
+  }
+  test(`${label}: unseen chain with no forks member verifies only the bare hash`, async (t) => {
+    const check = await makeCheck(t);
+    assert.equal(await check(noForks(1), 'bare'), 'valid');
+    assert.equal(await check(noForks(1), 'domain'), 'invalid');
+  });
+  test(`${label}: active chain 1 then no forks member refuses`, async (t) => {
+    const check = await makeCheck(t);
+    assert.equal(await check(active(1), 'domain'), 'valid');
+    assert.equal(await check(noForks(1), 'bare'), unavailable);
+    assert.equal(await check(noForks(1), 'domain'), unavailable);
+  });
+  for (const [name, forks] of [['true', true], ['an array', []]]) {
+    test(`${label}: forks that is ${name} refuses both forms`, async (t) => {
+      const check = await makeCheck(t);
+      for (const form of ['bare', 'domain']) assert.equal(await check({ chainId: 1, forks }, form), unavailable);
     });
   }
   test(`${label}: active chain 1 does not restrict missing member on chain 2`, async (t) => {

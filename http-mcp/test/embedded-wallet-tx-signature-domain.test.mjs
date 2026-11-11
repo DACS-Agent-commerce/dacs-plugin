@@ -253,7 +253,9 @@ transactionDomainCases('browser provider', async (t) => {
   const domain = { active: false, chainId: 1 };
   let form = 'bare';
   class SelectedForm extends Demos {
-    async getNetworkInfo(...args) { this._cachedNetworkInfo = null; return super.getNetworkInfo(...args); }
+    // The node's raw answer: the real SDK itself refuses an answer with no osDenomination fork.
+    async getNetworkInfo() { return this.nodeCall('getNetworkInfo'); }
+    async _isPostForkCached() { return true; }
     async _isSignatureDomainActiveCached() { await this.getNetworkInfo(); return form === 'domain'; }
     async _chainIdCached() { return (await this.getNetworkInfo()).chainId; }
   }
@@ -262,11 +264,12 @@ transactionDomainCases('browser provider', async (t) => {
     form = signedForm;
     domain.active = signedForm === 'domain';
     domain.chainId = answer.chainId;
-    domain.answer = answer.forks.signatureDomain;
+    delete domain.forks;
+    if (answer.forks === null || typeof answer.forks !== 'object' || Array.isArray(answer.forks)) domain.forks = answer.forks;
+    else domain.answer = answer.forks.signatureDomain;
     const before = w.chain.broadcasts.length;
     const result = await w.send();
-    if (result.success) return 'valid';
-    assert.equal(result.error.code, 'payload_mismatch', JSON.stringify(result));
+    if (result.success) return 'valid';    assert.equal(result.error.code, 'payload_mismatch', JSON.stringify(result));
     assert.equal(w.chain.broadcasts.length, before, 'refusal sends nothing');
     return 'invalid';
   };

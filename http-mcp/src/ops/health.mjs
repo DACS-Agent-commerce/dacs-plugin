@@ -286,7 +286,7 @@ function journal(path,stateRoots) {
 // Open publications use the same five-minute readback window as payments.
 const PUBLICATION_WAIT_MS=300_000;
 const PUBLICATION_STATUSES=new Set(['awaiting_identity_signature','awaiting_listing_signature','listing_signed','publication_handoff','broadcast_reported','chain_verified','directory_submitted','directory_visible','publication_uncertain','publication_mismatch','cancelled']);
-const OPEN_PUBLICATIONS=new Set(['publication_handoff','broadcast_reported','publication_uncertain']);
+export const OPEN_PUBLICATIONS=new Set(['publication_handoff','broadcast_reported','publication_uncertain']);
 // A cancelled publication whose handed-off write was never read back can still
 // land later (cancelling only checks the wallet nonce at that moment), so it
 // stays listed until a readback verifies it. Cancelled rows are informational:

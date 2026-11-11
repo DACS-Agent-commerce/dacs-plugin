@@ -106,7 +106,7 @@ export function createExtensionProbeAdapter({ windowObject = window, discoveryTi
         await assertProbeTransaction(requested);
         assertSignable(await readAccount(connected), requested.content.nonce);
         const networkInfo = await readNetwork();
-        txSignatureText(networkInfo, '', activatedChains);
+        if (txSignatureText(networkInfo, '', activatedChains) === null) throw new Error('network_unavailable');
         // The SDK signs as the extension's active account. A switch since connect
         // would sign with an account whose nonce and balance were never read.
         // A switch after this read and before the wallet signs is not detected.

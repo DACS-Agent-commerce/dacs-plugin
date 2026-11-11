@@ -97,6 +97,7 @@ export async function startSdkChainFixture({ osDenominationActivated = true, net
   function nodeCall(message, data) {
     switch (message) {
       case 'getNetworkInfo':
+        if ('forks' in domain) return { chainId: domain.chainId, ...(domain.forks === undefined ? {} : { forks: domain.forks }) };
         return { chainId: domain.chainId, forks: { osDenomination: { activated: osDenominationActivated },
           ...('answer' in domain ? (domain.answer === undefined ? {} : { signatureDomain: domain.answer }) : { signatureDomain: { activated: domain.active } }) } };
       case 'getNetworkParameters':

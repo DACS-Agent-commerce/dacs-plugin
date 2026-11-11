@@ -69,7 +69,7 @@ Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 | `http-mcp/README.md` | `5e6379298817040a1d8b4da1b537e621ba07e1a0` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a "state of this repository" section; install directory corrected; no private commit id or planned tag; Community source license and re-implementation stated; then changed here: two mentions of the provenance file say "source checkout" |
 | `http-mcp/bin/dacs-chatgpt-offline-test.mjs` | `a7d035520a1632b822cb03c05fd589f19a9052ea` | verbatim |
 | `http-mcp/bin/dacs-chatgpt-plugin.mjs` | `7352d9ac1f5c9aa79a7591a4f52a6bb27b2744e1` | verbatim |
-| `http-mcp/bin/dacs-ops-health.mjs` | `ac5dd38a6989bea4dbb4e9edfb9e3b91ba0a2035` | verbatim |
+| `http-mcp/bin/dacs-ops-health.mjs` | `d810f962214eed50e5508386aad630c29f4f3357` | changed here after a verbatim import: reads the configured node's network answer (size and deadline bounded) and adds exit code 3 |
 | `http-mcp/bin/offline-fixtures/chain.mjs` | `bc48907fd3c33c3b3556b8ba53ddffb14316fc2f` | verbatim |
 | `http-mcp/bin/offline-fixtures/directory.mjs` | `b29f7594f5b3808893884c5b3eb525c574165e67` | verbatim |
 | `http-mcp/bin/offline-fixtures/http.mjs` | `4105797c95ee2080de97ddb6c9f2b2f5e3673d89` | verbatim |
