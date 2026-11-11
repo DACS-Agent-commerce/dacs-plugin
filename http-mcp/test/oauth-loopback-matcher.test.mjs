@@ -49,8 +49,10 @@ async function start(t, { loopback, document = {} }) {
     accounts: { getAccount: () => undefined, listWallets: () => [] },
   });
   handler = authServer.callback;
-  instance(authServer.provider).configuration.fetch = async (url, { dispatcher: _dispatcher, ...options }) => {
+  instance(authServer.provider).configuration.fetch = async (url, init) => {
     assert.equal(String(url), CLIENT_ID, 'unexpected outbound URL refused');
+    // The provider's own network dispatcher is not forwarded to the local document server.
+    const options = Object.fromEntries(Object.entries(init).filter(([key]) => key !== 'dispatcher'));
     return fetch(`http://127.0.0.1:${documentServer.address().port}/client.json`, options);
   };
   return { origin, state, provider: authServer.provider, find: (id = CLIENT_ID) => authServer.provider.Client.find(id) };
