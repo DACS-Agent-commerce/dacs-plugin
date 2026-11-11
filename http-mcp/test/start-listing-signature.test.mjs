@@ -103,8 +103,33 @@ async function withoutEd25519(run) {
 // Checks 1 and 2: exactly one ed25519 signature by the seller, verified
 // ---------------------------------------------------------------------------
 
+for (const length of [200_000, 87, 85]) {
+  test(`a hash-matching Listing with a ${length}-character signature is refused before Base64URL validation or decoding`, async (t) => {
+    const value = 'A'.repeat(length);
+    const s = await scenario({ mutate: (listing) => ({ ...listing, signature: { ...listing.signature, value } }) });
+    assert.equal(listingHash(s.start.listing), s.terms.listing.contentHash);
+    // Wrong lengths must stop before even scanning the signature alphabet;
+    // 85 characters cannot reach atob even without the Ed25519 length guard.
+    const originalTest = RegExp.prototype.test;
+    let wireChecks = 0;
+    t.mock.method(RegExp.prototype, 'test', function (input) {
+      if (input === value) wireChecks++;
+      return originalTest.call(this, input);
+    });
+    const decode = t.mock.method(globalThis, 'atob');
+    await refuses(s.run(), 'listing', /signature does not verify for its seller, or the Listing was changed after it was signed/);
+    assert.equal(wireChecks, 0, 'wrong-length signatures must stop before Base64URL validation');
+    assert.equal(decode.mock.callCount(), 0, 'wrong-length signatures must not be decoded');
+  });
+}
+
+test('the Base64URL decoder handles a 200000-character value without a call-stack error', () => {
+  assert.equal(wallet.decodeSignatureValue('A'.repeat(200_000))?.length, 150_000);
+});
+
 test('control: a correctly signed Listing is accepted and the dialog shows its terms unchanged', async () => {
   const s = await scenario();
+  assert.equal(s.start.listing.signature.value.length, 86);
   const intent = await s.run();
   assert.equal(intent.price.amount, '2.5');
   assert.equal(intent.agreement.deliverable.deliverableType, 'storage-program');

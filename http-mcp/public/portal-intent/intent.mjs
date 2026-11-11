@@ -138,7 +138,7 @@ export async function sha256Hex(text) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-const base64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const base64url = (bytes) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 // CORE SIG-6: an unpadded Base64URL string that re-encodes to exactly itself,
 // or null. Padding, whitespace, + and /, impossible lengths and stray residual
@@ -153,6 +153,7 @@ export function decodeSignatureValue(value) {
 // Ed25519 over the UTF-8 bytes of message, by the key a did:demos:agent names,
 // through WebCrypto. A browser without Ed25519 refuses: the check is never skipped.
 export async function ed25519Valid(did, message, value) {
+  if (typeof value !== 'string' || value.length !== 86) return false;
   const signature = decodeSignatureValue(value);
   if (signature?.length !== 64 || !DID.test(did)) return false;
   const subtle = globalThis.crypto?.subtle;
