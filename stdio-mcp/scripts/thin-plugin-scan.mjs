@@ -301,7 +301,7 @@ export function createModuleScanner(context) {
         // imports/barrels, to a locked registry package boundary.
         for (const e of n.exportClause?.elements ?? []) if (!n.isTypeOnly && !e.isTypeOnly && r?.kind !== 'package' && r?.kind !== 'builtin' && exportOrigin(file, e.name.text) !== 'package') primitive(e, e.name.text);
       }
-      if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference)) addImport(n, n.moduleReference.expression, 'require');
+      if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference)) addImport(n, n.moduleReference.expression, 'require', n.isTypeOnly);
       if (ts.isCallExpression(n)) {
         if (n.expression.kind === ts.SyntaxKind.ImportKeyword || n.expression.getText(ast) === 'require' || n.expression.getText(ast).endsWith('.require')) {
           const mode = n.expression.kind === ts.SyntaxKind.ImportKeyword ? 'import' : 'require', r = addImport(n, n.arguments[0], mode);
