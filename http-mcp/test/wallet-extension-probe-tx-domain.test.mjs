@@ -5,6 +5,9 @@
 // Message checks stay exact-text.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import express from 'express';
+import { createWalletExtensionProbeRouter } from '../src/portal/wallet-extension-probe.mjs';
 import * as checks from '../public/wallet-extension-probe/checks.mjs';
 import { createExtensionProbeAdapter } from '../public/wallet-extension-probe/adapter.mjs';
 import { nativeVector, storageVector, MESSAGE_VECTORS, PROBE_NONCE } from '../public/wallet-extension-probe/vectors.mjs';
@@ -124,4 +127,29 @@ test('message checks stay exact-text on an active-fork chain', async () => {
   }
   const domainText = fakeExtension({ wallet, signMessage: (m) => ({ success: true, data: { type: 'ed25519', data: wallet.signHex(`x${m}`) } }) });
   assert.equal((await (await probe(domainText.provider)).signMessage(MESSAGE_VECTORS[0])).ok, false, 'a signature over other text is still not the message');
+});
+
+// The page reads the node's answer through the probe's own route, owner only.
+async function network(chain, headers = { authorization: 'Bearer owner' }) {
+  const owner = { id: 'acct_owner', auth_issuer: 'issuer', auth_subject: 'subject' };
+  const router = createWalletExtensionProbeRouter({ chain, logger: { warn() {} }, config: { walletExtensionProbe: true, authMode: 'builtin', walletExtensionProbeOwnerAccount: owner.id, builtinIssuer: 'issuer' },
+    accounts: { getAccount: () => owner, walletOwner: () => owner.id }, authServer: null,
+    authenticateBearer: async (value) => { if (value !== 'Bearer owner') throw new Error('refused'); return { extra: { issuer: owner.auth_issuer, subject: owner.auth_subject } }; } });
+  const app = express(); app.use(router); app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
+  const server = http.createServer(app);
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/network`, { headers });
+    return [res.status, await res.json()];
+  } finally { await new Promise((done) => { server.close(done); server.closeAllConnections(); }); }
+}
+
+test('the probe\'s network route returns the configured node\'s answer to the owner, and refuses when it has none', async () => {
+  assert.deepEqual(await network({ getNetworkInfo: async () => ACTIVE_NETWORK }), [200, ACTIVE_NETWORK]);
+  assert.deepEqual(await network({ getNetworkInfo: async () => INACTIVE_NETWORK }), [200, INACTIVE_NETWORK]);
+  for (const chain of [{}, { getNetworkInfo: async () => null }, { getNetworkInfo: async () => 'down' }, { getNetworkInfo: async () => [] }, { getNetworkInfo: async () => { throw new Error('down'); } }]) {
+    assert.deepEqual(await network(chain), [500, { error: 'network_unavailable' }]);
+  }
+  assert.deepEqual(await network({ getNetworkInfo: async () => ACTIVE_NETWORK }, {}), [404, { error: 'not_found' }]);
+  assert.deepEqual(await network({ getNetworkInfo: async () => ACTIVE_NETWORK }, { authorization: 'Bearer someone-else' }), [404, { error: 'not_found' }]);
 });
