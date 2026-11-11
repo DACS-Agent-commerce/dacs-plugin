@@ -8,7 +8,7 @@ import './helpers/health-missing-modules.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { spawnSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -158,7 +158,7 @@ async function node(answer) {
   let requests = 0;
   const server = http.createServer(async (req, res) => {
     requests += 1;
-    for await (const _ of req) { /* drain */ }
+    await new Promise((drained) => { req.on('end', drained); req.resume(); });
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(answer === 'down' ? 'not json' : JSON.stringify({ result: 200, response: answer }));
   });

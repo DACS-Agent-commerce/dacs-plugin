@@ -149,7 +149,7 @@ async function network(chain, headers = { authorization: 'Bearer owner' }, route
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
   try {
     const res = await fetch(`http://127.0.0.1:${server.address().port}${route}`, { headers });
-    return [res.status, route.endsWith('.mjs') && res.ok ? await res.text() : await res.json()];
+    return route.endsWith('.mjs') && res.ok ? [res.status, await res.text(), res.headers.get('content-type')] : [res.status, await res.json()];
   } finally { await new Promise((done) => { server.close(done); server.closeAllConnections(); }); }
 }
 
@@ -199,8 +199,9 @@ test('probe adapter session: an answer with no forks member selects the bare has
 
 test('probe serves the shared transaction rule as a browser module through its asset route', async () => {
   const route = '/assets/tx-signature.mjs';
-  const [status, source] = await network({}, { authorization: 'Bearer owner' }, route);
+  const [status, source, contentType] = await network({}, { authorization: 'Bearer owner' }, route);
   assert.equal(status, 200);
+  assert.match(contentType, /javascript/);
   const { txSignatureText } = await import('data:text/javascript,' + encodeURIComponent(source));
   const seen = new Set();
   assert.equal(txSignatureText({ chainId: 1, forks: {} }, 'hash', seen), 'hash');
