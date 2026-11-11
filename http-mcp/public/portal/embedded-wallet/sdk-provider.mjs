@@ -53,6 +53,8 @@
 const ADDRESS = /^0x[0-9a-f]{64}$/;
 const SIGNATURE_HEX = /^(0x)?[0-9a-f]{128}$/;
 const HASH = /^[0-9a-f]{64}$/;
+const TX_HASH_MESSAGE = /^(0x)?[0-9a-f]{64}$/i;
+const TX_DOMAIN_PREFIX = 'demos-tx:v1:';
 const HANDLE = /^[A-Za-z0-9_-]{1,39}$/;
 const OS_STRING = /^(0|[1-9][0-9]*)$/;
 const IDENTITY_WRITES = ['addGithubIdentity', 'addTwitterIdentity', 'addDiscordIdentity', 'addTelegramIdentity', 'removeWeb2Identity', 'inferWeb2Identity', 'inferXmIdentity', 'removeXmIdentity'];
@@ -299,9 +301,15 @@ async function sha256HexOfText(value) {
 // The native source's bind and signature phases take the same RPC auth headers
 // the SDK sends with confirmTx/broadcastTx: this wallet's ed25519 signature over
 // sha256("ed25519:<address>:<timestamp>"). It signs no transaction.
+// Module-private: the digest is built here from the wallet and the timestamp,
+// never from a caller-supplied string, and `sign` cannot reach this function.
+async function signRpcAuthDigest(demos, address, timestamp) {
+  return demos.signMessage(await sha256HexOfText(`ed25519:${address}:${timestamp}`), { algorithm: 'ed25519' });
+}
+
 async function sourceAuthHeaders(demos, address) {
   const identity = `ed25519:${address}`, timestamp = String(Date.now());
-  const signed = await demos.signMessage(await sha256HexOfText(`${identity}:${timestamp}`), { algorithm: 'ed25519' });
+  const signed = await signRpcAuthDigest(demos, address, timestamp);
   const signature = String(signed?.data ?? '').toLowerCase();
   if (signed?.type !== 'ed25519' || !SIGNATURE_HEX.test(signature)) throw new EmbeddedWalletError('sdk_error', 'the wallet could not authenticate its source binding request; nothing was signed or sent');
   return { identity, timestamp, signature: signature.replace(/^0x/, '') };
@@ -814,6 +822,11 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
     const message = Array.isArray(params) ? params[0] : undefined;
     if (!Array.isArray(params) || params.length !== 1 || typeof message !== 'string') {
       throw new EmbeddedWalletError('invalid_params', 'sign expects params: [message string]');
+    }
+    // A transaction is authorised by a signature over its hash, or over
+    // "demos-tx:v1:<chainId>:<hash>". Message signing never produces either.
+    if (TX_HASH_MESSAGE.test(message) || message.startsWith(TX_DOMAIN_PREFIX)) {
+      throw new EmbeddedWalletError('transaction_preimage_refused', 'a transaction hash or transaction signing string is not signed as a message');
     }
     const { address } = live;
     await approved({ method: 'sign', address, message });
