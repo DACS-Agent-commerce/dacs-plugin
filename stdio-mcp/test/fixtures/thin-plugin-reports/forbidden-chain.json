@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "status": "violation",
+  "exitCode": 1,
+  "summary": {
+    "graph": {
+      "violations": 1,
+      "unverifiable": 0,
+      "status": "violation",
+      "rules": {
+        "local-dacs-module": 1
+      }
+    },
+    "inventory": {
+      "violations": 0,
+      "unverifiable": 0,
+      "status": "pass",
+      "rules": {}
+    },
+    "overall": {
+      "violations": 1,
+      "unverifiable": 0,
+      "status": "violation",
+      "exitCode": 1
+    }
+  },
+  "entries": [
+    {
+      "name": "dacs_search",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    },
+    {
+      "name": "dacs_get_listing",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    },
+    {
+      "name": "dacs_buy_prepare",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    },
+    {
+      "name": "dacs_buy",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    },
+    {
+      "name": "dacs_purchase_status",
+      "modules": [
+        "src/server.ts"
+      ],
+      "reachesClient": true
+    }
+  ],
+  "modules": [
+    "src/bridge.ts",
+    "src/dacs/local.ts",
+    "src/server.ts"
+  ],
+  "edges": [
+    {
+      "from": "src/server.ts",
+      "to": "node_modules/@kynesyslabs/dacs-client/index.js",
+      "kind": "package",
+      "typeOnly": false
+    },
+    {
+      "from": "src/server.ts",
+      "to": "src/bridge.ts",
+      "kind": "local",
+      "typeOnly": false
+    },
+    {
+      "from": "src/bridge.ts",
+      "to": "src/dacs/local.ts",
+      "kind": "local",
+      "typeOnly": false
+    }
+  ],
+  "violations": [
+    {
+      "rule": "local-dacs-module",
+      "file": "src/dacs/local.ts",
+      "line": 0,
+      "detail": "",
+      "entry": "dacs_search",
+      "chain": [
+        "src/server.ts",
+        "src/bridge.ts",
+        "src/dacs/local.ts"
+      ],
+      "chainKind": "import"
+    }
+  ],
+  "unverifiable": [],
+  "waivers": [],
+  "skipped": []
+}
