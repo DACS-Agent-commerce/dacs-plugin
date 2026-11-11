@@ -560,6 +560,8 @@ export function createServer(deps: Deps): McpServer {
     intent?: PendingAction['intent'],
   ) => {
     checkKill();
+    // demos_tx_submit refuses every staged kind on a fenced wallet, so none may ask the human first
+    assertNotFenced();
     // every card value is bounded and single-line (counterparty text can be long or hostile)
     const clip = (v: string) => printable(v).slice(0, 200);
     card = { ...card, headline: clip(card.headline), rows: card.rows.map(([k, v]) => [k, clip(v)]), untrusted: card.untrusted?.map(([k, v]) => [k, clip(v)]) };

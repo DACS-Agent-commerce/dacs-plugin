@@ -141,6 +141,32 @@ test('a marker added while the wallet is being opened refuses the signing and ne
   assert.equal(proofs, 0);
 });
 
+test('a fenced wallet refuses to stage an identity proof, with no approval sent and no wallet opened', async (t) => {
+  let opens = 0;
+  const h = await harness({}, { openWallet: async () => (opens++, h.wallet) });
+  t.after(() => rmSync(h.config.stateDir, { recursive: true, force: true }));
+  h.config.keystorePath = join(h.config.stateDir, 'wallet.keystore.json');
+  writeFileSync(`${h.config.keystorePath}.purchase-only`, '');
+  const r = await h.call('demos_identity_proof_payload', { context: 'github', subject: 'example-user' });
+  assert.equal(r.isError, true, r.text);
+  assert.match(r.text, FENCED);
+  assert.equal(h.channel.messages.length, 0, 'no approval request was sent to the human');
+  assert.equal(opens, 0);
+});
+
+test('a fenced wallet refuses to stage the faucet request too, with no approval sent and no faucet call', async (t) => {
+  let fetches = 0;
+  const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { fetchImpl: async () => (fetches++, new Response('{}', { status: 200 })) });
+  t.after(() => rmSync(h.config.stateDir, { recursive: true, force: true }));
+  h.config.keystorePath = join(h.config.stateDir, 'wallet.keystore.json');
+  writeFileSync(`${h.config.keystorePath}.purchase-only`, '');
+  const r = await h.call('demos_onboard_fund');
+  assert.equal(r.isError, true, r.text);
+  assert.match(r.text, FENCED);
+  assert.equal(h.channel.messages.length, 0, 'no approval request was sent to the human');
+  assert.equal(fetches, 0, 'the faucet was not called');
+});
+
 test('a marker beside a symlinked keystore path, or beside its target, fences the wallet', () => {
   for (const besideLink of [true, false]) {
     const dir = mkdtempSync(join(tmpdir(), 'purchase-only-'));
