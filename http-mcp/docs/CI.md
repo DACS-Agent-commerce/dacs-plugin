@@ -243,7 +243,7 @@ discovered file, checked against a GitHub run, and a full run had to match every
 entry with none stale. That is not the case in this repository (see "State of
 this repository" above). Count the discovered files with the runner's discovery
 rules; in this repository discovery finds 281 files under `test/`, browser files included
-(251 without `--browser`):
+(252 without `--browser`):
 
 ```sh
 node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test', true).length)"
