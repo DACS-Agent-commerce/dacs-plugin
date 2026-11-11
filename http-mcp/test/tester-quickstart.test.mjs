@@ -129,10 +129,13 @@ test('the documented loopback startup answers /health and MCP with honest not_co
   });
   let stderr = '';
   child.stderr.on('data', (d) => (stderr += d));
+  const exited = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
   try {
     let health = null;
     for (let i = 0; i < 50 && !health; i += 1) {
-      await new Promise((r) => setTimeout(r, 200));
+      await Promise.race([new Promise((r) => setTimeout(r, 200)), exited]);
+      if (child.exitCode !== null || child.signalCode || /Cannot find module|Error:|error:/i.test(stderr))
+        throw new Error(stderr.trim() || `Server exited before /health answered (${child.exitCode ?? child.signalCode})`);
       health = await fetch(`${origin}/health`).then((r) => r.json()).catch(() => null);
     }
     assert.equal(health?.status, 'ok', stderr.slice(0, 300));
@@ -150,9 +153,13 @@ test('the documented loopback startup answers /health and MCP with honest not_co
       await client.close();
     }
   } finally {
-    const exited = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
-    child.kill('SIGTERM');
-    assert.equal(await exited, 0, 'graceful SIGTERM shutdown');
-    rmSync(work, { recursive: true });
+    try {
+      if (child.exitCode === null && !child.signalCode) {
+        child.kill('SIGTERM');
+        assert.equal(await exited, 0, 'graceful SIGTERM shutdown');
+      }
+    } finally {
+      rmSync(work, { recursive: true });
+    }
   }
 });
