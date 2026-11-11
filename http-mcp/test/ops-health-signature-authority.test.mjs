@@ -76,9 +76,47 @@ const withTransfer = (t, signedFor, edit = (r) => r, options) => {
 const health = (s, networkInfo) => opsHealth({ databasePath: s.databasePath, operatorState: s.state, ...(networkInfo === undefined ? {} : { networkInfo }) });
 
 // ---- failure cases first ----------------------------------------------------
-test('a bare-hash record on an active-fork chain is invalid (corrupt), not accepted', (t) => {
-  const s = withTransfer(t, INACTIVE);
-  assert.throws(() => health(s, ACTIVE), /could not read valid state/);
+test('a bare-hash record on an active-fork chain is a signature form mismatch: listed, not accepted, not corrupt', (t) => {
+  const s = withTransfer(t, INACTIVE, undefined, { stuck: true });
+  const report = health(s, ACTIVE);
+  assert.deepEqual(report.signatureFormMismatch, [{ hash: s.record.hash, purchaseIds: ['pur_AAAAAAAAAAAAAAAA', 'pur_BBBBBBBBBBBBBBBB'] }], 'one entry per transfer, hash and purchase IDs only');
+  assert.equal(report.healthy, false);
+  assert.deepEqual(report.signatureAuthorityUnavailable, []);
+  assert.equal(report.stuck.length, 1, 'the other stuck purchase is still reported');
+  const text = formatOpsHealth(report);
+  assert.match(text, new RegExp(`signature form mismatch hash=${s.record.hash} purchases=pur_AAAAAAAAAAAAAAAA,pur_BBBBBBBBBBBBBBBB next=nothing is resent`));
+  assert.match(text, /stuck pur_BBBBBBBBBBBBBBBB/);
+  assert.doesNotMatch(JSON.stringify(report) + text, /signedTransaction|"retry|"resend|re-?send now/i);
+});
+
+test('the reverse is a mismatch too: a domain-form record on an inactive-fork chain', (t) => {
+  const report = health(withTransfer(t, ACTIVE), INACTIVE);
+  assert.equal(report.signatureFormMismatch.length, 1);
+  assert.equal(report.healthy, false);
+});
+
+test('a record valid under neither form is still corrupt, whichever form the node selects', (t) => {
+  const other = createEphemeralWallet();
+  for (const answer of [ACTIVE, INACTIVE]) {
+    for (const edit of [(r) => { r.signedTransaction.signature.data = other.signHex(r.hash); return r; }, (r) => { r.signedTransaction.signature.data = other.signHex(preimage(ACTIVE, r.hash)); return r; }]) {
+      assert.throws(() => health(withTransfer(t, INACTIVE, edit), answer), /could not read valid state/);
+    }
+  }
+  assert.throws(() => health(withTransfer(t, { ...ACTIVE, chainId: 8 }), ACTIVE), /could not read valid state/);
+});
+
+test('a mismatch record does not change how the next record is judged (the other form is probed in a fresh run record)', (t) => {
+  const wallet = createEphemeralWallet(), bare = failedRecord(wallet, INACTIVE, { nonce: 4 }), domain = failedRecord(wallet, ACTIVE, { nonce: 3 });
+  for (const records of [[domain, bare], [bare, domain]]) {
+    const s = stateWith(t, wallet, records.map((r) => [`devnet/native-transfer/${r.hash}`, r]));
+    const report = health(s, INACTIVE);
+    assert.deepEqual(report.signatureFormMismatch.map((r) => r.hash), [domain.hash]);
+    assert.deepEqual(report.signatureAuthorityUnavailable, []);
+  }
+});
+
+test('a malformed record is still corrupt even when its signature is in the other form', (t) => {
+  assert.throws(() => health(withTransfer(t, INACTIVE, (r) => { r.failure.nonceFence += 1; return r; }), ACTIVE), /could not read valid state/);
 });
 
 test('a record signed for another chain id is invalid on an active-fork chain', (t) => {
@@ -116,9 +154,9 @@ test('a valid domain-form record on an active-fork chain is valid, never called 
   assert.doesNotMatch(formatOpsHealth(report), /signature authority/);
 });
 
-test('inactive fork: the bare-hash record is valid and the domain-form record is not (no second form)', (t) => {
+test('inactive fork: the bare-hash record is valid and the domain-form record is only a mismatch (never accepted)', (t) => {
   assert.equal(health(withTransfer(t, INACTIVE), INACTIVE).healthy, true);
-  assert.throws(() => health(withTransfer(t, ACTIVE), INACTIVE), /could not read valid state/);
+  assert.equal(health(withTransfer(t, ACTIVE), INACTIVE).healthy, false);
 });
 
 test('health reads and reports only: the journal is byte-for-byte unchanged and nothing authorises a retry', (t) => {
@@ -183,7 +221,7 @@ test('command line: the configured node\'s answer decides; unavailable authority
   const ok = await exitWith(domain, ACTIVE);
   assert.equal(ok.status, 0, ok.stderr + ok.stdout);
   assert.equal(JSON.parse(ok.stdout).healthy, true);
-  assert.equal((await exitWith(bare, ACTIVE)).status, 2, 'a bare-hash record on an active-fork chain is corrupt');
+  assert.equal((await exitWith(bare, ACTIVE)).status, 3, 'a bare-hash record on an active-fork chain is a form mismatch, not corrupt');
   assert.equal((await exitWith(bare, INACTIVE)).status, 0);
   for (const answer of ['none', 'down', { forks: true }, { forks: { signatureDomain: { activated: 'yes' } } }, { forks: { signatureDomain: { activated: true } } }]) {
     const out = await exitWith(domain, answer);
@@ -195,6 +233,36 @@ test('command line: the configured node\'s answer decides; unavailable authority
   // A node that cannot be reached at all.
   const dead = await node(INACTIVE); const url = dead.url; await dead.close();
   assert.equal((await cli(domain, { DACS_CHAIN_RPC_URL: url })).status, 3);
+});
+
+test('command line: a form mismatch exits 3 with the whole report printed; a signature valid under neither form exits 2', async (t) => {
+  const bare = withTransfer(t, INACTIVE), domain = withTransfer(t, ACTIVE), other = createEphemeralWallet();
+  for (const [s, answer] of [[bare, ACTIVE], [domain, INACTIVE]]) {
+    const out = await exitWith(s, answer);
+    assert.equal(out.status, 3, out.stderr + out.stdout);
+    const report = JSON.parse(out.stdout);
+    assert.equal(report.format, 'dacs-ops-health/v2');
+    assert.equal(report.error, undefined);
+    assert.deepEqual(report.signatureFormMismatch, [{ hash: s.record.hash, purchaseIds: ['pur_AAAAAAAAAAAAAAAA'] }]);
+    assert.equal(report.purchases.length, 1, 'the full report, not only an error');
+    assert.equal(report.healthy, false);
+  }
+  const neither = withTransfer(t, INACTIVE, (r) => { r.signedTransaction.signature.data = other.signHex(r.hash); return r; });
+  for (const answer of [ACTIVE, INACTIVE]) {
+    const out = await exitWith(neither, answer);
+    assert.equal(out.status, 2, out.stderr + out.stdout);
+    assert.deepEqual(JSON.parse(out.stdout), { format: 'dacs-ops-health/v2', error: 'ops health could not read valid state or options' });
+  }
+});
+
+test('command line: a stuck purchase wins over a form mismatch (exit 1), and both are listed', async (t) => {
+  const s = withTransfer(t, INACTIVE, undefined, { stuck: true });
+  const out = await exitWith(s, ACTIVE);
+  assert.equal(out.status, 1, out.stderr + out.stdout);
+  const report = JSON.parse(out.stdout);
+  assert.equal(report.stuck.length, 1);
+  assert.equal(report.stuck[0].purchaseId, 'pur_BBBBBBBBBBBBBBBB');
+  assert.equal(report.signatureFormMismatch.length, 1);
 });
 
 test('command line: the node is not needed when no retained failed transfer needs it', async (t) => {
@@ -269,5 +337,5 @@ test('health: a missing member selects only the bare hash in a fresh run', (t) =
   const missing = { chainId: 7, forks: {} };
   assert.equal(health(withTransfer(t, ACTIVE), ACTIVE).healthy, true);
   assert.equal(health(withTransfer(t, INACTIVE), missing).healthy, true);
-  assert.throws(() => health(withTransfer(t, ACTIVE), missing), /could not read valid state/);
+  assert.equal(health(withTransfer(t, ACTIVE), missing).signatureFormMismatch.length, 1, 'the domain form is only a mismatch, never accepted');
 });

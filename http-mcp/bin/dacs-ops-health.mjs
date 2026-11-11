@@ -27,8 +27,8 @@ async function readNetworkInfo(env,timeoutMs) {
 }
 // Exit codes: 0 healthy, 1 needs attention (stuck purchases or writes, which
 // win over an unavailable authority), 2 unreadable state or options, 3 signature
-// authority unavailable and nothing else wrong (no usable network answer to
-// check a retained transaction signature against).
+// authority unavailable or a retained transaction signed in the other form than
+// the node's answer selects, and nothing else wrong.
 export async function main(args=process.argv.slice(2),env=process.env) {
   const json=args.includes('--json');
   try {
@@ -61,7 +61,7 @@ export async function main(args=process.argv.slice(2),env=process.env) {
     if(report.signatureAuthorityUnavailable.length&&env.DACS_CHAIN_RPC_URL)report=opsHealth({...options,networkInfo:await readNetworkInfo(env,timeoutMs)});
     process.stdout.write(json?`${JSON.stringify(report)}\n`:formatOpsHealth(report));
     const attention=report.stuck.length||report.seller.unconfirmed.length||report.legacyPublications.some(row=>OPEN_PUBLICATIONS.has(row.status));
-    return attention?1:report.signatureAuthorityUnavailable.length?3:report.healthy?0:1;
+    return attention?1:report.signatureAuthorityUnavailable.length||report.signatureFormMismatch.length?3:report.healthy?0:1;
   }catch(cause){
     const error=cause?.message===TIMEOUT_ERROR?TIMEOUT_ERROR:'ops health could not read valid state or options';
     if(json)process.stdout.write(`${JSON.stringify({format:'dacs-ops-health/v2',error})}\n`);

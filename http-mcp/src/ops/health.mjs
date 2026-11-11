@@ -509,14 +509,21 @@ const FAILURES=[['blockNumber','nonceFence'],['blockNumber','supersededByHash']]
 // The signature is checked in the form the configured node uses (its
 // getNetworkInfo answer, passed in as authority.networkInfo). Without a usable
 // answer the record is not called corrupt: it is listed in authority.unavailable,
-// and its other fields are still checked.
+// and its other fields are still checked. A signature invalid in that form but
+// valid in the other (the answer's chain id, a fresh run record) is not called
+// corrupt either: it is listed in authority.mismatch, neither accepted nor
+// authorising a retry. One valid in neither form is invalid.
 function failedTransfer(key,value,purchases,authority){
   if(value?.stage!=='failed')return false;
   const tx=value.signedTransaction,c=tx?.content,n=value.networkBinding,f=value.failure;
   const badSignature=()=>{
-    const verdict=verifyDemosTransactionSignature({networkInfo:authority.networkInfo,activatedChains:authority.activatedChains,hash:tx.hash,signature:tx.signature.data,publicKey:c.from});
+    const verify=(networkInfo,activatedChains)=>verifyDemosTransactionSignature({networkInfo,activatedChains,hash:tx.hash,signature:tx.signature.data,publicKey:c.from});
+    const verdict=verify(authority.networkInfo,authority.activatedChains),info=authority.networkInfo;
     if(verdict==='unavailable')authority.unavailable.push({source:'node2-transport.sqlite',recordId:sha(key)});
-    return verdict==='invalid';
+    if(verdict!=='invalid')return false;
+    if(verify({chainId:info.chainId,forks:{signatureDomain:{activated:info.forks?.signatureDomain?.activated!==true}}},new Set())!=='valid')return true;
+    if(!authority.mismatch.some(row=>row.hash===tx.hash))authority.mismatch.push({hash:tx.hash,purchaseIds:[...purchases.values()].filter(p=>p.buyer===c.from&&p.scope.network===n.network&&p.scope.chainIdentity===n.chainIdentity).map(p=>p.purchaseId).sort()});
+    return false;
   };
   if(!plain(value)||!sameKeys(value,['stage','hash','nonce','signedTransaction','networkBinding','failure'])||!text(value.hash,HASH)||!Number.isSafeInteger(value.nonce)||value.nonce<0
     ||!plain(tx)||tx.hash!==value.hash||!plain(c)||c.type!=='native'||!text(c.from,WALLET)||c.nonce!==value.nonce||!plain(n)
@@ -633,9 +640,9 @@ export function opsHealth({databasePath,operatorState=null,logPath=null,now=Date
     timeline.sort((a,b)=>a.timestampMs-b.timestampMs);
     return {purchaseId:row.purchaseId,stage:row.stage,ageMs:Math.max(0,now-row.enteredAt),outcome:outcome(row),...(row.lastAttemptDispatched===false?{lastAttemptDispatched:false}:{}),...(sellerFailureCause(row.causeCode)?{causeCode:row.causeCode}:{}),unresolvedWrites:row.writes,timeline:timeline.map((event,i)=>({stage:event.stage,lane:event.lane,source:event.source,at:new Date(event.timestampMs).toISOString(),gapMs:i?Math.max(0,event.timestampMs-timeline[i-1].timestampMs):0}))};
   });
-  const authority={networkInfo,activatedChains:new Set(),unavailable:[]};
+  const authority={networkInfo,activatedChains:new Set(),unavailable:[],mismatch:[]};
   const {journals,unconfirmed}=sellerWrites(operatorState,present,rows.map(row=>row.seller),new Set(rows.map(row=>row.buyer).filter(value=>/^0x[0-9a-f]{64}$/.test(value??''))),stateRoots,new Map(rows.map(row=>[row.purchaseId,row])),authority);
-  return {format:'dacs-ops-health/v2',legacyPublications,at:new Date(now).toISOString(),healthy:stuck.length===0&&unconfirmed.length===0&&authority.unavailable.length===0&&!legacyPublications.some(row=>OPEN_PUBLICATIONS.has(row.status)),purchases,stuck,seller:{journals,unconfirmed},signatureAuthorityUnavailable:authority.unavailable,thresholdsMs:configured};
+  return {format:'dacs-ops-health/v2',legacyPublications,at:new Date(now).toISOString(),healthy:stuck.length===0&&unconfirmed.length===0&&authority.unavailable.length===0&&authority.mismatch.length===0&&!legacyPublications.some(row=>OPEN_PUBLICATIONS.has(row.status)),purchases,stuck,seller:{journals,unconfirmed},signatureAuthorityUnavailable:authority.unavailable,signatureFormMismatch:authority.mismatch,thresholdsMs:configured};
 }
 export function formatOpsHealth(report) {
   const lines=[`${report.healthy?'HEALTHY':'STUCK'} ${report.at}`];
@@ -651,5 +658,6 @@ export function formatOpsHealth(report) {
   for(const row of unconfirmed)lines.push(`seller readback source=${row.source} record=${row.recordId} hash=${row.hash??'unknown'} stage=${row.stage} next=${row.nextExpected}`);
   if(journals?.length&&!unconfirmed.length)lines.push('seller unconfirmed writes: none');
   for(const row of report.signatureAuthorityUnavailable)lines.push(`signature authority unavailable source=${row.source} record=${row.recordId} next=read the configured node's network information; the record is neither accepted nor called corrupt`);
+  for(const row of report.signatureFormMismatch)lines.push(`signature form mismatch hash=${row.hash} purchases=${row.purchaseIds.join(',')} next=nothing is resent; the record stays at rest and is reported`);
   return `${lines.join('\n')}\n`;
 }
