@@ -10,6 +10,7 @@ Nothing here is security approval, v0.1 acceptance or a version bump.
 | File | Role |
 | --- | --- |
 | `public/portal/embedded-wallet/sdk-provider.mjs` | `createSdkWalletSession` adapter over the Demos SDK |
+| `public/portal/embedded-wallet/tx-signature.mjs` | served browser module: the rule that picks a transaction's signature form (bare hash or `demos-tx:v1:<chainId>:<hash>`) from the node's network answer |
 | `public/portal/embedded-wallet/demos-runtime.mjs` | GENERATED stable entry of the browser build of upstream `@kynesyslabs/demosdk` 4.0.20; re-exports the built entry chunk and carries the third-party notices |
 | `public/portal/embedded-wallet/runtime-chunks/*.mjs` | GENERATED content-named esbuild chunks of the same build (eager and lazily imported) |
 | `public/portal/embedded-wallet/runtime-manifest.json` | GENERATED public list of every graph file: bytes, SHA-256, local static/dynamic imports, SDK/esbuild identity |
@@ -36,11 +37,11 @@ and exports are the same as the earlier single-file build; consumers
 (`main.mjs`, `embedded-wallet-bridge.mjs`, tests) import `./demos-runtime.mjs`
 unchanged.
 
-The runtime is a local module graph: the entry plus 7 chunks in
-`runtime-chunks/` (1,062,439 bytes in total, against about 3.1 MB for the
-earlier single file). Four chunks load when the entry is imported. Three load
-only through the SDK's own `import()` calls: the tlsnotary module behind
-`Demos.tlsnotary()`, and two small chunks it pulls in. Every import is a
+The runtime is a local module graph: the entry plus 9 files in
+`runtime-chunks/` (8 chunks and the built entry chunk; 1,076,532 bytes in
+total with the entry, against about 3.1 MB for the earlier single file). Five
+files load when the entry is imported. Four load only through the SDK's own
+`import()` calls. Every import is a
 relative path inside the graph: no bare package names, URLs or CDN. The
 build refuses externals, and `runtime-manifest.json` lists every file. Unresolvable
 Node builtins pulled in by unrelated SDK features (ZK `snarkjs`/`ffjavascript`,
