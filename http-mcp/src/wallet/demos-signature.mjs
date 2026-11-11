@@ -9,11 +9,13 @@
 //    UTF-8 bytes of message (no prefix, no pre-hash) and returns hex (optionally
 //    0x-prefixed, sometimes doubled "0x0x") or base64url of the 64-byte signature.
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
+import { WalletFormatError } from '@kynesyslabs/dacs-client';
 
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const HEX64 = /^[0-9a-f]{64}$/;
 
-export class WalletFormatError extends Error {}
+// The client's class, so a malformed address or signature has one identity on both sides of the SDK boundary.
+export { WalletFormatError };
 
 export function normalizeDemosAddress(value) {
   if (typeof value !== 'string') throw new WalletFormatError('wallet address must be a string');
