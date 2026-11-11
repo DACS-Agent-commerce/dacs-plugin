@@ -6,7 +6,7 @@
   "description": "Linter for the plugin repo. Kept apart from the plugins so it never ships in their packages.",
   "license": "MIT",
   "engines": {
-    "node": ">=22.13.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26"
   },
   "scripts": {
     "lint": "cd ../.. && eslint --config tools/lint/eslint.config.mjs --suppressions-location tools/lint/eslint-suppressions.json --no-warn-ignored .",

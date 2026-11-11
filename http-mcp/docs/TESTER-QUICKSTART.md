@@ -54,13 +54,11 @@ Linking an existing account uses this same flow (`start_wallet_link`). Linking n
 
 ## 2. Run the installed package locally
 
-You need Node.js 22.13 or later (`engines.node` is `>=22.13.0`); the recorded runs used Node 22.22.0. The package is private: install it from a tarball you were given. It is not published to npm.
+You need Node.js `^22.22.2 || ^24.15.0 || >=26` (`engines.node`); this round used Node 22.23.3. The package is private: install it from a tarball you were given. It is not published to npm.
 
-Why 22.13: the server stores its state with the built-in `node:sqlite`, which
-Node only loads without the `--experimental-sqlite` flag from 22.13.0. Every
-locked dependency accepts 22.13.0, and the shipped server code uses no Node API
-added later (`test/overnight-package.test.mjs` checks both). Only Node 22.22.0
-has actually been run; 22.13.x itself has not been executed. Node still prints
+The locked production closure requires `^22.22.2 || ^24.15.0 || >=26`
+(`test/overnight-package.test.mjs` checks every runtime dependency with no exceptions).
+The server uses built-in `node:sqlite`; Node still prints
 an `ExperimentalWarning` for SQLite when the server starts. It is harmless.
 
 Platforms: the recorded installs, starts and browser checks ran on Linux x64
@@ -76,7 +74,7 @@ installed package itself has not been tried on Windows either.
 ```sh
 mkdir dacs-tester && cd dacs-tester
 npm init -y
-npm install /path/to/dacs-agent-commerce-dacs-chatgpt-plugin-1.0.0.tgz --ignore-scripts --no-audit --no-fund --omit=dev
+npm install /path/to/dacs-agent-commerce-dacs-chatgpt-plugin-1.0.0.tgz --ignore-scripts --no-audit --no-fund --omit=dev --omit=optional
 ```
 
 ### Try the complete simulated setup
@@ -128,9 +126,9 @@ Set `DACS_DIRECTORY_ORIGIN` and `DACS_CHAIN_RPC_URL` only to services you trust.
 
 These run from a source checkout, not the installed package. Every chain, directory and wallet service in them is a **simulated local fixture** with ephemeral keys, so passing them is not wallet, testnet or ChatGPT evidence. See `TESTING.md` for the runtime, short-`TMPDIR` advice and replay commands.
 
-The installed app's minimum remains Node22.13. The source-only installed-operator
+The installed app requires Node `^22.22.2 || ^24.15.0 || >=26`. The source-only installed-operator
 acceptance checker uses `node:module.registerHooks` and requires Node22.15 or
-later with that API available; use the tested Node22.22.0 for the complete source
+later with that API available; use the tested Node22.23.3 for the complete source
 acceptance queue. This does not add a dependency or change the shipped runtime's
 engine requirement.
 

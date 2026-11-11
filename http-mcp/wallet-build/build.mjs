@@ -1,7 +1,7 @@
 // Reproducible build of the embedded wallet SDK runtime from the exact pinned
 // upstream @kynesyslabs/demosdk 4.0.16 using esbuild 0.25.12.
 //
-// Run from chatgpt/wallet-build after an `npm install --ignore-scripts`:
+// Run from chatgpt/wallet-build after an `npm install --ignore-scripts --omit=optional`:
 //   node build.mjs
 // Output is a local ES module graph under public/portal/embedded-wallet/:
 //   demos-runtime.mjs       stable entry: re-exports the built entry chunk and

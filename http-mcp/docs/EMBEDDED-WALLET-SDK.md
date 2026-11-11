@@ -133,7 +133,7 @@ Acceptance condition (met by the split build, and to be kept for any SDK change)
 
 ```
 cd wallet-build
-npm ci --ignore-scripts
+npm ci --ignore-scripts --omit=optional
 node build.mjs
 ```
 

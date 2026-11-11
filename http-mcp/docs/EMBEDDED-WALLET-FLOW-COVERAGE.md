@@ -89,7 +89,7 @@ errors. P0 checks that the default stays off.
 
 ## Human test plan (isolated, simulated, no real funds)
 
-Prerequisites: a private machine, the packaged plugin, Node 22.13+ and a Chromium-based
+Prerequisites: a private machine, the packaged plugin, Node `^22.22.2 || ^24.15.0 || >=26` and a Chromium-based
 browser. Do not use a wallet that holds real funds. Do not reuse any phrase from this
 test elsewhere.
 

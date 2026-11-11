@@ -137,7 +137,7 @@ DACS_OAUTH_COOKIE_KEYS=<32+ random chars> DACS_DATA_DIR=./.data npm start
 # then: npx @modelcontextprotocol/inspector  -> Streamable HTTP -> http://127.0.0.1:8787/mcp
 ```
 
-The optional cross-chain bridge packages that the Demos SDK lists are not installed.
+The install flag `--omit=optional` is required because optional native packages are outside the locked closure.
 
 The tested packaging contract uses `deploy/Dockerfile` (source checkout), not
 the legacy root Dockerfile. It runs as a non-root user, keeps task data in

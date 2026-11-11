@@ -1,7 +1,7 @@
 # DACS ChatGPT plugin container. Build from the http-mcp/ directory:
 #   docker build -t dacs-chatgpt-plugin:1.0.0 .
 # No secrets are baked in; provide configuration via the runtime environment.
-FROM node:22.22.0-bookworm-slim
+FROM node:22.23.3-bookworm-slim@sha256:3ed98443660ff48413b5af19ecefce3b9d50845a901a43420d47cc63a9fddbe9
 
 ENV NODE_ENV=production \
     DACS_DATA_DIR=/data \

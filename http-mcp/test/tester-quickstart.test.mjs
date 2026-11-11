@@ -32,7 +32,7 @@ test('the quickstart is part of the packed package', async () => {
 test('the quickstart names the real package, binary, engine and tarball', () => {
   const [binName] = Object.keys(pkg.bin);
   assert.match(doc, new RegExp(`npx ${binName}\\b`));
-  assert.ok(doc.includes(`\`engines.node\` is \`${pkg.engines.node}\``));
+  assert.ok(doc.includes(`Node.js \`${pkg.engines.node}\` (\`engines.node\`)`));
   const tarball = `${pkg.name.replace(/^@/, '').replace('/', '-')}-${pkg.version}.tgz`;
   assert.ok(doc.includes(tarball), `documents the npm pack file name ${tarball}`);
   assert.match(doc, /--ignore-scripts/);

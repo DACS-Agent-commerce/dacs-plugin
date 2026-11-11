@@ -124,7 +124,7 @@ try {
 }
 
 // 5. Replay the Dockerfile's install/run steps (same copied file set, lockfile
-// `npm ci --omit=dev --ignore-scripts`) without the base image, offline from the
+// `npm ci --omit=dev --omit=optional --ignore-scripts`) without the base image, offline from the
 // cache step 4 seeded; the image build itself needs a running Docker daemon and is
 // reported separately.
 const replay = mkdtempSync(join(tmpdir(), 'dacs-docker-replay-'));
@@ -134,7 +134,7 @@ try {
   }
   if (!seed) throw new Error('step 4 seeded no cache');
   await installOffline(seed, ['ci', '--omit=dev'], { cwd: replay });
-  check('Dockerfile steps: npm ci --omit=dev --ignore-scripts offline from lockfile', true);
+  check('Dockerfile steps: npm ci --omit=dev --omit=optional --ignore-scripts offline from lockfile', true);
   const { stdout: dev } = await run('npm', ['ls', 'playwright-core', '--json'], { cwd: replay }).catch((e) => ({ stdout: e.stdout ?? '{}' }));
   check('production install excludes dev-only browser tooling', !JSON.parse(dev).dependencies?.['playwright-core']);
   const port = 20000 + Math.floor(Math.random() * 20000);

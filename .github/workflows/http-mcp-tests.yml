@@ -59,7 +59,7 @@ jobs:
       - name: Validate the SDK input before the wallet-build install
         run: node ../scripts/ci/sdk-input.mjs --prepare http-mcp
       # The embedded wallet's payment and broadcast tests need the pinned Demos SDK.
-      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts --omit=optional --no-audit --no-fund
         working-directory: http-mcp/wallet-build
       # The CLI payment and recovery tests exercise programmatic purchase recovery on a terminal with /usr/bin/expect.
       - name: Install the pinned terminal driver

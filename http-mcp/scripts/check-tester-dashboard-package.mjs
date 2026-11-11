@@ -148,7 +148,7 @@ export async function runCheck({ keep = false, screenshotDir = null, onResult } 
     const project = join(work, 'project');
     mkdirSync(project);
     writeFileSync(join(project, 'package.json'), `${JSON.stringify({ name: 'dacs-tester-dashboard-install-check', version: '0.0.0', private: true }, null, 2)}\n`);
-    await runNpm(['install', tarballPath, '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], { cwd: project, env, log: summary.npm });
+    await runNpm(['install', tarballPath, '--omit=optional', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], { cwd: project, env, log: summary.npm });
     projectRoot = realpathSync(project);
     const installedRoot = join(projectRoot, 'node_modules', ...PACKAGE_NAME.split('/'));
     const lock = JSON.parse(readFileSync(join(project, 'package-lock.json'), 'utf8'));

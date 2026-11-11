@@ -6,7 +6,7 @@
   "description": "Private DACS testnet ChatGPT plugin: Streamable HTTP MCP server, OAuth 2.1 account linking, wallet signing portal.",
   "license": "MIT",
   "engines": {
-    "node": ">=22.13.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26"
   },
   "bin": {
     "dacs-chatgpt-plugin": "./bin/dacs-chatgpt-plugin.mjs",

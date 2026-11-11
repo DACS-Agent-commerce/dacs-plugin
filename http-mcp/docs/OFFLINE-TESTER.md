@@ -52,7 +52,7 @@ shell. It generates a new random cookie key for each run.
 ```sh
 mkdir dacs-tester && cd dacs-tester
 npm init -y
-npm install /path/to/dacs-agent-commerce-dacs-chatgpt-plugin-1.0.0.tgz --ignore-scripts --no-audit --no-fund --omit=dev
+npm install /path/to/dacs-agent-commerce-dacs-chatgpt-plugin-1.0.0.tgz --ignore-scripts --no-audit --no-fund --omit=dev --omit=optional
 node node_modules/@dacs-agent-commerce/dacs-chatgpt-plugin/bin/dacs-chatgpt-offline-test.mjs
 ```
 
@@ -422,7 +422,7 @@ the installed-artifact checker verifies this.
 
   The source checker itself needs Node >= 22.15 (tested on 22.22.0). On an
   older Node it fails with a clear preflight message. The installed launcher
-  still runs on Node >= 22.13.
+  still runs on Node `^22.22.2 || ^24.15.0 || >=26`.
 
   The backup step waits for the export to finish (backup text shown with a
   value, wallet not busy) before reading it. It also checks the actual installed

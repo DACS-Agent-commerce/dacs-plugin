@@ -241,7 +241,7 @@ In the source repository the baseline came from a full no-baseline run of every
 discovered file, checked against a GitHub run, and a full run had to match every
 entry with none stale. That is not the case in this repository (see "State of
 this repository" above). Count the discovered files with the runner's discovery
-rules; in this repository discovery finds 280 files under `test/`, browser files included
+rules; in this repository discovery finds 281 files under `test/`, browser files included
 (251 without `--browser`):
 
 ```sh
