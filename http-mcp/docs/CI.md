@@ -16,7 +16,8 @@ root `package.json` and `package-lock.json` (the shared validation tool and its
 inputs). It runs on the
 `ubuntu-24.04` host, with tests inside the digest-pinned Playwright 1.56.1 Noble
 container declared in the workflow, Node `22.23.3` and
-`npm ci --ignore-scripts --no-audit --no-fund`, in `http-mcp/` and in
+`npm ci --ignore-scripts --omit=optional --no-audit --no-fund` in `http-mcp/` (the
+optional cross-chain bridge packages of the Demos SDK are not installed), and in
 `http-mcp/wallet-build/` (the pinned Demos SDK the embedded wallet's payment and
 broadcast tests need). Before each of those two installs the job runs
 `node ../scripts/ci/sdk-input.mjs --prepare http-mcp`, and the `public-gate`
@@ -25,8 +26,10 @@ install. A forbidden SDK input (a path, `file:`, `link:` or vendored spec or
 resolution) fails that step with status 1 (`sdk-input-refused`); an input that
 is unavailable or cannot be verified fails it with status 2
 (`sdk-input-unavailable`). Either way no install and no test runs, and the job's
-failure is the validation step's, not a test failure. Until the SDK input is
-published the `http-mcp` job is red at this step by design. It
+failure is the validation step's, not a test failure. The three SDK packages
+`@kynesyslabs/dacs`, `@kynesyslabs/dacs-client` and `@kynesyslabs/dacs-node` are
+pinned in `http-mcp/package-lock.json` by exact version and sha512, with no
+`file:` path, no vendored archive and no bundled dependency. The job
 installs `expect` and `tcl-expect` at `5.45.4-3`,
 resolving their dependencies only from Ubuntu's signed `20251020T000000Z`
 snapshot with isolated apt sources and lists. The CLI payment and recovery tests
@@ -167,6 +170,25 @@ A local run is not GitHub's runner: cases that need Chrome, the npm registry or
 other host facilities can fail locally and report as new failures. The baseline
 describes the GitHub runner only.
 
+## Install checks from the SDK candidate
+
+`npm run check:package` and `scripts/check-embedded-wallet-package.mjs` install the
+packed plugin into an empty project (`check-package.mjs` also replays the Dockerfile's
+`npm ci`) without reaching a registry. Set `DACS_SDK_CANDIDATE_DIR` to a directory
+outside the repository (one inside it is refused) that holds `MANIFEST.json`, the SDK
+archives it lists with their sha512, and one `name-version.tgz` archive (`@` dropped,
+`/` replaced by `-`) for every production package in `package-lock.json`. The check:
+
+1. compares each archive's sha512 with the manifest (SDK) or the lockfile (all others);
+2. serves the archives and their version metadata from a loopback registry and copies
+   them into a fresh npm cache with `npm cache add`;
+3. closes that registry and installs with `--offline --ignore-scripts --omit=optional`,
+   so a missing archive fails and nothing falls back to another build;
+4. compares the installed lockfile's integrity with the manifest and the frozen lockfile.
+
+`test/candidate-pin.test.mjs` and `test/candidate-install-checks.test.mjs` use the same
+directory; the cases that need the real archives are skipped without it.
+
 ## The baseline
 
 An entry has exactly this shape:
@@ -219,8 +241,8 @@ In the source repository the baseline came from a full no-baseline run of every
 discovered file, checked against a GitHub run, and a full run had to match every
 entry with none stale. That is not the case in this repository (see "State of
 this repository" above). Count the discovered files with the runner's discovery
-rules; in this repository discovery finds 278 files under `test/`, browser files included
-(249 without `--browser`):
+rules; in this repository discovery finds 280 files under `test/`, browser files included
+(251 without `--browser`):
 
 ```sh
 node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test', true).length)"

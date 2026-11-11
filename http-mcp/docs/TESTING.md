@@ -1,6 +1,6 @@
 # Offline test replay (source checkout)
 
-**State of this repository.** These steps describe the source tree this package was imported from. Here `npm ci` stops because the vendored SDK archive is not carried, `deploy/` is not carried, and about half of the test files fail when they load the modules that are not carried. In a source checkout, see `PROVENANCE.md` at the repository root, "Not carried".
+**State of this repository.** These steps describe the source tree this package was imported from. Here a plain `npm ci` fails because the pinned SDK packages are not published yet (the install checks use local archives, see CI.md), `deploy/` is not carried, and about half of the test files fail when they load the modules that are not carried. In a source checkout, see `PROVENANCE.md` at the repository root, "Not carried".
 
 These instructions are for a **source checkout** of the plugin. The installed package does not include the `test/` or `deploy/` directories, so none of these commands can run from an installed tarball.
 
@@ -10,7 +10,7 @@ Every check here runs against SIMULATED local fixtures: chain, directory and wal
 
 - Node 22.13 or later; the recorded runs used 22.22.0 with its bundled npm.
 - Install from the lockfile, in `http-mcp/`, with lifecycle scripts disabled:
-  `npm ci --ignore-scripts --no-audit --no-fund`
+  `npm ci --ignore-scripts --omit=optional --no-audit --no-fund`
 - Browser checks need a real local Chrome or Chromium binary. Point `DACS_TEST_CHROME` at it; the macOS default path does not exist on Linux. Use the binary that matches the installed `playwright-core`, which records its expected revision in `node_modules/playwright-core/browsers.json`. A missing browser is a BLOCKED skip, never a pass.
 
 ## Use a short TMPDIR

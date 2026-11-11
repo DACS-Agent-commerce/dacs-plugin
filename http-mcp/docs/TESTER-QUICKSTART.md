@@ -136,7 +136,7 @@ engine requirement.
 
 ```sh
 cd http-mcp
-npm ci --ignore-scripts --no-audit --no-fund
+npm ci --ignore-scripts --omit=optional --no-audit --no-fund
 npm test
 npm run check:package
 ```

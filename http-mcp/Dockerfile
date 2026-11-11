@@ -10,9 +10,8 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-COPY vendor/ ./vendor/
-# Reproducible install from the lockfile; lifecycle scripts disabled.
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+# Reproducible install from the lockfile; lifecycle scripts disabled, optional packages not installed.
+RUN npm ci --omit=dev --omit=optional --ignore-scripts && npm cache clean --force
 
 COPY bin/ ./bin/
 COPY src/ ./src/

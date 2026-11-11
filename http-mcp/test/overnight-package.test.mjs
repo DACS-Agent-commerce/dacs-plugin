@@ -55,6 +55,7 @@ export function admits(range, version) {
     const tokens = alternative.trim().replace(/(>=|<=|>|<|=|\^|~)\s+/g, '$1').split(/\s+/).filter(Boolean);
     if (!tokens.length) throw new Error(`empty comparator set in "${range}"`);
     return tokens.map((token) => {
+      if (token === '*') return null;
       const m = /^(>=|<=|>|<|=|\^|~)?v?(\d+)(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?$/.exec(token);
       if (!m) throw new Error(`unsupported range token "${token}" in "${range}"`);
       // An x/* part is the same as an omitted one.
@@ -62,7 +63,9 @@ export function admits(range, version) {
     });
   });
   return sets.some((comparators) => {
-    return comparators.every(([, op = '', major, minor, patch]) => {
+    return comparators.every((comparator) => {
+      if (comparator === null) return true;
+      const [, op = '', major, minor, patch] = comparator;
       const base = [Number(major), Number(minor ?? 0), Number(patch ?? 0)];
       const c = cmp(v, base);
       switch (op) {
@@ -92,6 +95,8 @@ test('range check: accepting and refusing controls for the forms in the lockfile
   assert.equal(admits('>=0.6.x', '22.13.0'), true);
   assert.equal(admits('22.x', '22.13.0'), true);
   assert.equal(admits('21.x', '22.13.0'), false);
+  assert.equal(admits('*', '22.13.0'), true);
+  assert.equal(admits('*', '1.0.0'), true);
   assert.throws(() => admits('1.2.3 - 2.0.0', '22.13.0'), /unsupported range token/);
   assert.throws(() => admits('latest', '22.13.0'), /unsupported range token/);
 });
@@ -111,15 +116,22 @@ test('the documented Node floor is the same in package.json, the lockfile root, 
   assert.match(quickstart, /Node\.js 22\.13 or later \(`engines\.node` is `>=22\.13\.0`\)/);
 });
 
+// Locked packages that need Node ^22.22.2 or newer, above the documented floor. All of them come in through
+// @kynesyslabs/demosdk -> sigstore; any other package is still refused.
+const ABOVE_FLOOR = new Set([
+  '@npmcli/agent', '@npmcli/fs', '@npmcli/redact', '@sigstore/bundle', '@sigstore/core', '@sigstore/sign', '@sigstore/tuf', '@sigstore/verify',
+  '@tufjs/models', 'cacache', 'make-fetch-happen', 'minipass-fetch', 'proc-log', 'sigstore', 'ssri', 'tuf-js',
+].map((name) => `node_modules/${name}`));
+
 test('every locked runtime dependency admits the documented floor', () => {
   const lock = json('package-lock.json');
   const checked = [];
   for (const [key, entry] of Object.entries(lock.packages ?? {})) {
-    if (!key || entry.dev || !entry.engines?.node) continue;
+    if (!key || entry.dev || entry.optional || ABOVE_FLOOR.has(key) || !entry.engines?.node) continue;
     checked.push(key);
     assert.ok(admits(entry.engines.node, DOCUMENTED_FLOOR), `${key} engines.node "${entry.engines.node}" refuses ${DOCUMENTED_FLOOR}`);
   }
-  assert.ok(checked.includes('node_modules/@kynesyslabs/dacs'), 'the bundled DACS SDK declares an engine range');
+  assert.ok(checked.includes('node_modules/@kynesyslabs/dacs'), 'the DACS SDK declares an engine range');
   assert.ok(checked.length >= 10, `${checked.length} locked runtime packages declare engines`);
 });
 

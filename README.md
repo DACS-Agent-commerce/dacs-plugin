@@ -78,9 +78,9 @@ repository from stdio's workflow tests; no source was carried from elsewhere.
 Parts of this repository do not install, start or pass their tests yet, and
 nothing in it has been run against a live wallet, node or ChatGPT.
 
-- **`http-mcp/` does not install or start.** Its `package.json` depends on a
-  vendored SDK archive (`vendor/`) that is not in this repository, so `npm ci`
-  stops with a missing-file error. `http-mcp/src/app.mjs` and nine other
+- **`http-mcp/` does not start, and a plain `npm ci` fails.** Its SDK packages
+  are pinned to a candidate version that is not published yet; the install checks
+  use local archives (`http-mcp/docs/CI.md`). `http-mcp/src/app.mjs` and nine other
   modules import modules that are not carried here (`http-mcp/src/dacs/` and
   five related modules; see [`PROVENANCE.md`](PROVENANCE.md), "Not carried"),
   so the server stops at startup with a module-not-found error. That code is

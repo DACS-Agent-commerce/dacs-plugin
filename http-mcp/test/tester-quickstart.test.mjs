@@ -66,7 +66,7 @@ test('documentation links resolve inside the packed package (or say "source chec
   assert.ok(checked >= 10, `checked ${checked} packed links`);
   assert.deepEqual(sourceOnly, [
     'README.md:29 -> PROVENANCE.md',
-    'README.md:188 -> PROVENANCE.md',
+    'README.md:190 -> PROVENANCE.md',
     'docs/CHATGPT-DEVELOPER-MODE.md:73 -> ../deploy/dacs-chatgpt.env.example',
     'docs/CI.md:5 -> PROVENANCE.md',
     'docs/DEPLOYMENT-CHECKLIST.md:9 -> ../deploy/RUNBOOK.md',

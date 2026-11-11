@@ -3,9 +3,11 @@
 //  1. plugin.json / mcp.json shape (Agent Plugins portable layout + OpenAI extension)
 //  2. .env.example contains placeholders only
 //  3. `npm pack` file list: required files present, no tests/private/state files
-//  4. install the packed tarball into a temp project (lifecycle scripts disabled),
+//  4. install the packed tarball into a temp project offline, from a fresh npm cache
+//     seeded with the SDK candidate and the locked closure (lifecycle scripts disabled),
 //     start the installed binary, check /health and MCP initialize + tools/list,
 //     then SIGTERM and require a clean exit.
+// The archive directory (MANIFEST.json and the archives) is named by DACS_SDK_CANDIDATE_DIR.
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -15,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import net from 'node:net';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { CANDIDATE_DIR_ENV, installOffline, isolatedNpmEnv, lockProblems, seedOfflineCache } from './candidate-archives.mjs';
 import { forbiddenPackagePaths } from './package-paths.mjs';
 
 const run = promisify(execFile);
@@ -54,12 +57,15 @@ const { stdout: packJson } = await run('npm', ['pack', '--dry-run', '--json', '-
 const files = JSON.parse(packJson)[0].files.map((f) => f.path);
 const forbidden = forbiddenPackagePaths(files);
 check('packed files exclude tests, references and private/state files', forbidden.length === 0, forbidden.slice(0, 10).join(', '));
-for (const required of ['bin/dacs-chatgpt-plugin.mjs', 'src/app.mjs', 'public/portal/index.html', 'plugin.json', 'mcp.json', '.env.example', 'skills/dacs-testnet-commerce/SKILL.md', 'docs/TESTER-QUICKSTART.md', 'docs/TESTING.md', 'node_modules/@kynesyslabs/dacs/package.json']) {
+for (const required of ['bin/dacs-chatgpt-plugin.mjs', 'src/app.mjs', 'public/portal/index.html', 'plugin.json', 'mcp.json', '.env.example', 'skills/dacs-testnet-commerce/SKILL.md', 'docs/TESTER-QUICKSTART.md', 'docs/TESTING.md']) {
   check(`packed: ${required}`, files.includes(required));
 }
 
 // 4. install + boot smoke test
 const work = mkdtempSync(join(tmpdir(), 'dacs-pack-smoke-'));
+const repoRoot = join(root, '..');
+const frozenLock = json('package-lock.json');
+let seed;
 let child;
 try {
   const { stdout } = await run('npm', ['pack', '--ignore-scripts', '--pack-destination', work, '--json'], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
@@ -68,8 +74,11 @@ try {
   await run('npm', ['init', '-y'], { cwd: work }).catch(() => {});
   await run('mkdir', ['-p', project]);
   await run('npm', ['init', '-y'], { cwd: project });
-  await run('npm', ['install', tarball, '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline', '--omit=dev'], { cwd: project, maxBuffer: 64 * 1024 * 1024, timeout: 300000 });
-  check('installed packed tarball with lifecycle scripts disabled', true);
+  seed = await seedOfflineCache({ archiveDir: process.env[CANDIDATE_DIR_ENV], lock: frozenLock, repoRoot, env: isolatedNpmEnv(work) });
+  await installOffline(seed, ['install', tarball, '--omit=dev'], { cwd: project });
+  check('installed packed tarball offline from the seeded cache with lifecycle scripts disabled', true);
+  const installed = lockProblems(seed, join(project, 'package-lock.json'), `node_modules/${pkg.name}`);
+  check('installed packages equal the candidate manifest and the frozen lockfile by integrity', installed.length === 0, installed.slice(0, 5).join('; '));
 
   const port = await new Promise((resolve) => {
     const s = net.createServer().listen(0, '127.0.0.1', () => {
@@ -112,19 +121,20 @@ try {
   check('install/boot smoke test', false, error.message.slice(0, 500));
 } finally {
   child?.kill('SIGKILL');
-  rmSync(work, { recursive: true, force: true });
 }
 
 // 5. Replay the Dockerfile's install/run steps (same copied file set, lockfile
-// `npm ci --omit=dev --ignore-scripts`) without the base image; the image build
-// itself needs a running Docker daemon and is reported separately.
+// `npm ci --omit=dev --ignore-scripts`) without the base image, offline from the
+// cache step 4 seeded; the image build itself needs a running Docker daemon and is
+// reported separately.
 const replay = mkdtempSync(join(tmpdir(), 'dacs-docker-replay-'));
 try {
-  for (const entry of ['package.json', 'package-lock.json', 'vendor', 'bin', 'src', 'public', 'skills', 'plugin.json', 'mcp.json']) {
+  for (const entry of ['package.json', 'package-lock.json', 'bin', 'src', 'public', 'skills', 'plugin.json', 'mcp.json']) {
     await run('cp', ['-R', join(root, entry), join(replay, entry)]);
   }
-  await run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline'], { cwd: replay, maxBuffer: 64 * 1024 * 1024, timeout: 300000 });
-  check('Dockerfile steps: npm ci --omit=dev --ignore-scripts from lockfile', true);
+  if (!seed) throw new Error('step 4 seeded no cache');
+  await installOffline(seed, ['ci', '--omit=dev'], { cwd: replay });
+  check('Dockerfile steps: npm ci --omit=dev --ignore-scripts offline from lockfile', true);
   const { stdout: dev } = await run('npm', ['ls', 'playwright-core', '--json'], { cwd: replay }).catch((e) => ({ stdout: e.stdout ?? '{}' }));
   check('production install excludes dev-only browser tooling', !JSON.parse(dev).dependencies?.['playwright-core']);
   const port = 20000 + Math.floor(Math.random() * 20000);
@@ -133,19 +143,20 @@ try {
     env: { PATH: process.env.PATH, PORT: String(port), HOST: '127.0.0.1', DACS_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, DACS_ALLOW_INSECURE_LOCALHOST: '1', DACS_DATA_DIR: join(replay, 'data'), DACS_OAUTH_COOKIE_KEYS: randomBytes(32).toString('hex'), DACS_LOG_LEVEL: 'warn' },
     stdio: 'ignore',
   });
+  const exited = new Promise((resolve) => proc.once('exit', (code) => resolve(code)));
   let ok = false;
   for (let i = 0; i < 50 && !ok; i += 1) {
     await new Promise((r) => setTimeout(r, 200));
     ok = await fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok).catch(() => false);
   }
   check('Dockerfile CMD boots and HEALTHCHECK target answers', ok);
-  const exited = new Promise((resolve) => proc.once('exit', (code) => resolve(code)));
   proc.kill('SIGTERM');
   check('Dockerfile STOPSIGNAL SIGTERM exits cleanly', (await exited) === 0);
 } catch (error) {
   check('Dockerfile replay', false, error.message.slice(0, 300));
 } finally {
   rmSync(replay, { recursive: true, force: true });
+  rmSync(work, { recursive: true, force: true });
 }
 
 for (const r of results) process.stdout.write(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.detail ? ` (${r.detail})` : ''}\n`);
