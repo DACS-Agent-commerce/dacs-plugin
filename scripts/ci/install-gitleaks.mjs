@@ -19,6 +19,8 @@ export const GITLEAKS_PIN = Object.freeze({
 
 const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const DOWNLOAD_DEADLINE_MS = 120_000;
+/** Waits before the second and third download attempts, after an HTTP 429 or 5xx or a dropped connection; all inside the deadline. */
+export const DOWNLOAD_RETRY_DELAYS_MS = Object.freeze([2_000, 6_000]);
 const SUBPROCESS_DEADLINE_MS = 30_000;
 const SUBPROCESS_OUTPUT_BYTES = 64 * 1024;
 const BINARY_NAME = 'gitleaks';
@@ -50,12 +52,13 @@ async function requireVersion({ binary, version, signal }) {
 /**
  * Downloads the pinned gitleaks archive, extracts only its `gitleaks` file, checks that it reports the pinned version and
  * links it as `<directory>/gitleaks`. The archive is extracted only after its SHA-256 matched; the work folder inside
- * `directory` is removed on every exit, and an existing `<directory>/gitleaks` is never replaced or trusted.
+ * `directory` is removed on every exit, and an existing `<directory>/gitleaks` is never replaced or trusted. A transient download
+ * failure is tried again after each of `retryDelaysMs` (fetchBounded decides which failures and keeps the one deadline).
  * Returns the path of the installed binary. Throws GateInputError (or RunBoundedError) with a cause from fetchBounded or
  * runBounded, or unsupported-platform, install-exists, install-dir-unwritable, install-extract-failed, install-binary-invalid
  * or install-version-mismatch.
  */
-export async function installGitleaks({ directory, pin = GITLEAKS_PIN, transport, signal }) {
+export async function installGitleaks({ directory, pin = GITLEAKS_PIN, retryDelaysMs = DOWNLOAD_RETRY_DELAYS_MS, transport, signal }) {
   if (process.platform !== pin.platform || process.arch !== pin.arch) {
     throw new GateInputError('unsupported-platform', `the pinned gitleaks archive is for ${pin.platform} ${pin.arch}`);
   }
@@ -65,7 +68,7 @@ export async function installGitleaks({ directory, pin = GITLEAKS_PIN, transport
   try {
     const archive = path.join(work, 'archive.tar.gz');
     await fetchBounded({
-      url: pin.archiveUrl, destination: archive, sha256: pin.archiveSha256, maxBytes: MAX_ARCHIVE_BYTES, deadlineMs: DOWNLOAD_DEADLINE_MS, transport, signal,
+      url: pin.archiveUrl, destination: archive, sha256: pin.archiveSha256, maxBytes: MAX_ARCHIVE_BYTES, deadlineMs: DOWNLOAD_DEADLINE_MS, retryDelaysMs, transport, signal,
     });
     const binary = await extractBinary({ archive, into: work, signal });
     await requireVersion({ binary, version: pin.version, signal });

@@ -1,19 +1,21 @@
-// The browser wallet's K0 pass; no production path loads this module yet.
-// EB1–EB4 pre-checks authorize nothing after the wallet-fence wait. EB5r repeats them under the fence;
-// the EB signer performs its final stop read, synchronous checks and inner signature in the same tick.
-// EB6 saves private signed bytes by CAS. Each stage runs EB7, saves its -started intent (EB8), then
-// receives a one-use transmitter for EB8f's final stop read, synchronous checks and same-tick egress.
-// EB9 acknowledges only a fulfilled inner transmission; an invoked but unfinished/failed one is unknown.
+// The browser wallet's effect boundary; no production path loads this module.
+// Pre-checks authorize nothing after the wallet-fence wait; the pass repeats them under the fence.
+// The signer re-reads authority, then stop, then runs synchronous checks and the inner signature in one tick.
+// Private signed bytes are saved by CAS. Each stage checks before saving its -started intent, then
+// receives a one-use transmitter that re-reads authority, then stop, then checks and sends in one tick.
+// Only a fulfilled inner transmission is acknowledged; an invoked but unfinished/failed one is unknown.
+// A fresh dispatch pass reads authority five times; a confirm-broadcast pass reads it seven times.
 // Requests become frozen intents before any adapter call. Raw store heads become empty, resumable or
 // closed once. Resumption requires identical identity/bytes and a nonempty prefix from the next stage.
 // Normal execution advances with the same transition rule. Started, unknown and final records close lanes.
 // records.head(lane) -> {revision, signed, last}, with raw signed/newest records (absent on empty lanes).
-// records.append(lane, expectedRevision, record) -> {revision}; persistence is P53b1b's responsibility.
-// Authority/stop reads share 10,000 ms. Sign, send and record waits have no imposed deadline. The fence is
-// held until every invoked inner signer and send settles; a hung inner call holds it until page closure.
+// records.append(lane, expectedRevision, record) -> {revision}; the record store owns persistence.
+// All authority/stop reads, including effect tails, share 10,000 ms. Sign, send and record waits have no
+// imposed deadline. The fence is held until every invoked inner signer and send settles; a hung inner call
+// holds it until page closure.
 import { EffectBoundaryRefusal, SYSTEM_CLOCK, refuse, requireFunctions } from './wallet-fence.mjs';
 
-/** Aggregate time one pass may spend inside authority and stop reads. */
+/** Aggregate time one pass may spend inside authority and stop reads, including every effect tail. */
 export const PASS_READ_DEADLINE_MS = 10_000;
 const MAX_CAUSE_MESSAGE_LENGTH = 200;
 const IDENTITY_KEYS = Object.freeze(['operationId', 'pinVersion', 'approvalRevision']);
@@ -92,6 +94,7 @@ function mayResume(state, own) {
 const STEP_CHECKS = Object.freeze({
   refresh: ['admission', 'stop', 'approval', 'authority', 'binding'],
   beforeIntent: ['admission', 'stop', 'authority', 'binding'],
+  effectTailReads: ['authority', 'stop'],
   signerTail: ['owner', 'admission', 'approval', 'binding'],
   sendTail: ['owner', 'admission', 'binding'],
 });
@@ -162,10 +165,10 @@ function claimStep(handle, kind, repeatedCode) {
   return step;
 }
 
-/** Wraps the inner signer with EB5r's final stop read and same-tick checks; requires a live one-use sign handle. */
+/** Wraps the inner signer with final authority/stop reads and same-tick checks; requires a live one-use sign handle. */
 export function ebSign(innerSign, handle) {
   return async (...args) => {
-    await liveStep(handle, 'sign').pass.stop();
+    await liveStep(handle, 'sign').pass.verify(STEP_CHECKS.effectTailReads);
     const step = claimStep(handle, 'sign', 'eb_signer_repeated');
     step.pass.verifyNow(STEP_CHECKS.signerTail);
     step.state = 'consumed';
@@ -175,11 +178,11 @@ export function ebSign(innerSign, handle) {
   };
 }
 
-/** Wraps one inner send with EB8f, byte equality and private copies; rejects foreign, stale or consumed handles. */
+/** Wraps one inner send with final authority/stop reads and byte equality; rejects foreign, stale or consumed handles. */
 export function ebTransmit(innerSend, handle) {
   return async (bytes, ...rest) => {
     const offered = bytes instanceof Uint8Array ? Uint8Array.from(bytes) : undefined;
-    await liveStep(handle, 'send').pass.stop();
+    await liveStep(handle, 'send').pass.verify(STEP_CHECKS.effectTailReads);
     const step = claimStep(handle, 'send', 'eb_transmission_repeated');
     if (!sameBytes(offered, step.pass.bytes)) throw refuse('eb_bytes_mismatch');
     step.pass.verifyNow(STEP_CHECKS.sendTail);

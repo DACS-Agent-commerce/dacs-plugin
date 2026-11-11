@@ -9,6 +9,10 @@ import (with the reason), or was added. A file changed in this repository after
 the first commit keeps its row, with the blob of its current content and
 the change (`changed here`) added to the reason.
 
+The stdio workflow, `.github/workflows/stdio-mcp.yml`, was written fresh in this
+repository from stdio's workflow tests; no carried source. Its SHA-256 is recorded in
+`test/ci/workflows.test.mjs`, and a change to the workflow updates it in the same commit.
+
 ## Not carried
 
 Files from the earlier repository that are not in this one:
@@ -17,12 +21,26 @@ Files from the earlier repository that are not in this one:
   funding code (`http-mcp/src/dacs/`, `vendor/` and five related modules). These
   are planned to come from the published SDK instead.
 - The development demo, the deploy tooling and three agreement brokers.
-- Scripts, tests, docs and fixtures that serve only those files.
+
+The first commit also carried tests and helpers for not-carried modules. The carry-over
+baseline, [`http-mcp/test/known-failures.json`](http-mcp/test/known-failures.json),
+lists 243 retained test files and their missing modules. Other retained tests
+still need not-carried modules or fixtures.
+
+Other files not carried:
+
 - Internal review and process records, and the CI workflows (added later).
 - Files deleted from a kept folder before import: two operator records and one CI
   requirements note, which were internal process records.
 - Two tests deleted from a kept test file (`http-mcp/test/v2-publication-removal.test.mjs`):
   they read deploy scripts that are not carried, so they could not pass here.
+- Files deleted after import because they serve only modules or files that are not carried: five
+  tests (`commit-on-signature-shutdown-doc`, `devnet-operator-approval-tty-stop`,
+  `package-version-contract`, `public-text-report` and `service-request-mutants`) and the three
+  approval-terminal helpers they used, and two mutant helpers
+  (`check-public-text-report-mutants.mjs`, `seller-write-batch-mutants.mjs`) that no remaining test drives.
+  Two tests (`mutant-helper-verdicts`, `overnight-package`) lost the controls or cases that read
+  those files.
 
 ## Adapted sources
 
@@ -34,19 +52,21 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
+Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
+| `.github/workflows/stdio-mcp.yml` | `ca22aadab7ce48e3185b934abe5d5d6eaa320e8a` | added: written fresh from stdio's workflow tests; no carried source |
+| `.gitignore` | `d82b03e30be4d89a5be65cbc8506d7236ba57cf1` | added: ignore rules for dependencies, build output, logs and local environment files |
 | `.gitleaksignore` | `5f6b32b9b0f7f675ea49a6dae958c1f8b0016d90` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
-| `README.md` | `857e78943e5bf734cb2542f4ae8691c0e55259a9` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch |
+| `README.md` | `a4c2d67ecb95d67b52b05a6d70fe6f1a353132e0` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections |
 | `docs/PUBLIC-GATE.md` | `1678668758708b1f5030c78c329067d61202ba85` | added: documentation of the public-content gate |
 | `http-mcp/.dockerignore` | `aae035eb68f5747b0bda683606503b97ca99afdf` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/.env.example` | `61149650b005fca4655a1ba4d338e3b2a5f52f7d` | verbatim |
 | `http-mcp/.gitignore` | `1a8d076aff4a0fae67103239e52b41dd82b25daf` | verbatim |
 | `http-mcp/Dockerfile` | `3022187f12cadd3b40980a8911840d832ffe5299` | verbatim |
-| `http-mcp/README.md` | `e8b5bbccd7f61b9608866aa761672f4680185ebf` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a "state of this repository" section; install directory corrected; no private commit id or planned tag; Community source license and re-implementation stated |
+| `http-mcp/README.md` | `5e6379298817040a1d8b4da1b537e621ba07e1a0` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a "state of this repository" section; install directory corrected; no private commit id or planned tag; Community source license and re-implementation stated; then changed here: two mentions of the provenance file say "source checkout" |
 | `http-mcp/bin/dacs-chatgpt-offline-test.mjs` | `a7d035520a1632b822cb03c05fd589f19a9052ea` | verbatim |
 | `http-mcp/bin/dacs-chatgpt-plugin.mjs` | `7352d9ac1f5c9aa79a7591a4f52a6bb27b2744e1` | verbatim |
 | `http-mcp/bin/dacs-ops-health.mjs` | `ac5dd38a6989bea4dbb4e9edfb9e3b91ba0a2035` | verbatim |
@@ -61,7 +81,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/bin/offline-fixtures/tester-ui/dashboard.js` | `1b518aa2253517a41e0b152c334c6606dbcc762e` | verbatim |
 | `http-mcp/bin/offline-fixtures/tester-ui/index.html` | `1affc91c0383a8891ffaa9aa8d87569901e06f5a` | verbatim |
 | `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md` | `d59ae0969c74048f55fc4a5fdcfce145a9495dc6` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording |
-| `http-mcp/docs/CI.md` | `a34189e873aea77f25fd929f4634dc8eb02343c8` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; a "state of this repository" note; baseline and discovery-count text corrected to this tree; a private commit id removed |
+| `http-mcp/docs/CI.md` | `ddd9f9c7d1b8374828a6ebb29d69eae7f9558d56` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; a "state of this repository" note; baseline and discovery-count text corrected to this tree; a private commit id removed; then changed here: the baseline entry count; a list of the tests owned by the P303 cards and a list of failing tests the baseline does not cover; one mention of the provenance file says "source checkout" |
 | `http-mcp/docs/CONNECT-OTHER-CLIENTS.md` | `b9baac786e7c40bb2453aabd2088ea63a3f8ef9a` | verbatim |
 | `http-mcp/docs/CURRENT-TESTER-PACKAGE.md` | `eb83facc209e15cbac39d5b6a33dfc2799a9c525` | edited: public wording: internal review, process, PR and private-path references removed or reworded; the tarball and original-artifact lookup described as the test now does it |
 | `http-mcp/docs/DEPLOYMENT-CHECKLIST.md` | `1dc60328b6f1b6d12616b9ff9cb25fb25c0639f7` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -81,7 +101,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/docs/DURABLE-WALLET-JOURNAL.md` | `4a48ffad0a2593dc55d3322adf517924cd12ad88` | edited: fixture path renamed |
 | `http-mcp/docs/EMBEDDED-WALLET-FLOW-COVERAGE.md` | `27798c78872f503dba182cbad06176634e764381` | edited: public wording: internal review, process, PR and private-path references removed or reworded; directory name in a column header corrected; digests of internal run logs and a source manifest removed |
 | `http-mcp/docs/EMBEDDED-WALLET-INTEGRATION.md` | `d5894a9ff7498d9e86e98500bdd5f6fb1220bfb5` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
-| `http-mcp/docs/EMBEDDED-WALLET-PACKAGING.md` | `f69d900b7b3dc87df226124e625b49a3b2dae073` | edited: exclusion wording follows the renamed label
+| `http-mcp/docs/EMBEDDED-WALLET-PACKAGING.md` | `ce5df812fa4b2dabd51b77e09c26b930efc62624` | edited: exclusion wording follows the renamed label; then changed here: the working-notes file names are marked as a source checkout's
 | `http-mcp/docs/EMBEDDED-WALLET-SDK.md` | `8ccbe63c02ff99879267b536a4178d6b116f00eb` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; build and test commands written as plain npm and node commands; then changed here: the not-claimed list uses disclaimer forms, as the public-gate wording rule requires |
 | `http-mcp/docs/EMBEDDED-WALLET-TESTER.md` | `8c9fa22eb95a036b42bde35227d8d2004d77ba6d` | edited: public wording: internal review, process, PR and private-path references removed or reworded; status given in the exact public sentence; directory name in a command corrected; public wording: internal process and layout references reworded; then changed here: the last prohibition no longer names the review, as the public-gate wording rule requires |
 | `http-mcp/docs/EMBEDDED-WALLET-UI.md` | `ef559cc6f95a207be660285391a0451d2b1ec348` | edited: public wording: internal review, process, PR and private-path references removed or reworded; public wording: internal process and layout references reworded |
@@ -110,7 +130,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/docs/SERVICE-REQUEST-BINDING.md` | `75024bc4c5d4c53fa4ad859e7e8eee148d7c90c7` | edited: links into a local spec checkout replaced by citations and one link to the public DACS-Standard repository; public wording |
 | `http-mcp/docs/SHOWCASE-LEDGER.md` | `389bcb6ea79648030446c3343206786ecd06cdb4` | verbatim |
 | `http-mcp/docs/SHOWCASE-QUICKSTART.md` | `20906a34824e65989896b9d9b4752f1413465adf` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
-| `http-mcp/docs/SHOWCASE-SAFETY.md` | `8752f96214435ce8ac480314c0e9954abe26fe91` | edited: link to a document that is not carried removed |
+| `http-mcp/docs/SHOWCASE-SAFETY.md` | `acbcacffd11a4d0d1e0a910df6c19858e88e6332` | edited: link to a document that is not carried removed; then changed here: a link to a module that is not carried is marked source-checkout-only |
 | `http-mcp/docs/SR2-BINDING-OMISSION-CONSUMER.md` | `94f8c8607740e0a52a948358e96a2cfca1c8898b` | verbatim |
 | `http-mcp/docs/SR2-PAIRED-ABSENT-PROVENANCE.md` | `0590240d97237215551c6b264945919ac5501f78` | verbatim |
 | `http-mcp/docs/START-INTENT.md` | `06a9696c413716341d31912f8fd294a761d7d142` | verbatim |
@@ -118,7 +138,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/docs/SWITCHES.md` | `547a9b89ae7a9be377375535144157fa9451e7a0` | edited: "this PR" wording replaced by a description; further public wording |
 | `http-mcp/docs/TESTER-DASHBOARD.md` | `1beab6f78d92fbe01b4312cf3da21aac9396ae10` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/TESTER-QUICKSTART.md` | `ad5e77e9fc666f8dd383503beab9e9690c9667d3` | edited: public wording: internal review, process, PR and private-path references removed or reworded; status given in the exact public sentence; directory name in a command corrected |
-| `http-mcp/docs/TESTING.md` | `669bf85470717c6cc0d01c14561eb32f6d5ed348` | edited: a "state of this repository" note; install directory corrected |
+| `http-mcp/docs/TESTING.md` | `9194126bed7438a1432673c2bfd639ccb48d7b2e` | edited: a "state of this repository" note; install directory corrected; then changed here: the mention of the provenance file says "source checkout" |
 | `http-mcp/docs/WALLET-EXTENSION-PROBE.md` | `fe3e9432d64faa61b3c64f617163e8c65f50350b` | edited: public wording: internal process and layout references removed or reworded; further public wording |
 | `http-mcp/docs/WALLET-WRITE-BATCH.md` | `0853b7ee0a6a46510f99bedcae97ddf03fc7c65a` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/commit-on-signature.md` | `723174576d87f2895fccbc37b9a722896737f3c8` | edited: issue-number reference replaced by a description (its test changes in step) |
@@ -317,7 +337,6 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/commit-on-signature-operator.test.mjs` | `55e328555bae2c27ccf93c0542f144911b77f3af` | verbatim |
 | `http-mcp/test/commit-on-signature-payment.test.mjs` | `7a2023a3832956987c6e278483b7df97595f80a4` | verbatim |
 | `http-mcp/test/commit-on-signature-seller-drain.test.mjs` | `c95fe68a2da96fe1c03069525df1af02ab3bb45b` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `http-mcp/test/commit-on-signature-shutdown-doc.test.mjs` | `de0ef0c6fe954278853b28280d5f2ff51a946e4e` | edited: asserts the reworded doc sentence (issue-number reference removed) |
 | `http-mcp/test/commit-on-signature.test.mjs` | `fe583adc88a4d0a262a75d13894d45a56c1cd0d0` | verbatim |
 | `http-mcp/test/commitment-finality-payment.test.mjs` | `eaf5911ee2655432e30499e788542c745cb5950c` | verbatim |
 | `http-mcp/test/completion-readiness.test.mjs` | `07c417f88737633e0990982c353dab574e20cdd4` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: the 14 small-order keys are expected to be refused by the shared helper; tests added that an ordinary signature passes and a wrong message fails; each per-key evaluator test first finds a message on which a plain Ed25519 verify accepts the constant signature |
@@ -349,7 +368,6 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/devnet-native-transport.browser.test.mjs` | `2dae8bda731c7008cb33e8a24384541baf11a8c3` | verbatim |
 | `http-mcp/test/devnet-native-transport.test.mjs` | `6fbc6752ea280a561acc7243301867426227fe88` | verbatim |
 | `http-mcp/test/devnet-operator-approval-deadline.test.mjs` | `633290ff57ca8c8c82a470d9440b3bf3a7435355` | verbatim |
-| `http-mcp/test/devnet-operator-approval-tty-stop.test.mjs` | `34fa4bc78bbd0435307654b637d1ca8ec0197ed1` | verbatim |
 | `http-mcp/test/devnet-operator-buyer-shutdown.test.mjs` | `c58de83ec7b75cd6a1713c8ab34d6d40b08ee6a5` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/devnet-operator-cli-seller-observer-status-prefixed.test.mjs` | `22743f48f1458d9dd01ae511db759b752b3a8f62` | verbatim |
 | `http-mcp/test/devnet-operator-cli-seller-observer-unit-prefixed.test.mjs` | `8391e2c76e29135bf7d2a41cc1d4b9684b9e74aa` | verbatim |
@@ -369,7 +387,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/devnet-storage-write-recovery.test.mjs` | `f122a6ac3311e3b0fed22a228a932c04960abecf` | verbatim |
 | `http-mcp/test/durability.test.mjs` | `ab817bf97eb80c3f87dd767309a8ce87ca96ec86` | verbatim |
 | `http-mcp/test/durable-wallet-journal.test.mjs` | `8b3228f152227f6f8042c595422805c21e41282e` | verbatim |
-| `http-mcp/test/embedded-wallet-bundle.test.mjs` | `ffe0327da843dd2f0e5725e7d72f0ffaaef9d437` | edited: public wording: internal process and layout references reworded
+| `http-mcp/test/embedded-wallet-bundle.test.mjs` | `4bf2f3816a9edb66725bdb31e390d712c6f554df` | edited: public wording: internal process and layout references reworded; then changed here: host WebAssembly calls are settled once before the controls measure
 | `http-mcp/test/embedded-wallet-contract.test.mjs` | `31d105b6b8efb545f175b1f8588879a15be20e87` | verbatim |
 | `http-mcp/test/embedded-wallet-flow.test.mjs` | `cdd8f085a37939b2759c6eff241c44c7290ae393` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/embedded-wallet-package.test.mjs` | `9f954bc1a0047f83a897196c24efef02a5968a70` | edited: address replaced by a documentation address; one exclusion label renamed |
@@ -441,12 +459,8 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/helpers/agreement-context-integration.mjs` | `7d735e1afa8412981619011f1caf9c0b5d146ef1` | edited: default seller reference path replaced by a neutral absolute path |
 | `http-mcp/test/helpers/agreement-context-interactions.mjs` | `394daf0a79c06daca32a652af4518a580b3eead1` | verbatim |
 | `http-mcp/test/helpers/answer-writer-worker.mjs` | `0dfaa97df64033fb3e15553fae6649b3c626a90d` | verbatim |
-| `http-mcp/test/helpers/approval-tty-child.mjs` | `2767f5aa68ab0f4a5ba83f76fd26b7e533d0a455` | verbatim |
-| `http-mcp/test/helpers/approval-tty-driver.py` | `037ac5d75bf042d732650c36df26e103b7ce5544` | verbatim |
-| `http-mcp/test/helpers/approval-tty-hang-child.mjs` | `438ded648fd59e3e61a7061f7ee0ce7cf7eb9fa7` | verbatim |
 | `http-mcp/test/helpers/buyer-chain-readback-flow.mjs` | `f2895f71dc8e79dc7359522fe48af6a59e7921d6` | verbatim |
 | `http-mcp/test/helpers/buyer-chain-readback-identity.mjs` | `318991bcfc372a7dde19bd2eadd128b7352b5432` | verbatim |
-| `http-mcp/test/helpers/check-public-text-report-mutants.mjs` | `7b157d8061ace378f65eed76779802befc929104` | verbatim |
 | `http-mcp/test/helpers/claude-commit-retry-coverage-world.mjs` | `ce0def61b6c72ba097c9fc9b2adeaa9223fb201e` | verbatim |
 | `http-mcp/test/helpers/claude-native-delivery-coverage-reader.mjs` | `1c72fcb289c3e50dc7309e449ed192c0d0032490` | verbatim |
 | `http-mcp/test/helpers/claude-native-payment-coverage-flow.mjs` | `5c9ff5ad7ee45c4df33f99b7c49590381cbe169a` | verbatim |
@@ -527,7 +541,6 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/helpers/seller-sr2-agreement-harness.mjs` | `7beb23f213ee9f7d7386cba44c8911f91770d63d` | verbatim |
 | `http-mcp/test/helpers/seller-state-lease-race.mjs` | `c194125b670458faed9375d2da7d197dce9b57d1` | verbatim |
 | `http-mcp/test/helpers/seller-state-no-procfs.mjs` | `f1fcb6b70c6b28fdce13d2b89b1a58b785e17570` | verbatim |
-| `http-mcp/test/helpers/seller-write-batch-mutants.mjs` | `54b6f281f1f55ec6a5c8c224868ba53bcdbcc66a` | verbatim |
 | `http-mcp/test/helpers/settlement-crash-child.mjs` | `3bbbd00e046c2010c87202ac425075136b140c26` | verbatim |
 | `http-mcp/test/helpers/settlement-crash-world.mjs` | `e5600f8cab64c2a2ac3369029a880817fba0076d` | verbatim |
 | `http-mcp/test/helpers/showcase-ledger-mutants.mjs` | `bc2a01ba643ff537b13adba50bae9ba0cad55a0c` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -553,7 +566,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/identities.test.mjs` | `142ef667e3faa7824ef4dba93d0523d0a881ce7a` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/identity-actions.test.mjs` | `0b1edc65471375ca30eaf6dd2b47add79a42e743` | verbatim |
 | `http-mcp/test/immutable-readbacks.test.mjs` | `f8dd18c87541eacb81c19031caa1e43d19c14723` | verbatim |
-| `http-mcp/test/known-failures.json` | `ec52d3c76c62b519aaa01b1a9c22b8cbfaeb5602` | edited: the reason text says the entry does not apply in this repository |
+| `http-mcp/test/known-failures.json` | `d4d4f4916c9e719fd9c5c7a5f2403ba8598264d4` | edited: the reason text says the entry does not apply in this repository; then changed here: carry-over entries for 67 more test files (53, then 14 that the P303 cards own or that need the P42aa modules) |
 | `http-mcp/test/legacy-publication-cancel.test.mjs` | `3e10c754c17c7a9178e49c4bdb65f3bfc5c07778` | verbatim |
 | `http-mcp/test/listing-http-unavailable.test.mjs` | `f43c769cf92b4767fbeaa5b312a4fb48ad3ca739` | verbatim |
 | `http-mcp/test/loopback-test-tls.test.mjs` | `aa3c5624eb24b6db6232aaf669c371ce0463629b` | verbatim |
@@ -568,7 +581,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/mcp-seller-diagnostics-settlement.test.mjs` | `c392cf635a6c0f41698e0b5b3d6293e8ea66045c` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/mcp-seller-diagnostics.test.mjs` | `2a019bf5a8a74364965ee6f96982f3baffc463d2` | edited: fixture key literals passed through idem() so they are not credential-shaped; comments: internal references removed; test name: PR reference removed |
 | `http-mcp/test/mcp-transport.test.mjs` | `427a7f0d4f6a2d8df9505ed9c06e369cb8025c51` | verbatim |
-| `http-mcp/test/mutant-helper-verdicts.test.mjs` | `9fbe80cfb4d43ab26baeb31f066f4b561b67fadb` | verbatim |
+| `http-mcp/test/mutant-helper-verdicts.test.mjs` | `6feb67ebdc2e7ab8cd5c63f01157935e00d9cb33` | changed here after a verbatim import: the public-text and seller controls are removed because they read modules that are not carried; the wallet and showcase controls are unchanged |
 | `http-mcp/test/mutate-dcr.test.mjs` | `2eab79588fb09ec2f73afbac582299abbb9fb610` | verbatim |
 | `http-mcp/test/native-agreement-payment.browser.test.mjs` | `ebd6348c283d2a2adce343034bcbf84be077cf10` | verbatim |
 | `http-mcp/test/native-agreement-payment.test.mjs` | `6ca9fda96702a116649d2772b8e3e4c227de4fdd` | verbatim |
@@ -600,10 +613,9 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/overnight-acceptance-ui.test.mjs` | `2099f64506281dbf705a3c8c0519c57f5fa719ae` | verbatim |
 | `http-mcp/test/overnight-acceptance.test.mjs` | `8dcbd9c2235ba91efe49e0097fa411edaac6acbc` | verbatim |
 | `http-mcp/test/overnight-core-seller.test.mjs` | `e761db72a2b790235351c3d4986a5ca1db3c3167` | edited: held-gate id renamed; comments: internal references removed; expects the reworded held-write reason |
-| `http-mcp/test/overnight-package.test.mjs` | `1afdaf8310a61acbbf27575a7ce2a5610eba3aaa` | verbatim |
+| `http-mcp/test/overnight-package.test.mjs` | `ab8fc2c0f82ee716754cae6e5552e41935c9a16e` | changed here after a verbatim import: the Node-floor check no longer reads `deploy/Dockerfile`, which is not carried |
 | `http-mcp/test/overnight-ui.test.mjs` | `ee29f12c9ed915c4a6822ce67af93a507cbe9660` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/package-paths.test.mjs` | `7072517013e0e5643653f37c49625551f018fa9a` | edited: sample list shortened with the exclusion pattern |
-| `http-mcp/test/package-version-contract.test.mjs` | `16968b8067bb637dede7158e9bb6781914d28dc3` | verbatim |
 | `http-mcp/test/portal-auto-advance-hooks.test.mjs` | `eb12d446006f356849bbc27cc77e82a69cd25635` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/portal-auto-advance.test.mjs` | `520379f68034599fc0278d2f5314d4211c106d05` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/portal-auto-assets.test.mjs` | `be7b12ce7f3d76c44e5bf6bf5481c71963c8db95` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -615,7 +627,6 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/protocol-revision-races.test.mjs` | `12f7071276863c0e962f6da65e9b070cce776bfb` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/public-sr2-projection.browser.test.mjs` | `35d69e1df452cb36e9c2594cc8a867dc8c229fd2` | verbatim |
 | `http-mcp/test/public-sr2-projection.test.mjs` | `7a9d2bc74e19595d45f5ec8a9f108a8fdb7fbe8a` | verbatim |
-| `http-mcp/test/public-text-report.test.mjs` | `a03f02046f9b41a10e535be53cdce2ab637c0b70` | verbatim |
 | `http-mcp/test/purchase-abuse-limits.test.mjs` | `f9d0b429fe4322b896a5641dcab066bcbaa32a7e` | verbatim |
 | `http-mcp/test/purchase-model-view.test.mjs` | `ced0b7e90cfc1ff98e869e18a01a7a616dfc4d6d` | edited: comments and test names: internal review and process references removed; then changed here: the test that read `paymentEvidence` fields raw from the model copy now decodes the seller-data envelope and asserts the same values |
 | `http-mcp/test/purchase-poll.test.mjs` | `821f5e69e883f39f05419d3cc26cf35ab3f81eb8` | verbatim |
@@ -644,7 +655,6 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/seller-sr2-agreement.browser.test.mjs` | `70fab5089c5586a687a3f92d4bd6a226d7cead3e` | verbatim |
 | `http-mcp/test/seller-sr2-agreement.test.mjs` | `c08ee672a374af1f78d65c74bb8523da9d79b1a2` | verbatim |
 | `http-mcp/test/seller-uncertain-payment-recovery-prefixed.test.mjs` | `6e76194153d416bc3a4a530d8636abf833ff8967` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `http-mcp/test/service-request-mutants.test.mjs` | `08c6f43955f441fe46419dcbf13bd7e0e9a81d4e` | verbatim |
 | `http-mcp/test/settlement-kind-bridge.test.mjs` | `ed0a5ccf289098e042ad24c0043ce59754744be0` | verbatim |
 | `http-mcp/test/settlement-pointer-race.test.mjs` | `65b21f20c9954df5ba39a3ecf1f7065cd8896648` | verbatim |
 | `http-mcp/test/settlement-process-death.test.mjs` | `ceb44b94f6d5ef37b87b2237adf22767aead9328` | verbatim |
@@ -680,7 +690,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/test/switch-registry-mutants.test.mjs` | `e274cb82de1c2493586bdebd13f23bdf20b5e8fa` | verbatim |
 | `http-mcp/test/switch-registry.test.mjs` | `8d90091a2fd18f6927a6759a81f65f0f32a62a6e` | verbatim |
 | `http-mcp/test/tester-dashboard.test.mjs` | `e925abe14db23674ccf48680f79a4d89b9312814` | verbatim |
-| `http-mcp/test/tester-quickstart.test.mjs` | `903ca6d4c7435419bde79acae859e9c5a0ea8ac7` | verbatim |
+| `http-mcp/test/tester-quickstart.test.mjs` | `7e45ea1d9a81b275138529b054c06fbf621489e2` | changed here after a verbatim import: the link check's list names the references in packed docs that are marked source-checkout-only |
 | `http-mcp/test/ui-status.test.mjs` | `82084a766e7d3f668ece00ccf54ffcac005907d5` | edited: comments and test names: internal review and process references removed; then changed here: the list of fields known to reach the model raw is removed and the test expects none |
 | `http-mcp/test/unit.test.mjs` | `b00c9262980fcdb5721e1a01a3c7b4524ac83de9` | edited: client address replaced by a documentation address |
 | `http-mcp/test/unsupported-node-fee.test.mjs` | `f5559258e76df9cc5852e9d13825dcd552c1a19e` | verbatim |
@@ -701,7 +711,7 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `http-mcp/wallet-build/package.json` | `6370d54fbf15b44f14e0005bb3471ed93999b52e` | verbatim |
 | `http-mcp/wallet-build/shims.mjs` | `b90f32a3c063bf436cd25a96ab7b27d61491c43c` | verbatim |
 | `package-lock.json` | `02b053fab55700b6fe75742c85076e26dc230628` | added: lockfile of the root package |
-| `package.json` | `eedccf13a875a3ee07878352025deef666941062` | added: root package with the gate scripts and the test command |
+| `package.json` | `386f2e1406304aa7f9d3866a73b8f4118e5bc51b` | added: root package with the gate scripts and the test command; then changed here: the `test:all` script |
 | `public-gate.config.json` | `3339fd400041d3c885564000af90dd88168b053c` | added: gate limits, text extensions and binary dispositions |
 | `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
 | `scripts/public-gate/check-report.mjs` | `d8967e36b2ff00bf63c300eac3520612206cfb64` | added: public-content gate source |
@@ -716,8 +726,8 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `stdio-mcp/.gitignore` | `db95153686d0c7bbbc1ffe2b84468bf9a5f979af` | verbatim |
 | `stdio-mcp/.mcp.json` | `d645db37dc6bab55f3582af16b663e5cf6978fcb` | verbatim |
 | `stdio-mcp/LICENSE` | `7d73a34f494ae4d87e549308c2b4559497dc7ffb` | verbatim |
-| `stdio-mcp/README.md` | `755aa5c5d4c5eb3b8ddb985d35756c4a1e5ce888` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked |
-| `stdio-mcp/SECURITY.md` | `ad8c344d1072dd271788c06664aa635ee1c808cf` | edited: testnet writes and faucet requests are refused in this release; vulnerability reports point to GitHub's private vulnerability reporting; live-run claim marked as made in the source repository; the CI description corrected to this tree |
+| `stdio-mcp/README.md` | `e32b909ffb8289c3718e9061a1109c8143cc590a` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked; then changed here: the note on the CI workflow names the workflow file |
+| `stdio-mcp/SECURITY.md` | `3d58f87836ffea22e1a00d970d9c9f2f9fcd9253` | edited: testnet writes and faucet requests are refused in this release; vulnerability reports point to GitHub's private vulnerability reporting; live-run claim marked as made in the source repository; the CI description corrected to this tree; then changed here: the CI description names the workflow file |
 | `stdio-mcp/adapters/HOSTS.md` | `bb8adfc1574c71436b8ce455afb09a03af360b70` | verbatim |
 | `stdio-mcp/adapters/claude/README.md` | `a83699c03384cb7e060e0a4444babad1042e19c2` | verbatim |
 | `stdio-mcp/adapters/gemini/GEMINI.md` | `5a65f370f8fa8764ed5a282bc46cb215bfd4f1c8` | verbatim |
@@ -775,8 +785,8 @@ Files: 750 (verbatim 502, edited 216, changed here 8, added 24).
 | `stdio-mcp/test/unit/onboard.test.ts` | `fc20a5f78039bbbc1b4c1f56ebcdcbc0c10d6cbf` | edited: expects the reserved faucet placeholder; the faucet refusal case uses an explicit mainnet setup, since unlisted testnet RPCs no longer take writes |
 | `stdio-mcp/test/unit/prism.test.ts` | `ac59a60af9c7a9cbda4c63a29f9488b8b231c667` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a header comment reworded to neutral text; no behaviour change |
 | `stdio-mcp/test/unit/spend-and-policy.test.ts` | `9534816425ca70e4e6735189201237ac082c1c20` | edited: testnet RPC example replaced by a reserved .invalid host; adds the sanitized-defaults guard test; adds a regression check that the mainnet opt-in does not open testnet writes |
-| `stdio-mcp/test/unit/workflow-pins.test.ts` | `d0b825c89dc87d986e1abf74ad0757837d5bfaf0` | edited: header comment: internal identifiers removed; skip message and comment reworded |
-| `stdio-mcp/test/unit/workflow-settings.test.ts` | `d30cca6e6e28275e7044eed3e5fe413e1114a654` | edited: header comment: internal identifiers removed; skip message and comment reworded |
+| `stdio-mcp/test/unit/workflow-pins.test.ts` | `3c95e96a4644ac45ee572216ba7947fb3e3eab5d` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the skip wording says "without the workflow file" |
+| `stdio-mcp/test/unit/workflow-settings.test.ts` | `eb1574cba478076e8f10b9e1ae79ceb578da73b0` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the shared-input path filters and the SDK input validation step are expected, with two refusal cases |
 | `stdio-mcp/tsconfig.json` | `3cf94395ce469d74d6c8ba7abcb763df04e51863` | verbatim |
 | `test/ci/carry-state.test.mjs` | `ad09f5acfeaac7b1623e4400bc8e984326a0817d` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/ci/root-script.test.mjs` | `1113534311581054298466b4a169d518b8afc40b` | added: tests of the public-content gate and of the carried-file inventory |

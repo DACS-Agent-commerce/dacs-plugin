@@ -165,7 +165,7 @@ workstream. The broadcast count remains **one** throughout all three reads.
 The fixtures call existing buyer approval, chain reader, native transport,
 durable journal, delivery reader and status projection code. Recovery follows
 the existing no-resend paths. Inspection also covered the seller
-[`artifact-anchor`](../src/devnet-demo/artifact-anchor.mjs) recovery paths; these
+[`artifact-anchor`](../src/devnet-demo/artifact-anchor.mjs) (in a source checkout only) recovery paths; these
 scenarios do not publish seller CREATEs or change that machinery.
 
 These deterministic fault demonstrations do not establish browser behavior,

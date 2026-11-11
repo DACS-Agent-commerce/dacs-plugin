@@ -1,0 +1,56 @@
+name: stdio-mcp
+
+on:
+  pull_request:
+    paths:
+      - 'stdio-mcp/**'
+      - '.github/workflows/stdio-mcp.yml'
+      - 'scripts/ci/**'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
+    branches: ['**']
+    paths:
+      - 'stdio-mcp/**'
+      - '.github/workflows/stdio-mcp.yml'
+      - 'scripts/ci/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  # A newer run for the same ref replaces the one in progress.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Node ${{ matrix.node-version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Both legs run to the end. The first is the floor in package.json "engines".
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['20.19.0', '22.23.3']
+    defaults:
+      run:
+        working-directory: stdio-mcp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: stdio-mcp/package-lock.json
+      # An SDK input that cannot be verified stops the job here, as unverifiable and not as a test failure,
+      # and a forbidden one is refused, in both cases before any install. Nothing skips or tolerates this step.
+      - run: node ../scripts/ci/sdk-input.mjs --prepare stdio
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

@@ -26,7 +26,7 @@ This package does not install or start here, and about half of its tests fail.
 - `package.json` depends on a vendored SDK archive (`vendor/`) that is not in
   this repository, so `npm ci` stops with a missing-file error.
 - `src/app.mjs` and nine other modules import modules that are not carried
-  (`src/dacs/` and five related modules; see `PROVENANCE.md` at the repository
+  (`src/dacs/` and five related modules; in a source checkout see `PROVENANCE.md` at the repository
   root, "Not carried"), so the server stops at startup with a module-not-found
   error. That code is planned to come from the published SDK instead.
 - The test files that import those modules fail when they load. `npm run
@@ -185,7 +185,7 @@ OAuth, accounts, the embedded wallet and purchase views keep their existing flow
   - storage-program naming and address derivation;
   - the registration message.
 
-  The modules here re-implement these formats; they cite the Community files and functions they follow and contain no copied code that the files show. `PROVENANCE.md` lists every module that names that repository.
+  The modules here re-implement these formats; they cite the Community files and functions they follow and contain no copied code that the files show. In a source checkout, `PROVENANCE.md` lists every module that names that repository.
 - The `validateListingArtifact` dependency wiring is adapted from an earlier demo.
 
 Each module names its source in its header comment.
