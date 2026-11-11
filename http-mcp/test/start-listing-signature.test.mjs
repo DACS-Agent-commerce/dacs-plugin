@@ -18,7 +18,7 @@ const JOB = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
 const PURCHASE = 'pur_test_listing_signature';
 const ANCHOR = { kind: 'storage-program', locator: fixtureLocator('seller-listing') };
 
-const vectors = (file) => JSON.parse(readFileSync(new URL(`../../../.stack/ref/standard/conformance/vectors/security/${file}`, import.meta.url), 'utf8'));
+const vectors = (file) => JSON.parse(readFileSync(new URL(`./fixtures/standard-vectors/${file}`, import.meta.url), 'utf8'));
 
 // DACS-1 §6.3.4: the CF-1 canonical form with the top-level signature member
 // omitted, every other member kept, hashed with SHA-256.
@@ -298,7 +298,7 @@ const REQUIREMENT_VECTORS = ['required-presence-key-with-issued-at', 'required-p
   'selector-unrelated-cosigner-is-uncontrolled'];
 
 test('buyer requirements: the Standard vectors', async (t) => {
-  const byName = new Map(vectors('presence-only-claim-requirement-v0.7.json').vectors.map((v) => [v.name, v]));
+  const byName = new Map(vectors('presence-only-claim-requirement-v0.7.extract.json').vectors.map((v) => [v.name, v]));
   for (const name of REQUIREMENT_VECTORS) {
     await t.test(name, async () => {
       const v = byName.get(name);
