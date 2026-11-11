@@ -189,6 +189,68 @@ test('sign: U+FEFF inside or after a hash is kept by the SDK and signs verbatim;
   assert.equal(approvals.length, messages.length);
 });
 
+// Pins the exact bytes the SDK signs. The refusal lets these through because the
+// SDK signs them as they are and they are not a transaction form. A future SDK that
+// trims or normalises a message changes the bytes and turns these tests red.
+// `handed` is what the SDK crypto receives; the signature is checked over the
+// expected bytes, so what is actually signed is pinned as well.
+const utf8 = (text) => Buffer.from(text, 'utf8');
+async function signOnce(message) {
+  const { wallet, handed, approvals, address } = await setup();
+  const res = await wallet.request({ method: 'sign', params: [message] });
+  wallet.lock();
+  assert.equal(res.success, true, JSON.stringify(message));
+  assert.equal(approvals.length, 1);
+  assert.equal(handed.length, 1);
+  const bytes = handed[0];
+  assert.equal(preimageReached([bytes]), false, JSON.stringify(message));
+  const signedOver = (text) => verifyDemosSignature({ address, message: text, signature: res.data.signature });
+  return { bytes, signedOver };
+}
+
+for (const [name, space] of [['space', ' '], ['tab', '\t'], ['LF', '\n'], ['CRLF', '\r\n']]) {
+  for (const [form, hash] of [['bare hash', HASH], ['0x hash', `0x${HASH}`]]) {
+    for (const [where, message] of [['before', space + hash], ['after', hash + space], ['both sides', space + hash + space]]) {
+      test(`SDK signs the exact bytes: ${name} ${where} a ${form} is not trimmed`, async () => {
+        const { bytes, signedOver } = await signOnce(message);
+        assert.deepEqual([...bytes], [...utf8(message)]);
+        assert.equal(bytes.length, utf8(hash).length + utf8(space).length * (where === 'both sides' ? 2 : 1));
+        assert.equal(isPreimage(message), false);
+        assert.equal(signedOver(message), true);
+        assert.equal(signedOver(hash), false, 'not a signature over the bare hash');
+      });
+    }
+  }
+}
+
+for (const [name, char] of [['U+200B', '\u200B'], ['U+200C', '\u200C'], ['U+200D', '\u200D'], ['U+2060', '\u2060']]) {
+  for (const [form, hash] of [['bare hash', HASH], ['0x hash', `0x${HASH}`]]) {
+    test(`SDK signs the exact bytes: ${name} inside a ${form} is not removed`, async () => {
+      const message = hash.slice(0, 30) + char + hash.slice(30);
+      const { bytes, signedOver } = await signOnce(message);
+      assert.deepEqual([...bytes], [...utf8(message)]);
+      assert.equal(bytes.length, utf8(hash).length + utf8(char).length);
+      assert.equal(isPreimage(message), false);
+      assert.equal(signedOver(message), true);
+      assert.equal(signedOver(hash), false, 'not a signature over the hash without the character');
+    });
+  }
+}
+
+// The SDK crypto is handed the encoded message with the mark; the SDK then decodes
+// it with a default TextDecoder, which drops one leading U+FEFF, so the signature
+// is over the text without the mark.
+test('SDK signs the exact bytes: one leading U+FEFF before ordinary text is dropped and nothing else changes', async () => {
+  for (const text of ['hello', 'please sign it', `dacs-evidence:v1:${HASH}`, `${HASH} and more`, ` ${HASH}`, `x ${HASH}`]) {
+    const label = JSON.stringify(text);
+    const { bytes, signedOver } = await signOnce(BOM + text);
+    assert.deepEqual([...bytes], [...utf8(BOM + text)], label);
+    assert.equal(isPreimage(text), false, label);
+    assert.equal(signedOver(text), true, `${label}: signed as the text without the mark`);
+    assert.equal(signedOver(BOM + text), false, `${label}: not signed with the mark`);
+  }
+});
+
 // The SDK does not normalise, so a compatibility variant of the prefix or of a
 // hash signs its own bytes (which are not a transaction form), and the
 // signature verifies over exactly those bytes.
