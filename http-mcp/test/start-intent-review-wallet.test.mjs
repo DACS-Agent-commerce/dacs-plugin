@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalize, sha256Hex, contentHash } from '@kynesyslabs/dacs';
+import { canonicalize, sha256Hex, contentHash, signedBytes } from '@kynesyslabs/dacs';
 import { gatedWallet, fixturePurchase, withListingHash, viewFor, identityFor, signedMessages, DAY } from './helpers/start-intent.mjs';
 import { buildIntent, describeIntent, DEVNET_CREATE_KIND } from '../public/portal-intent/intent.mjs';
 import { createIntentGate } from '../public/portal-intent/gate.mjs';
@@ -216,6 +216,9 @@ test('a newer Start during a durable signature claim makes no SDK request', asyn
 // even when its hash is the one in the terms.
 async function withListing(mutate) {
   const f = await facts(); f.view.start.listing = structuredClone(f.p.listing); mutate(f.view.start.listing);
+  // The changed Listing is signed again by its seller, so only the change is under test.
+  const { signature: _unsigned, ...draft } = f.view.start.listing;
+  f.view.start.listing = { ...draft, signature: { algorithm: 'ed25519', signer: f.p.seller.claim, value: f.p.seller.signBytes(signedBytes('dacs-listing:v1:', contentHash(draft))).toString('base64url') } };
   f.view.terms.listing.contentHash = contentHash(f.view.start.listing); f.view.termsHash = sha256Hex(canonicalize(f.view.terms));
   return f;
 }

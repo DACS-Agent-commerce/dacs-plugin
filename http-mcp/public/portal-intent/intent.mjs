@@ -326,6 +326,13 @@ export async function buildIntent({ view, start, wallet, now }) {
   if (t.seller.payee !== addressOf(seller)) refuse('seller', 'the payee is not the seller DID’s own address');
   const listing = t.listing;
   if (typeof listing?.listingId !== 'string' || !LISTING_ID.test(listing.listingId) || !safeInt(listing.version) || listing.version < 1 || !HEX64.test(listing.contentHash ?? '')) refuse('listing', 'the Listing reference is malformed');
+  // The Listing's SR-2 anchor (DACS-1 §6.3.4): the native storage program it was
+  // read from, or the Listing's own logical address, which the wallet derives
+  // from the signed Listing and so can bind. A logical address of another
+  // Listing is another anchor. The terms hash approved at Start covers it.
+  const anchor = listing.anchor;
+  if (!exactKeys(anchor, ['kind', 'locator']) || anchor.kind !== 'storage-program' || typeof anchor.locator !== 'string') refuse('anchor', 'the purchase terms name no SR-2 anchor for the Listing');
+  if (anchor.locator !== `dacs1:${segment(seller)}:${segment(listing.listingId)}:v${listing.version}` && !/^stor-[0-9a-f]{40}$/.test(anchor.locator)) refuse('anchor', 'the SR-2 anchor in the purchase terms is not this Listing’s anchor');
   const amountOs = decimalToOs(t.price?.amount);
   if (amountOs === null || amountOs <= 0n || !OS.test(t.price.amountOs ?? '') || BigInt(t.price.amountOs) !== amountOs) refuse('price', 'the price is malformed');
   if (typeof t.network !== 'string' || !NETWORK.test(t.network) || t.rail !== DEM_RAIL || t.domain?.rail !== DEM_RAIL || t.domain.network !== t.network) refuse('network', 'the network or payment rail is malformed');
@@ -365,6 +372,7 @@ export async function buildIntent({ view, start, wallet, now }) {
     profile: profile.kind,
     job,
     listing: Object.freeze(pin),
+    anchor: Object.freeze({ kind: anchor.kind, locator: anchor.locator }),
     seller: Object.freeze({ did: seller, address: t.seller.payee }),
     price: Object.freeze({ amount: t.price.amount, amountOs: amountOs.toString(), asset: 'DEM' }),
     network: Object.freeze({ name: t.network, rail: DEM_RAIL, mode: t.domain.mode, chainIdentity }),
@@ -401,6 +409,7 @@ export function describeIntent(intent) {
     '',
     `Listing: ${intent.listing.listingId}, version ${intent.listing.version}`,
     `Listing hash: ${intent.listing.contentHash}`,
+    `Listing anchor (SR-2): ${intent.anchor.locator}`,
     `Seller: ${intent.seller.address}`,
     `Seller DID: ${intent.seller.did}`,
     `Price: ${intent.price.amount} ${intent.price.asset} (${intent.price.amountOs} OS), paid later in a separate approval`,

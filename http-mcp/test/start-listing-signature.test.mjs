@@ -106,8 +106,10 @@ test('control: a correctly signed Listing is accepted and the dialog shows its t
   assert.equal(intent.price.amount, '2.5');
   assert.equal(intent.agreement.deliverable.deliverableType, 'storage-program');
   assert.equal(intent.agreement.deadlineAfterMs, 3600 * 1000);
+  assert.deepEqual({ ...intent.anchor }, ANCHOR);
+  assert.deepEqual(Object.keys(intent.listing), ['listingId', 'version', 'contentHash'], 'the Listing reference the Agreement and delegation carry is unchanged');
   const dialog = describeIntent(intent);
-  for (const shown of ['Price: 2.5 DEM (2500000000 OS)', `Deliverable: storage-program (schema urn:fixture), hash ${intent.agreement.deliverable.hash}`,
+  for (const shown of [`Listing anchor (SR-2): ${ANCHOR.locator}`, 'Price: 2.5 DEM (2500000000 OS)', `Deliverable: storage-program (schema urn:fixture), hash ${intent.agreement.deliverable.hash}`,
     `Delivery deadline: ${new Date(NOW + 3_600_000).toISOString()} (1 hour(s) after generation, from the Listing)`]) assert.ok(dialog.includes(shown), shown);
 });
 
@@ -302,4 +304,53 @@ test('buyer requirements that break the shape are refused', async () => {
     const s = await scenario({ mutate: (listing, seller) => resign({ ...listing, buyerRequirement }, seller) });
     await refuses(s.run(), 'listing', /has a malformed buyer requirement/);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Check 5: the SR-2 anchor is named, bound and shown
+// ---------------------------------------------------------------------------
+
+const logicalAddress = (claim, id, version) => `dacs1:${claim.replace(/:/g, '%3A')}:${id}:v${version}`;
+
+test('terms that name no SR-2 anchor are refused', async () => {
+  const s = await scenario({ listingRef: ({ anchor, ...ref }) => ref });
+  assert.equal(s.terms.listing.anchor, undefined);
+  await refuses(s.run(), 'anchor', /name no SR-2 anchor/);
+});
+
+test('terms that name a malformed anchor are refused', async () => {
+  for (const anchor of [null, 'stor-' + 'a'.repeat(40), { kind: 'storage-program' }, { locator: ANCHOR.locator }, { kind: 'ipfs', locator: ANCHOR.locator },
+    { kind: 'storage-program', locator: 7 }, { ...ANCHOR, extra: true }]) {
+    const s = await scenario({ listingRef: ({ anchor: old, ...ref }) => ({ ...ref, anchor }) });
+    await refuses(s.run(), 'anchor', /name no SR-2 anchor/);
+  }
+});
+
+test('terms that name a different anchor are refused', async () => {
+  const different = {
+    'the logical address of another Listing': (ref, seller) => logicalAddress(seller.claim, 'another-listing', 1),
+    'the logical address of another version': (ref, seller) => logicalAddress(seller.claim, ref.listingId, ref.version + 1),
+    'the logical address under another seller': (ref) => logicalAddress(createEphemeralWallet().claim, ref.listingId, ref.version),
+    'a native address of the wrong length': () => `stor-${'a'.repeat(39)}`,
+    'a native address in capitals': () => `stor-${'A'.repeat(40)}`,
+    'a locator that is not an address at all': () => 'https://seller.example/listing',
+  };
+  for (const [name, locator] of Object.entries(different)) {
+    const s = await scenario({ listingRef: (ref, seller) => ({ ...ref, anchor: { kind: 'storage-program', locator: locator(ref, seller) } }) });
+    await assert.rejects(s.run(), (error) => error instanceof IntentMismatch && error.field === 'anchor' && /is not this Listing’s anchor/.test(error.message), name);
+  }
+});
+
+test('the Listing’s own logical address is accepted as its anchor, bound and shown', async () => {
+  const s = await scenario({ listingRef: (ref, seller) => ({ ...ref, anchor: { kind: 'storage-program', locator: logicalAddress(seller.claim, ref.listingId, ref.version) } }) });
+  const intent = await s.run();
+  assert.equal(intent.anchor.locator, s.terms.listing.anchor.locator);
+  assert.ok(describeIntent(intent).includes(`Listing anchor (SR-2): ${s.terms.listing.anchor.locator}`));
+  assert.ok(Object.isFrozen(intent.anchor));
+});
+
+test('an anchor swapped after the terms hash was fixed is refused by the terms hash', async () => {
+  const s = await scenario();
+  s.terms.listing.anchor = { kind: 'storage-program', locator: fixtureLocator('another-program') };
+  await refuses(s.run(), 'terms', /do not match their terms hash/);
 });
