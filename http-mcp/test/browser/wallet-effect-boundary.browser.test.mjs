@@ -56,6 +56,116 @@ const earlySend = (world, { thenThrow } = {}) => async (armed, bytes) => {
   return { queued: true };
 };
 
+const authorityWaits = [
+  { name: 'signing rechecks authority after the lane head wait', wait: 'head', workflow: ['dispatch'], signer: 0, transport: 0, kinds: [] },
+  { name: 'dispatch rechecks authority after the started record wait', wait: 'dispatch-started', workflow: ['dispatch'], signer: 1, transport: 0, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'] },
+  { name: 'confirm rechecks authority after the started record wait', wait: 'confirm-started', workflow: ['confirm', 'broadcast'], signer: 1, transport: 0, kinds: ['signed', 'confirm-started', 'confirm-withheld'] },
+  { name: 'broadcast rechecks authority after the started record wait', wait: 'broadcast-started', workflow: ['confirm', 'broadcast'], signer: 1, transport: 1, kinds: ['signed', 'confirm-started', 'confirm-acknowledged', 'broadcast-started', 'broadcast-withheld'] },
+  { name: 'signing rechecks authority after caller work before the wrapper', wait: 'sign', workflow: ['dispatch'], signer: 0, transport: 0, kinds: [] },
+  { name: 'sending rechecks authority after caller work before the wrapper', wait: 'send', workflow: ['dispatch'], signer: 1, transport: 0, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'] },
+];
+
+for (const row of authorityWaits) test(row.name, async (t) => {
+  for (const mode of ['revoked while waiting', 'unchanged authority', 'revoked before the pass']) await t.test(mode, async () => {
+    const world = createWorld();
+    const reached = createGate(), release = createGate();
+    const wait = async () => { reached.open(); await release.promise; };
+    const refusal = Object.assign(new Error('wallet authority revoked'), { code: 'authority_revoked' });
+    let revoked = mode === 'revoked before the pass';
+    const readAuthority = world.checks.readAuthority;
+    world.checks.readAuthority = async () => { await readAuthority(); if (revoked) throw refusal; };
+    const sign = row.wait === 'sign' ? async (handle) => { await wait(); return world.sign(handle); } : world.sign;
+    const send = row.wait === 'send' ? async (handle, bytes) => { await wait(); return world.send(handle, bytes); } : world.send;
+    if (row.wait === 'head') {
+      const head = world.records.head;
+      world.records.head = async (lane) => { await wait(); return head(lane); };
+    } else if (row.wait.endsWith('-started')) world.records.beforeCommit.set(row.wait, wait);
+    const channels = { ...world.state, generation: world.fence.connectionGeneration };
+    const running = world.settled(world.runPass({ sign, stages: row.workflow.map((name) => ({ name, send })) }));
+    if (mode !== 'revoked before the pass') {
+      await reached.promise;
+      assert.ok(await isPending(running));
+      assert.deepEqual([world.counts.signer, world.counts.transport], [row.signer, row.transport]);
+      revoked = mode === 'revoked while waiting';
+      release.open();
+    }
+    const { value, error } = await running;
+    assert.deepEqual({ ...world.state, generation: world.fence.connectionGeneration }, channels);
+    if (mode === 'unchanged authority') {
+      assert.equal(error, undefined);
+      assert.deepEqual([world.counts.signer, world.counts.transport], [1, row.workflow.length]);
+      assert.deepEqual(value.outcomes.map(({ state }) => state), row.workflow.map(() => 'acknowledged'));
+      assert.deepEqual(world.records.kinds(world.lane), ['signed', ...row.workflow.flatMap((name) => [`${name}-started`, `${name}-acknowledged`])]);
+    } else {
+      const before = mode === 'revoked before the pass';
+      assert.deepEqual([world.counts.signer, world.counts.transport], before ? [0, 0] : [row.signer, row.transport]);
+      assertRefusal(error, 'authority_revoked');
+      assert.equal(error.cause, refusal);
+      assert.deepEqual(world.records.kinds(world.lane), before ? [] : row.kinds);
+      if (before) assert.equal(world.counts.authority, 1);
+      else if (row.kinds.length) assert.equal(world.records.records(world.lane).at(-1).cause.code, 'authority_revoked');
+    }
+    assert.ok(await world.fenceIsFree());
+  });
+});
+
+test('effect tails read authority before stop and accept fulfilled authority results', async (t) => {
+  for (const workflow of [['dispatch'], ['confirm', 'broadcast']]) await t.test(workflow.join('+'), async () => {
+    const world = createWorld();
+    const trace = [];
+    for (const [name, event] of [['stopped', 'stop'], ['readAuthority', 'authority']]) {
+      const read = world.checks[name];
+      world.checks[name] = async () => { trace.push(event); const result = await read(); return name === 'readAuthority' ? { revoked: true } : result; };
+    }
+    const sign = (handle) => ebSign(async () => { trace.push('sign'); return new Uint8Array(world.SIGNED_BYTES); }, handle)();
+    const send = (handle, bytes) => ebTransmit(async () => { trace.push('send'); }, handle)(bytes);
+    await world.runPass({ sign, stages: workflow.map((name) => ({ name, send })) });
+    assert.deepEqual(trace, ['stop', 'authority', 'stop', 'authority', 'authority', 'stop', 'sign', ...workflow.flatMap(() => ['stop', 'authority', 'authority', 'stop', 'send'])]);
+    assert.equal(world.counts.authority, workflow.length === 1 ? 5 : 7);
+  });
+});
+
+test('effect-tail authority reads share the pass read budget', async (t) => {
+  for (const [effect, call, workflow, signer, transport] of [
+    ['sign', 3, ['dispatch'], 0, 0],
+    ['dispatch', 5, ['dispatch'], 1, 0],
+    ['broadcast', 7, ['confirm', 'broadcast'], 1, 1],
+  ]) await t.test(effect, async () => {
+    const world = createWorld();
+    world.on('authority', 1, () => world.clock.advance(READ_DEADLINE_MS - 1));
+    world.on('authority', call, () => world.clock.advance(1));
+    const { error } = await world.settled(world.runPass({ stages: workflow.map((name) => ({ name, send: world.send })) }));
+    assertRefusal(error, 'tp1_authority_timeout');
+    assert.deepEqual([world.counts.signer, world.counts.transport], [signer, transport]);
+    assert.ok(await world.fenceIsFree());
+  });
+});
+
+test('a failed authority refusal write leaves the started lane closed on restart', async (t) => {
+  for (const stage of ['dispatch', 'confirm', 'broadcast']) await t.test(stage, async () => {
+    const world = createWorld();
+    const workflow = stage === 'dispatch' ? ['dispatch'] : ['confirm', 'broadcast'];
+    const original = Object.assign(new Error('wallet authority revoked'), { code: 'authority_revoked' });
+    const disk = new Error('disk full');
+    let revoked = false;
+    const readAuthority = world.checks.readAuthority;
+    world.checks.readAuthority = async () => { await readAuthority(); if (revoked) throw original; };
+    world.records.beforeCommit.set(`${stage}-started`, () => { revoked = true; });
+    world.records.failures.set(`${stage}-withheld`, disk);
+    const { error } = await world.settled(world.runPass({ stages: workflow.map((name) => ({ name, send: world.send })) }));
+    assertRefusal(error, 'eb_persist_failed');
+    assert.ok(error.cause instanceof AggregateError);
+    const [refusal, persistence] = error.cause.errors;
+    assert.equal(refusal.cause, original);
+    assert.equal(persistence.cause, disk);
+    assert.equal(world.records.kinds(world.lane).at(-1), `${stage}-started`);
+    assert.equal(world.counts.transport, stage === 'broadcast' ? 1 : 0);
+    const restarted = createWorld({ records: world.records });
+    assertRefusal((await restarted.settled(restarted.runPass({ sign: undefined, retained: { bytes: new Uint8Array(world.SIGNED_BYTES) }, stages: workflow.map((name) => ({ name, send: restarted.send })) }))).error, 'eb_resume_not_allowed');
+    assert.deepEqual([restarted.counts.signer, restarted.counts.transport], [0, 0]);
+  });
+});
+
 test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a late fence grant, nested reuse, a non-owner release, overlapping purchases and reply bounds', async (t) => {
   await t.test('K0-B1 an authority reader rejecting with E refuses with E as the cause; signer 0, transport 0', async () => {
     const world = createWorld();
@@ -181,7 +291,7 @@ test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a l
     const world = createWorld();
     const { error } = await world.settled(world.runPass());
     assert.equal(error, undefined, 'the reader throws if it touches the signer or the fence');
-    assert.equal(world.counts.authority, 3);
+    assert.equal(world.counts.authority, 5);
     assert.equal(world.counts.lockRequests, 1);
   });
 });
@@ -194,8 +304,8 @@ const barrierRows = [
   { name: 'K0-F3 the guard flipping off while waiting refuses kit_operation_guard_off', waiting: (w) => { w.state.admission = 'kit_operation_guard_off'; }, code: 'kit_operation_guard_off', signer: 0, kinds: [] },
   { name: 'K0-F3 the hold flipping off while waiting refuses profile_not_admitted', waiting: (w) => { w.state.admission = 'profile_not_admitted'; }, code: 'profile_not_admitted', signer: 0, kinds: [] },
   { name: 'K0-F4 a reconnect inside EB5r\'s authority read is refused by the synchronous check after it', arrange: (w) => w.on('authority', 2, () => { w.state.digest = 'digest-2'; }), code: 'tp1_local_binding_changed', signer: 0, kinds: [] },
-  { name: 'K0-F5 a reconnect inside EB7\'s authority read keeps signed-held{tp1_local_binding_changed}; signer 1', arrange: (w) => w.on('authority', 3, () => { w.state.digest = 'digest-2'; }), code: 'tp1_local_binding_changed', signer: 1, kinds: ['signed', 'signed-held'], lastCause: 'tp1_local_binding_changed' },
-  { name: 'K0-F6 KILL inside EB7\'s authority read is refused at EB8f: dispatch-withheld{writes_stopped}', arrange: (w) => w.on('authority', 3, () => { w.state.killed = true; }), code: 'writes_stopped', signer: 1, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'], lastCause: 'writes_stopped' },
+  { name: 'K0-F5 a reconnect inside EB7\'s authority read keeps signed-held{tp1_local_binding_changed}; signer 1', arrange: (w) => w.on('authority', 4, () => { w.state.digest = 'digest-2'; }), code: 'tp1_local_binding_changed', signer: 1, kinds: ['signed', 'signed-held'], lastCause: 'tp1_local_binding_changed' },
+  { name: 'K0-F6 KILL inside EB7\'s authority read is refused at EB8f: dispatch-withheld{writes_stopped}', arrange: (w) => w.on('authority', 4, () => { w.state.killed = true; }), code: 'writes_stopped', signer: 1, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'], lastCause: 'writes_stopped' },
   { name: 'K0-F7 KILL inside the dispatch-intent persistence gives dispatch-withheld{writes_stopped}', arrange: (w) => w.records.beforeCommit.set('dispatch-started', () => { w.state.killed = true; }), code: 'writes_stopped', signer: 1, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'], lastCause: 'writes_stopped' },
   { name: 'K0-F7 a reconnect inside the dispatch-intent persistence gives dispatch-withheld{tp1_local_binding_changed}', arrange: (w) => w.records.beforeCommit.set('dispatch-started', () => { w.state.digest = 'digest-2'; }), code: 'tp1_local_binding_changed', signer: 1, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'], lastCause: 'tp1_local_binding_changed' },
   { name: 'K0-F7 the guard flipping off inside the dispatch-intent persistence gives dispatch-withheld with the EB1 code', arrange: (w) => w.records.beforeCommit.set('dispatch-started', () => { w.state.admission = 'kit_operation_guard_off'; }), code: 'kit_operation_guard_off', signer: 1, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'], lastCause: 'kit_operation_guard_off' },
@@ -218,9 +328,11 @@ const stalledReads = [
   { kind: 'authority', call: 1, code: 'tp1_authority_timeout', signer: 0, kinds: [] },
   { kind: 'stop', call: 2, code: 'stop_check_timeout', signer: 0, kinds: [] },
   { kind: 'authority', call: 2, code: 'tp1_authority_timeout', signer: 0, kinds: [] },
+  { kind: 'authority', call: 3, code: 'tp1_authority_timeout', signer: 0, kinds: [] },
   { kind: 'stop', call: 3, code: 'stop_check_timeout', signer: 0, kinds: [] },
   { kind: 'stop', call: 4, code: 'stop_check_timeout', signer: 1, kinds: ['signed', 'signed-held'] },
-  { kind: 'authority', call: 3, code: 'tp1_authority_timeout', signer: 1, kinds: ['signed', 'signed-held'] },
+  { kind: 'authority', call: 4, code: 'tp1_authority_timeout', signer: 1, kinds: ['signed', 'signed-held'] },
+  { kind: 'authority', call: 5, code: 'tp1_authority_timeout', signer: 1, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'] },
   { kind: 'stop', call: 5, code: 'stop_check_timeout', signer: 1, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'] },
 ];
 
@@ -329,11 +441,11 @@ test('K0-F1 to K0-F11 barriers refuse or withhold with the listed signer and tra
 });
 
 const finalReadBarriers = [
-  { name: 'K0-F13 KILL inside the final authority read is refused by the final stop check', kind: 'authority', call: 2, change: (w) => { w.state.killed = true; }, code: 'writes_stopped', stops: 3 },
-  { name: 'K0-F14 the guard flipping off inside the final authority read is refused by the synchronous recheck', kind: 'authority', call: 2, change: (w) => { w.state.admission = 'kit_operation_guard_off'; }, code: 'kit_operation_guard_off', stops: 3 },
+  { name: 'K0-F13 KILL inside the final authority read is refused by the final stop check', kind: 'authority', call: 3, change: (w) => { w.state.killed = true; }, code: 'writes_stopped', stops: 3 },
+  { name: 'K0-F14 the guard flipping off inside the final authority read is refused by the synchronous recheck', kind: 'authority', call: 3, change: (w) => { w.state.admission = 'kit_operation_guard_off'; }, code: 'kit_operation_guard_off', stops: 3 },
   { name: 'K0-F14 the hold flipping off inside the final stop read is refused by the synchronous recheck', kind: 'stop', call: 3, change: (w) => { w.state.admission = 'profile_not_admitted'; }, code: 'profile_not_admitted', stops: 3 },
   { name: 'K0-F16 a reconnect inside the final stop read is refused tp1_local_binding_changed', kind: 'stop', call: 3, change: (w) => { w.state.digest = 'digest-2'; }, code: 'tp1_local_binding_changed', stops: 3 },
-  { name: 'K0-F17 the approval consumed inside the final authority read refuses with the EB3 code', kind: 'authority', call: 2, change: (w) => { w.state.approval = 'write-fee-cap'; }, code: 'write-fee-cap', stops: 3 },
+  { name: 'K0-F17 the approval consumed inside the final authority read refuses with the EB3 code', kind: 'authority', call: 3, change: (w) => { w.state.approval = 'write-fee-cap'; }, code: 'write-fee-cap', stops: 3 },
   { name: 'K0-F17 the approval consumed inside the final stop read refuses with the EB3 code', kind: 'stop', call: 3, change: (w) => { w.state.approval = 'above the approved total'; }, code: 'above the approved total', stops: 3 },
 ];
 
@@ -915,7 +1027,7 @@ test('each step has its own one-use handle: a kept, stale or other-stage handle 
     const world = createWorld();
     let signHandle;
     const early = [];
-    world.on('authority', 3, async () => {
+    world.on('authority', 4, async () => {
       early.push(await world.settled(world.send(signHandle, new Uint8Array(world.SIGNED_BYTES))));
       early.push(await world.settled(world.sign(signHandle)));
     });
@@ -977,12 +1089,13 @@ test('each step has its own one-use handle: a kept, stale or other-stage handle 
 
 test('the pass copies its request on entry: changing the caller\'s request or stage descriptors at any await changes nothing', async (t) => {
   for (const workflow of [['dispatch'], ['confirm', 'broadcast']]) {
-    const points = [...Array.from({ length: workflow.length === 1 ? 5 : 7 }, (_, i) => ['stop', i + 1]), ...Array.from({ length: workflow.length === 1 ? 3 : 4 }, (_, i) => ['authority', i + 1]), ...['signed', ...workflow.flatMap((s) => [`${s}-started`, `${s}-acknowledged`])].map((kind) => ['commit', kind])];
+    const points = [...Array.from({ length: workflow.length === 1 ? 5 : 7 }, (_, i) => ['stop', i + 1]), ...Array.from({ length: workflow.length === 1 ? 5 : 7 }, (_, i) => ['authority', i + 1]), ...['signed', ...workflow.flatMap((s) => [`${s}-started`, `${s}-acknowledged`])].map((kind) => ['commit', kind])];
     for (const [kind, call] of points) await t.test(`${workflow.join('+')} request changed inside ${kind} ${call}`, async () => {
       const world = createWorld();
-      let foreign = 0;
+      let foreign = 0, changed = false;
       const request = world.request({ stages: stagesOf(world, workflow) });
       const tamper = () => {
+        changed = true;
         request.stages[0].name = 'broadcast';
         request.stages[0].send = async () => { foreign += 1; };
         request.stages.push({ name: 'dispatch', send: world.send });
@@ -993,6 +1106,7 @@ test('the pass copies its request on entry: changing the caller\'s request or st
       if (kind === 'commit') world.records.beforeCommit.set(call, tamper); else world.on(kind, call, tamper);
       const { error } = await world.settled(world.boundary.runPass(request));
       assert.equal(error, undefined);
+      assert.equal(changed, true, 'the selected await point was reached');
       assert.deepEqual([world.counts.signer, world.counts.transport, foreign], [1, workflow.length, 0]);
       assert.deepEqual(world.records.kinds('lane-1'), ['signed', ...workflow.flatMap((s) => [`${s}-started`, `${s}-acknowledged`])]);
       assert.deepEqual(world.records.kinds('lane-other'), []);
@@ -1003,7 +1117,7 @@ test('the pass copies its request on entry: changing the caller\'s request or st
 
 const appendFailures = [
   { kind: 'signed', arrange: () => {}, transport: 0, kinds: [] },
-  { kind: 'signed-held', arrange: (w) => w.on('authority', 3, () => { w.state.digest = 'digest-2'; }), transport: 0, kinds: ['signed'] },
+  { kind: 'signed-held', arrange: (w) => w.on('authority', 4, () => { w.state.digest = 'digest-2'; }), transport: 0, kinds: ['signed'] },
   { kind: 'dispatch-started', arrange: () => {}, transport: 0, kinds: ['signed'] },
   { kind: 'dispatch-withheld', arrange: (w) => w.records.beforeCommit.set('dispatch-started', () => { w.state.killed = true; }), transport: 0, kinds: ['signed', 'dispatch-started'] },
   { kind: 'dispatch-acknowledged', arrange: () => {}, transport: 1, kinds: ['signed', 'dispatch-started'] },
@@ -1070,7 +1184,7 @@ test('failed held and withheld records retain the original refusal and persisten
     const w = createWorld();
     const original = new Error('original refusal');
     const disk = new Error('disk full');
-    if (kind === 'signed-held') w.on('authority', 3, () => { throw original; });
+    if (kind === 'signed-held') w.on('authority', 4, () => { throw original; });
     w.records.failures.set(kind, disk);
     const stages = kind === 'dispatch-withheld' ? [{ name: 'dispatch', send: async () => { throw original; } }] : undefined;
     const { error } = await w.settled(w.runPass(stages ? { stages } : {}));
@@ -1459,7 +1573,7 @@ test('a connection digest that is not a nonempty string refuses tp1_local_bindin
     { name: 'while waiting for the fence', waiting: turnsInvalid, signer: 0, kinds: [] },
     { name: 'inside EB5r\'s authority read', arrange: (w) => w.on('authority', 2, () => turnsInvalid(w)), signer: 0, kinds: [] },
     { name: 'inside the final stop read before the signer', arrange: (w) => w.on('stop', 3, () => turnsInvalid(w)), signer: 0, kinds: [] },
-    { name: 'inside EB7\'s authority read', arrange: (w) => w.on('authority', 3, () => turnsInvalid(w)), signer: 1, kinds: ['signed', 'signed-held'], lastCause: 'tp1_local_binding_invalid' },
+    { name: 'inside EB7\'s authority read', arrange: (w) => w.on('authority', 4, () => turnsInvalid(w)), signer: 1, kinds: ['signed', 'signed-held'], lastCause: 'tp1_local_binding_invalid' },
     { name: 'inside the dispatch-intent persistence', arrange: (w) => w.records.beforeCommit.set('dispatch-started', () => turnsInvalid(w)), signer: 1, kinds: ['signed', 'dispatch-started', 'dispatch-withheld'], lastCause: 'tp1_local_binding_invalid' },
   ];
   for (const row of laterReads) {

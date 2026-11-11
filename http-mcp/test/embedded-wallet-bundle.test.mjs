@@ -93,7 +93,25 @@ async function measureImport(href, windowMs = 1000) {
   return { module, calls: wasmCalls.slice(start), sites: wasmCallSites.slice(start), resolved: resolvedWalletFiles.slice(files) };
 }
 
+// Loads Node's lazy fetch internals once and waits for their WebAssembly calls
+// (undici compiles llhttp when it loads and instantiates it a turn later), so no
+// host call can land inside a later measurement. Returns the call sites recorded
+// before the first measurement.
+let hostSettled = null;
+function settleHostWasm() {
+  hostSettled ??= (async () => {
+    // Reading these globals loads Node's internal undici (fetch is trapped above).
+    const fetchApi = { Headers: globalThis.Headers, Request: globalThis.Request, Response: globalThis.Response, FormData: globalThis.FormData };
+    for (const [name, value] of Object.entries(fetchApi)) assert.equal(typeof value, 'function', name);
+    for (let waited = 0; waited < 3000 && !wasmCalls.includes('instantiate'); waited += 20) await delay(20);
+    await delay(100);
+    return wasmCallSites.slice();
+  })();
+  return hostSettled;
+}
+
 test('control: the WebAssembly record observes compilation through each entry point', async () => {
+  await settleHostWasm();
   const start = wasmCalls.length;
   assert.ok(new WebAssembly.Module(EMPTY_WASM) instanceof original.Module);
   await WebAssembly.compile(EMPTY_WASM);
@@ -106,6 +124,7 @@ test('control: the WebAssembly record observes compilation through each entry po
 test('control: an import whose top-level async init compiles WebAssembly is caught by the import measurement', async () => {
   // Same shape as node-seal's init in the SDK FHE module: an un-awaited async
   // IIFE at module top level.
+  await settleHostWasm();
   const source = `(async () => { await WebAssembly.instantiate(new Uint8Array([${EMPTY_WASM.join(',')}])); })(); export const marker = 1;`;
   const { module, calls } = await measureImport(`data:text/javascript,${encodeURIComponent(source)}`, 200);
   assert.equal(module.marker, 1);
@@ -113,13 +132,7 @@ test('control: an import whose top-level async init compiles WebAssembly is caug
 });
 
 test('host: Node\'s own lazily loaded fetch internals compile only undici WebAssembly, before the measured import', async (t) => {
-  const start = wasmCalls.length;
-  // Reading these globals loads Node's internal undici (fetch is trapped above).
-  const fetchApi = { Headers: globalThis.Headers, Request: globalThis.Request, Response: globalThis.Response, FormData: globalThis.FormData };
-  for (const [name, value] of Object.entries(fetchApi)) assert.equal(typeof value, 'function', name);
-  for (let waited = 0; waited < 3000 && !wasmCalls.slice(start).includes('instantiate'); waited += 20) await delay(20);
-  await delay(100);
-  const sites = wasmCallSites.slice(start);
+  const sites = await settleHostWasm();
   for (const site of sites) t.diagnostic(site);
   for (const site of sites) assert.match(site, /\(node:internal\/deps\/undici\//, 'host WebAssembly comes from Node\'s undici only');
 });

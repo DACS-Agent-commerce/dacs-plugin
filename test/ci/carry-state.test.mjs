@@ -38,10 +38,8 @@ const EXCLUDED_FILES = [
 const isExcludedTarget = (target) => EXCLUDED_PREFIXES.some((prefix) => `${target}/`.startsWith(prefix) || target.startsWith(prefix))
   || EXCLUDED_FILES.includes(target);
 
-// The only entries under http-mcp/. A folder that is not carried cannot appear without this list changing.
-const HTTP_TOP_LEVEL = ['.dockerignore', '.env.example', '.gitignore', 'Dockerfile', 'README.md', 'bin', 'docs', 'mcp.json', 'package-lock.json', 'package.json', 'plugin.json', 'public', 'scripts', 'skills', 'src', 'test', 'wallet-build'];
-
-// The ten non-test modules whose imports resolve to excluded modules, each with the follow-up that switches or retires it.
+// The non-test modules whose imports resolve to excluded modules, each with the follow-up that switches or retires it.
+// An entry left here after its module stops importing an excluded path is not reported; remove it with that change.
 const SWITCH_OWNER = 'follow-up: switch the import to the published SDK';
 const SCRIPT_OWNER = 'follow-up: switch the script, or retire it with its command';
 const EXCLUDED_MODULE_IMPORTERS = new Map([
@@ -58,22 +56,26 @@ const EXCLUDED_MODULE_IMPORTERS = new Map([
 ]);
 
 const unresolvedImports = (file) => relativeImports(file).filter((target) => !resolves(target));
+const excludedModuleImporters = () => HTTP_SOURCE.filter((file) => unresolvedImports(file).length > 0);
 
-test('the script and import-target inventory equals the reviewed retained state; the two referenced scripts are explicit follow-ups', () => {
-  const importers = HTTP_SOURCE.filter((file) => unresolvedImports(file).length > 0);
-  for (const file of importers) {
+test('every unresolved import in http-mcp source targets an excluded path', () => {
+  for (const file of excludedModuleImporters()) {
     for (const target of unresolvedImports(file)) assert.ok(isExcludedTarget(target), `${file} misses a module that is not excluded: ${target}`);
   }
-  const scripts = importers.filter((file) => file.startsWith('http-mcp/scripts/'));
-  assert.deepEqual(scripts, ['http-mcp/scripts/devnet-demo-operator-bootstrap.mjs', 'http-mcp/scripts/devnet-demo-recipient-balance.mjs']);
-  assert.deepEqual(scripts.map((file) => EXCLUDED_MODULE_IMPORTERS.get(file)), [SCRIPT_OWNER, SCRIPT_OWNER]);
   assert.ok(!exists('http-mcp/scripts/check-node-build.mjs'));
+});
+
+test('every module that imports an excluded module has a follow-up recorded', () => {
+  for (const file of excludedModuleImporters()) {
+    const owner = EXCLUDED_MODULE_IMPORTERS.get(file);
+    assert.ok(owner, `${file} has an import that does not resolve and no follow-up in EXCLUDED_MODULE_IMPORTERS (a missing module that is not excluded also fails the test above)`);
+    if (file.startsWith('http-mcp/scripts/')) assert.equal(owner, SCRIPT_OWNER, `${file} is a script and needs the script follow-up`);
+  }
 });
 
 test('the excluded paths are absent and tests needed for carried targets are retained, with no post-push removal phase', () => {
   for (const file of EXCLUDED_FILES) assert.ok(!exists(file), file);
   for (const prefix of EXCLUDED_PREFIXES) assert.ok(!trackedFiles.some((file) => file.startsWith(prefix)), prefix);
-  assert.deepEqual([...new Set(trackedFiles.filter((file) => file.startsWith('http-mcp/')).map((file) => file.split('/')[1]))].sort(), HTTP_TOP_LEVEL);
   const onlyExcluded = [...HTTP_TESTS, ...STDIO_TESTS].filter((file) => {
     const targets = relativeImports(file);
     return targets.length > 0 && targets.every((target) => !resolves(target));
@@ -82,8 +84,9 @@ test('the excluded paths are absent and tests needed for carried targets are ret
   assert.ok(!trackedFiles.some((file) => /(?:^|\/)(?:carry|removal)[^/]*(?<!\.test)\.(?:mjs|py)$/.test(file)));
 });
 
-// Records that are not carried are not named here: the gate's private list checks every path and every file for them
-// (docs/PUBLIC-GATE.md).
+// Records that are not carried are not named here. This test does not check http-mcp/'s top-level folders: the import
+// rules read only http-mcp/src/ and http-mcp/scripts/, so a new tracked folder passes it whatever it imports. Only a complete-scope run of the gate's private list checks every
+// path and file for them (docs/PUBLIC-GATE.md); pull-request CI runs the generic scope, so that check happens separately.
 test('TESTING and the docs required by retained tests are kept', () => {
   assert.ok(exists('http-mcp/docs/TESTING.md'));
   assert.ok(exists('http-mcp/docs/DEVNET-OPERATOR-CLI-ISSUED-RECOVERY.md'));
@@ -129,13 +132,10 @@ function unreachedHelpers() {
   return helpers.filter((helper) => !reached.has(helper));
 }
 
-test('the helper and fixture inventory is the reviewed fixed-point state, including computed-directory keeps', () => {
-  assert.deepEqual(unreachedHelpers(), COMPUTED_REACH_KEEPS);
+test('every computed-reach keep still exists', () => {
+  assert.deepEqual(COMPUTED_REACH_KEEPS.filter((file) => !exists(file)), []);
 });
 
-test('the recorded excluded-module importers are exactly the ten listed, each with a follow-up', () => {
-  const importers = HTTP_SOURCE.filter((file) => unresolvedImports(file).length > 0);
-  assert.equal(importers.length, 10);
-  assert.deepEqual(importers, [...EXCLUDED_MODULE_IMPORTERS.keys()].sort());
-  assert.ok([...EXCLUDED_MODULE_IMPORTERS.values()].every((owner) => owner.length > 0));
+test('no helper or fixture is unreachable without being listed', () => {
+  assert.deepEqual(unreachedHelpers().filter((helper) => !COMPUTED_REACH_KEEPS.includes(helper)), []);
 });

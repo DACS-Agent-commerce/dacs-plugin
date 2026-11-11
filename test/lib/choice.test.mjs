@@ -76,3 +76,8 @@ test('parseFlags refuses an unknown flag, a repeated flag, a missing value and a
     assert.throws(() => parseFlags(argv, ['--a', '--b']), { cause: 'bad-arguments' });
   }
 });
+
+test('parseFlags refuses a known flag given as the value of another flag', () => {
+  assert.throws(() => parseFlags(['--a', '--b'], ['--a', '--b']), { cause: 'bad-arguments', message: '--a needs a value' });
+  assert.throws(() => parseFlags(['--a', '1', '--b', '--a'], ['--a', '--b']), { cause: 'bad-arguments', message: '--b needs a value' });
+});

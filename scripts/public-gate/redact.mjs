@@ -8,7 +8,7 @@ import { ISSUE_RULE_ID, REPORT_RULE_ID, WORDING_RULE_ID } from './rules-text.mjs
 import { SECRET_RULE_ID, SEMVER } from './secret-scan.mjs';
 
 /** Every output route. All output leaves through this module on one of these; later checkers register theirs. */
-export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr', 'rules-eval-child.stderr': 'stderr', 'sdk-input.stdout': 'stdout', 'sdk-input.stderr': 'stderr' });
+export const DIAGNOSTIC_ROUTES = Object.freeze({ 'gate.stdout': 'stdout', 'gate.report-file': 'file', 'gate.stderr': 'stderr', 'check-report.stderr': 'stderr', 'install-gitleaks.stderr': 'stderr', 'rules-eval-child.stderr': 'stderr', 'sdk-input.stdout': 'stdout', 'sdk-input.stderr': 'stderr', 'test-all.stdout': 'stdout' });
 
 /** Schema values shared by every report: a SHA-256 digest, a rule status and an unscannable entry's cause. */
 export const SHA256_HEX = /^[0-9a-f]{64}$/;

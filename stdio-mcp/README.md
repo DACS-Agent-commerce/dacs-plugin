@@ -40,8 +40,10 @@ run against a live wallet or node.
 - **What has been checked:** the unit tests pass (mocked SDK, no network). The
   integration tests, the type check, the build and the Claude Code plugin
   validation have not been run for this import.
-- **The CI workflow is not in this repository.** The workflow-pin and
-  workflow-settings unit tests skip without it.
+- **The CI workflow is `.github/workflows/stdio-mcp.yml`.** It runs the type
+  check, the unit tests and the build. The workflow-pin and workflow-settings
+  unit tests skip without the workflow file. Nothing has run it yet: Actions
+  jobs start once the repository is public.
 - **There is no built-in RPC.** Read-only use takes `DEMOS_RPC_URL`. The
   mainnet opt-in described below exists in the code, but has not been tried.
 
@@ -153,7 +155,10 @@ of the write tools can run against a testnet RPC.
    Read-only use takes `DEMOS_RPC_URL`.
 6. **Daily spend cap, allow-list, kill switch.** The cap covers amount plus fees,
    with a default of 10 DEM per UTC day. It is checked at prepare and reserved at
-   submit under a cross-process lock. Any part the write did not use is released.
+   submit under a cross-process lock. When a write completes or fails with a known
+   fee, the part it did not use is released; a write that is pending or whose
+   outcome is unknown keeps its whole reservation, which stays open until the
+   human clears it (see `SECURITY.md`).
    The ledger lives in `~/.demos-mcp`, not in the plugin data directory, so a
    reinstall does not reset the cap. Creating `~/.demos-mcp/KILL` refuses every
    write immediately.
