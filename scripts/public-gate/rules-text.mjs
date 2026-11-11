@@ -221,11 +221,20 @@ const CHARACTER_REFERENCE = new RegExp(String.raw`&(?:#[\da-zA-Z]*;|[A-Za-z][\da
 /** HTML and SVG blobs also refuse unterminated references, preserving their existing checks. */
 const HTML_CHARACTER_REFERENCE = /&(?:#[\da-zA-Z]*|[A-Za-z][\da-zA-Z]*);?/g;
 const KNOWN_REFERENCES = new Map([['&amp;', '&'], ['&lt;', '<'], ['&gt;', '>'], ['&quot;', '"'], ['&#39;', "'"], ['&nbsp;', ' ']]);
-/** Markup not shown as written, read left to right: an HTML comment, a tag with its attributes, a Markdown reference definition (it goes on past a backslash and line break, but not onto a line that opens a fence), link destination,
- * reference label or link bracket, block-quote marks, an escaping backslash and a character reference. One never closed runs to the end of the text. */
-const MARKUP_TOKEN = new RegExp([String.raw`<!--[\s\S]*?(?:-->|$)`, String.raw`<(?:\/?[A-Za-z]|[!?])(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^"'>])*(?:>|$)`,
-  String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:(?:[^\r\n\\]+|\\(?:(?:\r\n|[\r\n])(?! {0,3}(?:\`{3}|~{3})))?)*`, String.raw`\]\([^)]*(?:\)|$)`, String.raw`\]\[[^\]]*(?:\]|$)`, String.raw`!?\[|\]`,
+/** A Markdown reference definition up to the end of its line. */
+const REFERENCE_LINE = String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:[^\r\n]*`;
+/** The same, but a title whose quote is still open at a backslash and line break goes on to the next line, never onto a blank one. */
+const REFERENCE_WITH_TITLE = String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:(?:[^\r\n"']|(?<=\S)["'])*(?<=[ \t])(["'])`
+  + String.raw`(?:(?!\1)[^\r\n\\]|\\[^\r\n]|\\(?:\r\n|[\r\n])(?![ \t]*(?:[\r\n]|$)))*[^\r\n]*`;
+const markupTokenWith = (reference) => new RegExp([String.raw`<!--[\s\S]*?(?:-->|$)`, String.raw`<(?:\/?[A-Za-z]|[!?])(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^"'>])*(?:>|$)`,
+  reference, String.raw`\]\([^)]*(?:\)|$)`, String.raw`\]\[[^\]]*(?:\]|$)`, String.raw`!?\[|\]`,
   String.raw`(?<![^\r\n])[ \t]*(?:>[ \t]?)+`, String.raw`\\(?=[!-/:-@[-\`{-~]|\r|\n)`, CHARACTER_REFERENCE.source].join('|'), 'g');
+/** Markup not shown as written, read left to right: an HTML comment, a tag with its attributes, a Markdown reference definition, link destination,
+ * reference label or link bracket, block-quote marks, an escaping backslash and a character reference. One never closed runs to the end of the text. */
+const MARKUP_TOKEN = markupTokenWith(REFERENCE_LINE);
+/** MARKUP_TOKEN with a reference definition read on past an escaped line break in its title. Only the per-token status reading uses it: the rendered views and the
+ * paragraph split keep the one-line definition, which ends where CommonMark ends it (a destination such as `C:\tools\` ends its line). */
+const STATUS_MARKUP_TOKEN = markupTokenWith(`${REFERENCE_WITH_TITLE}|${REFERENCE_LINE}`);
 /** A fence line: its marker (backticks with no backtick after them, or tildes) and the text after it. */
 const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)$/;
 /** Source files, which R-WORDING does not read: the files the address rule reads as code, and the two source extensions it leaves out that R-EVAL parses. */
@@ -330,7 +339,7 @@ const ESCAPING_BACKSLASH = /\\(?=[!-/:-@[-`{-~\r\n])/g;
  * escaping backslashes dropped, then with invisible characters and emphasis removed and as a space. Tokens are read one at a time, and one too short to hold a status
  * phrase is skipped before it is normalised, so a paragraph of many tokens costs no memory. */
 function hasUnapprovedStatusInToken(source) {
-  for (const [token] of source.matchAll(MARKUP_TOKEN)) {
+  for (const [token] of source.matchAll(STATUS_MARKUP_TOKEN)) {
     const text = decodeReferences(token).replace(ESCAPING_BACKSLASH, '');
     if (text.length >= MIN_STATUS_LENGTH && [normalizeProse(text), normalizeProse(text, ' ')].some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view))) return true;
   }

@@ -49,6 +49,12 @@ for (const [label, lineBreak] of [['line feed', '\n'], ['carriage return', '\r']
   });
 }
 
+test('wording token status: a reference title in single quotes is found across an escaped line break, a blank line ends it, and a backslash with no open title joins nothing', () => {
+  assert.deepEqual(findingLines(`Intro.\n\n[label]: u '${EXTERNAL}\\\n${REVIEW}: done'\n`, 'a.md'), [3]);
+  assert.deepEqual(findingLines(`Intro.\n\n[label]: u "${EXTERNAL}\\\n\n${REVIEW}: done"\n`, 'a.md'), []);
+  assert.deepEqual(findingLines(`Intro.\n\n[label]: C:\\tools\\\n${EXTERNAL}\n${REVIEW}: done\n`, 'a.md'), [3]);
+});
+
 test('wording token status: a link title with a backslash at the end of a line and no review words is not found', () => {
   assert.deepEqual(findingLines('[label](u "first\\\nsecond")', 'a.md'), []);
 });
