@@ -149,7 +149,8 @@ function readState(path) {
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     const objects = db.prepare('SELECT COUNT(*) AS n FROM sqlite_master').get().n;
     const hasMeta = db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
-    const version = (hasMeta && db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get()?.value) || null;
+    const versionRow = hasMeta ? db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() : undefined;
+    const version = versionRow?.value ?? null;
     const difference = version !== null && Number(version) === SCHEMA_VERSION ? schemaDifference(describeSchema(db), referenceSchema()) : null;
     return { objects, version, difference };
   } catch (error) {
