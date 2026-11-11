@@ -200,13 +200,14 @@ with `not_configured` if no validator was injected.
 | method | behaviour |
 | --- | --- |
 | `connect` | `data` = the address string only |
-| `sign` | `params: [message string]`; calls `approve({method:"sign", address, message})`, which must resolve to exactly `true`; signs the exact UTF-8 bytes with SDK `signMessage(…, {algorithm:"ed25519"})`; `data = {signature: <128 lowercase hex>, type: "ed25519", address}`. Accepted by `src/wallet/demos-signature.mjs` as hex, `0x`-hex or base64url. |
+| `sign` | `params: [message string]`; a message that is 64 hex characters (with or without `0x`) or starts with `demos-tx:v1:` is refused with `transaction_preimage_refused` before any approval, because those are transaction signing forms; otherwise calls `approve({method:"sign", address, message})`, which must resolve to exactly `true`; signs the exact UTF-8 bytes with SDK `signMessage(…, {algorithm:"ed25519"})`; `data = {signature: <128 lowercase hex>, type: "ed25519", address}`. Accepted by `src/wallet/demos-signature.mjs` as hex, `0x`-hex or base64url. |
 | `getWeb2IdentityProofPayload` | needs `IdentitiesCtor` and approval; SDK `Identities.createWeb2ProofPayload` signs `"dw2p"` locally; `data` = `demos:dw2p:ed25519:0x<128 hex>` |
 | `sendTransaction`, `addGithubIdentity`, `addTwitterIdentity`, `removeWeb2Identity` | without a transport: `not_configured`; with a transport not matching the shape below: `unsupported` (none of its members is called); with the simulated-loopback transport: the write path below |
 | `signTransaction`, `pay`, `transfer`, `broadcast`, `confirm`, `addDiscordIdentity`, `addTelegramIdentity`, `inferWeb2Identity`, `inferXmIdentity`, `removeXmIdentity` | always fail: `not_configured`, or `unsupported` when any `transactionTransport` was injected |
 | anything else | `unsupported` |
 
 Error codes: `locked`, `busy`, `invalid_params`, `invalid_mnemonic`,
+`transaction_preimage_refused` (`sign` only),
 `not_configured`, `user_rejected`, `unsupported`, `sdk_error`, `internal_error`
 (SDK/approval exceptions are not echoed), plus for writes `wrong_wallet`,
 `identity_mismatch`, `upstream_unavailable`, `payload_mismatch`,
