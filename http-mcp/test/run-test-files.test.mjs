@@ -845,8 +845,23 @@ test('a listed test that passes is red as expected now passes', async (t) => {
   assert.equal(result.code, 1);
   assert.deepEqual(result.rows[0].expectedNowPassing, [name]);
   assert.match(result.stdout, /1 expected now passes/);
-  assert.match(readFileSync(summary, 'utf8'), /### Expected now passes \(remove their entries\)/);
+  assert.match(readFileSync(summary, 'utf8'), /### Expected now passes: no longer fails \(passed, skipped or todo; remove their entries\)/);
 });
+
+// Synthetic reporter events: a listed test that is reported skipped or todo has stopped failing.
+for (const flag of ['skip', 'todo']) {
+  test(`a listed test reported as ${flag} is red as expected now passes`, () => {
+    const file = 'test/example.test.mjs', name = 'reads contract';
+    const expected = new Map([[JSON.stringify([file, name]), expectedEntry(file, name)]]);
+    const state = newState();
+    record(state, JSON.stringify({ type: 'test:pass', test: name, [flag === 'skip' ? 'skipped' : 'todo']: true }));
+    assert.deepEqual(state.passing, []);
+    const result = judge(file, { ...state, exit: 0 }, new Map(), expected, '/work/http-mcp');
+    assert.deepEqual(result.expectedNowPassing, [name]);
+    assert.deepEqual(result.expectedUntilCard, []);
+    assert.deepEqual(result.newFailures, []);
+  });
+}
 
 test('a listed test with another failure remains new', () => {
   const file = 'test/example.test.mjs', name = 'reads contract';

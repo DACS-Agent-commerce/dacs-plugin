@@ -185,7 +185,8 @@ export function judge(file, { failures, passing, seen, exit }, known, expected =
     newFailures: failing.filter((test) => !excused(test) && !expectedCause(test)),
     knownFailures: failing.filter(excused),
     expectedUntilCard: failing.filter(expectedCause),
-    expectedNowPassing: expectedEntries.filter((entry) => !failing.includes(entry.test) && passing.includes(entry.test)).map((entry) => entry.test),
+    // A listed test that was seen and did not fail has stopped failing, whether it passed, was skipped or is todo.
+    expectedNowPassing: expectedEntries.filter((entry) => !failing.includes(entry.test) && (passing.includes(entry.test) || complete && seen.includes(entry.test))).map((entry) => entry.test),
     // A carry-over entry is spent as soon as the file loads, whatever else it reports.
     knownNowPassing: entries.filter((entry) => !failing.includes(entry.test) && (entry.test === CARRY_OVER ? complete :
       passing.includes(entry.test) || SENTINELS.includes(entry.test) && exit === 0 && !failing.length)).map((entry) => entry.test),
@@ -308,7 +309,7 @@ async function main() {
     for (const test of result.staleKnown) reportStale(file, test);
     for (const test of result.expectedNowPassing) {
       expectedRecovered.push({ file, test });
-      error('Expected now passes: ', `Expected-until-card test now passes; remove its entry: ${file}: ${test}`);
+      error('Expected now passes: ', `Expected-until-card test no longer fails (passed, skipped or todo); remove its entry: ${file}: ${test}`);
     }
     for (const test of result.staleExpected) reportExpectedStale(file, test);
   }
@@ -322,7 +323,7 @@ async function main() {
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) {
     const section = (title, entries) => `\n### ${title}\n\n${entries.length ? entries.map(({ file, test }) => `- ${markdown(file)}: ${markdown(test)}`).join('\n') : 'None.'}\n`;
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## http-mcp tests\n\n${summary}. Counts from completed files only.\n${section('New failures', newFailures)}${section('Stale known failures (match no test)', stale)}${section('Known failures now passing (remove their entries)', recovered)}${section('Expected now passes (remove their entries)', expectedRecovered)}${section('Stale expected (match no test)', expectedStale)}\n`);
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## http-mcp tests\n\n${summary}. Counts from completed files only.\n${section('New failures', newFailures)}${section('Stale known failures (match no test)', stale)}${section('Known failures now passing (remove their entries)', recovered)}${section('Expected now passes: no longer fails (passed, skipped or todo; remove their entries)', expectedRecovered)}${section('Stale expected (match no test)', expectedStale)}\n`);
   }
   process.exitCode = newFailures.length || stale.length || recovered.length || expectedRecovered.length || expectedStale.length ? 1 : 0;
 }
