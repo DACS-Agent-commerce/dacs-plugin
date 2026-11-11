@@ -18,14 +18,14 @@ export function parseChoice(flag, value, allowed) {
   return value;
 }
 
-/** Parses `--flag value` pairs; throws ChoiceError(bad-arguments) for an unknown or repeated flag, a missing value or a stray argument. */
+/** Parses `--flag value` pairs; throws ChoiceError(bad-arguments) for an unknown or repeated flag, a missing value (including a known flag where the value belongs) or a stray argument. */
 export function parseFlags(argv, knownFlags) {
   const parsed = {};
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     if (!knownFlags.includes(flag)) throw new ChoiceError('bad-arguments', 'unknown or unexpected argument');
     if (flag in parsed) throw new ChoiceError('bad-arguments', `${flag} was given twice`);
-    if (index + 1 >= argv.length) throw new ChoiceError('bad-arguments', `${flag} needs a value`);
+    if (index + 1 >= argv.length || knownFlags.includes(argv[index + 1])) throw new ChoiceError('bad-arguments', `${flag} needs a value`);
     parsed[flag] = argv[index + 1];
   }
   return parsed;
