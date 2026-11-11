@@ -130,13 +130,12 @@ function osInteger(v: unknown): bigint {
 }
 
 function feeFieldToOs(v: unknown, osActive: boolean): bigint {
-  if (osActive) return osInteger(v);
   if (v === null || v === undefined) return 0n;
   if (typeof v === 'bigint') return v;
   if (typeof v === 'number') {
     if (!Number.isFinite(v) || v < 0) throw new Error('unparseable fee');
-    // Pre-fork JSON numbers are DEM.
-    return BigInt(Math.round(v * 1e9));
+    // JSON numbers are OS after the fork, DEM before it.
+    return BigInt(Math.round(osActive ? v : v * 1e9));
   }
   if (typeof v === 'string') {
     const s = v.trim();
@@ -234,7 +233,8 @@ function judgeExecution(tx: any, hash: string, blockNumber: unknown, approved?: 
   let fee = -1n;
   try {
     const f = c.transaction_fee;
-    if (f && typeof f === 'object') fee = feeFieldToOs(f.network_fee, osActive) + feeFieldToOs(f.rpc_fee, osActive) + feeFieldToOs(f.additional_fee, osActive);
+    const readFee = (v: unknown) => osActive ? osInteger(v) : feeFieldToOs(v, false);
+    if (f && typeof f === 'object') fee = readFee(f.network_fee) + readFee(f.rpc_fee) + readFee(f.additional_fee);
   } catch {
     /* unreadable fee stays -1 and mismatches */
   }
