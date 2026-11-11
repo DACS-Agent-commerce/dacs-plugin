@@ -144,7 +144,7 @@ test('a plugin transaction called inside the client transaction joins it as a sa
 test('an async or generator transaction callback is refused purchase_store_async_callback before it runs, with zero writes, and the connection stays usable', (t) => {
   const { db, ops, accountId, createPurchase } = open(t);
   let ran = false;
-  const callbacks = [async () => { ran = true; createPurchase('async-key'); }, function* generator() { ran = true; }, async function* asyncGenerator() { ran = true; }];
+  const callbacks = [async () => { ran = true; createPurchase('async-key'); }, function* generator() { ran = true; yield 1; }, async function* asyncGenerator() { ran = true; yield 1; }];
   for (const callback of callbacks) {
     assert.throws(() => transaction(db, callback), (error) => error.code === 'purchase_store_async_callback');
   }
