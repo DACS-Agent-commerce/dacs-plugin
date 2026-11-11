@@ -79,8 +79,8 @@ const PLUGIN_SCHEMA = [
    )`,
 ];
 
-/** Thrown when an existing app database does not hold exactly the schema this build creates. Its `code` is `purchase_state_schema_mismatch`. */
-export class PurchaseStateSchemaError extends Error {
+// Thrown when an existing app database does not hold exactly the schema this build creates.
+class PurchaseStateSchemaError extends Error {
   constructor(detail) {
     super(`purchase state schema mismatch: ${detail}`);
     this.code = 'purchase_state_schema_mismatch';
@@ -190,8 +190,9 @@ const isAbsentOrEmpty = (path) => !existsSync(path) || statSync(path).size === 0
  * An absent, empty or schema-less file is created from the client's schema and the plugin's tables. Any other
  * file is read through a read-only connection first and opened only if its version is 3 and its schema equals
  * the one a new file gets; nothing is written, repaired or checkpointed before that.
- * Throws `unsupported state schema version <v>` for another version (no migration), PurchaseStateSchemaError
- * for a schema that differs, and an error carrying the cause when the file cannot be read.
+ * Throws `unsupported state schema version <v>` for another version (no migration), an error with code
+ * `purchase_state_schema_mismatch` for a schema that differs, and an error carrying the cause when the
+ * file cannot be read.
  */
 export function openDatabase(path) {
   if (path !== IN_MEMORY) mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
