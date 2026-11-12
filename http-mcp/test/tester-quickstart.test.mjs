@@ -112,30 +112,28 @@ test('account creation stays inside the user\'s own wallet, and open items stay 
   assert.doesNotMatch(doc, /(enter|paste|type) (your )?(seed|mnemonic|private key)/i);
 });
 
-test('the documented loopback startup answers /health and MCP with honest not_configured results', async () => {
-  const work = mkdtempSync(join(tmpdir(), 'dacs-quickstart-'));
-  const port = await new Promise((resolve) => {
-    const s = net.createServer().listen(0, '127.0.0.1', () => {
-      const { port: p } = s.address();
-      s.close(() => resolve(p));
-    });
+const freePort = () => new Promise((resolve) => {
+  const s = net.createServer().listen(0, '127.0.0.1', () => {
+    const { port: p } = s.address();
+    s.close(() => resolve(p));
   });
-  const origin = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(root, pkg.bin['dacs-chatgpt-plugin'])], {
-    cwd: work,
-    // Exactly the variables the quickstart sets, nothing inherited.
-    env: { PATH: process.env.PATH, PORT: String(port), HOST: '127.0.0.1', DACS_PUBLIC_ORIGIN: origin, DACS_ALLOW_INSECURE_LOCALHOST: '1', DACS_DATA_DIR: join(work, 'data'), DACS_OAUTH_COOKIE_KEYS: randomBytes(32).toString('hex'), DACS_LOG_LEVEL: 'warn' },
-    stdio: ['ignore', 'ignore', 'pipe'],
-  });
+});
+
+// Waits for `child` to answer /health and MCP, then checks its SIGTERM shutdown.
+// `beforeShutdown(exited)` lets a fixture finish exiting before that check.
+async function checkLoopbackServer(child, origin, beforeShutdown) {
   let stderr = '';
   child.stderr.on('data', (d) => (stderr += d));
   const exited = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
+  let startupFailed = false;
   try {
     let health = null;
     for (let i = 0; i < 50 && !health; i += 1) {
       await Promise.race([new Promise((r) => setTimeout(r, 200)), exited]);
-      if (child.exitCode !== null || child.signalCode || /Cannot find module|Error:|error:/i.test(stderr))
+      if (child.exitCode !== null || child.signalCode || /Cannot find module/i.test(stderr)) {
+        startupFailed = true;
         throw new Error(stderr.trim() || `Server exited before /health answered (${child.exitCode ?? child.signalCode})`);
+      }
       health = await fetch(`${origin}/health`).then((r) => r.json()).catch(() => null);
     }
     assert.equal(health?.status, 'ok', stderr.slice(0, 300));
@@ -153,13 +151,45 @@ test('the documented loopback startup answers /health and MCP with honest not_co
       await client.close();
     }
   } finally {
-    try {
-      if (child.exitCode === null && !child.signalCode) {
-        child.kill('SIGTERM');
-        assert.equal(await exited, 0, 'graceful SIGTERM shutdown');
-      }
-    } finally {
-      rmSync(work, { recursive: true });
+    await beforeShutdown?.(exited);
+    const running = child.exitCode === null && !child.signalCode;
+    if (startupFailed) {
+      // The startup error is the one to report; only stop a process that is still up.
+      if (running) { child.kill('SIGTERM'); await exited; }
+    } else {
+      assert.ok(running, `server exited on its own before SIGTERM (${child.signalCode ? `signal ${child.signalCode}` : `exit code ${child.exitCode}`})`);
+      child.kill('SIGTERM');
+      assert.equal(await exited, 0, 'graceful SIGTERM shutdown');
     }
+  }
+}
+
+test('the documented loopback startup answers /health and MCP with honest not_configured results', async () => {
+  const work = mkdtempSync(join(tmpdir(), 'dacs-quickstart-'));
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(root, pkg.bin['dacs-chatgpt-plugin'])], {
+    cwd: work,
+    // Exactly the variables the quickstart sets, nothing inherited.
+    env: { PATH: process.env.PATH, PORT: String(port), HOST: '127.0.0.1', DACS_PUBLIC_ORIGIN: origin, DACS_ALLOW_INSECURE_LOCALHOST: '1', DACS_DATA_DIR: join(work, 'data'), DACS_OAUTH_COOKIE_KEYS: randomBytes(32).toString('hex'), DACS_LOG_LEVEL: 'warn' },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  try {
+    await checkLoopbackServer(child, origin);
+  } finally {
+    rmSync(work, { recursive: true });
+  }
+});
+
+test('the startup check fails a server that answers, then exits by itself before SIGTERM', async () => {
+  const port = await freePort();
+  const child = spawn(process.execPath, [join(root, 'test/fixtures/quickstart-exits-by-itself.mjs')], {
+    env: { PATH: process.env.PATH, PORT: String(port) },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  try {
+    await assert.rejects(checkLoopbackServer(child, `http://127.0.0.1:${port}`, (exited) => exited), /server exited on its own before SIGTERM \(exit code 0\)/);
+  } finally {
+    child.kill('SIGKILL');
   }
 });
