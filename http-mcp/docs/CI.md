@@ -247,11 +247,11 @@ In the source repository the baseline came from a full no-baseline run of every
 discovered file, checked against a GitHub run, and a full run had to match every
 entry with none stale. That is not the case in this repository (see "State of
 this repository" above). Count the discovered files with the runner's discovery
-rules; in this repository discovery finds 282 files under `test/`, browser files included
-(253 without `--browser`):
+rules. This file states no count, since every new test file would change it;
+print the current numbers, browser files included and then without `--browser`:
 
 ```sh
-node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test', true).length)"
+node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test', true).length, discover('.', 'test').length)"
 ```
 
 ### Carry-over entries
