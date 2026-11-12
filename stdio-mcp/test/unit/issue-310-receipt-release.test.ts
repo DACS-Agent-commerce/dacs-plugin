@@ -64,15 +64,15 @@ async function exercise(state: 'included' | 'failed' | 'pending' | 'unknown', fa
 
 for (const state of ['included', 'failed'] as const) {
   for (const fault of ['before', 'after'] as const) {
-    test(`#310 ${state}: ${fault}-write release fault preserves receipt and does not resend`, () => exercise(state, fault));
+    test(`DACS-Agent-commerce/dacs-plugin#310 ${state}: ${fault}-write release fault preserves receipt and does not resend`, () => exercise(state, fault));
   }
 }
-test('#310 real ledger lock timeout after broadcast preserves receipt', () => exercise('included', 'lock'));
-test('#310 healthy included control closes reservation without warning', () => exercise('included', 'none'));
-test('#310 pending keeps reservation and skips release', () => exercise('pending', 'before'));
-test('#310 unknown keeps reservation and skips release', () => exercise('unknown', 'before'));
+test('DACS-Agent-commerce/dacs-plugin#310 real ledger lock timeout after broadcast preserves receipt', () => exercise('included', 'lock'));
+test('DACS-Agent-commerce/dacs-plugin#310 healthy included control closes reservation without warning', () => exercise('included', 'none'));
+test('DACS-Agent-commerce/dacs-plugin#310 pending keeps reservation and skips release', () => exercise('pending', 'before'));
+test('DACS-Agent-commerce/dacs-plugin#310 unknown keeps reservation and skips release', () => exercise('unknown', 'before'));
 
-test('#310 pre-send failure remains an error with no receipt or broadcast', async () => {
+test('DACS-Agent-commerce/dacs-plugin#310 pre-send failure remains an error with no receipt or broadcast', async () => {
   const h = await harness();
   const p = await h.call('demos_tx_prepare', { to: ADDR_B, amount_dem: '1' });
   assert.equal(p.isError, false);
