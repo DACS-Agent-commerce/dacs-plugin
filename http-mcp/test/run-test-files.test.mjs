@@ -266,7 +266,10 @@ test('discovery finds every test file on disk, with and without browser files; C
   const docs = readFileSync(join(root, 'docs/CI.md'), 'utf8');
   assert.ok(docs.includes(`node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test', true).length, discover('.', 'test').length)"`),
     'CI.md names the command that prints the discovery counts');
-  assert.doesNotMatch(docs, /\d+ (test )?files under `test\/`|\d+ without `--browser`|discovery finds \d+/, 'CI.md states no discovery count; it goes stale with every new test file');
+  // No count in any wording: no number directly before "files" or "test files", none in a sentence about discovery or
+  // discovered files, and neither current count anywhere.
+  const counted = [/\b\d+\s+(?:test\s+)?files?\b/i, /\bdiscover\w*\b[^.]*?\b\d+\b/i, new RegExp(`\\b(?:${withBrowser.length}|${without.length})\\b`)];
+  for (const pattern of counted) assert.doesNotMatch(docs, pattern, 'CI.md states no discovery count; it goes stale with every new test file');
 });
 
 test('a discovery that finds no test file fails', async (t) => {
