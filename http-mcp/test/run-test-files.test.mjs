@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync, existsSync, chmodSync, readdirSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync, existsSync, chmodSync, readdirSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -830,6 +830,18 @@ test('a listed failure with its cause is expected after absolute prefixes are re
   assert.deepEqual(result.newFailures, []);
 });
 
+test('a listed failure is expected when the run directory is reached through a symlink', (t) => {
+  const real = join(setup(t), 'real'), link = join(dirname(real), 'link'), file = 'test/example.test.mjs', name = 'reads contract';
+  mkdirSync(real);
+  symlinkSync(real, link);
+  const expected = new Map([[JSON.stringify([file, name]), expectedEntry(file, name)]]);
+  const error = `ENOENT: no such file or directory, open '${realpathSync(link)}/deploy/env-contract.json'`;
+  assert.equal(normalizeExpectedMessage(error, link), `ENOENT: no such file or directory, open 'deploy/env-contract.json'`);
+  const result = judge(file, { failures: [{ test: name, error }], passing: [], seen: [name], exit: 1 }, new Map(), expected, link);
+  assert.deepEqual(result.expectedUntilCard, [name]);
+  assert.deepEqual(result.newFailures, []);
+});
+
 test('a listed failure counts as expected and leaves the runner green', async (t) => {
   const file = fixture('expected-fail'), name = 'reads missing deploy contract';
   const result = await run(setup(t), [file], { expected: [expectedEntry(file, name)] });
@@ -908,6 +920,7 @@ test('readExpected rejects malformed entries and overlap with known failures', (
     ['bad issue', { ...valid, issue: '323' }],
     ['bare number-sign issue', { ...valid, issue: `#${323}` }],
     ['issue without a number', { ...valid, issue: 'DACS-Agent-commerce/dacs-plugin#' }],
+    ['issue number zero', { ...valid, issue: 'DACS-Agent-commerce/dacs-plugin#0' }],
     ['placeholder title', { ...valid, test: PROCESS }],
     ['newline in expect', { ...valid, expect: `${expectedCause}\nother` }],
     ['absolute expect', { ...valid, expect: '/work/http-mcp/deploy/env-contract.json' }],
