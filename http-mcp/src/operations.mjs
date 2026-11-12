@@ -1,12 +1,15 @@
 // Durable, owner-scoped operations with idempotency keys, compare-and-swap
-// status transitions and an append-only event log. Every read takes the
-// authenticated account id; there is no lookup that crosses accounts except
+// status transitions and an append-only event log, stored in the client's
+// purchase schema. Every write runs in the app database's single transaction
+// owner (the client's PurchaseStore), so an operation, its event and any
+// coordinates saved beside it commit or roll back together. Every read takes
+// the authenticated account id; there is no lookup that crosses accounts except
 // the portal's handoff-token resolution, which requires a high-entropy token.
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { canonicalize } from '@kynesyslabs/dacs';
+import { sellerSessionTransitionState } from '@kynesyslabs/dacs-client';
 import { transaction, isUniqueViolation } from './store/database.mjs';
 import { newId, sha256Hex } from './util/ids.mjs';
-import { canonicalize } from './dacs/listing.mjs';
-import { sellerSessionTransitionState } from './dacs/seller-session-lifecycle.mjs';
 
 export class OperationError extends Error {
   constructor(code, message, details) {
