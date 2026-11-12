@@ -395,6 +395,36 @@ test('wording: only a closed fence whose language is a shell may hold entries; t
   assert.equal(wordingFindings('a.md', `\`\`\`sh\nThe external ${REVIEW} is complete.\n\`\`\`\n`).length, 1);
 });
 
+test('wording: a reference definition ending in a backslash does not continue onto a fence opener, so the shell block after it keeps its exemption', () => {
+  const fence = `\`\`\`sh\necho ${TERM}\n\`\`\`\n`;
+  for (const [label, lineBreak] of [['line feed', '\n'], ['carriage return', '\r'], ['CRLF', '\r\n']]) {
+    for (const indent of ['', '   ']) {
+      assert.deepEqual(wordingFindings('a.md', `[a]: u\\${lineBreak}${indent}${fence}`), [], `${label}, indent ${indent.length}`);
+    }
+    assert.deepEqual(wordingFindings('a.md', `[a]: u\\${lineBreak}~~~sh\necho ${TERM}\n~~~\n`), [], `${label}, tilde fence`);
+  }
+  assert.deepEqual(wordingFindings('a.md', `[a]: u\n\n${fence}`), []);
+});
+
+// A reference definition ends at its line in CommonMark, whatever its last character; the line after a trailing backslash is ordinary text.
+test('wording: a reference definition ending in a backslash does not hide an HTML comment on the next line, so a list entry after a comment that holds a fence line is found', () => {
+  for (const lineBreak of ['\n', '\r\n']) {
+    assert.deepEqual(findingLines('a.md', ['[a]: u\\', '<!--', '```sh', '-->', TERM, '```', ''].join(lineBreak)), [1], JSON.stringify(lineBreak));
+  }
+});
+
+test('wording: a reference definition ending in a backslash does not hide a status phrase split over the next two lines', () => {
+  assert.deepEqual(findingLines('a.md', '[tools]: C:\\tools\\\nOur external\nreview passed.\n'), [1]);
+});
+
+test('wording: a reference definition ending in a backslash does not join the paragraphs around a blank line after it', () => {
+  assert.deepEqual(findingLines('a.md', `This is not a\n[a]: u\\\n   \n${REVIEW} passed.\n`), [4]);
+});
+
+test('wording: the approved status sentence after a reference definition ending in a backslash is not a finding', () => {
+  assert.deepEqual(findingLines('a.md', `[tools]: C:\\tools\\\n${HOLD}.\n`), []);
+});
+
 test('wording: a file of many closed fences or a million unclosed fence openers is read once per line and still finds an entry after them', { timeout: 60_000 }, () => {
   for (const pair of ['```\n```\n', '~~~\n~~~\n', '```\n~~~\n']) {
     assert.equal(wordingFindings('a.md', `${pair.repeat(60_000)}\n${TERM}\n`).length, 1, JSON.stringify(pair));
