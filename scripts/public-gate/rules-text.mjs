@@ -221,11 +221,20 @@ const CHARACTER_REFERENCE = new RegExp(String.raw`&(?:#[\da-zA-Z]*;|[A-Za-z][\da
 /** HTML and SVG blobs also refuse unterminated references, preserving their existing checks. */
 const HTML_CHARACTER_REFERENCE = /&(?:#[\da-zA-Z]*|[A-Za-z][\da-zA-Z]*);?/g;
 const KNOWN_REFERENCES = new Map([['&amp;', '&'], ['&lt;', '<'], ['&gt;', '>'], ['&quot;', '"'], ['&#39;', "'"], ['&nbsp;', ' ']]);
+/** A Markdown reference definition up to the end of its line. */
+const REFERENCE_LINE = String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:[^\r\n]*`;
+/** The same, but a title whose quote is still open at a backslash and line break goes on to the next line, never onto a blank one. */
+const REFERENCE_WITH_TITLE = String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:(?:[^\r\n"']|(?<=\S)["'])*(?<=[ \t])(?<quote>["'])`
+  + String.raw`(?:(?!\k<quote>)[^\r\n\\]|\\[^\r\n]|\\(?:\r\n|[\r\n])(?![ \t]*(?:[\r\n]|$)))*[^\r\n]*`;
+const markupTokenWith = (reference) => new RegExp([String.raw`<!--[\s\S]*?(?:-->|$)`, String.raw`<(?:\/?[A-Za-z]|[!?])(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^"'>])*(?:>|$)`,
+  reference, String.raw`\]\([^)]*(?:\)|$)`, String.raw`\]\[[^\]]*(?:\]|$)`, String.raw`!?\[|\]`,
+  String.raw`(?<![^\r\n])[ \t]*(?:>[ \t]?)+`, String.raw`\\(?=[!-/:-@[-\`{-~]|\r|\n)`, CHARACTER_REFERENCE.source].join('|'), 'g');
 /** Markup not shown as written, read left to right: an HTML comment, a tag with its attributes, a Markdown reference definition, link destination,
  * reference label or link bracket, block-quote marks, an escaping backslash and a character reference. One never closed runs to the end of the text. */
-const MARKUP_TOKEN = new RegExp([String.raw`<!--[\s\S]*?(?:-->|$)`, String.raw`<(?:\/?[A-Za-z]|[!?])(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^"'>])*(?:>|$)`,
-  String.raw`(?<![^\r\n]) {0,3}\[[^\]\r\n]*\]:[^\r\n]*`, String.raw`\]\([^)]*(?:\)|$)`, String.raw`\]\[[^\]]*(?:\]|$)`, String.raw`!?\[|\]`,
-  String.raw`(?<![^\r\n])[ \t]*(?:>[ \t]?)+`, String.raw`\\(?=[!-/:-@[-\`{-~]|\r|\n)`, CHARACTER_REFERENCE.source].join('|'), 'g');
+const MARKUP_TOKEN = markupTokenWith(REFERENCE_LINE);
+/** A reference definition read on past an escaped line break in its title. Only the per-token status reading uses it, as a second pass beside MARKUP_TOKEN: the rendered
+ * views and the paragraph split keep the one-line definition, which ends where CommonMark ends it (a destination such as `C:\tools\` ends its line). */
+const CONTINUED_REFERENCE = new RegExp(REFERENCE_WITH_TITLE, 'g');
 /** A fence line: its marker (backticks with no backtick after them, or tildes) and the text after it. */
 const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)$/;
 /** Source files, which R-WORDING does not read: the files the address rule reads as code, and the two source extensions it leaves out that R-EVAL parses. */
@@ -323,16 +332,19 @@ const unknownReferenceLines = (text, references = CHARACTER_REFERENCE) => (text.
 
 /** The shortest text that can hold a status phrase: two words and a gap of one character. */
 const MIN_STATUS_LENGTH = 'security review'.length;
-/** A backslash that escapes the punctuation character after it, which a Markdown link or reference title does not show. */
-const ESCAPING_BACKSLASH = /\\(?=[!-/:-@[-`{-~])/g;
+/** A backslash that escapes the punctuation character or line break after it, which a Markdown link or reference title does not show. */
+const ESCAPING_BACKSLASH = /\\(?=[!-/:-@[-`{-~\r\n])/g;
 
 /** Whether a markup token of `source`, read on its own, states a status other than the approved clause. The token is read with the six known references decoded and
  * escaping backslashes dropped, then with invisible characters and emphasis removed and as a space. Tokens are read one at a time, and one too short to hold a status
- * phrase is skipped before it is normalised, so a paragraph of many tokens costs no memory. */
+ * phrase is skipped before it is normalised, so a paragraph of many tokens costs no memory. The tokens are those of MARKUP_TOKEN, then, in a second pass over the
+ * text, each reference definition read on past an escaped line break in its title, so a comment, tag or link title that starts on the last line of one is still read. */
 function hasUnapprovedStatusInToken(source) {
-  for (const [token] of source.matchAll(MARKUP_TOKEN)) {
-    const text = decodeReferences(token).replace(ESCAPING_BACKSLASH, '');
-    if (text.length >= MIN_STATUS_LENGTH && [normalizeProse(text), normalizeProse(text, ' ')].some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view))) return true;
+  for (const pattern of [MARKUP_TOKEN, CONTINUED_REFERENCE]) {
+    for (const [token] of source.matchAll(pattern)) {
+      const text = decodeReferences(token).replace(ESCAPING_BACKSLASH, '');
+      if (text.length >= MIN_STATUS_LENGTH && [normalizeProse(text), normalizeProse(text, ' ')].some((view) => STATUS_TRIGGER.test(view) && hasUnapprovedStatus(view))) return true;
+    }
   }
   return false;
 }
