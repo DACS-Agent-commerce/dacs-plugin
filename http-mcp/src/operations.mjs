@@ -7,17 +7,12 @@
 // the portal's handoff-token resolution, which requires a high-entropy token.
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { canonicalize } from '@kynesyslabs/dacs';
-import { sellerSessionTransitionState } from '@kynesyslabs/dacs-client';
+import { OperationError, sellerSessionTransitionState } from '@kynesyslabs/dacs-client';
 import { transaction, isUniqueViolation } from './store/database.mjs';
 import { newId, sha256Hex } from './util/ids.mjs';
 
-export class OperationError extends Error {
-  constructor(code, message, details) {
-    super(message);
-    this.code = code;
-    this.details = details;
-  }
-}
+// The client's class, so the client's recovery branches recognise this store's errors.
+export { OperationError };
 
 function hydrate(row) {
   if (!row) return null;
