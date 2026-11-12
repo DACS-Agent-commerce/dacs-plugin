@@ -1,0 +1,171 @@
+{
+  "dependencyRoots": [
+    {
+      "path": "."
+    },
+    {
+      "path": "buyer",
+      "optional": true
+    }
+  ],
+  "forbiddenDirs": [
+    "src/dacs/"
+  ],
+  "entries": [
+    {
+      "name": "dacs_search",
+      "modules": [
+        {
+          "file": "src/server.ts",
+          "registration": "dacs_search"
+        },
+        {
+          "file": "buyer/src/server.mjs",
+          "registration": "dacs_search",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "dacs_get_listing",
+      "modules": [
+        {
+          "file": "src/server.ts",
+          "registration": "dacs_get_listing"
+        },
+        {
+          "file": "buyer/src/server.mjs",
+          "registration": "dacs_get_listing",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "dacs_buy_prepare",
+      "modules": [
+        {
+          "file": "src/server.ts",
+          "registration": "dacs_buy_prepare"
+        },
+        {
+          "file": "buyer/src/server.mjs",
+          "registration": "dacs_buy",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "dacs_buy",
+      "modules": [
+        {
+          "file": "src/server.ts",
+          "registration": "dacs_buy"
+        },
+        {
+          "file": "buyer/src/server.mjs",
+          "registration": "dacs_buy",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "dacs_purchase_status",
+      "modules": [
+        {
+          "file": "src/server.ts",
+          "registration": "dacs_purchase_status"
+        },
+        {
+          "file": "buyer/src/server.mjs",
+          "registration": "dacs_purchase_status",
+          "optional": true
+        }
+      ]
+    }
+  ],
+  "primitives": [
+    {
+      "id": "canonical-json",
+      "names": [
+        "canonicalize",
+        "canonicalBytes",
+        "jcsCanonicalize",
+        "serializeCanonical"
+      ],
+      "calls": [
+        "JSON.stringify",
+        "sort"
+      ]
+    },
+    {
+      "id": "artifact-crypto",
+      "names": [
+        "signArtifact",
+        "verifyArtifact",
+        "signAgreement",
+        "verifyAgreement",
+        "agreementSigningPayload",
+        "attachSignature"
+      ],
+      "calls": [
+        "sign"
+      ],
+      "literals": [
+        "dacs-agreement:v1:"
+      ]
+    },
+    {
+      "id": "job-id",
+      "names": [
+        "deriveJobId",
+        "generateJobId",
+        "generateCanonicalJobId",
+        "deriveJid"
+      ]
+    },
+    {
+      "id": "agreement-hash",
+      "names": [
+        "agreementHash",
+        "deriveAgreementHash"
+      ],
+      "calls": [
+        "createHash"
+      ],
+      "literals": [
+        "dacs-agreement:v1:"
+      ]
+    },
+    {
+      "id": "payment-state",
+      "names": [
+        "createBuyer",
+        "advancePaymentState",
+        "transitionPayment",
+        "paymentStateMachine"
+      ],
+      "calls": [
+        "Map"
+      ],
+      "literals": [
+        "paid",
+        "settled",
+        "payment-pending"
+      ]
+    },
+    {
+      "id": "execution-readback",
+      "names": [
+        "executedState",
+        "readExecution",
+        "paymentExecuted"
+      ],
+      "calls": [
+        "getTxByHash"
+      ],
+      "references": [
+        "getTxByHash"
+      ]
+    }
+  ]
+}

@@ -103,14 +103,12 @@ test('npm run test:all, executed as package.json defines it in a temporary proje
     return;
   }
 
-  await t.test('the delivered rows run in order through the real root test script; input that is unavailable and the pending rows are unverifiable, never a pass', () => {
+  await t.test('the delivered rows run in order through the real root test script; a row whose runtime this run is not on and the pending rows are unverifiable, never a pass', () => {
     const dir = makeMatrixProject();
     const result = runTestAll(dir);
     assert.equal(result.status, EXIT.unverifiable, result.stdout + result.stderr);
-    assert.deepEqual(suitesRun(dir), ['root', 'stdio-typecheck', 'stdio-test'], 'http-mcp\'s suite never ran: its input is unavailable');
-    assert.deepEqual(resultsOf(result.stdout), [
-      `${ROOT}: pass`, `${HTTP}: unverifiable (sdk-input-unavailable)`, STDIO_FLOOR_NOT_RUN, ...PENDING_RESULTS,
-    ]);
+    assert.deepEqual(suitesRun(dir), ['root', 'http-mcp', 'stdio-typecheck', 'stdio-test']);
+    assert.deepEqual(resultsOf(result.stdout), [`${ROOT}: pass`, `${HTTP}: pass`, STDIO_FLOOR_NOT_RUN, ...PENDING_RESULTS]);
   });
 
   await t.test('every suite runs with CI set, so the suites\' own refusals to skip in CI apply, whatever the caller\'s environment held', () => {
@@ -118,14 +116,14 @@ test('npm run test:all, executed as package.json defines it in a temporary proje
       const dir = makeMatrixProject();
       const result = runTestAll(dir, callerCi === undefined ? {} : { CI: callerCi });
       assert.equal(result.status, EXIT.unverifiable, result.stdout + result.stderr);
-      assert.deepEqual(ciSeenBySuites(dir), ['root=true', 'stdio-typecheck=true', 'stdio-test=true'], `caller CI ${JSON.stringify(callerCi)}`);
+      assert.deepEqual(ciSeenBySuites(dir), ['root=true', 'http-mcp=true', 'stdio-typecheck=true', 'stdio-test=true'], `caller CI ${JSON.stringify(callerCi)}`);
     }
   });
 
   await t.test('a row whose suite needs a runtime this run is not on is unverifiable, never a pass, even though the commands it ran passed', () => {
     const dir = makeMatrixProject();
     const result = runTestAll(dir);
-    assert.deepEqual(suitesRun(dir), ['root', 'stdio-typecheck', 'stdio-test'], 'the commands ran on this run\'s runtime');
+    assert.deepEqual(suitesRun(dir), ['root', 'http-mcp', 'stdio-typecheck', 'stdio-test'], 'the commands ran on this run\'s runtime');
     assert.ok(resultsOf(result.stdout).includes(STDIO_FLOOR_NOT_RUN), result.stdout);
   });
 
@@ -142,17 +140,16 @@ test('npm run test:all, executed as package.json defines it in a temporary proje
     });
   }
 
-  const HTTP_UNVERIFIABLE = `${HTTP}: unverifiable (sdk-input-unavailable)`;
   for (const [failing, expected] of [
-    ['root', [`${ROOT}: fail (exit-1)`, HTTP_UNVERIFIABLE, STDIO_FLOOR_NOT_RUN]],
-    ['stdio-test', [`${ROOT}: pass`, HTTP_UNVERIFIABLE, `${STDIO}: fail (exit-1)`]],
+    ['root', [`${ROOT}: fail (exit-1)`, `${HTTP}: pass`, STDIO_FLOOR_NOT_RUN]],
+    ['stdio-test', [`${ROOT}: pass`, `${HTTP}: pass`, `${STDIO}: fail (exit-1)`]],
   ]) {
     await t.test(`a failing ${failing} suite fails the run, and the other rows still run and report`, () => {
       const dir = makeMatrixProject();
       const result = runTestAll(dir, { FAIL_AT: failing });
       assert.equal(result.status, EXIT.fail, result.stdout + result.stderr);
       assert.deepEqual(resultsOf(result.stdout), [...expected, ...PENDING_RESULTS]);
-      assert.deepEqual(suitesRun(dir), ['root', 'stdio-typecheck', 'stdio-test']);
+      assert.deepEqual(suitesRun(dir), ['root', 'http-mcp', 'stdio-typecheck', 'stdio-test']);
     });
   }
 
@@ -162,7 +159,7 @@ test('npm run test:all, executed as package.json defines it in a temporary proje
     const result = runTestAll(dir);
     assert.equal(result.status, EXIT.unverifiable, result.stdout + result.stderr);
     assert.deepEqual(resultsOf(result.stdout), [
-      `${ROOT}: unverifiable (sdk-input-unavailable)`, HTTP_UNVERIFIABLE, `${STDIO}: unverifiable (suite-absent)`, ...PENDING_RESULTS,
+      `${ROOT}: unverifiable (sdk-input-unavailable)`, `${HTTP}: unverifiable (sdk-input-unavailable)`, `${STDIO}: unverifiable (suite-absent)`, ...PENDING_RESULTS,
     ]);
     assert.deepEqual(suitesRun(dir), []);
   });
@@ -173,6 +170,6 @@ test('npm run test:all, executed as package.json defines it in a temporary proje
     assert.ok(Number.isInteger(pid), 'the hanging suite started');
     assert.notEqual(code, 0);
     assert.equal(isRunning(pid), false, 'the suite process is gone');
-    assert.deepEqual(suitesRun(dir), ['root', 'stdio-typecheck']);
+    assert.deepEqual(suitesRun(dir), ['root', 'http-mcp', 'stdio-typecheck']);
   });
 });

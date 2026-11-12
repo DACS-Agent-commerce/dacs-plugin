@@ -1,0 +1,90 @@
+[
+  {
+    "file": "test/config-equivalence.test.mjs",
+    "test": "the nine converted switches keep the v1 baseline's values, defaults, deploy values, held messages, errors and order",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/showcase-receipt-config.test.mjs",
+    "test": "switch default, strict off/on, env names, contract entry and example",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/env-contract-defaults.test.mjs",
+    "test": "static env contract defaults and values agree with loadConfig",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/switch-registry-mutants.test.mjs",
+    "test": "switch mutation anchors match exactly once outside mutant behavior tests",
+    "expect": "ENOENT: no such file or directory, open 'deploy/scripts/validate-package.mjs'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#324",
+    "reason": "The deploy package validation script is absent."
+  },
+  {
+    "file": "test/switch-registry-mutants.test.mjs",
+    "test": "missing mutation anchor refuses the CLI before mirror setup or test execution",
+    "expect": "ENOENT: no such file or directory, lstat 'deploy/scripts/validate-package.mjs'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#324",
+    "reason": "The deploy package validation script is absent."
+  },
+  {
+    "file": "test/switch-registry-mutants.test.mjs",
+    "test": "repeated mutation anchor refuses the CLI before mirror setup or test execution",
+    "expect": "ENOENT: no such file or directory, lstat 'deploy/scripts/validate-package.mjs'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#324",
+    "reason": "The deploy package validation script is absent."
+  },
+  {
+    "file": "test/switch-registry-mutants.test.mjs",
+    "test": "a behavior-preserving mutation survives without an anchor freshness false kill",
+    "expect": "ENOENT: no such file or directory, lstat 'deploy/scripts/validate-package.mjs'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#324",
+    "reason": "The deploy package validation script is absent."
+  },
+  {
+    "file": "test/embedded-wallet-contract.test.mjs",
+    "test": "loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated]",
+    "expect": "Cannot find module 'src/util/purchase-readback-cache.mjs'",
+    "card": "P41c",
+    "issue": "DACS-Agent-commerce/dacs-plugin#322",
+    "reason": "The purchase readback cache module is absent."
+  },
+  {
+    "file": "test/portal-delivery-evidence-label.test.mjs",
+    "test": "\"Delivered\" claims only the verified report, and delivery evidence is shown separately for every server state",
+    "expect": "ENOENT: no such file or directory, open 'src/dacs/dem-delivery-consumer.mjs'",
+    "card": "P53c2",
+    "issue": "DACS-Agent-commerce/dacs-plugin#325",
+    "reason": "The delivery consumer module is absent."
+  },
+  {
+    "file": "test/tester-quickstart.test.mjs",
+    "test": "the documented loopback startup answers /health and MCP with honest not_configured results",
+    "expect": "Cannot find module 'src/util/purchase-readback-cache.mjs'",
+    "card": "P42aa",
+    "issue": "DACS-Agent-commerce/dacs-plugin#322",
+    "reason": "The quickstart server cannot start without the purchase readback cache."
+  },
+  {
+    "file": "test/overnight-package.test.mjs",
+    "test": "source -> reproducible npm tarball -> clean install -> documented `npx dacs-chatgpt-plugin` cold start, HTTP + MCP, Ctrl-C; bin-shim restart, SIGTERM",
+    "expect": "'@kynesyslabs/dacs@0.1.0-alpha.0' is not in this registry",
+    "card": "P42aa",
+    "issue": "DACS-Agent-commerce/dacs-plugin#326",
+    "reason": "The pinned SDK package is unavailable in the public registry."
+  }
+]

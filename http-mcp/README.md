@@ -21,10 +21,10 @@ The external security review is on hold.
 
 ## State of this repository
 
-This package does not install or start here, and about half of its tests fail.
+This package does not start here, and about half of its tests fail.
 
-- `package.json` depends on a vendored SDK archive (`vendor/`) that is not in
-  this repository, so `npm ci` stops with a missing-file error.
+- `package.json` pins the SDK packages to a candidate version that is not published
+  yet, so a plain `npm ci` fails; the install checks use local archives (`docs/CI.md`).
 - `src/app.mjs` and nine other modules import modules that are not carried
   (`src/dacs/` and five related modules; in a source checkout see `PROVENANCE.md` at the repository
   root, "Not carried"), so the server stops at startup with a module-not-found
@@ -131,11 +131,13 @@ See `.env.example`, which contains placeholders only. Required settings:
 
 ```sh
 cd http-mcp
-npm ci --ignore-scripts --no-audit --no-fund
+npm ci --ignore-scripts --omit=optional --no-audit --no-fund
 DACS_PUBLIC_ORIGIN=http://127.0.0.1:8787 DACS_ALLOW_INSECURE_LOCALHOST=1 \
 DACS_OAUTH_COOKIE_KEYS=<32+ random chars> DACS_DATA_DIR=./.data npm start
 # then: npx @modelcontextprotocol/inspector  -> Streamable HTTP -> http://127.0.0.1:8787/mcp
 ```
+
+The install flag `--omit=optional` is required because optional native packages are outside the locked closure.
 
 The tested packaging contract uses `deploy/Dockerfile` (source checkout), not
 the legacy root Dockerfile. It runs as a non-root user, keeps task data in
