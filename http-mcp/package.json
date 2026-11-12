@@ -6,7 +6,7 @@
   "description": "Private DACS testnet ChatGPT plugin: Streamable HTTP MCP server, OAuth 2.1 account linking, wallet signing portal.",
   "license": "MIT",
   "engines": {
-    "node": ">=22.13.0"
+    "node": "^22.22.2 || ^24.15.0"
   },
   "bin": {
     "dacs-chatgpt-plugin": "./bin/dacs-chatgpt-plugin.mjs",
@@ -31,7 +31,9 @@
     "check:package": "node ./scripts/check-package.mjs"
   },
   "dependencies": {
-    "@kynesyslabs/dacs": "file:vendor/kynesyslabs-dacs-0.1.0-alpha.0.tgz",
+    "@kynesyslabs/dacs": "0.1.0-alpha.0",
+    "@kynesyslabs/dacs-client": "0.1.0-alpha.0",
+    "@kynesyslabs/demosdk": "4.0.20",
     "@modelcontextprotocol/client": "2.2.0",
     "@modelcontextprotocol/core": "2.2.0",
     "@modelcontextprotocol/express": "2.0.1",
@@ -42,14 +44,15 @@
     "hono": "4.13.12",
     "jose": "6.2.12",
     "oidc-provider": "9.12.2",
+    "viem": "2.57.18",
     "zod": "4.2.0"
   },
   "devDependencies": {
     "playwright-core": "1.56.1"
   },
-  "bundleDependencies": [
-    "@kynesyslabs/dacs"
-  ],
+  "overrides": {
+    "@kynesyslabs/demosdk": "4.0.20"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/DACS-Agent-commerce/dacs-plugin.git",

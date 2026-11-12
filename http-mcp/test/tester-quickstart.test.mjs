@@ -32,7 +32,7 @@ test('the quickstart is part of the packed package', async () => {
 test('the quickstart names the real package, binary, engine and tarball', () => {
   const [binName] = Object.keys(pkg.bin);
   assert.match(doc, new RegExp(`npx ${binName}\\b`));
-  assert.ok(doc.includes(`\`engines.node\` is \`${pkg.engines.node}\``));
+  assert.ok(doc.includes(`Node.js \`${pkg.engines.node}\` (\`engines.node\`)`));
   const tarball = `${pkg.name.replace(/^@/, '').replace('/', '-')}-${pkg.version}.tgz`;
   assert.ok(doc.includes(tarball), `documents the npm pack file name ${tarball}`);
   assert.match(doc, /--ignore-scripts/);
@@ -66,7 +66,7 @@ test('documentation links resolve inside the packed package (or say "source chec
   assert.ok(checked >= 10, `checked ${checked} packed links`);
   assert.deepEqual(sourceOnly, [
     'README.md:29 -> PROVENANCE.md',
-    'README.md:188 -> PROVENANCE.md',
+    'README.md:190 -> PROVENANCE.md',
     'docs/CHATGPT-DEVELOPER-MODE.md:73 -> ../deploy/dacs-chatgpt.env.example',
     'docs/CI.md:5 -> PROVENANCE.md',
     'docs/DEPLOYMENT-CHECKLIST.md:9 -> ../deploy/RUNBOOK.md',

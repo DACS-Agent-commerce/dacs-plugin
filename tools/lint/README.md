@@ -4,7 +4,7 @@ ESLint with bug-finding rules only. There are no style rules. It lives here, apa
 
 ## Run it
 
-Needs Node 22.13 or newer. The type-aware checks read the stdio plugin's dependencies, so install those too:
+Needs Node `^22.22.2 || ^24.15.0`. The type-aware checks read the stdio plugin's dependencies, so install those too:
 
 ```bash
 npm ci --prefix stdio-mcp --ignore-scripts

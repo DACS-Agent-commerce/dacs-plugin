@@ -65,7 +65,7 @@ Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 | `http-mcp/.dockerignore` | `aae035eb68f5747b0bda683606503b97ca99afdf` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/.env.example` | `61149650b005fca4655a1ba4d338e3b2a5f52f7d` | verbatim |
 | `http-mcp/.gitignore` | `1a8d076aff4a0fae67103239e52b41dd82b25daf` | verbatim |
-| `http-mcp/Dockerfile` | `3022187f12cadd3b40980a8911840d832ffe5299` | verbatim |
+| `http-mcp/Dockerfile` | `e5082b20497f0157febbd5df404bd0c3daeba052` | changed here: no vendored SDK copy; optional packages are not installed |
 | `http-mcp/README.md` | `5e6379298817040a1d8b4da1b537e621ba07e1a0` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a "state of this repository" section; install directory corrected; no private commit id or planned tag; Community source license and re-implementation stated; then changed here: two mentions of the provenance file say "source checkout" |
 | `http-mcp/bin/dacs-chatgpt-offline-test.mjs` | `a7d035520a1632b822cb03c05fd589f19a9052ea` | verbatim |
 | `http-mcp/bin/dacs-chatgpt-plugin.mjs` | `7352d9ac1f5c9aa79a7591a4f52a6bb27b2744e1` | verbatim |
@@ -197,7 +197,7 @@ Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 | `http-mcp/scripts/check-embedded-wallet-package.mjs` | `203061ec96ab5eecc629de08f20cfd4202722cf3` | edited: three names removed from the package-exclusion pattern; no other behaviour change; one exclusion label renamed |
 | `http-mcp/scripts/check-off-unchanged.mjs` | `7d6e9538a8d279bb89540012dca559c8b95e5cef` | verbatim |
 | `http-mcp/scripts/check-offline-tester-package.mjs` | `3286bb7527a78bc1e0396a40fd4b1b253d446ca6` | verbatim |
-| `http-mcp/scripts/check-package.mjs` | `3855423aeada873c836d59928cbfe409a608240f` | verbatim |
+| `http-mcp/scripts/check-package.mjs` | `3dba763df0f19e5b1ef8f45ee7efc8da042882aa` | changed here: both installs run offline from the SDK candidate and the locked closure |
 | `http-mcp/scripts/check-tester-dashboard-package.mjs` | `2a64982fdbcbabd7eaa9d393978b465c34ec2797` | verbatim |
 | `http-mcp/scripts/config-equivalence-migration.mjs` | `5886e736b864ef09d692c71497fe9789a751b5f1` | edited: comments and test names: internal review and process references removed; no behaviour change; the default baseline is the ref name `v1-baseline` instead of a commit id; fixture path renamed |
 | `http-mcp/scripts/devnet-demo-compose.mjs` | `1de7461cf7578ee046ca225df1db7b4b05915baa` | verbatim |

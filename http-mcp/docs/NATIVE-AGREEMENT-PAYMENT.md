@@ -64,7 +64,7 @@ Old complete fixture purchases keep their existing supported progression.
 
 ## Repeatable functional checks
 
-Existing Node22.22.0, copied locked dependencies and an explicitly supplied
+Use a supported Node version (`^22.22.2 || ^24.15.0`), copied locked dependencies and an explicitly supplied
 existing Chrome executable only; no install or browser fallback:
 
 ```sh
