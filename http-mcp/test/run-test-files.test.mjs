@@ -247,14 +247,29 @@ test('discovery has one root, test/; a missing root fails', async (t) => {
   assert.equal(existsSync(join(dir, 'deploy/test/unit.test.mjs')), true);
 });
 
-test('the documented discovery counts equal the runner\'s discovery with and without browser files', () => {
-  const docs = readFileSync(join(root, 'docs/CI.md'), 'utf8');
-  const counts = docs.match(/discovery finds (\d+) files under `test\/`, browser files included\s+\((\d+) without `--browser`\)/);
-  assert.ok(counts, 'document the current numbers of discovered files, with and without browser files');
+// The test files on disk, walked independently of the runner: every *.test.mjs under test/, outside fixtures/ and
+// helpers/ directories, except the runner's module file; without the browser flag also outside browser/ directories
+// and not named *.browser.test.mjs.
+function onDisk(browser) {
+  return readdirSync(join(root, 'test'), { recursive: true }).map((name) => `test/${name.split('\\').join('/')}`).filter((file) => {
+    const dirs = file.split('/').slice(1, -1);
+    return file.endsWith('.test.mjs') && file !== 'test/dacs-loopback-fixture.test.mjs' && !dirs.some((dir) => dir === 'fixtures' || dir === 'helpers')
+      && (browser || (!dirs.includes('browser') && !file.endsWith('.browser.test.mjs')));
+  }).sort();
+}
+
+test('discovery finds every test file on disk, with and without browser files; CI.md names the command and states no count', () => {
   const withBrowser = discover(root, 'test', true), without = discover(root, 'test');
   assert.ok(without.length > 0 && withBrowser.length > without.length);
-  assert.equal(Number(counts[1]), withBrowser.length);
-  assert.equal(Number(counts[2]), without.length);
+  assert.deepEqual([...withBrowser].sort(), onDisk(true));
+  assert.deepEqual([...without].sort(), onDisk(false));
+  const docs = readFileSync(join(root, 'docs/CI.md'), 'utf8');
+  assert.ok(docs.includes(`node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test', true).length, discover('.', 'test').length)"`),
+    'CI.md names the command that prints the discovery counts');
+  // No count in any wording: no number directly before "files" or "test files", none in a sentence about discovery or
+  // discovered files, and neither current count anywhere.
+  const counted = [/\b\d+\s+(?:test\s+)?files?\b/i, /\bdiscover\w*\b[^.]*?\b\d+\b/i, new RegExp(`\\b(?:${withBrowser.length}|${without.length})\\b`)];
+  for (const pattern of counted) assert.doesNotMatch(docs, pattern, 'CI.md states no discovery count; it goes stale with every new test file');
 });
 
 test('a discovery that finds no test file fails', async (t) => {
