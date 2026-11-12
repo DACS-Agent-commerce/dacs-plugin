@@ -181,11 +181,14 @@ export async function createAuthorizationServer({ config, db, accounts, now = ()
   };
   // A native client's loopback sign-in callback may change only its port (RFC
   // 8252 section 7.3): oidc-provider's own matcher then requires the registered
-  // host, path and query. Logout redirects stay exact.
+  // host, path and query. Only a dynamically registered client gets this; one
+  // identified by a metadata document URL (oidc-provider marks every client it
+  // resolves from one, cached or not) keeps the exact match. Logout redirects
+  // stay exact.
   if (config.allowLoopbackRedirects) {
     const exact = provider.Client.prototype.redirectUriAllowed;
     provider.Client.prototype.redirectUriAllowed = function (uri) {
-      return exact.call(this, uri) || (this.applicationType === 'native' && loopbackRedirectAllowed(uri) && portStripping.call(this, uri));
+      return exact.call(this, uri) || (this.applicationType === 'native' && !this.clientIdMetadataDocument && loopbackRedirectAllowed(uri) && portStripping.call(this, uri));
     };
   }
   // Resume and logout confirmation trust persisted validation from the process

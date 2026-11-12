@@ -44,6 +44,14 @@ two runs. The report view's rule is checked right before it, after the first
 run; the ledger switch has `order` 26 so that its parsed value is ready there.
 `DACS_INTENT_APPROVAL` is checked after every switch.
 
+### The SDK purchases switch
+
+`DACS_SDK_PURCHASES` (`config.sdkPurchases`) is an `off`/`on` enum. It is `off`
+by default and in a deployment (`deployValue` is `off`); `1`, `true` and an
+empty value are refused. It is the plugin's own setting for running purchases
+through the SDK client's purchase service, and it does not change the client's
+purchase hold.
+
 ## Add a switch
 
 1. Add `src/switches/DACS_MY_FEATURE.switch`. It is strict JSON. The extension
