@@ -98,7 +98,7 @@ test('TESTING and the docs required by retained tests are kept', () => {
 
 // Helpers and fixtures that no retained file names; each is reached by a computed directory, a spawned path or a fixed historical name.
 const COMPUTED_REACH_KEEPS = [
-  'http-mcp/test/fixtures/ci-runner/absent-after-output.mjs',
+  'http-mcp/test/fixtures/ci-runner/absent-after-output.mjs', 'http-mcp/test/fixtures/ci-runner/absent-after-stdout.mjs',
   'http-mcp/test/fixtures/ci-runner/absent-helper-support.mjs', 'http-mcp/test/fixtures/ci-runner/absent-helper.mjs',
   'http-mcp/test/fixtures/ci-runner/absent-read.mjs', 'http-mcp/test/fixtures/ci-runner/absent-static.mjs',
   'http-mcp/test/fixtures/ci-runner/absent-then-fatal.mjs',
