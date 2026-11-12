@@ -173,8 +173,8 @@ export async function waitForWalletState(page, predicate, { timeoutMs = 10000, i
 }
 
 // Source tooling floor: this checker uses node:module.registerHooks (Node
-// 22.15+; tested on 22.22.0). The INSTALLED package itself supports the
-// documented runtime ^22.22.2 || ^24.15.0 || >=26; this floor applies to the source checker only.
+// 22.15+; the 22.22.0 run is historical). The INSTALLED package itself supports the
+// documented runtime ^22.22.2 || ^24.15.0; this floor applies to the source checker only.
 export const SOURCE_CHECKER_MIN_NODE = '22.15.0';
 export function compareNodeVersions(a, b) {
   const pa = String(a).replace(/^v/, '').split('.').map((n) => Number.parseInt(n, 10) || 0);
@@ -189,7 +189,7 @@ export function toolingPreflight(options = {}) {
   const registerHooks = Object.hasOwn(options, 'registerHooks') ? options.registerHooks : nodeModule.registerHooks;
   const problems = [];
   if (compareNodeVersions(version, SOURCE_CHECKER_MIN_NODE) < 0) {
-    problems.push(`the source package checker needs Node >= ${SOURCE_CHECKER_MIN_NODE} (tested on 22.22.0); this is Node ${version}. The installed launcher requires Node ^22.22.2 || ^24.15.0 || >=26.`);
+    problems.push(`the source package checker needs Node >= ${SOURCE_CHECKER_MIN_NODE} (historical run on 22.22.0); this is Node ${version}. The installed launcher requires Node ^22.22.2 || ^24.15.0.`);
   }
   if (typeof registerHooks !== 'function') {
     problems.push('node:module.registerHooks is not available in this Node runtime; the source package checker needs it to verify installed imports');

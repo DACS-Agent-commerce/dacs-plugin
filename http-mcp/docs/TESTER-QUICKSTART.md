@@ -54,9 +54,9 @@ Linking an existing account uses this same flow (`start_wallet_link`). Linking n
 
 ## 2. Run the installed package locally
 
-You need Node.js `^22.22.2 || ^24.15.0 || >=26` (`engines.node`); this round used Node 22.23.3. The package is private: install it from a tarball you were given. It is not published to npm.
+You need Node.js `^22.22.2 || ^24.15.0` (`engines.node`); this round used Node 22.23.3. The package is private: install it from a tarball you were given. It is not published to npm.
 
-The locked production closure requires `^22.22.2 || ^24.15.0 || >=26`
+The locked production closure requires `^22.22.2 || ^24.15.0`
 (`test/overnight-package.test.mjs` checks every runtime dependency with no exceptions).
 The server uses built-in `node:sqlite`; Node still prints
 an `ExperimentalWarning` for SQLite when the server starts. It is harmless.
@@ -126,7 +126,7 @@ Set `DACS_DIRECTORY_ORIGIN` and `DACS_CHAIN_RPC_URL` only to services you trust.
 
 These run from a source checkout, not the installed package. Every chain, directory and wallet service in them is a **simulated local fixture** with ephemeral keys, so passing them is not wallet, testnet or ChatGPT evidence. See `TESTING.md` for the runtime, short-`TMPDIR` advice and replay commands.
 
-The installed app requires Node `^22.22.2 || ^24.15.0 || >=26`. The source-only installed-operator
+The installed app requires Node `^22.22.2 || ^24.15.0`. The source-only installed-operator
 acceptance checker uses `node:module.registerHooks` and requires Node22.15 or
 later with that API available; use the tested Node22.23.3 for the complete source
 acceptance queue. This does not add a dependency or change the shipped runtime's
