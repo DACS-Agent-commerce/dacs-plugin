@@ -9,7 +9,7 @@ import { applyIntentHooks } from '../../src/portal/intent-hooks.mjs';
 import { createIntentGate } from '../../public/portal-intent/gate.mjs';
 import { checkSellerSessionDelegation } from '../../public/portal/seller-session-delegation.mjs';
 import { createEphemeralWallet } from '../fixtures/wallet.mjs';
-import { fixtureListing } from '../fixtures/listings.mjs';
+import { fixtureListing, fixtureLocator } from '../fixtures/listings.mjs';
 import { buildUnsignedIdentityBundle } from '../../src/dacs/listing.mjs';
 
 globalThis.window ??= globalThis;
@@ -63,7 +63,7 @@ export function fixturePurchase({ address, now = Date.now(), devnet = false, dem
     domain: devnet ? { network, rail: 'demos-native:DEM', mode: 'public-chain-read', chainIdentity } : { network, rail: 'demos-native:DEM', mode: 'simulated-fixture', chainIdentity: null },
     buyer: { accountId: 'acct_test_1', wallet: address },
     seller: { claim: seller.claim, payee: seller.address },
-    listing: { listingId: listing.listingId, version: listing.listingVersion, contentHash: null },
+    listing: { listingId: listing.listingId, version: listing.listingVersion, contentHash: null, anchor: { kind: 'storage-program', locator: fixtureLocator(`start-intent:${listing.listingId}`) } },
     price: { amount: '2.5', amountOs: '2500000000' },
     approvalExpiresAt: new Date(now + DAY).toISOString(),
     protocol: devnet
