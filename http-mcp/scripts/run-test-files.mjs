@@ -18,6 +18,8 @@ const FIELDS = ['class', 'expect', 'file', 'reason', 'test'];
 const EXPECTED_FIELDS = ['card', 'expect', 'file', 'issue', 'reason', 'test'];
 // A slash that does not follow a name character starts an absolute path.
 const ABSOLUTE_PATH = /(?:^|[^\w.-])\//;
+// A path segment that is . or .. leaves the repo-relative form.
+const DOT_SEGMENT = /(?:(?:^|[^\w.-]|\/)\.{1,2}\/|\/\.{1,2}(?![\w.-]))/;
 const CAUSE_TOKEN =/(?:^|[\s'"(])(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+(?=$|[\s'":,)])|@[\w.-]+\/[\w.-]+@[0-9][\w.+-]*/;
 const TEST_ROOT = 'test';
 // Shared fixture modules named *.test.mjs that register no tests.
@@ -69,7 +71,7 @@ export function readExpected(path, known = new Map()) {
       !EXPECTED_FIELDS.every((field) => typeof entry[field] === 'string' && entry[field].trim()) ||
       !isRunPath(entry.file) || SENTINELS.includes(entry.test) || /[\r\n]/.test(entry.reason) ||
       !/^P\d+[a-z0-9]*$/.test(entry.card) || !/^[A-Za-z0-9-]+\/[\w.-]+#[1-9]\d*$/.test(entry.issue) ||
-      /[\r\n]/.test(entry.expect) || ABSOLUTE_PATH.test(entry.expect) || entry.expect.length < 30 || !CAUSE_TOKEN.test(entry.expect))
+      /[\r\n]/.test(entry.expect) || ABSOLUTE_PATH.test(entry.expect) || DOT_SEGMENT.test(entry.expect) || entry.expect.length < 30 || !CAUSE_TOKEN.test(entry.expect))
       throw new Error('Invalid expected-until-card entry');
     const id = key(entry.file, entry.test);
     if (expected.has(id) || known.has(id)) throw new Error('Invalid expected-until-card entry');

@@ -946,7 +946,12 @@ test('readExpected refuses an absolute path anywhere in expect and names the cau
     ['newline after the cause', `${expectedCause}\nsecond line`],
     ['29 characters', 'x'.repeat(15) + ' deploy/a.json'],
     ['scoped package without a version', "'@kynesyslabs/dacs' is not in this registry"],
+    ['a ../ cause path', "ENOENT: no such file or directory, open '../outside/file.json'"],
+    ['a ./ cause path', "ENOENT: no such file or directory, open './test/x.json'"],
+    ['an a/../b.json cause path', "ENOENT: no such file or directory, open 'a/../b.json'"],
+    ['a ../ path beside a valid one', "ENOENT: no such file or directory, open 'test/x.json' then '../outside/file.json'"],
   ];
+  assert.equal(read("ENOENT: no such file or directory, open 'test/x.json'").size, 1, 'a plain repo-relative cause path');
   for (const [label, expect] of refused) assert.throws(() => read(expect), /Invalid expected-until-card entry/, label);
 });
 
