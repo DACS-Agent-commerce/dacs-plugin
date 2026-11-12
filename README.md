@@ -37,7 +37,7 @@ whether the row is delivered or still pending.
 | Suite | Command | Prepared by | Runtime | Actions job | Owner card | Stage |
 |---|---|---|---|---|---|---|
 | Root gate, lib and CI tests | `npm test` at the root | `sdk-input --prepare root`, `npm ci` at the root, gitleaks through the bounded installer | 22.23.3 | `public-gate.yml` | P54a3ac | delivered |
-| http-mcp, browser files included | `npm run test:ci` in `http-mcp` | `sdk-input --prepare http-mcp`, then `npm ci` in `http-mcp` and `http-mcp/wallet-build` | 22.23.3 in the pinned container | `http-mcp-tests.yml` | P54b1c | delivered |
+| http-mcp, browser files included | `npm run test:ci` in `http-mcp` | `sdk-input --prepare http-mcp`, then `npm ci --omit=optional` in `http-mcp` and `npm ci` in `http-mcp/wallet-build` | 22.23.3 in the pinned container | `http-mcp-tests.yml` | P54b1c | delivered |
 | stdio typecheck and unit tests | `npm run typecheck`, `npm test` in `stdio-mcp` | `sdk-input --prepare stdio`, then `npm ci` in `stdio-mcp` | 20.19.0 and 22.23.3 | `stdio-mcp.yml` | P54b2 | delivered |
 | Checker regression suite | `node --test test/thin-plugin.test.mjs` in `stdio-mcp`, when present | run-owned preparation: stdio's root (and the buyer root) installed and `npm run build` | 22.23.3 | `import-check.yml` | P54c2 | pending: P54c2 |
 | W-6 import check, both plugins | `node scripts/ci/import-check.mjs prepare`, `check`, `finalize`, per plugin | per plugin: `sdk-input`, materialization, fresh installs and, for stdio, the build | 22.23.3 | `import-check.yml` | P54c1a, P54c1b, P54c2 | pending: P54c2 |
@@ -78,9 +78,9 @@ repository from stdio's workflow tests; no source was carried from elsewhere.
 Parts of this repository do not install, start or pass their tests yet, and
 nothing in it has been run against a live wallet, node or ChatGPT.
 
-- **`http-mcp/` does not install or start.** Its `package.json` depends on a
-  vendored SDK archive (`vendor/`) that is not in this repository, so `npm ci`
-  stops with a missing-file error. `http-mcp/src/app.mjs` and nine other
+- **`http-mcp/` does not start, and a plain `npm ci` fails.** Its SDK packages
+  are pinned to a candidate version that is not published yet; the install checks
+  use local archives (`http-mcp/docs/CI.md`). `http-mcp/src/app.mjs` and nine other
   modules import modules that are not carried here (`http-mcp/src/dacs/` and
   five related modules; see [`PROVENANCE.md`](PROVENANCE.md), "Not carried"),
   so the server stops at startup with a module-not-found error. That code is

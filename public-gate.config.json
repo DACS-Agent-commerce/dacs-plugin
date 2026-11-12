@@ -38,6 +38,17 @@
   ],
   "scopedAllowances": [
     { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "opencollective.com", "context": "url", "reason": "funding link in a dependency's metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "dotenvx.com", "context": "url", "reason": "funding link in a dependency's metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "feross.org", "context": "url", "reason": "funding link in a dependency's metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "gitcoin.co", "context": "url", "reason": "funding link in a dependency's metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "migrate-to.irys.xyz", "context": "url", "reason": "funding link in a dependency's metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "paulmillr.com", "context": "url", "reason": "funding link in a dependency's metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "paypal.me", "context": "url", "reason": "funding link in a dependency's metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "www.buymeacoffee.com", "context": "url", "reason": "funding link in a dependency's metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "www.patreon.com", "context": "url", "reason": "funding link in a dependency's metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-ACCOUNT", "value": "i@izs.me", "context": "email", "reason": "dependency author contact in its metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-ACCOUNT", "value": "support@npmjs.com", "context": "email", "reason": "dependency author contact in its metadata" },
+    { "path": "http-mcp/package-lock.json", "rule": "R-ACCOUNT", "value": "uuid@latest", "context": "email", "reason": "package tag in a dependency's deprecation notice" },
     { "path": "http-mcp/wallet-build/package-lock.json", "rule": "R-HOST", "value": "dotenvx.com", "context": "url", "reason": "funding link in a dependency's metadata" },
     { "path": "http-mcp/wallet-build/package-lock.json", "rule": "R-HOST", "value": "feross.org", "context": "url", "reason": "funding link in a dependency's metadata" },
     { "path": "http-mcp/wallet-build/package-lock.json", "rule": "R-HOST", "value": "gitcoin.co", "context": "url", "reason": "funding link in a dependency's metadata" },
@@ -86,7 +97,9 @@
     { "path": "http-mcp/test/fixtures/mcp-seller-content-baseline.json", "rule": "R-ACCOUNT", "value": "test@v1", "context": "email", "reason": "version tag in recorded tool output, not an email address" },
     { "path": "stdio-mcp/README.md", "rule": "R-ACCOUNT", "value": "demos@demos-mcp", "context": "email", "reason": "plugin and marketplace name in the install command, not an email address" },
     { "path": ".github/workflows/http-mcp-tests.yml", "rule": "R-HOST", "value": "mcr.microsoft.com", "context": "bare", "reason": "registry host of the digest-pinned test container image" },
-    { "path": ".github/workflows/http-mcp-tests.yml", "rule": "R-ACCOUNT", "value": "v1.56.1-noble@sha256", "context": "email", "reason": "image tag and digest separator of the pinned test container, not an email address" }
+    { "path": ".github/workflows/http-mcp-tests.yml", "rule": "R-ACCOUNT", "value": "v1.56.1-noble@sha256", "context": "email", "reason": "image tag and digest separator of the pinned test container, not an email address" },
+    { "path": "http-mcp/Dockerfile", "rule": "R-ACCOUNT", "value": "22.23.3-bookworm-slim@sha256", "context": "email", "reason": "image tag and digest separator of the pinned base image, not an email address" },
+    { "path": "http-mcp/test/overnight-package.test.mjs", "rule": "R-ACCOUNT", "value": ".3-bookworm-slim@sha256", "context": "email", "reason": "image tag and digest separator in the test that checks the pinned base image, not an email address" }
   ],
   "ipDispositions": [
     { "path": "http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs", "blob": "c420e04e0b82c351d8726241668da69301690713", "line": 5, "context": "O(\"<ip>\",\"", "sha256": "e9ec165c059f1c8d01edb61146307e0f2483cedc96eb8677c7280a16fa5a02f9", "reason": "ASN.1 object identifier in the generated wallet bundle, not an address" },
@@ -150,6 +163,9 @@
   ],
   "publicRepositories": { "owner": "DACS-Agent-commerce", "repositories": ["dacs-sdk", "DACS-Standard", "Community", "dacs-plugin"] },
   "lockfileDispositions": [
+    { "path": "http-mcp/package-lock.json", "blob": "90f51aa8b82ef87f9da73e903194cf75fa3ff2c6", "field": "packages[\"node_modules/@confio/ics23\"].deprecated", "line": 1222, "valueSha256": "73db8b1fb39b70e63f1b64d8d5a7d41f7873b8d4fa8a5455f8955bfae5d3829e", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
+    { "path": "http-mcp/package-lock.json", "blob": "90f51aa8b82ef87f9da73e903194cf75fa3ff2c6", "field": "packages[\"node_modules/@cosmjs/crypto\"].deprecated", "line": 1350, "valueSha256": "1ae46a6eb64871e470bbe6cda47a9676f54ec6d7b8ada88c01f69da140130fb6", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
+    { "path": "http-mcp/package-lock.json", "blob": "90f51aa8b82ef87f9da73e903194cf75fa3ff2c6", "field": "packages[\"node_modules/request\"].deprecated", "line": 16416, "valueSha256": "2520e437d9b0330c48889295afc16ae18dfa95fecadaea9b1952ae79716c263c", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
     { "path": "stdio-mcp/package-lock.json", "blob": "2d064ce7cbe3858df1f04b34157864c444aa6ae9", "field": "packages[\"node_modules/@confio/ics23\"].deprecated", "line": 1167, "valueSha256": "73db8b1fb39b70e63f1b64d8d5a7d41f7873b8d4fa8a5455f8955bfae5d3829e", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
     { "path": "stdio-mcp/package-lock.json", "blob": "2d064ce7cbe3858df1f04b34157864c444aa6ae9", "field": "packages[\"node_modules/@cosmjs/crypto\"].deprecated", "line": 1295, "valueSha256": "1ae46a6eb64871e470bbe6cda47a9676f54ec6d7b8ada88c01f69da140130fb6", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },
     { "path": "stdio-mcp/package-lock.json", "blob": "2d064ce7cbe3858df1f04b34157864c444aa6ae9", "field": "packages[\"node_modules/request\"].deprecated", "line": 15700, "valueSha256": "2520e437d9b0330c48889295afc16ae18dfa95fecadaea9b1952ae79716c263c", "reason": "upstream deprecation notice copied by npm into the lockfile; not written here" },

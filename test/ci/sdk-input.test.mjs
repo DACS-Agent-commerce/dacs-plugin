@@ -50,6 +50,26 @@ function addPublished(checkout, root, name = DEMOSDK, version = '4.0.16') {
 
 const sdkRecord = (checkout, root, name = DEMOSDK) => checkout.files[root]['package-lock.json'].packages[lockKey(name)];
 
+/** Removes every SDK dependency, lock root entry and lock record from a root's manifest and lock. */
+function removeSdkInput(checkout, root) {
+  const pair = checkout.files[root];
+  const isSdk = (name) => name.startsWith(`${SDK_SCOPE}/`);
+  for (const table of [pair['package.json'].dependencies, pair['package-lock.json'].packages[''].dependencies]) {
+    for (const name of Object.keys(table).filter(isSdk)) delete table[name];
+  }
+  for (const key of Object.keys(pair['package-lock.json'].packages).filter((name) => name.startsWith(lockKey(`${SDK_SCOPE}/`)))) delete pair['package-lock.json'].packages[key];
+}
+
+/** Gives http-mcp the file:vendor SDK entry it carried before its SDK packages were pinned to registry versions. */
+function plantLegacy(checkout) {
+  removeSdkInput(checkout, 'http-mcp');
+  const pair = checkout.files['http-mcp'];
+  const dacs = `${SDK_SCOPE}/dacs`;
+  pair['package.json'].dependencies[dacs] = LEGACY_SPEC;
+  pair['package-lock.json'].packages[''].dependencies[dacs] = LEGACY_SPEC;
+  pair['package-lock.json'].packages[lockKey(dacs)] = { version: '0.1.0-alpha.0', resolved: LEGACY_SPEC, integrity: integrityOf('legacy') };
+}
+
 /** A PATH folder whose `npm` records each call; the checker must never reach it. */
 function fakeNpm() {
   const dir = makeTempDir('fake-npm');
@@ -82,17 +102,23 @@ test('a published exact version is available, including wallet-build\'s approved
 
   await t.test('wallet-build\'s exact registry version is published and available for http-mcp once http-mcp holds no SDK input', () => {
     const checkout = makeCheckout();
-    delete checkout.files['http-mcp']['package.json'].dependencies[`${SDK_SCOPE}/dacs`];
-    delete checkout.files['http-mcp']['package-lock.json'].packages[''].dependencies[`${SDK_SCOPE}/dacs`];
-    delete checkout.files['http-mcp']['package-lock.json'].packages[lockKey(`${SDK_SCOPE}/dacs`)];
+    removeSdkInput(checkout, 'http-mcp');
     const result = runSdkInput(['--prepare', 'http-mcp'], writeCheckout(checkout));
     assert.equal(result.status, 0, result.stderr);
     assert.equal(stateOf(result, 'http-mcp/wallet-build').state, 'published');
     assert.equal(stateOf(result, 'http-mcp').state, 'none');
   });
 
-  await t.test('the recorded legacy file:vendor entry is legacy-unavailable with its cause and fails an http-mcp preparation with exit 2', () => {
+  await t.test('http-mcp\'s exact registry SDK pins are published and available for an http-mcp preparation', () => {
     const result = runSdkInput(['--prepare', 'http-mcp'], writeCheckout(makeCheckout()));
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(stateOf(result, 'http-mcp'), { root: 'http-mcp', state: 'published', cause: 'registry-exact-version-with-integrity' });
+  });
+
+  await t.test('the recorded legacy file:vendor entry is legacy-unavailable with its cause and fails an http-mcp preparation with exit 2', () => {
+    const checkout = makeCheckout();
+    plantLegacy(checkout);
+    const result = runSdkInput(['--prepare', 'http-mcp'], writeCheckout(checkout));
     assert.equal(result.status, 2);
     assert.deepEqual(stateOf(result, 'http-mcp'), { root: 'http-mcp', state: 'legacy-unavailable', cause: 'recorded-legacy-file-vendor' });
     assert.equal(result.report.available, false);
@@ -178,7 +204,7 @@ test('a newly committed file:, link:, path or vendored SDK spec or lock resoluti
       sdkRecord(checkout, root).name = DEMOSDK;
       const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
       assert.notEqual(result.status, 1, result.stderr);
-      assert.equal(stateOf(result, root).state, root === 'http-mcp' ? 'legacy-unavailable' : 'published');
+      assert.equal(stateOf(result, root).state, 'published');
     });
   }
 });
@@ -229,20 +255,19 @@ test('a malformed package.json or lock in any inventoried root, wallet-build inc
   });
 });
 
-test('on the real carried manifest-and-lock pairs, http-mcp is legacy-unavailable while a stdio preparation is available and runs, and both reports exist with their causes; the optional registry peer range in http-mcp\'s lock is not a refused resolution; a forbidden spec planted in the unrelated http-mcp root still refuses before any installation; a path constraint in any position is refused', async (t) => {
-  await t.test('the stdio preparation is available while http-mcp stays legacy-unavailable in the same report', () => {
+test('on the real carried manifest-and-lock pairs, http-mcp is published and a stdio preparation is available, and both reports exist with their causes; the optional registry peer range in http-mcp\'s lock is not a refused resolution; a forbidden spec planted in the unrelated http-mcp root still refuses before any installation; a path constraint in any position is refused', async (t) => {
+  await t.test('the stdio preparation is available and reports http-mcp published in the same report', () => {
     const result = runSdkInput(['--prepare', 'stdio']);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(result.report.roots.map(({ root, state }) => [root, state]), [
-      ['.', 'none'], ['http-mcp', 'legacy-unavailable'], ['http-mcp/wallet-build', 'published'], ['stdio-mcp', 'published'], ['stdio-mcp/buyer', 'absent'], ['tools/lint', 'none'],
+      ['.', 'none'], ['http-mcp', 'published'], ['http-mcp/wallet-build', 'published'], ['stdio-mcp', 'published'], ['stdio-mcp/buyer', 'absent'], ['tools/lint', 'none'],
     ]);
-    assert.equal(stateOf(result, 'http-mcp').cause, 'recorded-legacy-file-vendor');
   });
 
-  await t.test('the http-mcp preparation reports the same root causes and fails with exit 2', () => {
+  await t.test('the http-mcp preparation reports the same root causes and is available', () => {
     const result = runSdkInput(['--prepare', 'http-mcp']);
-    assert.equal(result.status, 2);
-    assert.equal(stateOf(result, 'http-mcp').cause, 'recorded-legacy-file-vendor');
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(stateOf(result, 'http-mcp').cause, 'registry-exact-version-with-integrity');
     assert.equal(stateOf(result, 'stdio-mcp').state, 'published');
   });
 
@@ -322,6 +347,7 @@ test('a manifest SDK pin that the lock root entry or the lock record does not re
 
   await t.test('the recorded legacy entry with a lock root entry of another spec is unverifiable', () => {
     const checkout = makeCheckout();
+    plantLegacy(checkout);
     lockRootOf(checkout, 'http-mcp').dependencies[`${SDK_SCOPE}/dacs`] = '0.1.0-alpha.0';
     const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
     assert.equal(result.status, 2, result.stderr);
