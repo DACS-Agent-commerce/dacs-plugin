@@ -8,24 +8,41 @@ const NODE = process.execPath;
 const LIMITS = { maxOutputBytes: 4096, deadlineMs: 5000, graceMs: 200 };
 const SURVIVOR_WAIT_MS = 5000;
 const POLL_MS = 20;
+/** Linux task flag (include/linux/sched.h) set once a process has started to exit. */
+const PF_EXITING = 0x4;
+/** SIGKILL is signal 9: bit 8 of the pending-signal masks in /proc/<pid>/status. */
+const SIGKILL_BIT = 1n << 8n;
 
 const runNode = (script, overrides) => runBounded({ command: NODE, args: ['-e', script], ...LIMITS, ...overrides });
 
 /** Returns the rejection of `promise`; fails the test when it resolves. */
 const rejection = (promise) => promise.then(() => assert.fail('expected a rejection'), (error) => error);
 
-function isRunning(pid) {
+/**
+ * Whether `pid` can still run on: it exists, is not a zombie, has not started to exit and has no SIGKILL pending.
+ * A process that was sent SIGKILL counts as stopped even while it is still being torn down: under a CPU limit that teardown
+ * can take seconds, so the wall time until it leaves /proc says nothing about whether the group kill reached it.
+ */
+function canRunOn(pid) {
+  let stat;
+  let status;
   try {
-    return !readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) /, '').startsWith('Z');
+    stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    status = readFileSync(`/proc/${pid}/status`, 'utf8');
   } catch {
     return false;
   }
+  // After the command name: state, ppid, pgrp, session, tty_nr, tpgid, flags.
+  const [state, , , , , , flags] = stat.replace(/^.*\) /, '').split(' ');
+  if (state === 'Z' || state === 'X' || (Number(flags) & PF_EXITING) !== 0) return false;
+  const pending = (field) => BigInt(`0x${status.match(new RegExp(`^${field}:\\s*([0-9a-f]+)$`, 'm'))?.[1] ?? '0'}`);
+  return ((pending('SigPnd') | pending('ShdPnd')) & SIGKILL_BIT) === 0n;
 }
 
-/** Waits until `pid` is gone or a zombie; returns whether it is. SIGKILL takes effect asynchronously, so this polls with a cap. */
-async function exitsSoon(pid) {
+/** Waits until `pid` is gone, a zombie, exiting or has SIGKILL pending; returns whether it is. Signal delivery is asynchronous, so this polls with a cap. */
+async function stopsSoon(pid) {
   for (let waited = 0; waited < SURVIVOR_WAIT_MS; waited += POLL_MS) {
-    if (!isRunning(pid)) return true;
+    if (!canRunOn(pid)) return true;
     await delay(POLL_MS);
   }
   return false;
@@ -81,5 +98,5 @@ test('run-bounded kills the process group at the deadline, caps output and keeps
   const pids = [...output.matchAll(/^(?:leader|grandchild) (\d+)$/gm)].map(([, pid]) => Number(pid));
   assert.equal(pids.length, 2, output);
   assert.ok(!output.includes('LATE-OUTPUT'), 'output received after the deadline was appended');
-  for (const pid of pids) assert.ok(await exitsSoon(pid), `process ${pid} survived`);
+  for (const pid of pids) assert.ok(await stopsSoon(pid), `process ${pid} survived without SIGKILL`);
 });
