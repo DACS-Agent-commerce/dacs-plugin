@@ -316,20 +316,29 @@ P42aa's PR, the last of those cards. The file is kept unchanged.
 
 ### Failing tests not covered by the baseline
 
-The runner excuses a file only when it stops at load on exactly one missing
-module (see "Carry-over entries"). These files fail for another reason, so they
-have no entry and stay failing until the named card makes them pass. Each card
-names its file as an acceptance test. The failing line is the first one in the
-file's own output.
+`test/expected-until-card.json` is the source of truth for these cases. The
+runner removes the absolute run-directory prefix from failure messages before
+matching each entry's cause. A matching failure is expected until its card
+lands. A passing case, a different failure, or a missing case fails the gate.
 
-- `test/config-equivalence.test.mjs` (P46): `ENOENT: no such file or directory, open 'deploy/env-contract.json'`, read while the test runs; the deploy folder is not carried.
-- `test/showcase-receipt-config.test.mjs` (P46): `ENOENT: no such file or directory, open 'deploy/env-contract.json'`.
-- `test/switch-registry-mutants.test.mjs` (P46, four cases): `ENOENT: no such file or directory, open 'deploy/scripts/validate-package.mjs'` (the other three cases: `lstat` of the same path).
-- `test/env-contract-defaults.test.mjs` (P46): `ENOENT: no such file or directory, open 'deploy/env-contract.json'`, raised while the module is evaluated, so no case starts.
-- `test/embedded-wallet-contract.test.mjs` (P41c, one case of seven): `Cannot find module 'src/util/purchase-readback-cache.mjs' imported from 'src/app.mjs'`, in the case "loopback transactionTransport lifecycle".
-- `test/portal-delivery-evidence-label.test.mjs` (P53c2, one case of five): `ENOENT: no such file or directory, open 'src/dacs/dem-delivery-consumer.mjs'`, in the case on the "Delivered" label.
-- `test/tester-quickstart.test.mjs` (P42aa, one case of seven, the loopback startup case): the server it starts stops with `Cannot find module 'src/util/purchase-readback-cache.mjs' imported from 'src/app.mjs'`, so `/health` never answers and the runner reports `Promise resolution is still pending but the event loop has already resolved`. Loopback is available where it was run, so this is not an environment failure.
-- `test/overnight-package.test.mjs` (P42aa, one case of seven, the cold start of the packed tarball): not run with network and loopback allowed. The runner used here reaches the public npm registry only through a proxy, and the test gives its `npm install` a clean environment without proxy settings, so the install ran to the test's 300 s limit and was killed with no output. The case keeps its card.
+An entry's `expect` must be a single line of at least 30 characters, and
+must name its cause in one of two forms: a file path
+relative to `http-mcp/` (not to the repository root) with at least one
+directory segment and a file extension, such as `src/util/example.mjs`, or a
+package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
+`expect`, as is an absolute path.
+
+- `test/config-equivalence.test.mjs` — the nine converted switches keep the v1 baseline's values, defaults, deploy values, held messages, errors and order — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/showcase-receipt-config.test.mjs` — switch default, strict off/on, env names, contract entry and example — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/env-contract-defaults.test.mjs` — static env contract defaults and values agree with loadConfig — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/switch-registry-mutants.test.mjs` — switch mutation anchors match exactly once outside mutant behavior tests — P46 — DACS-Agent-commerce/dacs-plugin#324
+- `test/switch-registry-mutants.test.mjs` — missing mutation anchor refuses the CLI before mirror setup or test execution — P46 — DACS-Agent-commerce/dacs-plugin#324
+- `test/switch-registry-mutants.test.mjs` — repeated mutation anchor refuses the CLI before mirror setup or test execution — P46 — DACS-Agent-commerce/dacs-plugin#324
+- `test/switch-registry-mutants.test.mjs` — a behavior-preserving mutation survives without an anchor freshness false kill — P46 — DACS-Agent-commerce/dacs-plugin#324
+- `test/embedded-wallet-contract.test.mjs` — loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated] — P41c — DACS-Agent-commerce/dacs-plugin#322
+- `test/portal-delivery-evidence-label.test.mjs` — "Delivered" claims only the verified report, and delivery evidence is shown separately for every server state — P53c2 — DACS-Agent-commerce/dacs-plugin#325
+- `test/tester-quickstart.test.mjs` — the documented loopback startup answers /health and MCP with honest not_configured results — P42aa — DACS-Agent-commerce/dacs-plugin#322
+- `test/overnight-package.test.mjs` — source -> reproducible npm tarball -> clean install -> documented `npx dacs-chatgpt-plugin` cold start, HTTP + MCP, Ctrl-C; bin-shim restart, SIGTERM — P42aa — DACS-Agent-commerce/dacs-plugin#326
 
 The seller control of `test/mutant-helper-verdicts.test.mjs` was removed because
 it read `src/devnet-demo/seller-write-batch.mjs`, which is not carried; card P303a
