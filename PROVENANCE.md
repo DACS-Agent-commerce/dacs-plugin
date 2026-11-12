@@ -58,7 +58,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | --- | --- | --- |
 | `.github/workflows/stdio-mcp.yml` | `ca22aadab7ce48e3185b934abe5d5d6eaa320e8a` | added: written fresh from stdio's workflow tests; no carried source |
 | `.gitignore` | `d82b03e30be4d89a5be65cbc8506d7236ba57cf1` | added: ignore rules for dependencies, build output, logs and local environment files |
-| `.gitleaksignore` | `e0a19b15f2230014d775c1c44ee396dc8d07071c` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
+| `.gitleaksignore` | `9b718d6f403ed4776ff4c9df40a00ab63a608a6c` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
 | `README.md` | `a4c2d67ecb95d67b52b05a6d70fe6f1a353132e0` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections |
 | `docs/PUBLIC-GATE.md` | `1678668758708b1f5030c78c329067d61202ba85` | added: documentation of the public-content gate |
@@ -113,7 +113,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/docs/NODE2-STORAGE-PROVENANCE-COMPATIBILITY.md` | `b79d1bf05c4c776301daf8bac2c0eef97a0cf741` | verbatim |
 | `http-mcp/docs/OFFLINE-BROWSER-AGREEMENT.md` | `9fb5e7d651b8b22997952ab8a705c7c5e2adab29` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/OFFLINE-TESTER.md` | `2a4cc59889c663d6bcb3b3f109bff17775954f2f` | edited: public wording: internal review, process, PR and private-path references removed or reworded; public wording: internal process and layout references reworded |
-| `http-mcp/docs/OPS-HEALTH.md` | `f9319fad31fb4ed54e09e1826f0ff139857ae848` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a private commit id removed |
+| `http-mcp/docs/OPS-HEALTH.md` | `1be9e1ad5f35196a0d3a9c4d70db200b373813bb` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a private commit id removed |
 | `http-mcp/docs/OVERNIGHT-CORE.md` | `42cc2c63e09a139373593cea786f42ccd2c523e4` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/OVERNIGHT-FUNCTIONAL-TESTS.md` | `7d116a6efc859d82fb212eb47b7687c5c9de25b9` | edited: test-run result logs removed; public wording |
 | `http-mcp/docs/OVERNIGHT-PACKAGING.md` | `bdacedbcb12741f55de173c81671d6898685a635` | edited: directory name in a column header corrected; exclusion wording follows the renamed label |
@@ -198,7 +198,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/public/wallet-extension-probe/vectors.mjs` | `e9a607c506282c00f875145a9c82ef2484df4dd6` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/scripts/buyer-chain-readback-identity.mjs` | `331c62500f0b72cf7a1e62e66f7f60b190b0eef0` | verbatim |
 | `http-mcp/scripts/check-embedded-wallet-container.mjs` | `bb0098784d3560e8d757af654310640649dfab8f` | verbatim |
-| `http-mcp/scripts/check-embedded-wallet-package.mjs` | `c6bf93c5e33b8b449e4d04926a8a3d4d38cf6abb` | edited: three names removed from the package-exclusion pattern; no other behaviour change; one exclusion label renamed |
+| `http-mcp/scripts/check-embedded-wallet-package.mjs` | `0a94635c755b39f55a09f2bc95607ae795306adb` | edited: three names removed from the package-exclusion pattern; no other behaviour change; one exclusion label renamed |
 | `http-mcp/scripts/check-off-unchanged.mjs` | `7d6e9538a8d279bb89540012dca559c8b95e5cef` | verbatim |
 | `http-mcp/scripts/check-offline-tester-package.mjs` | `3286bb7527a78bc1e0396a40fd4b1b253d446ca6` | verbatim |
 | `http-mcp/scripts/check-package.mjs` | `3dba763df0f19e5b1ef8f45ee7efc8da042882aa` | changed here: both installs run offline from the SDK candidate and the locked closure |
@@ -395,11 +395,11 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/test/embedded-wallet-bundle.test.mjs` | `09abb7403b97fba1ca6b022d692217a65f15262b` | edited: public wording: internal process and layout references reworded; then changed here: host WebAssembly calls are settled once before the controls measure
 | `http-mcp/test/embedded-wallet-contract.test.mjs` | `31d105b6b8efb545f175b1f8588879a15be20e87` | verbatim |
 | `http-mcp/test/embedded-wallet-flow.test.mjs` | `cdd8f085a37939b2759c6eff241c44c7290ae393` | edited: public wording: internal process and layout references reworded
-| `http-mcp/test/embedded-wallet-package.test.mjs` | `eab16ce08f2c220818f76f2cd9ef4a33a8a7dc49` | edited: address replaced by a documentation address; one exclusion label renamed |
+| `http-mcp/test/embedded-wallet-package.test.mjs` | `27053f3f9d8e8ffdea9557099656bc3c7edb19e5` | edited: address replaced by a documentation address; one exclusion label renamed |
 | `http-mcp/test/embedded-wallet-runtime.test.mjs` | `000f825048b2d8bb2271b8bd9528e6b1324600b0` | verbatim |
 | `http-mcp/test/embedded-wallet-sdk-version.test.mjs` | `a89b2d5246889ca4aa5a33a0790ffc5fa93c8345` | added: the lock, build entry, manifest, package checks and bundle all name the one SDK version |
 | `http-mcp/test/embedded-wallet-sdk.test.mjs` | `c77a616be18505f2160633a2f1867b48d49d9526` | edited: public wording: internal process and layout references reworded
-| `http-mcp/test/embedded-wallet-sign-preimage.test.mjs` | `80a880b8b3c32857a6bd96e62bd06f0ea0521d31` | added: message signing refuses a transaction hash or a `demos-tx:v1:` string; the wallet's own RPC-auth signing still works |
+| `http-mcp/test/embedded-wallet-sign-preimage.test.mjs` | `409045257a89cd82ebea1a7af27ac82d1da8ead0` | added: message signing refuses a transaction hash or a `demos-tx:v1:` string; the wallet's own RPC-auth signing still works |
 | `http-mcp/test/embedded-wallet-transaction.test.mjs` | `1c75cd7ce796294fbadf88ba76993dc2d38c7de0` | verbatim |
 | `http-mcp/test/embedded-wallet-tx-signature-domain.test.mjs` | `a6cc923326cef8c0b1edb5e95bc3dfd35af63fdc` | added: the wallet checks a signed transaction in the form the node's network answer selects, against the real bundled SDK and simulated nodes |
 | `http-mcp/test/env-contract-defaults.test.mjs` | `fdfd7c4fd1c737d776ff29a0c3b8cd2ab65860a6` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -724,7 +724,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/wallet-build/shims.mjs` | `b90f32a3c063bf436cd25a96ab7b27d61491c43c` | verbatim |
 | `package-lock.json` | `02b053fab55700b6fe75742c85076e26dc230628` | added: lockfile of the root package |
 | `package.json` | `386f2e1406304aa7f9d3866a73b8f4118e5bc51b` | added: root package with the gate scripts and the test command; then changed here: the `test:all` script |
-| `public-gate.config.json` | `7e35d935ee7c7e182f716e2fd95270bfd92bcc28` | added: gate limits, text extensions and binary dispositions |
+| `public-gate.config.json` | `d714d596c84159b7f53b476602fd187e24d7f4e8` | added: gate limits, text extensions and binary dispositions |
 | `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
 | `scripts/public-gate/check-report.mjs` | `d8967e36b2ff00bf63c300eac3520612206cfb64` | added: public-content gate source |
 | `scripts/public-gate/classify.mjs` | `afe007bda11127b8e9d1baa181a5bba277545bc2` | added: public-content gate source |
@@ -814,4 +814,4 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `test/public-gate/private.test.mjs` | `a90437a91d66394fd6700f7266b6e790d3045508` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/redact.test.mjs` | `23a902dbf88f50cd9f617e83864f0a4ac45c0be3` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/report.test.mjs` | `85aa337784bb9b1747f7b9eb5ccebe60a580c1f9` | added: tests of the public-content gate and of the carried-file inventory |
-| `test/public-gate/text.test.mjs` | `06ea728adf272d5249e3bd993cfe69e90a54b850` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/text.test.mjs` | `72fe4a71bf1d02eb21a7ff20b268aefa8e28e04c` | added: tests of the public-content gate and of the carried-file inventory |
