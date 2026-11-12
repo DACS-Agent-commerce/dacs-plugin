@@ -486,6 +486,17 @@ test('a computed string-literal key in a destructure reads the readback member l
   assert.deepEqual(p.found.unverifiable, []);
 });
 
+test('a parenthesised string key is read like the plain string key', t => {
+  const p = project(t, {
+    'pattern.ts': 'export function decide(c: any, h: string) { const {[("getTxByHash")]: read} = c; return read(h); }\n',
+    'method.ts': 'export const o = {[("canonicalize")](v: any) { return v; }};\n',
+    'property.ts': 'export const o = {[(("deriveJobId"))]: function (v: any) { return v; }};\n',
+  });
+  for (const f of ['pattern.ts', 'method.ts', 'property.ts']) p.scan(f);
+  assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`).sort(), ['method.ts:canonical-json:canonicalize', 'pattern.ts:execution-readback:decide', 'property.ts:job-id:deriveJobId']);
+  assert.deepEqual(p.found.unverifiable, []);
+});
+
 test('a type-only re-export of a waived dependency namespace is not a runtime namespace escape', t => {
   const p = project(t, {
     'helper.ts': '// thin-plugin-waiver primitive:execution-readback -- status display only\nexport function show(c: any) { return c.getTxByHash("h"); }\n',
