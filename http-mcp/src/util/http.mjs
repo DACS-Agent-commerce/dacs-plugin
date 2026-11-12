@@ -1,14 +1,10 @@
 // Bounded outbound JSON requests: fixed origin, no redirects, hard timeout,
 // post-decompression byte cap, no ambient credentials. Failures are typed so
-// callers can distinguish "unavailable" from "invalid".
-export class OutboundError extends Error {
-  constructor(kind, message, { status, cause, code } = {}) {
-    super(message, cause === undefined ? undefined : { cause });
-    this.kind = kind; // 'unavailable' | 'invalid' | 'not-found'
-    this.status = status;
-    if (code !== undefined) this.code = code;
-  }
-}
+// callers can distinguish "unavailable" from "invalid". The failure type is the
+// client's, so one error identity crosses the SDK boundary.
+import { OutboundError } from '@kynesyslabs/dacs-client';
+
+export { OutboundError };
 
 async function readCapped(response, maxBytes) {
   const declared = response.headers.get('content-length');

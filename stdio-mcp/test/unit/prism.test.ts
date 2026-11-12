@@ -103,7 +103,7 @@ test('2. forged receipts are rejected: no tx hash, wrong issuer key, tampered bo
   const p = await h.call('demos_tx_prepare', { to: ADDR_B, amount_dem: '1' });
   const real = (await h.call('demos_tx_submit', { prepared_id: p.json.prepared_id, confirmation_code: h.channel.last().code })).json.receipt;
   const issuer = (await h.call('demos_network_info')).json.safety.receipt_issuer;
-  h.chain.txs.set(real.chain.tx_hash, { hash: real.chain.tx_hash, found: true, state: 'included', content: { from: real.chain.from, to: real.chain.to, amount: real.chain.amount_os } });
+  h.chain.txs.set(real.chain.tx_hash, { hash: real.chain.tx_hash, found: true, state: 'included', executed: true, content: { from: real.chain.from, to: real.chain.to, amount: real.chain.amount_os } });
   assert.equal((await verifyArtifact(real, h.chain, { expectedSigner: issuer })).decision, 'accept');
 
   // (a) a self-consistent receipt with NO tx hash (digest recomputed, signed by an attacker key)
@@ -240,7 +240,7 @@ test('duplicate tx refs cannot double-count one transfer', async () => {
   };
   ev.signature = { algorithm: 'ed25519', signer: claim, value: Buffer.from(ed.sign(new TextEncoder().encode('dacs-evidence:v1:' + contentHash(ev, ['signature'])), k.priv)).toString('base64url') };
   const h = await harness();
-  h.chain.txs.set(H('one'), { hash: H('one'), found: true, state: 'included', content: { type: 'native', amount: '1000000000' } });
+  h.chain.txs.set(H('one'), { hash: H('one'), found: true, state: 'included', executed: true, content: { type: 'native', amount: '1000000000' } });
   assert.equal((await verifyArtifact(ev, h.chain, { expectedSigner: claim })).decision, 'reject');
 });
 

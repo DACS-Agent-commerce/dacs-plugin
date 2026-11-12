@@ -120,12 +120,20 @@ function classifyLock(rootPath, lock) {
   }).filter(Boolean);
 }
 
+/** A manifest section as npm records it in the lock root: a name listed in both dependencies and optionalDependencies is kept only under optionalDependencies. */
+function manifestSectionInLockRoot(manifest, section) {
+  const table = manifest[section];
+  if (section !== 'dependencies' || !isPlainObject(table) || !isPlainObject(manifest.optionalDependencies)) return table;
+  return Object.fromEntries(Object.entries(table).filter(([name]) => !Object.hasOwn(manifest.optionalDependencies, name)));
+}
+
 /** True when the lock pins an SDK dependency differently from the manifest: a lock root entry that differs or is missing in either direction, or a registry record of another version. */
 function lockDisagrees(manifest, lock, manifestFindings) {
   const lockRoot = lock.packages[''] ?? {};
   const rootDiffers = DIRECT_SECTIONS.some((section) => {
-    const names = new Set([...sdkEntries(manifest[section], 'manifest'), ...sdkEntries(lockRoot[section], 'lock')].map(([name]) => name));
-    return [...names].some((name) => manifest[section]?.[name] !== lockRoot[section]?.[name]);
+    const manifestTable = manifestSectionInLockRoot(manifest, section);
+    const names = new Set([...sdkEntries(manifestTable, 'manifest'), ...sdkEntries(lockRoot[section], 'lock')].map(([name]) => name));
+    return [...names].some((name) => manifestTable?.[name] !== lockRoot[section]?.[name]);
   });
   return rootDiffers || manifestFindings.some(({ state, name, spec }) => state === 'published' && lock.packages[`node_modules/${name}`]?.version !== spec);
 }

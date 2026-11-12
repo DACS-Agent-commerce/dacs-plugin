@@ -355,6 +355,41 @@ test('a manifest SDK pin that the lock root entry or the lock record does not re
   });
 });
 
+/** Lists the SDK in the manifest under dependencies and optionalDependencies, and in the lock root only under optionalDependencies, as npm writes it. */
+function plantSdkInBothSections(checkout, root, lockVersion = '4.0.16') {
+  addPublished(checkout, root);
+  manifestOf(checkout, root).optionalDependencies = { [DEMOSDK]: '4.0.16' };
+  delete lockRootOf(checkout, root).dependencies[DEMOSDK];
+  lockRootOf(checkout, root).optionalDependencies = { [DEMOSDK]: lockVersion };
+}
+
+test('an SDK listed in both dependencies and optionalDependencies matches a lock root that keeps it only under optionalDependencies', async (t) => {
+  await t.test('the same exact version in both manifest sections is published and available', () => {
+    const checkout = makeCheckout();
+    plantSdkInBothSections(checkout, 'stdio-mcp');
+    const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'published', cause: 'registry-exact-version-with-integrity' });
+  });
+
+  await t.test('a lock root optionalDependencies version that differs from the manifest is still unverifiable', () => {
+    const checkout = makeCheckout();
+    plantSdkInBothSections(checkout, 'stdio-mcp', '4.0.18');
+    const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+    assert.equal(result.status, 2, result.stderr);
+    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'unverifiable', cause: 'lock-version-mismatch' });
+  });
+
+  await t.test('a lock root that keeps the SDK only under dependencies while the manifest also lists it as optional is still unverifiable', () => {
+    const checkout = makeCheckout();
+    addPublished(checkout, 'stdio-mcp');
+    manifestOf(checkout, 'stdio-mcp').optionalDependencies = { [DEMOSDK]: '4.0.16' };
+    const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+    assert.equal(result.status, 2, result.stderr);
+    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'unverifiable', cause: 'lock-version-mismatch' });
+  });
+});
+
 /** Writes a sparse file of `size` bytes of zeros. */
 function writeSparse(file, size) {
   const descriptor = openSync(file, 'w');

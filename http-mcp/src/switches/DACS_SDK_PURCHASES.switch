@@ -1,0 +1,9 @@
+{
+  "env": "DACS_SDK_PURCHASES",
+  "configKey": "sdkPurchases",
+  "kind": "enum",
+  "values": ["off", "on"],
+  "default": "off",
+  "deployValue": "off",
+  "operatorNote": "Runs purchases through the SDK client's purchase service (opt-in). Separate from the SDK's own purchase hold; a deployment keeps it off until purchases are enabled."
+}
