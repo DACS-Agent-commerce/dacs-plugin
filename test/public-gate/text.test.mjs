@@ -116,7 +116,7 @@ test('issue references: a number sign after a dotted repository of the organisat
   assert.equal(issueFindings('a.md', `https://github.com/${ORG}/${dotted}\n`, config).length, 1);
 });
 
-const LOCKFILE_PATHS = ['stdio-mcp/package-lock.json', 'http-mcp/wallet-build/package-lock.json'];
+const LOCKFILE_PATHS = ['http-mcp/package-lock.json', 'stdio-mcp/package-lock.json', 'http-mcp/wallet-build/package-lock.json'];
 const DEPRECATED_VALUE_SHA256 = {
   ics23: '73db8b1fb39b70e63f1b64d8d5a7d41f7873b8d4fa8a5455f8955bfae5d3829e', crypto: '1ae46a6eb64871e470bbe6cda47a9676f54ec6d7b8ada88c01f69da140130fb6',
   request: '2520e437d9b0330c48889295afc16ae18dfa95fecadaea9b1952ae79716c263c',
@@ -127,14 +127,15 @@ const lockfileRow = (lockfilePath, blob, name, line, value) => ({
   path: lockfilePath, blob, field: `packages["node_modules/${name}"].deprecated`, line, valueSha256: DEPRECATED_VALUE_SHA256[value], reason: DISPOSITION_REASON,
 });
 const LOCKFILE_DISPOSITIONS = [
-  lockfileRow(LOCKFILE_PATHS[0], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@confio/ics23', 1167, 'ics23'),
-  lockfileRow(LOCKFILE_PATHS[0], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@cosmjs/crypto', 1295, 'crypto'),
-  lockfileRow(LOCKFILE_PATHS[0], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', 'request', 15700, 'request'),
-  lockfileRow(LOCKFILE_PATHS[1], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', '@confio/ics23', 1139, 'ics23'),
-  lockfileRow(LOCKFILE_PATHS[1], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', '@cosmjs/crypto', 1267, 'crypto'),
-  lockfileRow(LOCKFILE_PATHS[1], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', 'request', 15722, 'request'),
-  lockfileRow(LOCKFILE_PATHS[1], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', '@kynesyslabs/demosdk/node_modules/base-x', 3100, 'baseX'),
-  lockfileRow(LOCKFILE_PATHS[1], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', 'rpc-websockets', 15923, 'rpcWebsockets'),
+  lockfileRow(LOCKFILE_PATHS[0], '90f51aa8b82ef87f9da73e903194cf75fa3ff2c6', '@confio/ics23', 1222, 'ics23'),
+  lockfileRow(LOCKFILE_PATHS[0], '90f51aa8b82ef87f9da73e903194cf75fa3ff2c6', '@cosmjs/crypto', 1350, 'crypto'),
+  lockfileRow(LOCKFILE_PATHS[0], '90f51aa8b82ef87f9da73e903194cf75fa3ff2c6', 'request', 16416, 'request'),
+  lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@confio/ics23', 1167, 'ics23'),
+  lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@cosmjs/crypto', 1295, 'crypto'),
+  lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', 'request', 15700, 'request'),
+  lockfileRow(LOCKFILE_PATHS[2], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', '@confio/ics23', 1139, 'ics23'),
+  lockfileRow(LOCKFILE_PATHS[2], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', '@cosmjs/crypto', 1267, 'crypto'),
+  lockfileRow(LOCKFILE_PATHS[2], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', 'request', 15722, 'request'),
 ];
 
 function realLockfiles() {
@@ -147,11 +148,11 @@ function realLockfiles() {
 test('issue references: the upstream lockfile notices pass only their exact dispositions in the committed lockfiles', () => {
   assert.deepEqual(CONFIG.lockfileDispositions, LOCKFILE_DISPOSITIONS);
   const entries = realLockfiles();
-  assert.deepEqual(entries.map(({ oid }) => oid), [LOCKFILE_DISPOSITIONS[0].blob, LOCKFILE_DISPOSITIONS[3].blob]);
+  assert.deepEqual(entries.map(({ oid }) => oid), [LOCKFILE_DISPOSITIONS[0].blob, LOCKFILE_DISPOSITIONS[3].blob, LOCKFILE_DISPOSITIONS[6].blob]);
   assert.deepEqual(scanIssues({ entries, config: CONFIG, limits: LIMITS }), []);
-  assert.equal(scanIssues({ entries, config: { ...CONFIG, lockfileDispositions: [] }, limits: LIMITS }).length, 6);
+  assert.equal(scanIssues({ entries, config: { ...CONFIG, lockfileDispositions: [] }, limits: LIMITS }).length, 9);
   const changed = { path: 'other/package-lock.json', blob: 'c'.repeat(40), field: 'packages["node_modules/other"].deprecated', line: 2, valueSha256: 'd'.repeat(64) };
-  LOCKFILE_DISPOSITIONS.slice(0, 6).forEach((row, index) => {
+  LOCKFILE_DISPOSITIONS.forEach((row, index) => {
     for (const [name, value] of Object.entries(changed)) {
       const lockfileDispositions = LOCKFILE_DISPOSITIONS.map((candidate, at) => (at === index ? { ...candidate, [name]: value } : candidate));
       assert.equal(scanIssues({ entries, config: { ...CONFIG, lockfileDispositions }, limits: LIMITS }).length, 1, `${name} of entry ${index}`);
@@ -393,6 +394,36 @@ test('wording: only a closed fence whose language is a shell may hold entries; t
     assert.equal(wordingFindings('a.md', `Before.\n\n${fence}\n`).length, 1, fence);
   }
   assert.equal(wordingFindings('a.md', `\`\`\`sh\nThe external ${REVIEW} is complete.\n\`\`\`\n`).length, 1);
+});
+
+test('wording: a reference definition ending in a backslash does not continue onto a fence opener, so the shell block after it keeps its exemption', () => {
+  const fence = `\`\`\`sh\necho ${TERM}\n\`\`\`\n`;
+  for (const [label, lineBreak] of [['line feed', '\n'], ['carriage return', '\r'], ['CRLF', '\r\n']]) {
+    for (const indent of ['', '   ']) {
+      assert.deepEqual(wordingFindings('a.md', `[a]: u\\${lineBreak}${indent}${fence}`), [], `${label}, indent ${indent.length}`);
+    }
+    assert.deepEqual(wordingFindings('a.md', `[a]: u\\${lineBreak}~~~sh\necho ${TERM}\n~~~\n`), [], `${label}, tilde fence`);
+  }
+  assert.deepEqual(wordingFindings('a.md', `[a]: u\n\n${fence}`), []);
+});
+
+// A reference definition ends at its line in CommonMark, whatever its last character; the line after a trailing backslash is ordinary text.
+test('wording: a reference definition ending in a backslash does not hide an HTML comment on the next line, so a list entry after a comment that holds a fence line is found', () => {
+  for (const lineBreak of ['\n', '\r\n']) {
+    assert.deepEqual(findingLines('a.md', ['[a]: u\\', '<!--', '```sh', '-->', TERM, '```', ''].join(lineBreak)), [1], JSON.stringify(lineBreak));
+  }
+});
+
+test('wording: a reference definition ending in a backslash does not hide a status phrase split over the next two lines', () => {
+  assert.deepEqual(findingLines('a.md', '[tools]: C:\\tools\\\nOur external\nreview passed.\n'), [1]);
+});
+
+test('wording: a reference definition ending in a backslash does not join the paragraphs around a blank line after it', () => {
+  assert.deepEqual(findingLines('a.md', `This is not a\n[a]: u\\\n   \n${REVIEW} passed.\n`), [4]);
+});
+
+test('wording: the approved status sentence after a reference definition ending in a backslash is not a finding', () => {
+  assert.deepEqual(findingLines('a.md', `[tools]: C:\\tools\\\n${HOLD}.\n`), []);
 });
 
 test('wording: a file of many closed fences or a million unclosed fence openers is read once per line and still finds an entry after them', { timeout: 60_000 }, () => {

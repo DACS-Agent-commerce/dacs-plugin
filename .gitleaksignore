@@ -19,3 +19,18 @@ stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:28
 stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:42
 stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:46
 stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json:generic-api-key:53
+#
+# Byte-identical copy of the public DACS-Standard conformance vector
+# conformance/vectors/security/listing-preserve-unknown-v0.1.json at Standard commit
+# 04718ddb0cc462899a77b0ddc6184368b2b67df9 (blob a1359d03845a1a807461d2b933c4e39bc9ea731d).
+# The matches are Ed25519 public keys and signatures of a deterministic test fixture.
+# Editing the file would break its signatures.
+http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json:generic-api-key:36
+http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json:generic-api-key:50
+http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json:generic-api-key:54
+http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json:generic-api-key:61
+http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json:generic-api-key:124
+http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json:generic-api-key:138
+http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json:generic-api-key:142
+http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json:generic-api-key:149
+http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json:generic-api-key:208

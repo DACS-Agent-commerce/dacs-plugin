@@ -44,6 +44,8 @@ source, the tarball, the installed package and the HTTP downloads:
 - the manifest names `@kynesyslabs/demosdk` 4.0.20, esbuild 0.25.12 and the
   runtime label, and the entry carries the generated banner.
 
+Any change to the wallet's `@kynesyslabs/demosdk` version must run `http-mcp/test/embedded-wallet-sign-preimage.test.mjs`, which fixes the exact bytes the SDK signs for a message.
+
 `wallet-build/` (the esbuild 0.25.12 build tooling, its lockfile and its `node_modules`)
 is **not** in `files` or in the image build context. It must never ship. The checkers
 also reject `.env*` (except the root .env.example template), SQLite/state files, keys, wallet-named

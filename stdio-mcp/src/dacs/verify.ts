@@ -375,7 +375,9 @@ export async function verifyTxRefs(refs: unknown[], chain: ChainReader, checks: 
       }
       try {
         const tx = await chain.getTx(h.toLowerCase());
-        if (tx.state === 'included') {
+        if (tx.state === 'included' && tx.executed !== true) {
+          checks.push({ check: name, decision: 'indeterminate', detail: 'included, but execution is not established' });
+        } else if (tx.state === 'included') {
           const blockOk = ref.blockNumber === undefined || tx.blockNumber === undefined || ref.blockNumber === tx.blockNumber;
           checks.push(blockOk ? { check: name, decision: 'pass', detail: `included in block ${tx.blockNumber ?? '?'}` } : { check: name, decision: 'fail', detail: `blockNumber ${ref.blockNumber} != on-chain ${tx.blockNumber}` });
           if (paymentAmount && paymentAmount.currency === 'DEM') demTxs.push(tx);
@@ -692,7 +694,9 @@ async function verifyOwnReceipt(doc: Record<string, any>, chain: ChainReader | n
   }
   try {
     const tx = await chain.getTx(txHash);
-    if (tx.state === 'included') {
+    if (tx.state === 'included' && tx.executed !== true) {
+      checks.push({ check: 'chain-tx', decision: 'indeterminate', detail: 'included, but execution is not established' });
+    } else if (tx.state === 'included') {
       const c = tx.content;
       if (!c?.from || !c?.to) {
         checks.push({ check: 'chain-tx', decision: 'indeterminate', detail: 'included, but the node returned no content to compare' });

@@ -1,27 +1,36 @@
-// Durable state for accounts, wallets, agents, operations, challenges and the
-// OAuth provider. Backed by node:sqlite (WAL, synchronous=FULL) so idempotency
-// keys, one-use challenges and approvals are enforced by UNIQUE constraints and
-// survive process restarts.
+// Durable state for accounts, wallets, agents, operations, challenges and the OAuth provider, on
+// node:sqlite (WAL, synchronous=FULL), so idempotency keys, one-use challenges and approvals are
+// enforced by UNIQUE constraints and survive process restarts. The client's PurchaseStore owns every
+// transaction, and the client's PURCHASE_STATE_SCHEMA is the only DDL for the purchase tables: a new
+// file is created from it, and an existing file must match it exactly before anything is written.
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { PURCHASE_STATE_SCHEMA, createSqlitePurchaseStore } from '@kynesyslabs/dacs-client';
 
-// v2: reported_tx_hash no longer UNIQUE (verified-only partial index). Pre-release:
-// older files are refused rather than migrated.
-const SCHEMA_VERSION = 2;
+// Created at import, before this module prepares any statement: the client's statement guard only
+// tracks statements prepared after the store exists.
+const purchaseStore = createSqlitePurchaseStore();
 
-const MIGRATIONS = [
+/** Runs a synchronous callback in the client's BEGIN IMMEDIATE transaction; a nested call is a savepoint. Rolls back and rethrows on any error. */
+export const { transaction } = purchaseStore;
+
+/** Whether a SQLite error is a UNIQUE or PRIMARY KEY violation. */
+export const { isUniqueViolation } = purchaseStore;
+
+// v3: the purchase tables are the client's schema (operations gains handoff_expires_at and job_id).
+// Pre-release: older files are refused rather than migrated.
+const SCHEMA_VERSION = 3;
+const BUSY_TIMEOUT_MS = 5000;
+const IN_MEMORY = ':memory:';
+// Persistent settings come after busy_timeout so a concurrent first open waits instead of failing.
+const CONNECTION_PRAGMAS = [`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`, 'PRAGMA journal_mode = WAL', 'PRAGMA synchronous = FULL', 'PRAGMA foreign_keys = ON'];
+
+// The plugin's own tables; the purchase tables come from PURCHASE_STATE_SCHEMA.
+const PLUGIN_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS meta (
      key TEXT PRIMARY KEY,
      value TEXT NOT NULL
-   )`,
-  `CREATE TABLE IF NOT EXISTS accounts (
-     id TEXT PRIMARY KEY,
-     auth_issuer TEXT NOT NULL,
-     auth_subject TEXT NOT NULL,
-     display_name TEXT,
-     created_at TEXT NOT NULL,
-     UNIQUE (auth_issuer, auth_subject)
    )`,
   `CREATE TABLE IF NOT EXISTS wallets (
      address TEXT PRIMARY KEY,
@@ -31,18 +40,6 @@ const MIGRATIONS = [
      link_challenge_id TEXT NOT NULL UNIQUE
    )`,
   `CREATE INDEX IF NOT EXISTS wallets_by_account ON wallets(account_id)`,
-  `CREATE TABLE IF NOT EXISTS challenges (
-     id TEXT PRIMARY KEY,
-     nonce TEXT NOT NULL UNIQUE,
-     purpose TEXT NOT NULL,
-     account_id TEXT,
-     binding TEXT NOT NULL,
-     message TEXT NOT NULL,
-     issued_at TEXT NOT NULL,
-     expires_at TEXT NOT NULL,
-     consumed_at TEXT,
-     consumed_by TEXT
-   )`,
   `CREATE TABLE IF NOT EXISTS agents (
      id TEXT PRIMARY KEY,
      account_id TEXT NOT NULL REFERENCES accounts(id),
@@ -54,83 +51,6 @@ const MIGRATIONS = [
      updated_at TEXT NOT NULL,
      UNIQUE (account_id, listing_id),
      UNIQUE (wallet_address, listing_id)
-   )`,
-  `CREATE TABLE IF NOT EXISTS operations (
-     id TEXT PRIMARY KEY,
-     account_id TEXT NOT NULL REFERENCES accounts(id),
-     kind TEXT NOT NULL,
-     idempotency_key TEXT NOT NULL,
-     request_hash TEXT NOT NULL,
-     status TEXT NOT NULL,
-     subject_id TEXT,
-     terms TEXT NOT NULL,
-     terms_hash TEXT NOT NULL,
-     state TEXT NOT NULL DEFAULT '{}',
-     handoff_token_hash TEXT NOT NULL UNIQUE,
-     expires_at TEXT NOT NULL,
-     created_at TEXT NOT NULL,
-     updated_at TEXT NOT NULL,
-     UNIQUE (account_id, kind, idempotency_key)
-   )`,
-  `CREATE INDEX IF NOT EXISTS operations_by_subject ON operations(account_id, kind, subject_id)`,
-  `CREATE INDEX IF NOT EXISTS operations_by_account ON operations(account_id, created_at)`,
-  `CREATE TABLE IF NOT EXISTS operation_events (
-     operation_id TEXT NOT NULL REFERENCES operations(id),
-     seq INTEGER NOT NULL,
-     at TEXT NOT NULL,
-     type TEXT NOT NULL,
-     data TEXT NOT NULL,
-     PRIMARY KEY (operation_id, seq)
-   )`,
-  `CREATE TABLE IF NOT EXISTS approvals (
-     id TEXT PRIMARY KEY,
-     operation_id TEXT NOT NULL UNIQUE REFERENCES operations(id),
-     challenge_id TEXT NOT NULL UNIQUE REFERENCES challenges(id),
-     signer_address TEXT NOT NULL,
-     terms_hash TEXT NOT NULL,
-     signature TEXT NOT NULL,
-     approved_at TEXT NOT NULL
-   )`,
-  // Saved before any transaction payload is handed to a wallet. The wallet
-  // signs and broadcasts, so the hash is unknown in advance; the durable
-  // coordinates are the sender, its pre-handoff nonce fence, the expected
-  // nonce, the target and the exact unsigned payload. Only one transaction
-  // can ever consume expected_nonce for from_address.
-  `CREATE TABLE IF NOT EXISTS write_coordinates (
-     operation_id TEXT PRIMARY KEY REFERENCES operations(id),
-     kind TEXT NOT NULL,
-     network TEXT NOT NULL,
-     from_address TEXT NOT NULL,
-     nonce_fence INTEGER NOT NULL,
-     expected_nonce INTEGER NOT NULL,
-     target TEXT NOT NULL,
-     amount_os TEXT,
-     payload TEXT NOT NULL,
-     payload_hash TEXT NOT NULL,
-     saved_at TEXT NOT NULL,
-     handoffs INTEGER NOT NULL DEFAULT 1,
-     reported_tx_hash TEXT,
-     reported_at TEXT,
-     observation TEXT,
-     verified_at TEXT
-   )`,
-  `CREATE INDEX IF NOT EXISTS write_coordinates_by_sender ON write_coordinates(from_address, expected_nonce)`,
-  // A reported hash is only a pointer and may be claimed by anyone, so only a
-  // *verified* settlement hash is unique: one chain transaction can settle at
-  // most one operation, and an unverified claim cannot block another account.
-  `CREATE UNIQUE INDEX IF NOT EXISTS write_coordinates_verified_tx ON write_coordinates(reported_tx_hash) WHERE verified_at IS NOT NULL`,
-  // Insert-only record that a confirmed body the wallet itself signed used its
-  // nonce, read through an operation's pointer. Independent of that pointer
-  // and its observation, so no later read, pointer move or supersession
-  // removes it. Added without a schema bump: older files gain it empty.
-  `CREATE TABLE IF NOT EXISTS wallet_nonce_consumptions (
-     from_address TEXT NOT NULL,
-     network TEXT NOT NULL,
-     nonce INTEGER NOT NULL,
-     tx_hash TEXT NOT NULL,
-     operation_id TEXT NOT NULL REFERENCES operations(id),
-     recorded_at TEXT NOT NULL,
-     PRIMARY KEY (from_address, network, nonce, tx_hash, operation_id)
    )`,
   `CREATE TABLE IF NOT EXISTS oidc_models (
      model TEXT NOT NULL,
@@ -159,51 +79,131 @@ const MIGRATIONS = [
    )`,
 ];
 
-export function openDatabase(path) {
-  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+// Thrown when an existing app database does not hold exactly the schema this build creates.
+class PurchaseStateSchemaError extends Error {
+  constructor(detail) {
+    super(`purchase state schema mismatch: ${detail}`);
+    this.code = 'purchase_state_schema_mismatch';
+  }
+}
+
+function connect(path) {
   const db = new DatabaseSync(path);
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA synchronous = FULL');
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA busy_timeout = 5000');
-  for (const statement of MIGRATIONS) db.exec(statement);
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version');
-  if (!row) {
-    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', String(SCHEMA_VERSION));
-  } else if (Number(row.value) !== SCHEMA_VERSION) {
+  try {
+    for (const pragma of CONNECTION_PRAGMAS) db.exec(pragma);
+  } catch (error) {
     db.close();
-    throw new Error(`unsupported state schema version ${row.value}; expected ${SCHEMA_VERSION}`);
+    throw error;
   }
   return db;
 }
 
-// node:sqlite DatabaseSync is not re-entrant across BEGIN; nested calls join
-// the outer transaction.
-const depth = new WeakMap();
+// One entry per schema object: its type, table and normalized SQL, plus the columns, foreign keys and
+// indexes SQLite reports for it. The SQL comparison is needed because a reversed partial-index
+// predicate leaves the index's columns unchanged.
+function describeSchema(db) {
+  const columns = db.prepare('SELECT * FROM pragma_table_xinfo(?)');
+  const foreignKeys = db.prepare('SELECT * FROM pragma_foreign_key_list(?)');
+  const indexes = db.prepare('SELECT name, "unique", origin, partial FROM pragma_index_list(?) ORDER BY name');
+  const indexColumns = db.prepare('SELECT * FROM pragma_index_xinfo(?)');
+  const described = new Map();
+  for (const { type, name, tbl_name: table, sql } of db.prepare('SELECT type, name, tbl_name, sql FROM sqlite_master').all()) {
+    const entry = { type, table, sql: sql?.replace(/\s+/g, ' ').trim() ?? null };
+    if (type === 'table') Object.assign(entry, { columns: columns.all(name), foreignKeys: foreignKeys.all(name), indexes: indexes.all(name) });
+    if (type === 'index') entry.indexColumns = indexColumns.all(name);
+    described.set(name, JSON.stringify(entry));
+  }
+  return described;
+}
 
-// Runs fn inside BEGIN IMMEDIATE so concurrent writers (other processes on the
-// same file) serialize instead of interleaving read-check-write sequences.
-// The depth is set only once BEGIN succeeds: a BEGIN that fails (the lock is
-// held past the busy timeout) must not leave later calls running as nested,
-// that is without a transaction of their own.
-export function transaction(db, fn) {
-  const current = depth.get(db) ?? 0;
-  if (current > 0) return fn();
-  db.exec('BEGIN IMMEDIATE');
-  depth.set(db, 1);
+function referenceSchema() {
+  const reference = new DatabaseSync(IN_MEMORY);
   try {
-    const result = fn();
-    if (result && typeof result.then === 'function') throw new Error('transaction bodies must be synchronous');
-    db.exec('COMMIT');
-    return result;
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
+    reference.exec(PURCHASE_STATE_SCHEMA);
+    for (const statement of PLUGIN_SCHEMA) reference.exec(statement);
+    return describeSchema(reference);
   } finally {
-    depth.set(db, 0);
+    reference.close();
   }
 }
 
-export function isUniqueViolation(error) {
-  return error?.code === 'ERR_SQLITE_ERROR' && /UNIQUE constraint failed/.test(error.message);
+// The first object that differs from the reference, or null when the two schemas are equal.
+function schemaDifference(actual, expected) {
+  for (const [name, description] of expected) {
+    if (actual.get(name) !== description) return actual.has(name) ? `${name} differs` : `${name} is missing`;
+  }
+  for (const name of actual.keys()) {
+    if (!expected.has(name)) return `${name} is not part of the schema`;
+  }
+  return null;
+}
+
+// Reads an existing file through a read-only connection: closing a read-write one checkpoints a crashed
+// WAL file into the database, so a refused file's bytes must never meet one. Returns the number of schema
+// objects, the stored version (null when there is no version row) and, for a stored current version,
+// the first schema difference. Throws an error carrying the cause when the file cannot be read.
+function readState(path) {
+  let db;
+  try {
+    db = new DatabaseSync(path, { readOnly: true });
+    db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    const objects = db.prepare('SELECT COUNT(*) AS n FROM sqlite_master').get().n;
+    const hasMeta = db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
+    const versionRow = hasMeta ? db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() : undefined;
+    const version = versionRow?.value ?? null;
+    const difference = version !== null && Number(version) === SCHEMA_VERSION ? schemaDifference(describeSchema(db), referenceSchema()) : null;
+    return { objects, version, difference };
+  } catch (error) {
+    throw new Error(`cannot read the state database ${path}: ${error.message}`, { cause: error });
+  } finally {
+    if (db?.isOpen) db.close();
+  }
+}
+
+// Creates the whole schema in one BEGIN IMMEDIATE, after re-checking under that lock that no other run
+// created it first. A crash before COMMIT leaves no schema object, so the next open creates it again.
+// Returns the open database, or null when another run's schema was already there.
+function createDatabase(path) {
+  const db = connect(path);
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    if (db.prepare('SELECT COUNT(*) AS n FROM sqlite_master').get().n > 0) {
+      db.exec('ROLLBACK');
+      db.close();
+      return null;
+    }
+    db.exec(PURCHASE_STATE_SCHEMA);
+    for (const statement of PLUGIN_SCHEMA) db.exec(statement);
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', String(SCHEMA_VERSION));
+    db.exec('COMMIT');
+    return db;
+  } catch (error) {
+    if (db.isOpen) db.close();
+    throw error;
+  }
+}
+
+const isAbsentOrEmpty = (path) => !existsSync(path) || statSync(path).size === 0;
+
+/**
+ * Opens the app database at `path` (or ':memory:') for read and write: WAL, synchronous FULL, foreign keys on.
+ * An absent, empty or schema-less file is created from the client's schema and the plugin's tables. Any other
+ * file is read through a read-only connection first and opened only if its version is 3 and its schema equals
+ * the one a new file gets; nothing is written, repaired or checkpointed before that.
+ * Throws `unsupported state schema version <v>` for another version (no migration), an error with code
+ * `purchase_state_schema_mismatch` for a schema that differs, and an error carrying the cause when the
+ * file cannot be read.
+ */
+export function openDatabase(path) {
+  if (path !== IN_MEMORY) mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  let state = path === IN_MEMORY || isAbsentOrEmpty(path) ? null : readState(path);
+  if (!state || state.objects === 0) {
+    const created = createDatabase(path);
+    if (created) return created;
+    state = readState(path);
+  }
+  if (state.version === null) throw new PurchaseStateSchemaError('the schema has no version row');
+  if (Number(state.version) !== SCHEMA_VERSION) throw new Error(`unsupported state schema version ${state.version}; expected ${SCHEMA_VERSION}`);
+  if (state.difference) throw new PurchaseStateSchemaError(state.difference);
+  return connect(path);
 }

@@ -36,6 +36,7 @@ const VET_NOT_PERFORMED = 'dacs-chatgpt-plugin/vet-not-performed/v1';
 const PRESENTATION_SEPARATOR = 'dacs-bundle-presentation:v1:';
 const AGREEMENT_SEPARATOR = 'dacs-payee-bound-agreement:v1:';
 const FIXTURE_WRITE_PREFIX = 'dacs-chatgpt-plugin/fixture-sr2-write/v1:';
+const LISTING_SEPARATOR = 'dacs-listing:v1:';
 const SESSION_DELEGATION_PREFIX = 'dacs-chatgpt-plugin:seller-session-delegation:v1:';
 export const DEVNET_CREATE_KIND = 'devnet-agreement-storage-create';
 const BROKER_PURPOSE = 'offline-agreement-browser-session';
@@ -137,6 +138,43 @@ export async function sha256Hex(text) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+const base64url = (bytes) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+// CORE SIG-6: an unpadded Base64URL string that re-encodes to exactly itself,
+// or null. Padding, whitespace, + and /, impossible lengths and stray residual
+// bits are all refused before any cryptography.
+export function decodeSignatureValue(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) return null;
+  let bytes;
+  try { bytes = Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)); } catch { return null; }
+  return base64url(bytes) === value ? bytes : null;
+}
+
+// A public key of small order has no private key, and WebCrypto's verify accepts
+// a signature made without one. Its y is 0, 1, -1 or one of the two order-8
+// values, taken mod p so the non-canonical y + p and sign-bit encodings count too.
+const P25519 = 2n ** 255n - 19n;
+const SMALL_ORDER_Y = new Set([0n, 1n, P25519 - 1n, 0x05fc536d880238b13933c6d305acdfd5f098eff289f4c345b027b2c28f95e826n, 0x7a03ac9277fdc74ec6cc392cfa53202a0f67100d760b3cba4fd84d3d706a17c7n]);
+const smallOrderKey = (bytes) => SMALL_ORDER_Y.has((bytes.reduceRight((y, b) => (y << 8n) | BigInt(b), 0n) & (2n ** 255n - 1n)) % P25519);
+
+// Ed25519 over the UTF-8 bytes of message, by the key a did:demos:agent names,
+// through WebCrypto. A browser without Ed25519 refuses: the check is never skipped.
+export async function ed25519Valid(did, message, value) {
+  if (typeof value !== 'string' || value.length !== 86) return false;
+  const signature = decodeSignatureValue(value);
+  if (signature?.length !== 64 || !DID.test(did)) return false;
+  const publicKey = Uint8Array.from(did.slice(DID_PREFIX.length).match(/../g), (h) => parseInt(h, 16));
+  if (smallOrderKey(publicKey)) return false;
+  const subtle = globalThis.crypto?.subtle;
+  try {
+    const key = await subtle.importKey('raw', publicKey, { name: 'Ed25519' }, false, ['verify']);
+    return await subtle.verify({ name: 'Ed25519' }, key, signature, new TextEncoder().encode(message));
+  } catch (error) {
+    if (error?.name === 'DataError') return false;
+    return refuse('listing', 'this browser cannot check Ed25519 signatures, so the Listing’s signature cannot be trusted');
+  }
+}
+
 // DACS-2 composite address segment encoding (SDK encodeAddressSegment).
 const segment = (value) => value.replace(/[:?&=%]/g, (c) => ({ ':': '%3A', '?': '%3F', '&': '%26', '=': '%3D', '%': '%25' })[c]);
 const compositeAddress = (jobId, party) => `dacs2:composite:${segment(jobId)}:${segment(party)}`;
@@ -179,17 +217,69 @@ export function intentProfile(terms) {
   return null;
 }
 
-// The pinned Listing, checked against the Listing hash in the terms, and the
-// Agreement material derived from it exactly as the SDK's
-// deriveFixedPriceAgreement does: deliverable, price, rail, deadline term,
-// validity window and the seller identity hash.
+// DACS-1 §6.3.2 bundle presentation: every claim in the seller's bundle must be
+// a Demos agent key (the only claim whose control this browser can verify) with
+// its own per-claim signature over "dacs-bundle-presentation:v1:" || bundle
+// hash. The signing key is the presenter and one of those claims.
+async function verifySellerIdentity(identity, bundleHash, seller, bad) {
+  const claims = identity.claims;
+  if (['bundleVersion', 'presentedBy', 'presentedAt', 'claims', 'presentation'].some((k) => !Object.hasOwn(identity, k)) || identity.bundleVersion !== '1' || !safeInt(identity.presentedAt) || identity.presentedAt < 0
+    || (identity.sessionNonce !== undefined && typeof identity.sessionNonce !== 'string') || !Array.isArray(claims) || !claims.length || !claims.every((c) => plain(c) && typeof c.ref === 'string')) bad('identity bundle has an unexpected shape');
+  const refs = claims.map((c) => c.ref);
+  if (new Set(refs).size !== refs.length || !refs.includes(seller)) bad('identity does not name the key that signed the Listing');
+  const foreign = refs.find((ref) => !DID.test(ref));
+  if (foreign !== undefined) bad(`identity holds a ${/^[a-z][a-z0-9-]{0,31}(?=:)/.exec(foreign)?.[0] ?? 'malformed'} claim, which this wallet cannot verify`);
+  const presentation = identity.presentation;
+  if (plain(presentation) && presentation.kind !== 'per-claim') bad(`identity presentation of kind ${typeof presentation.kind === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(presentation.kind) ? presentation.kind : 'unknown'} cannot be verified in this browser`);
+  if (!exactKeys(presentation, ['kind', 'signatures']) || !Array.isArray(presentation.signatures) || presentation.signatures.length !== refs.length
+    || !presentation.signatures.every((s) => exactKeys(s, ['ref', 'signature']))) bad('identity presentation does not sign every claim');
+  for (const ref of refs) {
+    const entry = presentation.signatures.find((s) => s.ref === ref);
+    if (!entry || !await ed25519Valid(ref, `${PRESENTATION_SEPARATOR}${bundleHash}`, entry.signature)) bad('identity presentation does not verify under the seller’s key');
+  }
+}
+
+// DACS-1 §6.3.3 BundleRequirement as a reader validates it before matching
+// (PCR-1): known schemes only, a boolean verificationRequired, maxAge and
+// recipeVersion only on verified members, object parameters, no empty oneOf group.
+const SCHEMES = new Set(['key', 'did', 'domain', 'erc8004', 'substrate-validator-set', 'lei', 'finra-crd', 'sam-uei', 'fedramp', 'naics', 'cmmc', 'stor-cred', 'cci-xm', 'cci-web2', 'cci-pqc', 'cci-ud', 'cci-nomis', 'cci-humanpassport', 'cci-ethos', 'cci-tlsn']);
+const claimRequirement = (c) => plain(c) && SCHEMES.has(c.scheme) && typeof c.verificationRequired === 'boolean'
+  && (c.verificationRequired || (c.maxAge === undefined && c.recipeVersion === undefined))
+  && (c.maxAge === undefined || (safeInt(c.maxAge) && c.maxAge >= 0)) && (c.recipeVersion === undefined || (safeInt(c.recipeVersion) && c.recipeVersion >= 1)) && (c.parameters === undefined || plain(c.parameters));
+const bundleRequirement = (r) => plain(r) && r.requirementVersion === '1' && Array.isArray(r.required) && r.required.every(claimRequirement)
+  && (r.oneOf === undefined || (Array.isArray(r.oneOf) && r.oneOf.every((g) => Array.isArray(g) && g.length > 0 && g.every(claimRequirement))))
+  && (r.preferredPresentation === undefined || ['siwd', 'sr1-root', 'per-claim', 'session-key', 'any'].includes(r.preferredPresentation))
+  && (r.primaryClaimSelector === undefined || SCHEMES.has(r.primaryClaimSelector));
+
+// The pinned Listing, checked against the Listing hash in the terms and signed
+// by its seller (DACS-1 §6.3.4), and the Agreement material derived from it
+// exactly as the SDK's deriveFixedPriceAgreement does: deliverable, price,
+// rail, deadline term, validity window and the seller identity hash.
 async function listingTerms(listing, t, seller) {
   const bad = (reason) => refuse('listing', `the pinned Listing ${reason}`);
   if (!plain(listing)) bad('is missing from the purchase start');
-  if (await sha256Hex(canonicalJson(withoutKeys(listing, ['signature', 'signatures']))) !== t.listing.contentHash) bad('does not match the Listing hash of this purchase');
+  // Only the top-level signature member is left out of the hash; every other
+  // member, known or not, is signed (CORE SIG-5).
+  const listingHash = await sha256Hex(canonicalJson(withoutKeys(listing, ['signature'])));
+  if (listingHash !== t.listing.contentHash) bad('does not match the Listing hash of this purchase');
   if (listing.listingId !== t.listing.listingId || listing.listingVersion !== t.listing.version) bad('is another Listing or version');
   const identity = listing.seller?.identity;
   if (!plain(identity) || identity.presentedBy !== seller) bad('belongs to another seller');
+  // The DACS major version this wallet reads, and a member it must act on but cannot:
+  // a revocationState needs the revocation check (RSC-10), which a wallet does not run.
+  if (listing.dacsVersion !== '1') bad('uses a DACS version this wallet does not support');
+  if (Object.hasOwn(listing, 'revocationState')) bad('needs a revocation check this wallet cannot make');
+  // Exactly one ed25519 signature, by the seller, over "dacs-listing:v1:" || Listing hash.
+  const signature = listing.signature;
+  if (Object.hasOwn(listing, 'signatures') || (Array.isArray(signature) && signature.length > 1)) bad('carries more than one signature');
+  if (signature === undefined || (Array.isArray(signature) && signature.length === 0)) bad('is not signed');
+  if (!exactKeys(signature, ['algorithm', 'signer', 'value'])) bad('has a malformed signature');
+  if (signature.algorithm !== 'ed25519') bad('is signed with an algorithm this wallet cannot check');
+  if (signature.signer !== seller) bad('is signed by someone other than its seller');
+  if (!await ed25519Valid(signature.signer, `${LISTING_SEPARATOR}${listingHash}`, signature.value)) bad('signature does not verify for its seller, or the Listing was changed after it was signed');
+  const sellerBundleHash = await sha256Hex(canonicalJson(withoutKeys(identity, ['presentation'])));
+  await verifySellerIdentity(identity, sellerBundleHash, seller, bad);
+  if (!bundleRequirement(listing.buyerRequirement)) bad('has a malformed buyer requirement');
   const pipeline = listing.pipeline;
   if (!Array.isArray(pipeline) || canonicalJson(pipeline.map((x) => x?.kind ?? null)) !== canonicalJson(SUPPORTED_PIPELINE) || pipeline[PAYMENT_PHASE_INDEX].parameters?.rail !== DEM_RAIL) bad('is not the fixed-price pay-dem pipeline');
   const price = listing.pricing?.price;
@@ -209,7 +299,7 @@ async function listingTerms(listing, t, seller) {
     rail,
     deadlineAfterMs: seconds * 1000,
     validity: { notBefore: validity.notBefore, ...(validity.notAfter === undefined ? {} : { notAfter: validity.notAfter }) },
-    sellerBundleHash: await sha256Hex(canonicalJson(withoutKeys(identity, ['presentation']))),
+    sellerBundleHash,
   });
 }
 
@@ -246,6 +336,13 @@ export async function buildIntent({ view, start, wallet, now }) {
   if (t.seller.payee !== addressOf(seller)) refuse('seller', 'the payee is not the seller DID’s own address');
   const listing = t.listing;
   if (typeof listing?.listingId !== 'string' || !LISTING_ID.test(listing.listingId) || !safeInt(listing.version) || listing.version < 1 || !HEX64.test(listing.contentHash ?? '')) refuse('listing', 'the Listing reference is malformed');
+  // The Listing's SR-2 anchor (DACS-1 §6.3.4): the native storage program it was
+  // read from, or the Listing's own logical address, which the wallet derives
+  // from the signed Listing and so can bind. A logical address of another
+  // Listing is another anchor. The terms hash approved at Start covers it.
+  const anchor = listing.anchor;
+  if (!exactKeys(anchor, ['kind', 'locator']) || anchor.kind !== 'storage-program' || typeof anchor.locator !== 'string') refuse('anchor', 'the purchase terms name no SR-2 anchor for the Listing');
+  if (anchor.locator !== `dacs1:${segment(seller)}:${segment(listing.listingId)}:v${listing.version}` && !/^stor-[0-9a-f]{40}$/.test(anchor.locator)) refuse('anchor', 'the SR-2 anchor in the purchase terms is not this Listing’s anchor');
   const amountOs = decimalToOs(t.price?.amount);
   if (amountOs === null || amountOs <= 0n || !OS.test(t.price.amountOs ?? '') || BigInt(t.price.amountOs) !== amountOs) refuse('price', 'the price is malformed');
   if (typeof t.network !== 'string' || !NETWORK.test(t.network) || t.rail !== DEM_RAIL || t.domain?.rail !== DEM_RAIL || t.domain.network !== t.network) refuse('network', 'the network or payment rail is malformed');
@@ -285,6 +382,7 @@ export async function buildIntent({ view, start, wallet, now }) {
     profile: profile.kind,
     job,
     listing: Object.freeze(pin),
+    anchor: Object.freeze({ kind: anchor.kind, locator: anchor.locator }),
     seller: Object.freeze({ did: seller, address: t.seller.payee }),
     price: Object.freeze({ amount: t.price.amount, amountOs: amountOs.toString(), asset: 'DEM' }),
     network: Object.freeze({ name: t.network, rail: DEM_RAIL, mode: t.domain.mode, chainIdentity }),
@@ -321,6 +419,8 @@ export function describeIntent(intent) {
     '',
     `Listing: ${intent.listing.listingId}, version ${intent.listing.version}`,
     `Listing hash: ${intent.listing.contentHash}`,
+    // A storage locator is checked for form only; only a logical address is bound to the Listing.
+    `${intent.anchor.locator.startsWith('stor-') ? 'Storage anchor (form checked only)' : 'Listing anchor (SR-2)'}: ${intent.anchor.locator}`,
     `Seller: ${intent.seller.address}`,
     `Seller DID: ${intent.seller.did}`,
     `Price: ${intent.price.amount} ${intent.price.asset} (${intent.price.amountOs} OS), paid later in a separate approval`,
