@@ -307,11 +307,6 @@
       "count": 1
     }
   },
-  "http-mcp/test/start-intent-review-wallet.test.mjs": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
   "http-mcp/test/switch-registry.test.mjs": {
     "no-unused-vars": {
       "count": 1

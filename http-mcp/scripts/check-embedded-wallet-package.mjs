@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Artifact-bound packaging check for the EXPERIMENTAL embedded wallet assets
-// (offline-capable apart from public npm registry downloads; no deployment):
+// (no deployment; the install needs no registry, see candidate-archives.mjs):
 //  1. `npm pack` (lifecycle scripts off) into a fresh task directory; record the
 //     exact tarball SHA-256 and confirm npm's reported sha512 integrity.
 //  2. Read the tarball itself: every embedded-wallet file ships with bytes equal
@@ -9,8 +9,8 @@
 //     chunks included) is complete, local-only and closed; and no wallet-build/,
 //     stray node_modules, private or state files ship.
 //  3. Install the tarball into a new task-owned project (lifecycle scripts off,
-//     two fresh empty npm configs, TLS verification on) and compare installed
-//     bytes and the installed graph closure with the tarball.
+//     two fresh empty npm configs, offline from a seeded cache) and compare
+//     installed bytes and the installed graph closure with the tarball.
 //  4. Boot the INSTALLED bin on 127.0.0.1 with fresh cookie keys and data and no
 //     directory/RPC configuration; check /health, MCP initialize + tools/list
 //     over Streamable HTTP, and every wallet asset and every declared graph file
@@ -22,8 +22,8 @@
 // wallet works: SDK/WASM initialisation, signing and browser behaviour are
 // separate workstreams.
 //
-//   node scripts/check-embedded-wallet-package.mjs [--candidate-manifest FILE] [--keep]
-//        [--overall-timeout-ms N]
+//   DACS_SDK_CANDIDATE_DIR=DIR node scripts/check-embedded-wallet-package.mjs
+//        [--candidate-manifest FILE] [--keep] [--overall-timeout-ms N]
 //
 // Every npm run, HTTP request and MCP request has its own timeout, and the
 // whole run has an overall deadline (default 480 s). Each result line is
@@ -39,6 +39,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
+import { CANDIDATE_DIR_ENV, installOffline, isolatedNpmEnv, lockProblems, seedOfflineCache } from './candidate-archives.mjs';
 import { RUNTIME_BANNER, RUNTIME_ENTRY, RUNTIME_MANIFEST, RUNTIME_SDK_LABEL, checkRuntimeGraph, parseRuntimeManifest, runtimeManifestPaths } from './embedded-wallet-runtime.mjs';
 
 export { RUNTIME_BANNER, RUNTIME_SDK_LABEL };
@@ -95,8 +96,6 @@ export const DEFAULT_PACKAGE_OVERALL_MS = 480_000;
 export const MAX_OVERALL_MS = 900_000;
 
 const MIME = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
-// package.json bundleDependencies: the vendored DACS SDK must actually ship.
-const DECLARED_BUNDLE = ['@kynesyslabs/dacs'];
 
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
@@ -173,9 +172,8 @@ export function parseTarEntries(gz) {
 }
 
 // Reasons a shipped path must not be in the artifact. Empty array = allowed.
-// `bundledNames` is npm pack's own "bundled" list: the declared bundle
-// dependency plus its hoisted transitive dependencies. Any other node_modules
-// path is unexpected.
+// `bundledNames` is npm pack's own "bundled" list, empty unless the package
+// declares bundled dependencies. Any other node_modules path is unexpected.
 export function shippedPathFindings(rel, bundledNames = []) {
   const out = [];
   const bundled = bundledNames.some((name) => rel.startsWith(`node_modules/${name}/`));
@@ -235,9 +233,6 @@ export function compareWalletFiles({ sourceFiles, artifactFiles, label }) {
 
 export function checkShippedFileSet(paths, bundledNames = []) {
   const findings = paths.flatMap((p) => shippedPathFindings(p, bundledNames).map((id) => `${id}:${p}`));
-  for (const name of DECLARED_BUNDLE) {
-    if (!bundledNames.includes(name) || !paths.includes(`node_modules/${name}/package.json`)) findings.push(`declared-bundle-not-packed:${name}`);
-  }
   return { ok: findings.length === 0, findings };
 }
 
@@ -361,28 +356,6 @@ function npmCommand() {
   return existsSync(cli) ? { file: process.execPath, pre: [cli] } : { file: 'npm', pre: [] };
 }
 
-// npm with lifecycle scripts off, TLS verification on and two fresh empty
-// configs. Inherited npm_config_* values are dropped; HOME is left as is.
-function npmEnv(work) {
-  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^npm_config_/i.test(k)));
-  const userconfig = join(work, 'npm-userconfig');
-  const globalconfig = join(work, 'npm-globalconfig');
-  writeFileSync(userconfig, '');
-  writeFileSync(globalconfig, '');
-  return {
-    ...env,
-    npm_config_userconfig: userconfig,
-    npm_config_globalconfig: globalconfig,
-    npm_config_cache: join(work, 'npm-cache'),
-    npm_config_ignore_scripts: 'true',
-    npm_config_strict_ssl: 'true',
-    npm_config_audit: 'false',
-    npm_config_fund: 'false',
-    npm_config_update_notifier: 'false',
-    npm_config_loglevel: 'error',
-  };
-}
-
 function runNpm(args, { cwd, env, timeout = 300_000, signal }) {
   const { file, pre } = npmCommand();
   return new Promise((resolveRun, reject) => {
@@ -448,7 +421,7 @@ export async function runPackageCheck({ packageRoot = PACKAGE_ROOT, candidateMan
   let output = '';
   const cookieKeys = [randomBytes(32).toString('base64url')];
   try {
-    const env = npmEnv(work);
+    const env = isolatedNpmEnv(work);
     const packDir = join(work, 'pack');
     mkdirSync(packDir);
     const packed = JSON.parse(await runNpm(['pack', '--ignore-scripts', '--json', '--pack-destination', packDir], { cwd: packageRoot, env, signal: overall }))[0];
@@ -469,11 +442,16 @@ export async function runPackageCheck({ packageRoot = PACKAGE_ROOT, candidateMan
     const project = join(work, 'project');
     mkdirSync(project);
     writeFileSync(join(project, 'package.json'), `${JSON.stringify({ name: 'dacs-ewpkg-install-check', version: '0.0.0', private: true }, null, 2)}\n`);
-    await runNpm(['install', tarballPath, '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], { cwd: project, env, signal: overall });
+    const installEnv = { ...env, npm_config_cache: join(work, 'npm-install-cache') };
+    const seed = await seedOfflineCache({ archiveDir: process.env[CANDIDATE_DIR_ENV], lock: JSON.parse(readFileSync(join(packageRoot, 'package-lock.json'), 'utf8')), repoRoot: resolve(packageRoot, '..'), env: installEnv });
+    add('cache seeded from the SDK candidate and the locked closure archives, registry closed', true, `${seed.entries.size} packages`);
+    await installOffline(seed, ['install', tarballPath, '--omit=dev'], { cwd: project, signal: overall });
     const installedRoot = join(project, 'node_modules', '@dacs-agent-commerce', 'dacs-chatgpt-plugin');
     const lock = JSON.parse(readFileSync(join(project, 'package-lock.json'), 'utf8'));
     const lockEntry = lock.packages?.['node_modules/@dacs-agent-commerce/dacs-chatgpt-plugin'];
     add('installed from this tarball (lockfile integrity equals tarball)', lockEntry?.integrity === integrity, lockEntry?.integrity ? '' : 'npm recorded no integrity');
+    const lockIssues = lockProblems(seed, join(project, 'package-lock.json'), 'node_modules/@dacs-agent-commerce/dacs-chatgpt-plugin');
+    add('installed packages equal the candidate manifest and the frozen lockfile by integrity', lockIssues.length === 0, lockIssues.slice(0, 5).join('; '));
     const installedFiles = readSourceFiles(installedRoot);
     compareWalletFiles({ sourceFiles: tarFiles, artifactFiles: installedFiles, label: 'installed' }).forEach(record);
     add('installed package has no wallet-build directory', !existsSync(join(installedRoot, 'wallet-build')));

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync, existsSync, chmodSync, readdirSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync, existsSync, chmodSync, readdirSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { carryOver, classify, discover, judge, matches, newState, readKnown, record, CARRY_OVER, TIMEOUT, PROCESS, INCOMPLETE } from '../scripts/run-test-files.mjs';
+import { carryOver, classify, discover, judge, matches, newState, readKnown, readExpected, normalizeExpectedMessage, record, CARRY_OVER, TIMEOUT, PROCESS, INCOMPLETE } from '../scripts/run-test-files.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const runner = join(root, 'scripts/run-test-files.mjs');
@@ -21,10 +21,11 @@ function setup(t) {
   return dir;
 }
 
-async function run(dir, files, { known, timeout = 10, cwd = root, env = {} } = {}) {
-  const out = join(dir, 'results.jsonl'), knownPath = join(dir, 'known.json');
+async function run(dir, files, { known, expected, timeout = 10, cwd = root, env = {} } = {}) {
+  const out = join(dir, 'results.jsonl'), knownPath = join(dir, 'known.json'), expectedPath = join(dir, 'expected.json');
   if (known !== undefined) writeFileSync(knownPath, JSON.stringify(known));
-  const args = [runner, cwd, out, String(timeout), ...(known === undefined ? [] : ['--known', knownPath]), ...files];
+  if (expected !== undefined) writeFileSync(expectedPath, JSON.stringify(expected));
+  const args = [runner, cwd, out, String(timeout), ...(known === undefined ? [] : ['--known', knownPath]), ...(expected === undefined ? [] : ['--expected', expectedPath]), ...files];
   const result = await new Promise((done) => {
     const child = spawn(process.execPath, args, { env: { ...process.env, GITHUB_STEP_SUMMARY: '', GITHUB_ACTIONS: 'false', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
@@ -246,14 +247,29 @@ test('discovery has one root, test/; a missing root fails', async (t) => {
   assert.equal(existsSync(join(dir, 'deploy/test/unit.test.mjs')), true);
 });
 
-test('the documented discovery counts equal the runner\'s discovery with and without browser files', () => {
-  const docs = readFileSync(join(root, 'docs/CI.md'), 'utf8');
-  const counts = docs.match(/discovery finds (\d+) files under `test\/`, browser files included\s+\((\d+) without `--browser`\)/);
-  assert.ok(counts, 'document the current numbers of discovered files, with and without browser files');
+// The test files on disk, walked independently of the runner: every *.test.mjs under test/, outside fixtures/ and
+// helpers/ directories, except the runner's module file; without the browser flag also outside browser/ directories
+// and not named *.browser.test.mjs.
+function onDisk(browser) {
+  return readdirSync(join(root, 'test'), { recursive: true }).map((name) => `test/${name.split('\\').join('/')}`).filter((file) => {
+    const dirs = file.split('/').slice(1, -1);
+    return file.endsWith('.test.mjs') && file !== 'test/dacs-loopback-fixture.test.mjs' && !dirs.some((dir) => dir === 'fixtures' || dir === 'helpers')
+      && (browser || (!dirs.includes('browser') && !file.endsWith('.browser.test.mjs')));
+  }).sort();
+}
+
+test('discovery finds every test file on disk, with and without browser files; CI.md names the command and states no count', () => {
   const withBrowser = discover(root, 'test', true), without = discover(root, 'test');
   assert.ok(without.length > 0 && withBrowser.length > without.length);
-  assert.equal(Number(counts[1]), withBrowser.length);
-  assert.equal(Number(counts[2]), without.length);
+  assert.deepEqual([...withBrowser].sort(), onDisk(true));
+  assert.deepEqual([...without].sort(), onDisk(false));
+  const docs = readFileSync(join(root, 'docs/CI.md'), 'utf8');
+  assert.ok(docs.includes(`node --input-type=module -e "import { discover } from './scripts/run-test-files.mjs'; console.log(discover('.', 'test', true).length, discover('.', 'test').length)"`),
+    'CI.md names the command that prints the discovery counts');
+  // No count in any wording: no number directly before "files" or "test files", none in a sentence about discovery or
+  // discovered files, and neither current count anywhere.
+  const counted = [/\b\d+\s+(?:test\s+)?files?\b/i, /\bdiscover\w*\b[^.]*?\b\d+\b/i, new RegExp(`\\b(?:${withBrowser.length}|${without.length})\\b`)];
+  for (const pattern of counted) assert.doesNotMatch(docs, pattern, 'CI.md states no discovery count; it goes stale with every new test file');
 });
 
 test('a discovery that finds no test file fails', async (t) => {
@@ -814,4 +830,150 @@ test('runner: a test that fails reading an absent file at module evaluation (ENO
     assert.deepEqual(result.rows[0].newFailures, [PROCESS, INCOMPLETE], path);
     assert.match(readFileSync(join(dir, 'results.jsonl.failures', `${file.replace(/[\\/]/g, '__')}.tap`), 'utf8'), /^# Error: ENOENT/m, 'the cause is kept in the TAP output');
   }
+});
+
+const expectedCause = "ENOENT: no such file or directory, open 'deploy/env-contract.json'";
+const expectedEntry = (file, name, expect = expectedCause) => ({ file, test: name, expect, card: 'P46', issue: 'DACS-Agent-commerce/dacs-plugin#323', reason: 'The deploy contract is absent.' });
+
+test('a listed failure with its cause is expected after absolute prefixes are removed', () => {
+  const file = 'test/example.test.mjs', name = 'reads contract', dir = '/work/http-mcp';
+  const expected = new Map([[JSON.stringify([file, name]), expectedEntry(file, name)]]);
+  const message = `first line\nENOENT: no such file or directory, open '${dir}/deploy/env-contract.json'\nlast line`;
+  assert.equal(normalizeExpectedMessage(message, dir), `first line\n${expectedCause}\nlast line`);
+  const result = judge(file, { failures: [{ test: name, error: message }], passing: [], seen: [name], exit: 1 }, new Map(), expected, dir);
+  assert.deepEqual(result.expectedUntilCard, [name]);
+  assert.deepEqual(result.newFailures, []);
+});
+
+test('a listed failure is expected when the run directory is reached through a symlink', (t) => {
+  const real = join(setup(t), 'real'), link = join(dirname(real), 'link'), file = 'test/example.test.mjs', name = 'reads contract';
+  mkdirSync(real);
+  symlinkSync(real, link);
+  const expected = new Map([[JSON.stringify([file, name]), expectedEntry(file, name)]]);
+  const error = `ENOENT: no such file or directory, open '${realpathSync(link)}/deploy/env-contract.json'`;
+  assert.equal(normalizeExpectedMessage(error, link), `ENOENT: no such file or directory, open 'deploy/env-contract.json'`);
+  const result = judge(file, { failures: [{ test: name, error }], passing: [], seen: [name], exit: 1 }, new Map(), expected, link);
+  assert.deepEqual(result.expectedUntilCard, [name]);
+  assert.deepEqual(result.newFailures, []);
+});
+
+test('a listed failure counts as expected and leaves the runner green', async (t) => {
+  const file = fixture('expected-fail'), name = 'reads missing deploy contract';
+  const result = await run(setup(t), [file], { expected: [expectedEntry(file, name)] });
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(result.rows[0].expectedUntilCard, [name]);
+  assert.deepEqual(result.rows[0].newFailures, []);
+  assert.match(result.stdout, /1 expected until card/);
+});
+
+test('a listed test that passes is red as expected now passes', async (t) => {
+  const file = fixture('pass'), name = 'previous failure now passes', dir = setup(t), summary = join(dir, 'summary.md');
+  const result = await run(dir, [file], { expected: [expectedEntry(file, name)], env: { GITHUB_STEP_SUMMARY: summary } });
+  assert.equal(result.code, 1);
+  assert.deepEqual(result.rows[0].expectedNowPassing, [name]);
+  assert.match(result.stdout, /1 expected now passes/);
+  assert.match(readFileSync(summary, 'utf8'), /### Expected now passes: no longer fails \(passed, skipped or todo; remove their entries\)/);
+});
+
+// Synthetic reporter events: a listed test that is reported skipped or todo has stopped failing.
+for (const flag of ['skip', 'todo']) {
+  test(`a listed test reported as ${flag} is red as expected now passes`, () => {
+    const file = 'test/example.test.mjs', name = 'reads contract';
+    const expected = new Map([[JSON.stringify([file, name]), expectedEntry(file, name)]]);
+    const state = newState();
+    record(state, JSON.stringify({ type: 'test:pass', test: name, [flag === 'skip' ? 'skipped' : 'todo']: true }));
+    assert.deepEqual(state.passing, []);
+    const result = judge(file, { ...state, exit: 0 }, new Map(), expected, '/work/http-mcp');
+    assert.deepEqual(result.expectedNowPassing, [name]);
+    assert.deepEqual(result.expectedUntilCard, []);
+    assert.deepEqual(result.newFailures, []);
+  });
+}
+
+test('a listed test with another failure remains new', () => {
+  const file = 'test/example.test.mjs', name = 'reads contract';
+  const expected = new Map([[JSON.stringify([file, name]), expectedEntry(file, name)]]);
+  const result = judge(file, { failures: [{ test: name, error: "ENOENT: open 'deploy/other.json'" }], passing: [], seen: [name], exit: 1 }, new Map(), expected, '/work/http-mcp');
+  assert.deepEqual(result.expectedUntilCard, []);
+  assert.deepEqual(result.newFailures, [name]);
+});
+
+test('a listed test absent from its completed file is stale expected', async (t) => {
+  const file = fixture('pass'), name = 'removed test';
+  const result = await run(setup(t), [file], { expected: [expectedEntry(file, name)] });
+  assert.equal(result.code, 1);
+  assert.deepEqual(result.rows[0].staleExpected, [name]);
+  assert.match(result.stdout, /1 stale expected/);
+});
+
+test('a listed file absent from discovery is stale expected', async (t) => {
+  const dir = setup(t);
+  mkdirSync(join(dir, 'test'));
+  copyFileSync(join(root, fixture('pass')), join(dir, 'test/unit.test.mjs'));
+  const result = await run(dir, [], { cwd: dir, expected: [expectedEntry('test/removed.test.mjs', 'removed test')] });
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /1 stale expected/);
+});
+
+test('expected cause matching requires the normalized cause in the message', () => {
+  const file = 'test/example.test.mjs', name = 'reads contract', dir = '/work/http-mcp';
+  const expected = new Map([[JSON.stringify([file, name]), expectedEntry(file, name)]]);
+  const judgeMessage = (error) => judge(file, { failures: [{ test: name, error }], passing: [], seen: [name], exit: 1 }, new Map(), expected, dir);
+  assert.deepEqual(judgeMessage(`failed: ${dir}/deploy/env-contract.json; ${expectedCause.replace('deploy/', `${dir}/deploy/`)}`).expectedUntilCard, [name]);
+  assert.deepEqual(judgeMessage('ENOENT: no such file or directory, open a different file').newFailures, [name]);
+});
+
+test('readExpected rejects malformed entries and overlap with known failures', (t) => {
+  const dir = setup(t), path = join(dir, 'expected.json'), valid = expectedEntry('test/a.test.mjs', 'reads contract');
+  const read = (entries, known = new Map()) => { writeFileSync(path, JSON.stringify(entries)); return readExpected(path, known); };
+  assert.equal(read([valid]).size, 1);
+  assert.throws(() => read({}), /Invalid expected-until-card entry/, 'not an array');
+  const cases = [
+    ['missing field', Object.fromEntries(Object.entries(valid).filter(([field]) => field !== 'reason'))],
+    ['extra field', { ...valid, extra: true }],
+    ['bad card', { ...valid, card: 'P46-x' }],
+    ['bad issue', { ...valid, issue: '323' }],
+    ['bare number-sign issue', { ...valid, issue: `#${323}` }],
+    ['issue without a number', { ...valid, issue: 'DACS-Agent-commerce/dacs-plugin#' }],
+    ['issue number zero', { ...valid, issue: 'DACS-Agent-commerce/dacs-plugin#0' }],
+    ['placeholder title', { ...valid, test: PROCESS }],
+    ['newline in expect', { ...valid, expect: `${expectedCause}\nother` }],
+    ['absolute expect', { ...valid, expect: '/work/http-mcp/deploy/env-contract.json' }],
+    ['short expect', { ...valid, expect: 'deploy/env-contract.json' }],
+    ['no cause token', { ...valid, expect: 'ENOENT: no such file or directory, open' }],
+  ];
+  for (const [label, bad] of cases) assert.throws(() => read([bad]), /Invalid expected-until-card entry/, label);
+  assert.throws(() => read([valid, valid]), /Invalid expected-until-card entry/, 'duplicate');
+  assert.throws(() => read([valid], new Map([[JSON.stringify([valid.file, valid.test]), entry(valid.file, valid.test)]])), /Invalid expected-until-card entry/, 'known overlap');
+});
+
+test('readExpected refuses an absolute path anywhere in expect and names the cause by path or versioned package', (t) => {
+  const dir = setup(t), path = join(dir, 'expected.json'), valid = expectedEntry('test/a.test.mjs', 'reads contract');
+  const read = (expect) => { writeFileSync(path, JSON.stringify([{ ...valid, expect }])); return readExpected(path); };
+  const scoped = "'@kynesyslabs/dacs@0.1.0-alpha.0' is not in this registry";
+  assert.equal(read(scoped).size, 1, 'scoped package with its version');
+  assert.equal(read('x'.repeat(16) + ' deploy/a.json').size, 1, 'exactly 30 characters');
+  assert.equal(readExpected(join(root, 'test/expected-until-card.json')).size, 11, 'the shipped list');
+  const refused = [
+    ['absolute path in the middle', "ENOENT: no such file or directory, open '/work/http-mcp' then 'deploy/env-contract.json'"],
+    ['absolute path after the cause', `${expectedCause} in /work/http-mcp`],
+    ['absolute path in parentheses', `${expectedCause} (/work/http-mcp)`],
+    ['newline after the cause', `${expectedCause}\nsecond line`],
+    ['29 characters', 'x'.repeat(15) + ' deploy/a.json'],
+    ['scoped package without a version', "'@kynesyslabs/dacs' is not in this registry"],
+    ['a ../ cause path', "ENOENT: no such file or directory, open '../outside/file.json'"],
+    ['a ./ cause path', "ENOENT: no such file or directory, open './test/x.json'"],
+    ['an a/../b.json cause path', "ENOENT: no such file or directory, open 'a/../b.json'"],
+    ['a ../ path beside a valid one', "ENOENT: no such file or directory, open 'test/x.json' then '../outside/file.json'"],
+  ];
+  assert.equal(read("ENOENT: no such file or directory, open 'test/x.json'").size, 1, 'a plain repo-relative cause path');
+  for (const [label, expect] of refused) assert.throws(() => read(expect), /Invalid expected-until-card entry/, label);
+});
+
+test('CI failing-test list matches expected JSON in both directions', () => {
+  const entries = JSON.parse(readFileSync(join(root, 'test/expected-until-card.json'), 'utf8'));
+  const section = readFileSync(join(root, 'docs/CI.md'), 'utf8').split('### Failing tests not covered by the baseline\n')[1].split(/\n#{2,3} /)[0];
+  const bullets = [...section.matchAll(/^- `([^`]+)` — (.+) — (P\d+[a-z0-9]*) — ([A-Za-z0-9-]+\/[\w.-]+#\d+)$/gm)]
+    .map(([, file, title, card, issue]) => [file, title, card, issue]);
+  assert.deepEqual(bullets.sort(), entries.map(({ file, test, card, issue }) => [file, test, card, issue]).sort());
 });

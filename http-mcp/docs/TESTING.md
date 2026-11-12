@@ -1,6 +1,6 @@
 # Offline test replay (source checkout)
 
-**State of this repository.** These steps describe the source tree this package was imported from. Here `npm ci` stops because the vendored SDK archive is not carried, `deploy/` is not carried, and about half of the test files fail when they load the modules that are not carried. In a source checkout, see `PROVENANCE.md` at the repository root, "Not carried".
+**State of this repository.** These steps describe the source tree this package was imported from. Here a plain `npm ci` fails because the pinned SDK packages are not published yet (the install checks use local archives, see CI.md), `deploy/` is not carried, and about half of the test files fail when they load the modules that are not carried. In a source checkout, see `PROVENANCE.md` at the repository root, "Not carried".
 
 These instructions are for a **source checkout** of the plugin. The installed package does not include the `test/` or `deploy/` directories, so none of these commands can run from an installed tarball.
 
@@ -8,9 +8,9 @@ Every check here runs against SIMULATED local fixtures: chain, directory and wal
 
 ## Runtime
 
-- Node 22.13 or later; the recorded runs used 22.22.0 with its bundled npm.
+- Node `^22.22.2 || ^24.15.0`; the recorded 22.22.0 runs are historical and below this supported range.
 - Install from the lockfile, in `http-mcp/`, with lifecycle scripts disabled:
-  `npm ci --ignore-scripts --no-audit --no-fund`
+  `npm ci --ignore-scripts --omit=optional --no-audit --no-fund`
 - Browser checks need a real local Chrome or Chromium binary. Point `DACS_TEST_CHROME` at it; the macOS default path does not exist on Linux. Use the binary that matches the installed `playwright-core`, which records its expected revision in `node_modules/playwright-core/browsers.json`. A missing browser is a BLOCKED skip, never a pass.
 
 ## Use a short TMPDIR
@@ -43,11 +43,11 @@ DACS_TEST_CHROME=/path/to/chrome node scripts/check-offline-tester-package.mjs [
   real Chromium through the simulated-loopback workflows. See OFFLINE-TESTER.md.
 - **Node floor:** this source checker needs **Node >= 22.15**, because it
   records installed imports with `node:module.registerHooks`. It was tested on
-  22.22.0.
+  22.22.0 (a historical run below the current supported range).
   - On an older Node it does not fail with a link error. Its first clause fails
     with a clear message, and it exits 1 before packing anything.
   - This floor applies only to the source checker. The installed package and
-    its launcher still support the documented runtime, Node >= 22.13.
+    its launcher still support the documented runtime, Node `^22.22.2 || ^24.15.0`.
 - **Browser:** a missing `DACS_TEST_CHROME` browser is a failure, not a skip.
 - **`--keep`:** keeps the task directory (tarball, install project) and prints
   its path.

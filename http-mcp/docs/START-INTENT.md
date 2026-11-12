@@ -35,7 +35,12 @@ write list and total fee calculation support additional steps without changing
 the intent format, but no buyer Vet write is enabled yet.
 
 The wallet hash-checks the signed Listing supplied at Start against the
-approved Listing pin. A deliverable schema must be an absolute URI without
+approved Listing pin and verifies its one ed25519 signature by the seller.
+It refuses, with the `listing` reason (or `anchor`), a Listing or purchase
+with: a presentation kind other than `per-claim`; a seller claim that is not
+a Demos agent key; a `revocationState`; no SR-2 anchor in the purchase terms;
+a signature value that is not 86 characters; a seller key of small order
+(which has no private key); or a browser without Ed25519. A deliverable schema must be an absolute URI without
 spaces. It derives the deliverable, seller identity hash and
 deadline interval from that material. It rebuilds the entire Agreement from
 these facts, the checked buyer identity, exact approved time, fixed payout

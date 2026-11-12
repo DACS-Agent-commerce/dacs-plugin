@@ -125,10 +125,11 @@ For an unsent v1 publication, its owner can use v2 `cancel_wallet_handoff` with 
 The operator owns recovery. Keep the seller service stopped, stop v2, and take
 a consistent backup of its database and journals before opening the same state
 with the preserved v1 code, which the operator keeps separately.
-V1 and this v2 use the same `meta.schema_version = 2` and unchanged database,
-operation and coordinate stores. This is not a downgrade procedure for a
-different schema: stop if the version differs. Never run both services against
-the state concurrently.
+V1 stores `meta.schema_version = 2`. This v2 creates version 3 and refuses a
+version 2 file without changing it, so v1 can still open state that v1 wrote.
+This is not a downgrade procedure for a different schema: stop if the version
+differs, which it does for any database this v2 created. Never run both
+services against the state concurrently.
 
 Use the v1 HTTP MCP service with the publication owner's existing account and
 `dacs.agents.write` scope. For the saved agent ID, issue only this MCP request

@@ -65,7 +65,7 @@ Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 | `http-mcp/.dockerignore` | `aae035eb68f5747b0bda683606503b97ca99afdf` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/.env.example` | `61149650b005fca4655a1ba4d338e3b2a5f52f7d` | verbatim |
 | `http-mcp/.gitignore` | `1a8d076aff4a0fae67103239e52b41dd82b25daf` | verbatim |
-| `http-mcp/Dockerfile` | `3022187f12cadd3b40980a8911840d832ffe5299` | verbatim |
+| `http-mcp/Dockerfile` | `e5082b20497f0157febbd5df404bd0c3daeba052` | changed here: no vendored SDK copy; optional packages are not installed |
 | `http-mcp/README.md` | `5e6379298817040a1d8b4da1b537e621ba07e1a0` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a "state of this repository" section; install directory corrected; no private commit id or planned tag; Community source license and re-implementation stated; then changed here: two mentions of the provenance file say "source checkout" |
 | `http-mcp/bin/dacs-chatgpt-offline-test.mjs` | `a7d035520a1632b822cb03c05fd589f19a9052ea` | verbatim |
 | `http-mcp/bin/dacs-chatgpt-plugin.mjs` | `7352d9ac1f5c9aa79a7591a4f52a6bb27b2744e1` | verbatim |
@@ -101,8 +101,8 @@ Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 | `http-mcp/docs/DURABLE-WALLET-JOURNAL.md` | `4a48ffad0a2593dc55d3322adf517924cd12ad88` | edited: fixture path renamed |
 | `http-mcp/docs/EMBEDDED-WALLET-FLOW-COVERAGE.md` | `27798c78872f503dba182cbad06176634e764381` | edited: public wording: internal review, process, PR and private-path references removed or reworded; directory name in a column header corrected; digests of internal run logs and a source manifest removed |
 | `http-mcp/docs/EMBEDDED-WALLET-INTEGRATION.md` | `d5894a9ff7498d9e86e98500bdd5f6fb1220bfb5` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
-| `http-mcp/docs/EMBEDDED-WALLET-PACKAGING.md` | `ce5df812fa4b2dabd51b77e09c26b930efc62624` | edited: exclusion wording follows the renamed label; then changed here: the working-notes file names are marked as a source checkout's
-| `http-mcp/docs/EMBEDDED-WALLET-SDK.md` | `8ccbe63c02ff99879267b536a4178d6b116f00eb` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; build and test commands written as plain npm and node commands; then changed here: the not-claimed list uses disclaimer forms, as the public-gate wording rule requires |
+| `http-mcp/docs/EMBEDDED-WALLET-PACKAGING.md` | `d30daf17b8a8e563a6c71dd5a1612346a2d064f9` | edited: exclusion wording follows the renamed label; then changed here: the working-notes file names are marked as a source checkout's, and a SDK version change must run the message-signing bytes test
+| `http-mcp/docs/EMBEDDED-WALLET-SDK.md` | `d0e9de74cee91283ecc550c6b5ffd5a0e2f35398` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; build and test commands written as plain npm and node commands; then changed here: the not-claimed list uses disclaimer forms, as the public-gate wording rule requires; the `sign` row names the transaction-form refusal and the `transaction_preimage_refused` code |
 | `http-mcp/docs/EMBEDDED-WALLET-TESTER.md` | `8c9fa22eb95a036b42bde35227d8d2004d77ba6d` | edited: public wording: internal review, process, PR and private-path references removed or reworded; status given in the exact public sentence; directory name in a command corrected; public wording: internal process and layout references reworded; then changed here: the last prohibition no longer names the review, as the public-gate wording rule requires |
 | `http-mcp/docs/EMBEDDED-WALLET-UI.md` | `ef559cc6f95a207be660285391a0451d2b1ec348` | edited: public wording: internal review, process, PR and private-path references removed or reworded; public wording: internal process and layout references reworded |
 | `http-mcp/docs/FEE-APPROVAL-RECOVERY-CONTRACT.md` | `66133790dbd106b2453a777e554540e437b928de` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -170,7 +170,7 @@ Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 | `http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-YUIZVLEY.mjs` | `57fce607ea6f158bc82913323dda5f99bc9a2f7a` | verbatim |
 | `http-mcp/public/portal/embedded-wallet/runtime-chunks/entry-AVSAFOKW.mjs` | `7e2c5cfab5d666a98c5cef4f39cd14a60fcae7ba` | verbatim |
 | `http-mcp/public/portal/embedded-wallet/runtime-manifest.json` | `ccd667c3d4869f62728d44a8e1e0810ba82e2adc` | verbatim |
-| `http-mcp/public/portal/embedded-wallet/sdk-provider.mjs` | `6e82c6a7056ffb44431ae2a1c643e0ca5ca4ef76` | edited: held-gate id renamed; comments: internal references removed; held-write message reworded to the approved status sentence; further public wording |
+| `http-mcp/public/portal/embedded-wallet/sdk-provider.mjs` | `802a6f692cda426bf698545ab53e6e8d7f00fbd0` | edited: held-gate id renamed; comments: internal references removed; held-write message reworded to the approved status sentence; further public wording; then changed here: `sign` refuses a transaction hash or a `demos-tx:v1:` string, decided on the text the SDK signs, and the wallet's RPC-auth signing is a module-private function |
 | `http-mcp/public/portal/embedded-wallet/stores.mjs` | `5ac4343b09dd01d1e4608e21878208d832c81b81` | verbatim |
 | `http-mcp/public/portal/embedded-wallet/ui.mjs` | `f393a15669bcc9aed9bef0c0e4be067a523edf4f` | edited: held-write message reworded to the approved status sentence |
 | `http-mcp/public/portal/embedded-wallet/vault.mjs` | `a719e24f38605351df2c29d451e3ea90185f2d59` | verbatim |
@@ -197,7 +197,7 @@ Files: 744 (verbatim 490, edited 215, changed here 11, added 28).
 | `http-mcp/scripts/check-embedded-wallet-package.mjs` | `203061ec96ab5eecc629de08f20cfd4202722cf3` | edited: three names removed from the package-exclusion pattern; no other behaviour change; one exclusion label renamed |
 | `http-mcp/scripts/check-off-unchanged.mjs` | `7d6e9538a8d279bb89540012dca559c8b95e5cef` | verbatim |
 | `http-mcp/scripts/check-offline-tester-package.mjs` | `3286bb7527a78bc1e0396a40fd4b1b253d446ca6` | verbatim |
-| `http-mcp/scripts/check-package.mjs` | `3855423aeada873c836d59928cbfe409a608240f` | verbatim |
+| `http-mcp/scripts/check-package.mjs` | `3dba763df0f19e5b1ef8f45ee7efc8da042882aa` | changed here: both installs run offline from the SDK candidate and the locked closure |
 | `http-mcp/scripts/check-tester-dashboard-package.mjs` | `2a64982fdbcbabd7eaa9d393978b465c34ec2797` | verbatim |
 | `http-mcp/scripts/config-equivalence-migration.mjs` | `5886e736b864ef09d692c71497fe9789a751b5f1` | edited: comments and test names: internal review and process references removed; no behaviour change; the default baseline is the ref name `v1-baseline` instead of a commit id; fixture path renamed |
 | `http-mcp/scripts/devnet-demo-compose.mjs` | `1de7461cf7578ee046ca225df1db7b4b05915baa` | verbatim |

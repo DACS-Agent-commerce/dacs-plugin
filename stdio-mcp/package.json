@@ -30,7 +30,9 @@
     "start": "node dist/index.js",
     "test": "tsx --test test/unit/*.test.ts",
     "test:integration": "tsx --test test/integration/*.test.ts",
-    "validate:plugin": "claude plugin validate ."
+    "validate:plugin": "claude plugin validate .",
+    "check:thin-plugin": "node scripts/check-thin-plugin.mjs",
+    "test:thin-plugin": "node --test test/thin-plugin-scan.test.mjs test/thin-plugin.test.mjs test/thin-plugin-report.test.mjs test/thin-plugin-inventory.test.mjs"
   },
   "keywords": [
     "demos",

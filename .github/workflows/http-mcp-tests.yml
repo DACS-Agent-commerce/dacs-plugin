@@ -51,14 +51,15 @@ jobs:
           cache-dependency-path: |
             http-mcp/package-lock.json
             http-mcp/wallet-build/package-lock.json
-      # An SDK input that cannot be verified stops the job here, as unverifiable and not as a test failure,
-      # before any install; a forbidden input is refused. Nothing in this job skips or tolerates this step.
+      # A forbidden or unverifiable SDK input stops here. Exact registry pins can pass this
+      # check even when npm later gets 404; in that case npm ci fails before tests run.
       - name: Validate the SDK input before the http-mcp install
         run: node ../scripts/ci/sdk-input.mjs --prepare http-mcp
-      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts --omit=optional --no-audit --no-fund
       - name: Validate the SDK input before the wallet-build install
         run: node ../scripts/ci/sdk-input.mjs --prepare http-mcp
       # The embedded wallet's payment and broadcast tests need the pinned Demos SDK.
+      # Optional packages stay: esbuild's platform binary is one of them.
       - run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: http-mcp/wallet-build
       # The CLI payment and recovery tests exercise programmatic purchase recovery on a terminal with /usr/bin/expect.
