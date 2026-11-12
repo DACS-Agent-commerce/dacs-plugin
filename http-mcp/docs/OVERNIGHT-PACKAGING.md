@@ -9,17 +9,22 @@ tarball and image it ran against.
 
 ## Runtime floor and platforms
 
-- `engines.node` is `>=22.13.0` in `package.json` and the lockfile root. The floor
-  comes from `node:sqlite` (`src/store/database.mjs`), which loads without
-  `--experimental-sqlite` only from Node 22.13.0. Every locked production
-  dependency accepts 22.13.0, and shipped `bin/` and `src/` code uses no Node API
-  added later. `test/overnight-package.test.mjs` checks both.
+- `engines.node` is `^22.22.2 || ^24.15.0` in `package.json` and the lockfile root. The range
+  comes from the locked production closure; every runtime dependency must
+  accept its supported floors. `test/overnight-package.test.mjs` checks this with no exceptions.
   `deploy/scripts/validate-package.mjs` refuses a lower floor while `node:sqlite`
   is used, and refuses a lockfile root whose `engines` differ from `package.json`.
-- Only Node 22.22.0 on Linux x64 has been executed. Node 22.13.x, macOS and
-  Windows have not been tested. The locked production dependencies have no
-  native addons, install scripts or OS/CPU restrictions; that suggests the other
-  platforms will work, but proves nothing. The source-checkout checkers find npm in Unix
+- This round ran Node 22.23.3 on Linux x64. Other supported Node versions, macOS and
+  Windows have not been tested. The lockfile marks `hasInstallScript` on 12
+  non-optional package records: `@confio/ics23/node_modules/protobufjs`,
+  `@kynesyslabs/demosdk`, `@multiversx/sdk-wallet/node_modules/keccak`, three
+  `@near-js` copies of `secp256k1`, `bigint-buffer`,
+  `bitcoinjs-message/node_modules/secp256k1`, `keccak`,
+  `near-api-js/node_modules/secp256k1`, `protobufjs` and `secp256k1`.
+  `keccak`, `secp256k1` and `bigint-buffer` include native addons. The locked
+  production records have no OS/CPU restrictions. The installs shown here use
+  `--ignore-scripts`, so these install scripts do not run; that alone does not
+  prove native addons work on other platforms. The source-checkout checkers find npm in Unix
   install locations (or start `npm.cmd` without a shell) and are not expected to
   work on Windows.
 - The source-only installed-artifact checkers (`check-offline-tester-package`,

@@ -1,7 +1,7 @@
 # Safety showcase: refusal and recovery
 
 These examples make the plugin's protections reproducible without paying anyone.
-Run from `http-mcp/` with Node 22.13 or later and the installed dependencies:
+Run from `http-mcp/` with Node `^22.22.2 || ^24.15.0` and the installed dependencies:
 
 ```sh
 node scripts/showcase-safety.mjs all

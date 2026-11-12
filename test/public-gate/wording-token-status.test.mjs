@@ -35,6 +35,42 @@ for (const [name, token] of tokens) {
   }
 }
 
+for (const [label, lineBreak] of [['line feed', '\n'], ['carriage return', '\r'], ['CRLF', '\r\n']]) {
+  test(`wording token status: a link title with an escaped ${label} between the words is found`, () => {
+    for (const kind of [EXTERNAL, SECURITY]) {
+      assert.deepEqual(findingLines(`Intro.\n\n[label](u "${kind}\\${lineBreak}${REVIEW}: done")\n`, 'a.md'), [3]);
+    }
+  });
+
+  test(`wording token status: a reference title with an escaped ${label} between the words is found`, () => {
+    for (const kind of [EXTERNAL, SECURITY]) {
+      assert.deepEqual(findingLines(`Intro.\n\n[label]: u "${kind}\\${lineBreak}${REVIEW}: done"\n`, 'a.md'), [3]);
+    }
+  });
+}
+
+test('wording token status: a reference title in single quotes is found across an escaped line break, a blank line ends it, and a backslash with no open title joins nothing', () => {
+  assert.deepEqual(findingLines(`Intro.\n\n[label]: u '${EXTERNAL}\\\n${REVIEW}: done'\n`, 'a.md'), [3]);
+  assert.deepEqual(findingLines(`Intro.\n\n[label]: u "${EXTERNAL}\\\n\n${REVIEW}: done"\n`, 'a.md'), []);
+  assert.deepEqual(findingLines(`Intro.\n\n[label]: C:\\tools\\\n${EXTERNAL}\n${REVIEW}: done\n`, 'a.md'), [3]);
+});
+
+for (const [label, lineBreak] of [['LF', '\n'], ['CRLF', '\r\n']]) {
+  test(`wording token status: a comment that opens on the last line of a continued reference title is found (${label})`, () => {
+    const text = `Intro.${lineBreak}${lineBreak}[a]: u "x\\${lineBreak}y" <!--${lineBreak}${SECURITY} ${REVIEW} passed -->${lineBreak}`;
+    assert.deepEqual(findingLines(text, 'a.md'), [3]);
+  });
+
+  test(`wording token status: a link title that opens on the last line of a continued reference title is found (${label})`, () => {
+    const text = `Intro.${lineBreak}${lineBreak}[a]: u "x\\${lineBreak}y" [l](v "${lineBreak}${SECURITY} ${REVIEW} passed")${lineBreak}`;
+    assert.deepEqual(findingLines(text, 'a.md'), [3]);
+  });
+}
+
+test('wording token status: a link title with a backslash at the end of a line and no review words is not found', () => {
+  assert.deepEqual(findingLines('[label](u "first\\\nsecond")', 'a.md'), []);
+});
+
 test('wording token status: a data attribute name with an underscore is found', () => {
   assert.deepEqual(findingLines(`<p data-${EXTERNAL}_${REVIEW}="complete">x</p>`), [1]);
 });

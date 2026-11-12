@@ -393,7 +393,7 @@ installed package.
 - **Built-in wallet publication is simulated-loopback only.** It is enabled
   by the launcher's fixture profile; production and testnet profiles do not
   allow it.
-- **Tested on Linux only** (Chromium snap, Node 22.22.0). Mac and Windows need
+- **Historical Linux run only** (Chromium snap, Node 22.22.0, below the current supported range). Mac and Windows need
   human confirmation.
 - **Held gates.** The external security review is on hold. Live Demos testnet and ChatGPT are
   held.

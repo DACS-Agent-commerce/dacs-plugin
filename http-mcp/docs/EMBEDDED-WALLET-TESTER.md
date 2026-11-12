@@ -27,7 +27,7 @@ Every test name carries its evidence label. Keep them separate when reporting.
 
 ## Run
 
-From `http-mcp/`, on Node 22 with dependencies installed (`npm ci`):
+From `http-mcp/`, on Node 22 with dependencies installed (`npm ci --omit=optional`):
 
 ```sh
 # Node contract tests (whole ordinary suite):

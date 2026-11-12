@@ -112,10 +112,10 @@ test('parseTarEntries rejects a corrupted header and a traversal path', () => {
 
 // ---- shipped file set -----------------------------------------------------
 
-const BUNDLED = ['@kynesyslabs/dacs', 'boolbase'];
+const BUNDLED = ['boolbase'];
 const validShipList = () => ['package.json', 'bin/dacs-chatgpt-plugin.mjs', '.env.example', `${WALLET_DIR}/index.html`, RUNTIME_ASSET, RUNTIME_MANIFEST_ASSET,
   `${WALLET_DIR}/runtime-chunks/chunk-BBBBBBBB.mjs`,
-  'node_modules/@kynesyslabs/dacs/package.json', 'node_modules/@kynesyslabs/dacs/dist/index.js', 'node_modules/boolbase/index.js', 'docs/EMBEDDED-WALLET-SDK.md'];
+  'node_modules/boolbase/index.js', 'docs/EMBEDDED-WALLET-SDK.md'];
 
 test('shipped file set: the public runtime manifest and chunks are allowed; wallet-named JSON stays forbidden beside them', () => {
   assert.deepEqual(shippedPathFindings(RUNTIME_MANIFEST_ASSET, BUNDLED), []);
@@ -148,11 +148,9 @@ test('shipped file set: control passes; each forbidden path is reported with its
   }
 });
 
-test('shipped file set: the declared DACS bundle must actually be packed', () => {
-  const withoutDacs = validShipList().filter((p) => !p.startsWith('node_modules/@kynesyslabs/'));
-  assert.deepEqual(checkShippedFileSet(withoutDacs, ['boolbase']).findings, ['declared-bundle-not-packed:@kynesyslabs/dacs']);
-  // npm listing the name without its package.json is still not a packed bundle.
-  assert.deepEqual(checkShippedFileSet(withoutDacs, BUNDLED).findings, ['declared-bundle-not-packed:@kynesyslabs/dacs']);
+test('shipped file set: the SDK is installed from the candidate, so a packed copy of it is unexpected', () => {
+  const sdkFile = 'node_modules/@kynesyslabs/dacs/package.json';
+  assert.deepEqual(checkShippedFileSet([...validShipList(), sdkFile], BUNDLED).findings, [`unexpected-node-modules:${sdkFile}`]);
 });
 
 // ---- source vs artifact bytes ---------------------------------------------

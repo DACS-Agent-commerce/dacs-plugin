@@ -24,10 +24,12 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 
 const PACKAGE_ROOT = realpathSync(fileURLToPath(new URL('..', import.meta.url)));
 const PACKAGE_NAME = '@dacs-agent-commerce/dacs-chatgpt-plugin';
-// node:sqlite (src/store/database.mjs) is importable without
-// --experimental-sqlite from Node 22.13.0; every other runtime API and
-// dependency engine range admits older 22.x releases.
-const DOCUMENTED_FLOOR = '22.13.0';
+// The supported release lines come from the locked production closure.
+const DOCUMENTED_RANGE = '^22.22.2 || ^24.15.0';
+const DOCUMENTED_FLOORS = ['22.22.2', '24.15.0'];
+// Check each release line's upper bound at its largest stable semver components.
+const DOCUMENTED_TOPS = DOCUMENTED_FLOORS.map((version) => `${version.split('.')[0]}.${Number.MAX_SAFE_INTEGER}.${Number.MAX_SAFE_INTEGER}`);
+const DOCUMENTED_FLOOR = DOCUMENTED_FLOORS[0];
 const EXPECTED_TOOLS = ['cancel_wallet_handoff', 'get_account_status', 'get_identities', 'get_listing', 'get_profile',
   'get_purchase_status', 'prepare_purchase', 'search_agents', 'start_identity_action', 'start_wallet_link',
   'verify_deal'];
@@ -55,6 +57,7 @@ export function admits(range, version) {
     const tokens = alternative.trim().replace(/(>=|<=|>|<|=|\^|~)\s+/g, '$1').split(/\s+/).filter(Boolean);
     if (!tokens.length) throw new Error(`empty comparator set in "${range}"`);
     return tokens.map((token) => {
+      if (token === '*') return null;
       const m = /^(>=|<=|>|<|=|\^|~)?v?(\d+)(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?$/.exec(token);
       if (!m) throw new Error(`unsupported range token "${token}" in "${range}"`);
       // An x/* part is the same as an omitted one.
@@ -62,7 +65,9 @@ export function admits(range, version) {
     });
   });
   return sets.some((comparators) => {
-    return comparators.every(([, op = '', major, minor, patch]) => {
+    return comparators.every((comparator) => {
+      if (comparator === null) return true;
+      const [, op = '', major, minor, patch] = comparator;
       const base = [Number(major), Number(minor ?? 0), Number(patch ?? 0)];
       const c = cmp(v, base);
       switch (op) {
@@ -82,24 +87,27 @@ export function admits(range, version) {
 }
 
 test('range check: accepting and refusing controls for the forms in the lockfile', () => {
-  assert.equal(admits('>=22.13.0', '22.13.0'), true);
-  assert.equal(admits('>=22.13.0', '22.12.9'), false);
-  assert.equal(admits('^20.19.0 || >=22.12.0', '22.13.0'), true);
+  for (const version of DOCUMENTED_FLOORS) assert.equal(admits(DOCUMENTED_RANGE, version), true);
+  for (const version of ['22.22.1', '23.0.0', '24.14.9', '25.0.0', '26.0.0']) assert.equal(admits(DOCUMENTED_RANGE, version), false);
+  assert.equal(admits('>=22.22.2', '22.12.9'), false);
+  assert.equal(admits('^20.19.0 || >=22.12.0', '22.22.2'), true);
   assert.equal(admits('^20.19.0 || >=22.12.0', '21.7.0'), false);
-  assert.equal(admits('>= 0.6', '22.13.0'), true);
+  assert.equal(admits('>= 0.6', '22.22.2'), true);
   assert.equal(admits('>=20', '19.9.9'), false);
-  assert.equal(admits('>=22.14.0', DOCUMENTED_FLOOR), false);
-  assert.equal(admits('>=0.6.x', '22.13.0'), true);
-  assert.equal(admits('22.x', '22.13.0'), true);
-  assert.equal(admits('21.x', '22.13.0'), false);
-  assert.throws(() => admits('1.2.3 - 2.0.0', '22.13.0'), /unsupported range token/);
-  assert.throws(() => admits('latest', '22.13.0'), /unsupported range token/);
+  assert.equal(admits('>=22.23.0', DOCUMENTED_FLOOR), false);
+  assert.equal(admits('>=0.6.x', '22.22.2'), true);
+  assert.equal(admits('22.x', '22.22.2'), true);
+  assert.equal(admits('21.x', '22.22.2'), false);
+  assert.equal(admits('*', '22.22.2'), true);
+  assert.equal(admits('*', '1.0.0'), true);
+  assert.throws(() => admits('1.2.3 - 2.0.0', '22.22.2'), /unsupported range token/);
+  assert.throws(() => admits('latest', '22.22.2'), /unsupported range token/);
 });
 
 test('the documented Node floor is the same in package.json, the lockfile root, the image and the tester docs', () => {
   const pkg = json('package.json');
   const lock = json('package-lock.json');
-  assert.equal(pkg.engines?.node, `>=${DOCUMENTED_FLOOR}`);
+  assert.equal(pkg.engines?.node, DOCUMENTED_RANGE);
   assert.equal(lock.packages?.['']?.engines?.node, pkg.engines.node, 'package-lock.json root engines');
   for (const [file, re] of [['Dockerfile', /^FROM\s+node:(\d+\.\d+\.\d+)-/m]]) {
     const version = re.exec(readFileSync(join(PACKAGE_ROOT, file), 'utf8'))?.[1];
@@ -108,23 +116,47 @@ test('the documented Node floor is the same in package.json, the lockfile root, 
     assert.ok(admits(pkg.engines.node, version), `${file} base ${version} satisfies ${pkg.engines.node}`);
   }
   const quickstart = readFileSync(join(PACKAGE_ROOT, 'docs/TESTER-QUICKSTART.md'), 'utf8');
-  assert.match(quickstart, /Node\.js 22\.13 or later \(`engines\.node` is `>=22\.13\.0`\)/);
+  assert.ok(quickstart.includes(`Node.js \`${DOCUMENTED_RANGE}\` (\`engines.node\`)`));
+  assert.match(readFileSync(join(PACKAGE_ROOT, 'Dockerfile'), 'utf8'), /^FROM node:22\.23\.3-bookworm-slim@sha256:3ed98443660ff48413b5af19ecefce3b9d50845a901a43420d47cc63a9fddbe9$/m);
 });
 
-test('every locked runtime dependency admits the documented floor', () => {
-  const lock = json('package-lock.json');
+function checkLockedNodeRanges(lock) {
   const checked = [];
   for (const [key, entry] of Object.entries(lock.packages ?? {})) {
     if (!key || entry.dev || !entry.engines?.node) continue;
     checked.push(key);
-    assert.ok(admits(entry.engines.node, DOCUMENTED_FLOOR), `${key} engines.node "${entry.engines.node}" refuses ${DOCUMENTED_FLOOR}`);
+    for (const version of [...DOCUMENTED_FLOORS, ...DOCUMENTED_TOPS]) {
+      assert.ok(admits(entry.engines.node, version), `${key} engines.node "${entry.engines.node}" refuses ${version}`);
+    }
   }
-  assert.ok(checked.includes('node_modules/@kynesyslabs/dacs'), 'the bundled DACS SDK declares an engine range');
+  return checked;
+}
+
+test('locked Node range check rejects a ceiling below the documented top, including optional packages', () => {
+  const key = 'node_modules/range-fixture';
+  for (const optional of [true, false]) {
+    const entry = { optional, engines: { node: '>=22.22.2' } };
+    const fixture = { packages: { [key]: entry } };
+    assert.doesNotThrow(() => checkLockedNodeRanges(fixture));
+    for (const range of ['>=22.22.2 <24', '22.x || >=24.15.0 <24.16.0']) {
+      entry.engines.node = range;
+      assert.throws(() => checkLockedNodeRanges(fixture),
+        /node_modules\/range-fixture engines\.node .* refuses 24\./,
+        `${range}, optional=${optional}`);
+    }
+    entry.engines.node = '22.x || 24.x';
+    assert.doesNotThrow(() => checkLockedNodeRanges(fixture));
+  }
+});
+
+test('every locked runtime dependency admits the documented floor', () => {
+  const checked = checkLockedNodeRanges(json('package-lock.json'));
+  assert.ok(checked.includes('node_modules/@kynesyslabs/dacs'), 'the DACS SDK declares an engine range');
   assert.ok(checked.length >= 10, `${checked.length} locked runtime packages declare engines`);
 });
 
-// Node APIs added after 22.13 (release lines in which they first appeared).
-// Shipped runtime code must not use them; source-only checkers may.
+// Conservative API checks retained from earlier supported releases.
+// These APIs precede the current floor; source-only checkers may use them.
 const NEWER_APIS = [
   ['module.registerHooks (22.15)', /\bregisterHooks\b/],
   ['module.findPackageJSON (22.14)', /\bfindPackageJSON\b/],
@@ -156,7 +188,7 @@ test('shipped server code uses no Node API newer than the documented floor', () 
   assert.deepEqual(hits, []);
   // Refusing control: the source-only checker is allowed to (and does) use one.
   assert.match(readFileSync(join(PACKAGE_ROOT, 'scripts/check-offline-tester-package.mjs'), 'utf8'), NEWER_APIS[0][1]);
-  // The floor's reason is still present: node:sqlite in the shipped store.
+  // The shipped store still uses node:sqlite.
   assert.match(readFileSync(join(PACKAGE_ROOT, 'src/store/database.mjs'), 'utf8'), /from 'node:sqlite'/);
 });
 
@@ -321,7 +353,7 @@ test('source -> reproducible npm tarball -> clean install -> documented `npx dac
   const project = join(work, 'project');
   mkdirSync(project);
   writeFileSync(join(project, 'package.json'), `${JSON.stringify({ name: 'dacs-tester', version: '1.0.0', private: true }, null, 2)}\n`);
-  await run(process.execPath, [npmCli('npm'), 'install', first.path, '--ignore-scripts', '--no-audit', '--no-fund', '--omit=dev'], { cwd: project, env });
+  await run(process.execPath, [npmCli('npm'), 'install', first.path, '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', '--omit=dev'], { cwd: project, env });
   const lock = JSON.parse(readFileSync(join(project, 'package-lock.json'), 'utf8'));
   assert.equal(lock.packages?.[`node_modules/${PACKAGE_NAME}`]?.integrity, first.integrity, 'installed from exactly this tarball');
   assert.ok(!existsSync(join(project, 'node_modules', 'playwright-core')), 'no dev dependency installed');

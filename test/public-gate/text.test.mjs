@@ -8,6 +8,13 @@ import {
   CONFIG_FILE, REPO_ROOT, completeArgs, createAnnotatedTag, createHistory, createRepo, gateArgs, git, historyArgs, makeTempDir, runCheckReport, runGate, runHistory, sha256, walkFiles, writeList,
 } from '../lib/gate-fixtures.mjs';
 
+/** Environment for a child that prints a Node warning at startup, before any diagnostic; a diagnostic is matched on its own line. */
+const STARTUP_WARNING = (() => {
+  const file = path.join(makeTempDir('warn'), 'warn.cjs');
+  writeFileSync(file, "process.emitWarning('planted startup warning');\n");
+  return { NODE_OPTIONS: `--require ${file}` };
+})();
+
 const CONFIG = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
 const LIMITS = CONFIG.limits;
 const OID = 'b'.repeat(40);
@@ -109,7 +116,7 @@ test('issue references: a number sign after a dotted repository of the organisat
   assert.equal(issueFindings('a.md', `https://github.com/${ORG}/${dotted}\n`, config).length, 1);
 });
 
-const LOCKFILE_PATHS = ['stdio-mcp/package-lock.json', 'http-mcp/wallet-build/package-lock.json'];
+const LOCKFILE_PATHS = ['http-mcp/package-lock.json', 'stdio-mcp/package-lock.json', 'http-mcp/wallet-build/package-lock.json'];
 const DEPRECATED_VALUE_SHA256 = {
   ics23: '73db8b1fb39b70e63f1b64d8d5a7d41f7873b8d4fa8a5455f8955bfae5d3829e', crypto: '1ae46a6eb64871e470bbe6cda47a9676f54ec6d7b8ada88c01f69da140130fb6',
   request: '2520e437d9b0330c48889295afc16ae18dfa95fecadaea9b1952ae79716c263c',
@@ -118,13 +125,16 @@ const DISPOSITION_REASON = 'upstream deprecation notice copied by npm into the l
 const lockfileRow = (lockfilePath, blob, name, line, value) => ({
   path: lockfilePath, blob, field: `packages["node_modules/${name}"].deprecated`, line, valueSha256: DEPRECATED_VALUE_SHA256[value], reason: DISPOSITION_REASON,
 });
-const SIX_DISPOSITIONS = [
-  lockfileRow(LOCKFILE_PATHS[0], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@confio/ics23', 1167, 'ics23'),
-  lockfileRow(LOCKFILE_PATHS[0], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@cosmjs/crypto', 1295, 'crypto'),
-  lockfileRow(LOCKFILE_PATHS[0], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', 'request', 15700, 'request'),
-  lockfileRow(LOCKFILE_PATHS[1], '3eb3a13163a28d7612ec08546d84a8261ef90ca3', '@confio/ics23', 1139, 'ics23'),
-  lockfileRow(LOCKFILE_PATHS[1], '3eb3a13163a28d7612ec08546d84a8261ef90ca3', '@cosmjs/crypto', 1267, 'crypto'),
-  lockfileRow(LOCKFILE_PATHS[1], '3eb3a13163a28d7612ec08546d84a8261ef90ca3', 'request', 15590, 'request'),
+const LOCKFILE_DISPOSITIONS = [
+  lockfileRow(LOCKFILE_PATHS[0], '90f51aa8b82ef87f9da73e903194cf75fa3ff2c6', '@confio/ics23', 1222, 'ics23'),
+  lockfileRow(LOCKFILE_PATHS[0], '90f51aa8b82ef87f9da73e903194cf75fa3ff2c6', '@cosmjs/crypto', 1350, 'crypto'),
+  lockfileRow(LOCKFILE_PATHS[0], '90f51aa8b82ef87f9da73e903194cf75fa3ff2c6', 'request', 16416, 'request'),
+  lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@confio/ics23', 1167, 'ics23'),
+  lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@cosmjs/crypto', 1295, 'crypto'),
+  lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', 'request', 15700, 'request'),
+  lockfileRow(LOCKFILE_PATHS[2], '3eb3a13163a28d7612ec08546d84a8261ef90ca3', '@confio/ics23', 1139, 'ics23'),
+  lockfileRow(LOCKFILE_PATHS[2], '3eb3a13163a28d7612ec08546d84a8261ef90ca3', '@cosmjs/crypto', 1267, 'crypto'),
+  lockfileRow(LOCKFILE_PATHS[2], '3eb3a13163a28d7612ec08546d84a8261ef90ca3', 'request', 15590, 'request'),
 ];
 
 function realLockfiles() {
@@ -134,16 +144,16 @@ function realLockfiles() {
   });
 }
 
-test('issue references: the six upstream lockfile links pass only their exact dispositions in the committed lockfiles', () => {
-  assert.deepEqual(CONFIG.lockfileDispositions, SIX_DISPOSITIONS);
+test('issue references: the upstream lockfile links pass only their exact dispositions in the committed lockfiles', () => {
+  assert.deepEqual(CONFIG.lockfileDispositions, LOCKFILE_DISPOSITIONS);
   const entries = realLockfiles();
-  assert.deepEqual(entries.map(({ oid }) => oid), [SIX_DISPOSITIONS[0].blob, SIX_DISPOSITIONS[3].blob]);
+  assert.deepEqual(entries.map(({ oid }) => oid), [LOCKFILE_DISPOSITIONS[0].blob, LOCKFILE_DISPOSITIONS[3].blob, LOCKFILE_DISPOSITIONS[6].blob]);
   assert.deepEqual(scanIssues({ entries, config: CONFIG, limits: LIMITS }), []);
-  assert.equal(scanIssues({ entries, config: { ...CONFIG, lockfileDispositions: [] }, limits: LIMITS }).length, 6);
+  assert.equal(scanIssues({ entries, config: { ...CONFIG, lockfileDispositions: [] }, limits: LIMITS }).length, 9);
   const changed = { path: 'other/package-lock.json', blob: 'c'.repeat(40), field: 'packages["node_modules/other"].deprecated', line: 2, valueSha256: 'd'.repeat(64) };
-  SIX_DISPOSITIONS.forEach((row, index) => {
+  LOCKFILE_DISPOSITIONS.forEach((row, index) => {
     for (const [name, value] of Object.entries(changed)) {
-      const lockfileDispositions = SIX_DISPOSITIONS.map((candidate, at) => (at === index ? { ...candidate, [name]: value } : candidate));
+      const lockfileDispositions = LOCKFILE_DISPOSITIONS.map((candidate, at) => (at === index ? { ...candidate, [name]: value } : candidate));
       assert.equal(scanIssues({ entries, config: { ...CONFIG, lockfileDispositions }, limits: LIMITS }).length, 1, `${name} of entry ${index}`);
     }
   });
@@ -177,7 +187,7 @@ test('issue references: a changed line, blob, field or value fails, an extra occ
 
 test('issue references: a malformed publicRepositories or lockfileDispositions section is invalid configuration', () => {
   assert.equal(hasValidTextConfig(CONFIG), true);
-  const row = SIX_DISPOSITIONS[0];
+  const row = LOCKFILE_DISPOSITIONS[0];
   const invalid = [
     { publicRepositories: undefined }, { publicRepositories: { owner: 'a b', repositories: ['x'] } }, { publicRepositories: { owner: ORG, repositories: 'x' } },
     { publicRepositories: { owner: ORG, repositories: ['x', 'x'] } }, { publicRepositories: { owner: ORG, repositories: [''] } }, { publicRepositories: { owner: ORG, repositories: ['a/b'] } },
@@ -188,17 +198,19 @@ test('issue references: a malformed publicRepositories or lockfileDispositions s
   for (const change of invalid) assert.equal(hasValidTextConfig({ ...CONFIG, ...change }), false, JSON.stringify(change));
 });
 
-const LOCKFILE_STALE_ENTRY = { path: SIX_DISPOSITIONS[0].path, content: '{}\n' };
+const LOCKFILE_STALE_ENTRY = { path: LOCKFILE_DISPOSITIONS[0].path, content: '{}\n' };
 
 test('issue references: a lockfile held at another blob than its disposition stops the run, and a tree without the lockfile path does not', () => {
-  const stale = runGate(gateArgs(createRepo([LOCKFILE_STALE_ENTRY]), 'generic'));
+  const stale = runGate(gateArgs(createRepo([LOCKFILE_STALE_ENTRY]), 'generic'), { env: STARTUP_WARNING });
   assert.equal(stale.status, 2);
-  assert.match(stale.stderr, /^stale-lockfile-disposition: /);
+  assert.ok(stale.stderr.includes('planted startup warning'), stale.stderr);
+  assert.match(stale.stderr, /^stale-lockfile-disposition: /m);
   assert.equal(runGate(gateArgs(createRepo([{ path: 'a.txt', content: 'a\n' }]), 'generic')).status, 0);
   const history = createHistory([{ files: { [LOCKFILE_STALE_ENTRY.path]: LOCKFILE_STALE_ENTRY.content } }]);
-  const staleHistory = runHistory(historyArgs(history, writeList(['private-entry'])));
+  const staleHistory = runHistory(historyArgs(history, writeList(['private-entry'])), { env: STARTUP_WARNING });
   assert.equal(staleHistory.status, 2);
-  assert.match(staleHistory.stderr, /^stale-lockfile-disposition: /);
+  assert.ok(staleHistory.stderr.includes('planted startup warning'), staleHistory.stderr);
+  assert.match(staleHistory.stderr, /^stale-lockfile-disposition: /m);
 });
 
 // ---- R-WORDING ------------------------------------------------------------------------------------------------------
@@ -383,6 +395,36 @@ test('wording: only a closed fence whose language is a shell may hold entries; t
   assert.equal(wordingFindings('a.md', `\`\`\`sh\nThe external ${REVIEW} is complete.\n\`\`\`\n`).length, 1);
 });
 
+test('wording: a reference definition ending in a backslash does not continue onto a fence opener, so the shell block after it keeps its exemption', () => {
+  const fence = `\`\`\`sh\necho ${TERM}\n\`\`\`\n`;
+  for (const [label, lineBreak] of [['line feed', '\n'], ['carriage return', '\r'], ['CRLF', '\r\n']]) {
+    for (const indent of ['', '   ']) {
+      assert.deepEqual(wordingFindings('a.md', `[a]: u\\${lineBreak}${indent}${fence}`), [], `${label}, indent ${indent.length}`);
+    }
+    assert.deepEqual(wordingFindings('a.md', `[a]: u\\${lineBreak}~~~sh\necho ${TERM}\n~~~\n`), [], `${label}, tilde fence`);
+  }
+  assert.deepEqual(wordingFindings('a.md', `[a]: u\n\n${fence}`), []);
+});
+
+// A reference definition ends at its line in CommonMark, whatever its last character; the line after a trailing backslash is ordinary text.
+test('wording: a reference definition ending in a backslash does not hide an HTML comment on the next line, so a list entry after a comment that holds a fence line is found', () => {
+  for (const lineBreak of ['\n', '\r\n']) {
+    assert.deepEqual(findingLines('a.md', ['[a]: u\\', '<!--', '```sh', '-->', TERM, '```', ''].join(lineBreak)), [1], JSON.stringify(lineBreak));
+  }
+});
+
+test('wording: a reference definition ending in a backslash does not hide a status phrase split over the next two lines', () => {
+  assert.deepEqual(findingLines('a.md', '[tools]: C:\\tools\\\nOur external\nreview passed.\n'), [1]);
+});
+
+test('wording: a reference definition ending in a backslash does not join the paragraphs around a blank line after it', () => {
+  assert.deepEqual(findingLines('a.md', `This is not a\n[a]: u\\\n   \n${REVIEW} passed.\n`), [4]);
+});
+
+test('wording: the approved status sentence after a reference definition ending in a backslash is not a finding', () => {
+  assert.deepEqual(findingLines('a.md', `[tools]: C:\\tools\\\n${HOLD}.\n`), []);
+});
+
 test('wording: a file of many closed fences or a million unclosed fence openers is read once per line and still finds an entry after them', { timeout: 60_000 }, () => {
   for (const pair of ['```\n```\n', '~~~\n~~~\n', '```\n~~~\n']) {
     assert.equal(wordingFindings('a.md', `${pair.repeat(60_000)}\n${TERM}\n`).length, 1, JSON.stringify(pair));
@@ -526,17 +568,18 @@ test('wording list: a list inside the repository, missing, not UTF-8, empty, pad
   for (const [listFile, cause] of cases) {
     const result = runWithWordingList(listFile);
     assert.equal(result.status, 2, cause);
-    assert.match(result.stderr, new RegExp(`^${cause}: `), cause);
+    assert.match(result.stderr, new RegExp(`^${cause}: `, 'm'), cause);
   }
 });
 
 test('wording list: the flag is required in complete scope and refused in generic scope', () => {
   const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
   const list = writeList(['private-entry']);
-  const withoutFlag = runGate(gateArgs(repo, 'complete', ['--private-list', list, '--expected-root', repo.commit]));
-  assert.match(withoutFlag.stderr, /^bad-arguments: /);
+  const withoutFlag = runGate(gateArgs(repo, 'complete', ['--private-list', list, '--expected-root', repo.commit]), { env: STARTUP_WARNING });
+  assert.ok(withoutFlag.stderr.includes('planted startup warning'), withoutFlag.stderr);
+  assert.match(withoutFlag.stderr, /^bad-arguments: /m);
   const generic = runGate(gateArgs(repo, 'generic', ['--wording-list', writeList([TERM])]));
-  assert.match(generic.stderr, /^bad-arguments: /);
+  assert.match(generic.stderr, /^bad-arguments: /m);
   const complete = runGate(completeArgs(repo, list, ['--wording-list', writeList([TERM])]));
   assert.equal(complete.status, 0, complete.stderr);
 });
@@ -587,7 +630,7 @@ test('wording list: a report made under another wording list is refused by check
   writeFileSync(contextFile, JSON.stringify({ ...context, wordingListSha256: sha256('another') }));
   const refused = runCheckReport(['--report', reportFile, '--head', repo.commit, '--context', contextFile]);
   assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /^report-policy-differs: /);
+  assert.match(refused.stderr, /^report-policy-differs: /m);
 });
 
 test('history: R-WORDING finds an entry in a tree file, in a commit message, in a wrapped commit message, in a tag message and in the pull-request text', () => {
