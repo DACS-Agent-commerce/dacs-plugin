@@ -9,7 +9,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ConfigError, loadConfig } from '../src/config.mjs';
 
-const { variables } = JSON.parse(readFileSync(new URL('../deploy/env-contract.json', import.meta.url), 'utf8'));
 const BASE = { DACS_PUBLIC_ORIGIN: 'https://plugin.example', DACS_OAUTH_COOKIE_KEYS: 'k'.repeat(32) };
 const external = { DACS_AUTH_MODE: 'external', DACS_OAUTH_ISSUER: 'https://issuer.example' };
 const directory = { DACS_DIRECTORY_ORIGIN: 'https://directory.example' };
@@ -42,24 +41,27 @@ function otherValue(spec) {
   return `${spec.default}-other`;
 }
 
-test('static env contract defaults are what loadConfig uses when the variable is unset', () => {
-  const withDefault = Object.entries(variables).filter(([, spec]) => spec.default !== undefined);
-  assert.ok(withDefault.length >= 15);
-  for (const [name, spec] of withDefault) {
-    const context = { ...BASE, ...CONTEXT[name] };
-    const unset = loadConfig(context);
-    assert.deepEqual(loadConfig({ ...context, [name]: spec.default }), unset, `${name}: loadConfig's default is not the contract's ${spec.default}`);
-    const other = otherValue(spec);
-    assert.notDeepEqual(loadConfig({ ...context, ...VALUE_CONTEXT[`${name}=${other}`], [name]: other }), unset, `${name}=${other} changes nothing here; add the settings it is read under to CONTEXT`);
-  }
-});
+test('static env contract defaults and values agree with loadConfig', async (t) => {
+  const { variables } = JSON.parse(readFileSync(new URL('../deploy/env-contract.json', import.meta.url), 'utf8'));
+  await t.test('static env contract defaults are what loadConfig uses when the variable is unset', () => {
+    const withDefault = Object.entries(variables).filter(([, spec]) => spec.default !== undefined);
+    assert.ok(withDefault.length >= 15);
+    for (const [name, spec] of withDefault) {
+      const context = { ...BASE, ...CONTEXT[name] };
+      const unset = loadConfig(context);
+      assert.deepEqual(loadConfig({ ...context, [name]: spec.default }), unset, `${name}: loadConfig's default is not the contract's ${spec.default}`);
+      const other = otherValue(spec);
+      assert.notDeepEqual(loadConfig({ ...context, ...VALUE_CONTEXT[`${name}=${other}`], [name]: other }), unset, `${name}=${other} changes nothing here; add the settings it is read under to CONTEXT`);
+    }
+  });
 
-test('static env contract values are exactly the values loadConfig accepts', () => {
-  const enums = Object.entries(variables).filter(([, spec]) => spec.values);
-  assert.ok(enums.length >= 4);
-  for (const [name, spec] of enums) {
-    const context = { ...BASE, ...CONTEXT[name] };
-    for (const value of spec.values) assert.doesNotThrow(() => loadConfig({ ...context, ...VALUE_CONTEXT[`${name}=${value}`], [name]: value }), `${name}=${value}`);
-    assert.throws(() => loadConfig({ ...context, [name]: 'not-a-listed-value' }), ConfigError, `${name} accepts a value the contract does not list`);
-  }
+  await t.test('static env contract values are exactly the values loadConfig accepts', () => {
+    const enums = Object.entries(variables).filter(([, spec]) => spec.values);
+    assert.ok(enums.length >= 4);
+    for (const [name, spec] of enums) {
+      const context = { ...BASE, ...CONTEXT[name] };
+      for (const value of spec.values) assert.doesNotThrow(() => loadConfig({ ...context, ...VALUE_CONTEXT[`${name}=${value}`], [name]: value }), `${name}=${value}`);
+      assert.throws(() => loadConfig({ ...context, [name]: 'not-a-listed-value' }), ConfigError, `${name} accepts a value the contract does not list`);
+    }
+  });
 });
