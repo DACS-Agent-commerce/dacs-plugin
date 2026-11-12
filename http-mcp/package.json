@@ -26,7 +26,7 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning ./bin/dacs-chatgpt-plugin.mjs",
     "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 ./test/*.test.mjs",
-    "test:ci": "node scripts/run-test-files.mjs . test-results.jsonl 600 --browser --known test/known-failures.json",
+    "test:ci": "node scripts/run-test-files.mjs . test-results.jsonl 600 --browser --known test/known-failures.json --expected test/expected-until-card.json",
     "test:browser": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 ./test/browser/*.test.mjs",
     "check:package": "node ./scripts/check-package.mjs"
   },
