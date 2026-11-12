@@ -68,5 +68,6 @@ test('an HTTP 500 lookup failure is an error unless the status shows the transac
   await assert.rejects(getTx({ getTransactionStatus: statusUnknown200, getTxByHash: lookupFailed }));
   const r = await getTx({ getTransactionStatus: { status: 200, body: { result: 200, response: { state: 'included', blockNumber: 7 } } }, getTxByHash: lookupFailed });
   assert.equal(r.found, true);
-  assert.equal(r.state, 'included');
+  assert.equal(r.state, 'pending', 'inclusion without a readable execution is not success');
+  assert.equal(r.executed, false);
 });

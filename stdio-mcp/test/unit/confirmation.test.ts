@@ -57,7 +57,7 @@ test('the right code broadcasts exactly once and returns a receipt', async () =>
   assert.equal(again.isError, true, 'code must be single use');
   assert.equal(h.wallet.broadcasts.length, 1);
   // the receipt verifies (digest + chain)
-  h.chain.txs.set(r.json.receipt.chain.tx_hash, { hash: r.json.receipt.chain.tx_hash, found: true, state: 'included', blockNumber: 1001, content: { from: h.wallet.address, to: ADDR_B, amount: '1500000000' } });
+  h.chain.txs.set(r.json.receipt.chain.tx_hash, { hash: r.json.receipt.chain.tx_hash, found: true, state: 'included', executed: true, blockNumber: 1001, content: { from: h.wallet.address, to: ADDR_B, amount: '1500000000' } });
   const issuer = (await h.call('demos_network_info')).json.safety.receipt_issuer;
   const v = await h.call('demos_dacs_receipt_verify', { receipt: r.json.receipt, expected_signer: issuer });
   assert.equal(v.json.decision, 'accept', v.text);
@@ -181,6 +181,6 @@ test('receipt verification compares the on-chain amount', async () => {
   const { json } = await prepPay(h, '1');
   const r = await h.call('demos_tx_submit', { prepared_id: json.prepared_id, confirmation_code: h.channel.last().code });
   const rc = r.json.receipt;
-  h.chain.txs.set(rc.chain.tx_hash, { hash: rc.chain.tx_hash, found: true, state: 'included', content: { from: rc.chain.from, to: rc.chain.to, amount: '999' } });
+  h.chain.txs.set(rc.chain.tx_hash, { hash: rc.chain.tx_hash, found: true, state: 'included', executed: true, content: { from: rc.chain.from, to: rc.chain.to, amount: '999' } });
   assert.equal((await h.call('demos_dacs_receipt_verify', { receipt: rc })).json.decision, 'reject');
 });
