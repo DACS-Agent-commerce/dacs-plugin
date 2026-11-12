@@ -44,7 +44,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   comments and string literals), an `owner/repo` reference and every GitHub issue, pull-request or discussion address passes only for a
   repository in `publicRepositories` (`owner`, `repositories`; whole segments, no case). Any address of the organisation's repositories,
   in page, clone, raw, API or escaped form, must name a listed one. Colour values, link fragments, entities, `PKCS` names and
-  `<name#n>` placeholders are not references. The six upstream deprecation notices that npm copied into two lockfiles pass only through
+  `<name#n>` placeholders are not references. The nine upstream deprecation notices that npm copied into three lockfiles pass only through
   `lockfileDispositions` (`path`, `blob`, `field`, `line`, `valueSha256`, `reason`): all five facts of the occurrence must match, and the
   field is found by parsing the lockfile. An entry whose path the target holds only at another blob stops the run with
   `stale-lockfile-disposition` (exit 2), so a later lockfile change needs a new review; a seventh link or a wildcard needs a new owner decision.

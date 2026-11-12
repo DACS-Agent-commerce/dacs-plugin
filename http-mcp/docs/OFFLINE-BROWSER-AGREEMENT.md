@@ -48,7 +48,7 @@ of its supplied journal; the tests use RAM, not a production-durable claim.
 
 ## Repeatable checks
 
-Run with Node 22.22.0 and already-offline dependencies. Do not run
+Run with a supported Node version (`^22.22.2 || ^24.15.0`) and already-offline dependencies. The earlier 22.22.0 run is historical. Do not run
 `check-package.mjs`, `--prefer-offline` or dependency/network fallback.
 
 ```
