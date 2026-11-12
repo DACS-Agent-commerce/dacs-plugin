@@ -683,10 +683,11 @@ const diagnostic = (missing, { importer = join(root, 'test/a.test.mjs'), subject
 ];
 
 // The events the reporter gets for one file process that ended with these stderr lines.
-function fileEvents(lines, { file = 'test/a.test.mjs', started = false, passed = false, exitCode = 1 } = {}) {
+function fileEvents(lines, { file = 'test/a.test.mjs', started = false, printed = false, passed = false, exitCode = 1 } = {}) {
   const details = passed ? { passed: true } : { passed: false, error: { message: 'test failed', exitCode } };
   return [
     ...(started ? [{ type: 'test:start', data: { nesting: 1, name: 'an inner test' } }] : []),
+    ...(printed ? [{ type: 'test:stdout', data: { file, message: 'database initialization started\n' } }] : []),
     ...lines.map((message) => ({ type: 'test:stderr', data: { file, message } })),
     { type: 'test:complete', data: { name: file, nesting: 0, file: join(root, file), details } },
   ];
@@ -728,6 +729,11 @@ test('reporter: a pre-test module-load failure yields one structured load-failur
   for (const [name, lines] of Object.entries(refused)) assert.deepEqual(await loadFailuresOf(fileEvents(lines)), [], name);
   assert.deepEqual(await loadFailuresOf(fileEvents(diagnostic(missing), { started: true })), [], 'a test had started');
   assert.deepEqual(await loadFailuresOf(fileEvents(diagnostic(missing), { passed: true })), [], 'the file passed');
+});
+
+test('reporter: a line the file printed to stdout before the missing import yields no load-failure record', async () => {
+  const events = fileEvents(diagnostic(join(root, NOT_CARRIED)), { printed: true });
+  assert.deepEqual(await loadFailuresOf(events), []);
 });
 
 test('reporter: a valid load-failure diagnostic yields a record only when the file process exited with status 1', async () => {
@@ -773,6 +779,9 @@ test('runner: a different missing module, a matching diagnostic followed by anot
   const output = fixture('absent-after-output'), printed = await run(dir, [output], { known: [carry(output)] });
   assert.equal(printed.code, 1, printed.stderr);
   assert.deepEqual(printed.rows[0].newFailures, [PROCESS, INCOMPLETE], 'a line the file printed before the absent import stays visible');
+  const stdout = fixture('absent-after-stdout'), echoed = await run(dir, [stdout], { known: [carry(stdout)] });
+  assert.equal(echoed.code, 1, echoed.stderr);
+  assert.deepEqual(echoed.rows[0].newFailures, [PROCESS, INCOMPLETE], 'a line the file printed to stdout before the absent import stays visible');
   const assertion = fixture('fail'), plain = await run(dir, [assertion], { known: [carry(assertion)] });
   assert.equal(plain.code, 1);
   assert.deepEqual(plain.rows[0].newFailures, [failure]);
