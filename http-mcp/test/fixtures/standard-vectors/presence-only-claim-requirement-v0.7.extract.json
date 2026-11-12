@@ -1,0 +1,208 @@
+{
+  "set": "presence-only-claim-requirement-v0.7",
+  "extractOf": "presence-only-claim-requirement-v0.7.json",
+  "note": "Only the name, requirement and expected outcome of the vectors this test uses; see README.md.",
+  "vectors": [
+    {
+      "name": "required-presence-key-with-issued-at",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "key",
+            "verificationRequired": false
+          }
+        ]
+      },
+      "expected": "pass"
+    },
+    {
+      "name": "required-presence-key-without-issued-at",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "key",
+            "verificationRequired": false
+          }
+        ]
+      },
+      "expected": "pass"
+    },
+    {
+      "name": "presence-max-age-is-invalid",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "key",
+            "verificationRequired": false,
+            "maxAge": 60
+          }
+        ]
+      },
+      "expected": "error"
+    },
+    {
+      "name": "presence-recipe-version-is-invalid",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "key",
+            "verificationRequired": false,
+            "recipeVersion": 1
+          }
+        ]
+      },
+      "expected": "error"
+    },
+    {
+      "name": "verification-required-must-be-boolean",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "key",
+            "verificationRequired": "false"
+          }
+        ]
+      },
+      "expected": "error"
+    },
+    {
+      "name": "empty-member-collections-are-vacuously-satisfied",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [],
+        "oneOf": []
+      },
+      "expected": "pass"
+    },
+    {
+      "name": "empty-oneof-group-is-invalid",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [],
+        "oneOf": [
+          []
+        ]
+      },
+      "expected": "error"
+    },
+    {
+      "name": "oneof-passing-member-cannot-mask-unknown-scheme",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [],
+        "oneOf": [
+          [
+            {
+              "scheme": "unknown",
+              "verificationRequired": false
+            },
+            {
+              "scheme": "key",
+              "verificationRequired": false
+            }
+          ]
+        ]
+      },
+      "expected": "error"
+    },
+    {
+      "name": "presence-parameters-must-be-an-object",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "key",
+            "verificationRequired": false,
+            "parameters": []
+          }
+        ]
+      },
+      "expected": "error"
+    },
+    {
+      "name": "presence-parameters-match",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "lei",
+            "verificationRequired": false,
+            "parameters": {
+              "jurisdiction": "GB"
+            }
+          }
+        ]
+      },
+      "expected": "pass"
+    },
+    {
+      "name": "oneof-presence-alternative-passes",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [],
+        "oneOf": [
+          [
+            {
+              "scheme": "key",
+              "verificationRequired": false
+            },
+            {
+              "scheme": "lei",
+              "verificationRequired": false
+            }
+          ]
+        ]
+      },
+      "expected": "pass"
+    },
+    {
+      "name": "mixed-required-presence-and-verified-pass",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "key",
+            "verificationRequired": false
+          },
+          {
+            "scheme": "did",
+            "verificationRequired": true
+          }
+        ]
+      },
+      "expected": "pass"
+    },
+    {
+      "name": "verified-member-cannot-use-bare-presence",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "did",
+            "verificationRequired": true
+          }
+        ]
+      },
+      "expected": "fail"
+    },
+    {
+      "name": "selector-unrelated-cosigner-is-uncontrolled",
+      "requirement": {
+        "requirementVersion": "1",
+        "required": [
+          {
+            "scheme": "key",
+            "verificationRequired": false
+          }
+        ],
+        "primaryClaimSelector": "key"
+      },
+      "expected": "fail"
+    }
+  ]
+}
