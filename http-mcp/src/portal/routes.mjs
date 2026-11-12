@@ -148,7 +148,8 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
     const resourceScopes = requested.filter((s) => RESOURCE_SCOPES.includes(s));
     const client = await authServer.provider.Client.find(details.params.client_id);
     // A native client declares its own type and name at open registration, and
-    // DACS_ALLOW_LOOPBACK_REDIRECTS=1 lets it return to any local listener.
+    // DACS_ALLOW_LOOPBACK_REDIRECTS=1 lets a registered (DCR) native client return to
+    // any port of its registered loopback callback; metadata-document clients match exactly.
     return { details, requested, resourceScopes, clientName: client?.clientName ?? details.params.client_id, selfDeclared: config.allowLoopbackRedirects && client?.applicationType === 'native' };
   }
   const loginBinding = (uid, details, resourceScopes) => ({
