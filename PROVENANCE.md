@@ -52,13 +52,13 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
+Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
 | `.github/workflows/stdio-mcp.yml` | `ca22aadab7ce48e3185b934abe5d5d6eaa320e8a` | added: written fresh from stdio's workflow tests; no carried source |
 | `.gitignore` | `d82b03e30be4d89a5be65cbc8506d7236ba57cf1` | added: ignore rules for dependencies, build output, logs and local environment files |
-| `.gitleaksignore` | `5f6b32b9b0f7f675ea49a6dae958c1f8b0016d90` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
+| `.gitleaksignore` | `e0a19b15f2230014d775c1c44ee396dc8d07071c` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
 | `README.md` | `a4c2d67ecb95d67b52b05a6d70fe6f1a353132e0` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections |
 | `docs/PUBLIC-GATE.md` | `1678668758708b1f5030c78c329067d61202ba85` | added: documentation of the public-content gate |
@@ -172,7 +172,7 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-Z5FLFX6Z.mjs` | `6534b9a59a0b0f7bae5767f3a018faf65b00eef1` | verbatim |
 | `http-mcp/public/portal/embedded-wallet/runtime-chunks/entry-AMKAXJUC.mjs` | `4bf9161cdb34dc85f7c7b3a265814b82b9d18bca` | verbatim |
 | `http-mcp/public/portal/embedded-wallet/runtime-manifest.json` | `021a3c181ba44a63b9b5e002bc1d60c08db7d670` | verbatim |
-| `http-mcp/public/portal/embedded-wallet/sdk-provider.mjs` | `802a6f692cda426bf698545ab53e6e8d7f00fbd0` | edited: held-gate id renamed; comments: internal references removed; held-write message reworded to the approved status sentence; further public wording; then changed here: `sign` refuses a transaction hash or a `demos-tx:v1:` string, decided on the text the SDK signs, and the wallet's RPC-auth signing is a module-private function |
+| `http-mcp/public/portal/embedded-wallet/sdk-provider.mjs` | `05d07795b60ca31c63ce6db86efe18ec28cdd03c` | edited: held-gate id renamed; comments: internal references removed; held-write message reworded to the approved status sentence; further public wording; then changed here: `sign` refuses a transaction hash or a `demos-tx:v1:` string, decided on the text the SDK signs, and the wallet's RPC-auth signing is a module-private function |
 | `http-mcp/public/portal/embedded-wallet/stores.mjs` | `5ac4343b09dd01d1e4608e21878208d832c81b81` | verbatim |
 | `http-mcp/public/portal/embedded-wallet/tx-signature.mjs` | `4f82ddb0225f5096e85f4f090e0938decddab063` | added: the one rule that picks a transaction's signature preimage from the node's network answer; a served browser module the wallet and the Node-side verifier share |
 | `http-mcp/public/portal/embedded-wallet/ui.mjs` | `f393a15669bcc9aed9bef0c0e4be067a523edf4f` | edited: held-write message reworded to the approved status sentence |
@@ -190,15 +190,15 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/public/showcase/index.html` | `da11e5801b49933499dae07af4e4096353f7e78a` | verbatim |
 | `http-mcp/public/showcase/showcase.css` | `8f391d8b325775714c714beb6742a139c158b313` | verbatim |
 | `http-mcp/public/showcase/walkthrough.html` | `2b2c1f637cd6163162207a63283ed94b1b417393` | verbatim |
-| `http-mcp/public/wallet-extension-probe/adapter.mjs` | `714a2cb0bf804c1dff4e352e838c36628aae8c47` | edited: one comment shortened; no behaviour change |
-| `http-mcp/public/wallet-extension-probe/checks.mjs` | `cf50476169bd7a4744ecabd4e45c4e8a865b3341` | verbatim |
+| `http-mcp/public/wallet-extension-probe/adapter.mjs` | `819cfc7a75a06bd5ca21b24441d99f0a170b10b6` | edited: one comment shortened; no behaviour change |
+| `http-mcp/public/wallet-extension-probe/checks.mjs` | `9d4884560e9d4c106cf4693b3e40df2a9e601ee0` | verbatim |
 | `http-mcp/public/wallet-extension-probe/index.html` | `77cc4b33be152c8c513d238ee5154b55e86fc869` | verbatim |
 | `http-mcp/public/wallet-extension-probe/main.mjs` | `ad1f6ac3905a9af9ab6a9f052aa690a4702845d7` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/public/wallet-extension-probe/tx-signature.mjs` | `500a25a5d81031f22b5afd66c1d03a4891e8814a` | added: re-exports the wallet's signature-preimage rule so the probe page loads it from its own folder |
 | `http-mcp/public/wallet-extension-probe/vectors.mjs` | `e9a607c506282c00f875145a9c82ef2484df4dd6` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/scripts/buyer-chain-readback-identity.mjs` | `331c62500f0b72cf7a1e62e66f7f60b190b0eef0` | verbatim |
 | `http-mcp/scripts/check-embedded-wallet-container.mjs` | `bb0098784d3560e8d757af654310640649dfab8f` | verbatim |
-| `http-mcp/scripts/check-embedded-wallet-package.mjs` | `203061ec96ab5eecc629de08f20cfd4202722cf3` | edited: three names removed from the package-exclusion pattern; no other behaviour change; one exclusion label renamed |
+| `http-mcp/scripts/check-embedded-wallet-package.mjs` | `c6bf93c5e33b8b449e4d04926a8a3d4d38cf6abb` | edited: three names removed from the package-exclusion pattern; no other behaviour change; one exclusion label renamed |
 | `http-mcp/scripts/check-off-unchanged.mjs` | `7d6e9538a8d279bb89540012dca559c8b95e5cef` | verbatim |
 | `http-mcp/scripts/check-offline-tester-package.mjs` | `3286bb7527a78bc1e0396a40fd4b1b253d446ca6` | verbatim |
 | `http-mcp/scripts/check-package.mjs` | `3855423aeada873c836d59928cbfe409a608240f` | verbatim |
@@ -208,9 +208,9 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/scripts/devnet-demo-operator-bootstrap.mjs` | `1605193c9d38c9da37f603cd747cca68d08d892d` | verbatim |
 | `http-mcp/scripts/devnet-demo-purchase.mjs` | `1de7461cf7578ee046ca225df1db7b4b05915baa` | verbatim |
 | `http-mcp/scripts/devnet-demo-recipient-balance.mjs` | `cc1e1a084825d58445a75dcd9f0091498e93c191` | verbatim |
-| `http-mcp/scripts/embedded-wallet-runtime.mjs` | `25e637588a070dc1e9caf7e804411117d6417f73` | verbatim |
+| `http-mcp/scripts/embedded-wallet-runtime.mjs` | `7f59558f58f904395cb93e3d2d87c5dab444b1a7` | verbatim |
 | `http-mcp/scripts/off-surface.mjs` | `88dccbcffd650274de5a7bd6f5fb0f3074d4bd85` | verbatim |
-| `http-mcp/scripts/ops-health.mjs` | `8bd774ce4e82f81d37de878841bbd7bec1b9ffe9` | verbatim |
+| `http-mcp/scripts/ops-health.mjs` | `f8316f76d36ae6217c67a213564331e722f1a690` | verbatim |
 | `http-mcp/scripts/package-paths.mjs` | `758c6de54d32252c191be075de823f671c212ce6` | edited: three names removed from the package-exclusion pattern; no other behaviour change |
 | `http-mcp/scripts/purchase-timeline.mjs` | `dd333af21595f789b53b3b846424e3189be3d3b3` | verbatim |
 | `http-mcp/scripts/run-test-files.mjs` | `77ead1c19658db2b71b6569a8c658a2739fc195f` | verbatim |
@@ -245,7 +245,7 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/src/portal/purchase-receipt.mjs` | `578ebf3530ab83d348b81c58f3a663967cc89ea3` | verbatim |
 | `http-mcp/src/portal/routes.mjs` | `491e2d5e442108413c238d0e6cb4a2153574ebd9` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/src/portal/start-intent.mjs` | `b7b64329439ae584731ddad5a3467d10972819b5` | verbatim |
-| `http-mcp/src/portal/wallet-extension-probe.mjs` | `1bcf76033d28699fa3e205a0452c7b1e6fa77f71` | verbatim |
+| `http-mcp/src/portal/wallet-extension-probe.mjs` | `fb8eba958202544a63b35f16ef7c4f99fa503dc3` | verbatim |
 | `http-mcp/src/portal/wallet-rpc.mjs` | `4925eabfa7aaf0325548403860dd606a8f2dfee6` | edited: held-gate id renamed; comments: internal references removed; held-write message reworded to the approved status sentence |
 | `http-mcp/src/seller-identities.mjs` | `35040dac138ad5953c1711ab8927f0a1c16bcf70` | verbatim |
 | `http-mcp/src/store/database.mjs` | `3e0795a5e682b986e9a84fb003075ba09d1415b9` | verbatim |
@@ -335,7 +335,7 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/test/closure-dashboard-recovery.test.mjs` | `30afb58c563673b9535de139cc01fca2cbbe684b` | verbatim |
 | `http-mcp/test/closure-dashboard-witness.test.mjs` | `dabcaa7c5a1a47a910252bf1fad2470df5fe0f49` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/closure-identity-recovery.test.mjs` | `d6a63139981da26fcac23139708bac87c76f8f29` | verbatim |
-| `http-mcp/test/closure-identity-sdk.test.mjs` | `f2eef79f40df45d9d7397ffb247dbd4ea0278658` | verbatim |
+| `http-mcp/test/closure-identity-sdk.test.mjs` | `e4ffc06490f22ecff3f3754a60f420645ae23a32` | verbatim |
 | `http-mcp/test/closure-identity-witness.test.mjs` | `cda627ffbcd931b325378ae231a567c781e0edd1` | verbatim |
 | `http-mcp/test/commit-on-signature-devnet.test.mjs` | `975528bf18349e5f799def0e537fc2495f89b866` | verbatim |
 | `http-mcp/test/commit-on-signature-native.test.mjs` | `c4406cd01d6c92a78abde8b2cb0cdf3adfeb9e51` | verbatim |
@@ -356,7 +356,7 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/test/dacs-offline-browser-broker-coverage.test.mjs` | `f5af04210c5711b44df5142b8da5dabf8a784af7` | verbatim |
 | `http-mcp/test/dacs-offline-browser-broker.test.mjs` | `d155af03d8b3ccc59d4ec5597879d48ea9c62d38` | verbatim |
 | `http-mcp/test/dacs-plugin-purchase.test.mjs` | `152af444bebee938ddf5cdc70113e5727e4e82a3` | edited here: the test that read `paymentEvidence` fields raw from the model copy now decodes the seller-data envelope and asserts the same values |
-| `http-mcp/test/dacs-storage-anchor-wallet.test.mjs` | `e1337bbde6b2eb9113638a83aaa14e1a9f984e44` | verbatim |
+| `http-mcp/test/dacs-storage-anchor-wallet.test.mjs` | `0863efaa3157ed4f6321496fb93a5072be1781da` | verbatim |
 | `http-mcp/test/delivery-deadline-watch.test.mjs` | `1218c3923cad3db36b2a93cc73421828d1d48caa` | verbatim |
 | `http-mcp/test/demos-signature-encoding.test.mjs` | `3bc532f591f543d245c7df4def6dd0a01e584e94` | changed here after a verbatim import: a test that a missing or null argument to the signature check returns false |
 | `http-mcp/test/denied-agreement-recovery.browser.test.mjs` | `4e802d0430ff0cd1ef9738c38024460537c76dcd` | verbatim |
@@ -392,15 +392,15 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/test/devnet-storage-write-recovery.test.mjs` | `f122a6ac3311e3b0fed22a228a932c04960abecf` | verbatim |
 | `http-mcp/test/durability.test.mjs` | `ab817bf97eb80c3f87dd767309a8ce87ca96ec86` | verbatim |
 | `http-mcp/test/durable-wallet-journal.test.mjs` | `8b3228f152227f6f8042c595422805c21e41282e` | verbatim |
-| `http-mcp/test/embedded-wallet-bundle.test.mjs` | `4bf2f3816a9edb66725bdb31e390d712c6f554df` | edited: public wording: internal process and layout references reworded; then changed here: host WebAssembly calls are settled once before the controls measure
+| `http-mcp/test/embedded-wallet-bundle.test.mjs` | `09abb7403b97fba1ca6b022d692217a65f15262b` | edited: public wording: internal process and layout references reworded; then changed here: host WebAssembly calls are settled once before the controls measure
 | `http-mcp/test/embedded-wallet-contract.test.mjs` | `31d105b6b8efb545f175b1f8588879a15be20e87` | verbatim |
 | `http-mcp/test/embedded-wallet-flow.test.mjs` | `cdd8f085a37939b2759c6eff241c44c7290ae393` | edited: public wording: internal process and layout references reworded
-| `http-mcp/test/embedded-wallet-package.test.mjs` | `9f954bc1a0047f83a897196c24efef02a5968a70` | edited: address replaced by a documentation address; one exclusion label renamed |
-| `http-mcp/test/embedded-wallet-runtime.test.mjs` | `4ae38db33640d289f281bf5e7d6073f7e490e680` | verbatim |
+| `http-mcp/test/embedded-wallet-package.test.mjs` | `eab16ce08f2c220818f76f2cd9ef4a33a8a7dc49` | edited: address replaced by a documentation address; one exclusion label renamed |
+| `http-mcp/test/embedded-wallet-runtime.test.mjs` | `000f825048b2d8bb2271b8bd9528e6b1324600b0` | verbatim |
 | `http-mcp/test/embedded-wallet-sdk-version.test.mjs` | `a89b2d5246889ca4aa5a33a0790ffc5fa93c8345` | added: the lock, build entry, manifest, package checks and bundle all name the one SDK version |
-| `http-mcp/test/embedded-wallet-sdk.test.mjs` | `5fc7e51be6d5dbdba3e13a9b0132028ed9975e93` | edited: public wording: internal process and layout references reworded
+| `http-mcp/test/embedded-wallet-sdk.test.mjs` | `c77a616be18505f2160633a2f1867b48d49d9526` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/embedded-wallet-sign-preimage.test.mjs` | `80a880b8b3c32857a6bd96e62bd06f0ea0521d31` | added: message signing refuses a transaction hash or a `demos-tx:v1:` string; the wallet's own RPC-auth signing still works |
-| `http-mcp/test/embedded-wallet-transaction.test.mjs` | `1ca5036d92e6e90ac207f5b9e8ae4af8537da762` | verbatim |
+| `http-mcp/test/embedded-wallet-transaction.test.mjs` | `1c75cd7ce796294fbadf88ba76993dc2d38c7de0` | verbatim |
 | `http-mcp/test/embedded-wallet-tx-signature-domain.test.mjs` | `a6cc923326cef8c0b1edb5e95bc3dfd35af63fdc` | added: the wallet checks a signed transaction in the form the node's network answer selects, against the real bundled SDK and simulated nodes |
 | `http-mcp/test/env-contract-defaults.test.mjs` | `fdfd7c4fd1c737d776ff29a0c3b8cd2ab65860a6` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/external-issuer.test.mjs` | `cae8d21ff3718b82dab42b8869d1a832c5b6789e` | verbatim |
@@ -478,7 +478,7 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/test/helpers/current-broker-interactions-browser.mjs` | `3a5849ab3719e6081a0d7894caa919810b3df873` | verbatim |
 | `http-mcp/test/helpers/current-broker-interactions-interop.mjs` | `25701e9664131f904fea68b0ffccb1321d61241c` | edited: default seller reference path replaced by a neutral absolute path; header comment: internal reference paths and manifest name removed |
 | `http-mcp/test/helpers/current-broker-interactions.mjs` | `2926448f6d3377e2de395be177a6bd71aa9ba92e` | verbatim |
-| `http-mcp/test/helpers/dacs-storage-anchor-wallet-fixture.mjs` | `b8260a0db1f6976ddef25a7092116284d79757fe` | verbatim |
+| `http-mcp/test/helpers/dacs-storage-anchor-wallet-fixture.mjs` | `9d204bd4221aa1100a36044db7ac9dd6b277b2a9` | verbatim |
 | `http-mcp/test/helpers/devnet-agreement-transport-flow.mjs` | `a49879d76bdd034101f29e777aa2f18859967e2e` | verbatim |
 | `http-mcp/test/helpers/devnet-agreement-transport-harness.mjs` | `914e4bc7544d69a2c3db3a539a3591a6409edc8a` | verbatim |
 | `http-mcp/test/helpers/devnet-agreement-transport-repeat.mjs` | `ccae92ecda1e6b7b506f5d930e4acab475cc90f7` | verbatim |
@@ -510,8 +510,8 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/test/helpers/durable-wallet-journal-child.mjs` | `e40dec6bf6740d4b0bb55e84e38d5428b7d26937` | verbatim |
 | `http-mcp/test/helpers/durable-wallet-journal-sr2-fixture.mjs` | `c35e7affc754a58a39a4dfc983733fed171cbb21` | verbatim |
 | `http-mcp/test/helpers/embedded-wallet-fixtures.mjs` | `bdc32d246028de91fc58e0e7b32c5b328d62a439` | edited: comment: internal process wording removed |
-| `http-mcp/test/helpers/embedded-wallet-flow-fixtures.mjs` | `98a594c503b110443599cbc6230fa36a197239e1` | edited: public wording: internal process and layout references reworded
-| `http-mcp/test/helpers/embedded-wallet-transaction-chain.mjs` | `03995668969f37380fb077291d8e1db64af2a72a` | verbatim |
+| `http-mcp/test/helpers/embedded-wallet-flow-fixtures.mjs` | `ecd441ef105d11a5ee1db375ec4efd305475d778` | edited: public wording: internal process and layout references reworded
+| `http-mcp/test/helpers/embedded-wallet-transaction-chain.mjs` | `217525fe85d2dfd6b7b1efc01d1a1616b399f8f3` | verbatim |
 | `http-mcp/test/helpers/env-contract-view.mjs` | `c275aeb31278349c33e9aa4bd8c562644351dca7` | verbatim |
 | `http-mcp/test/helpers/finalized-payment.mjs` | `ee482c1b5f09d69c1b63eb8257210e199916ba8d` | verbatim |
 | `http-mcp/test/helpers/flows.mjs` | `2d4339090cf98d55c1231f23c22129e3a7db6e49` | verbatim |
@@ -536,7 +536,7 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/test/helpers/overnight-acceptance-browser.mjs` | `26f197459811f2e91291bc60de99335976b6e7ba` | verbatim |
 | `http-mcp/test/helpers/overnight-acceptance-dashboard.mjs` | `e8dff9fe7ac714adaf882c18f249418157ddbcd6` | verbatim |
 | `http-mcp/test/helpers/overnight-acceptance-flows.mjs` | `0398518f4eba9bd1fb331bf7961a59378a25cecd` | verbatim |
-| `http-mcp/test/helpers/overnight-core-fixtures.mjs` | `e3b8c9269b466b7854f17875beb5afbfd6f0403e` | verbatim |
+| `http-mcp/test/helpers/overnight-core-fixtures.mjs` | `168a6acccd41d4062775d0dd732ce0cd5fadcc43` | verbatim |
 | `http-mcp/test/helpers/overnight-ui-actors.mjs` | `fb490a14851bc378fa11ba2548e36d94480a9217` | verbatim |
 | `http-mcp/test/helpers/overnight-ui-browser.mjs` | `ea22e972f014b51adac4b358692952e397ca4a73` | verbatim |
 | `http-mcp/test/helpers/party-vet-fixture.mjs` | `7734d2e4d975a99a9bd05b9d5c9cb1202e060409` | verbatim |
@@ -568,9 +568,9 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/test/helpers/synthetic-finality-policy.mjs` | `e475cf904ae2c8a5e8048c697d5517bd6d0ff84a` | verbatim |
 | `http-mcp/test/helpers/tester-dashboard-driver.mjs` | `1432f450f36df8ac65a8c76e859d8e45a02a034d` | verbatim |
 | `http-mcp/test/helpers/transaction-domain-cases.mjs` | `2dac7fdc1850cb76cd3dd223d0474928165bffdf` | added: the shared cases for the signature-form rule, run by the wallet, probe and health tests |
-| `http-mcp/test/helpers/wallet-extension-probe-dom.mjs` | `82ed93b9e4d001302b7fc8ea6e57b5ee5c04467c` | verbatim |
+| `http-mcp/test/helpers/wallet-extension-probe-dom.mjs` | `b328e84e3f59f884901ab985000436b351121e76` | verbatim |
 | `http-mcp/test/helpers/wallet-extension-probe-mutants.mjs` | `ffcee7725c69f2d43702ef690bb8e73a6aa2b171` | edited: comments and test names: internal review and process references removed; no behaviour change; further public wording; test-name filters of two mutants updated |
-| `http-mcp/test/helpers/wallet-extension-probe-sdk.mjs` | `7845ed9e5ec7ef0d68886924899f8e7780055c4d` | verbatim |
+| `http-mcp/test/helpers/wallet-extension-probe-sdk.mjs` | `b96f6c674248fa7d43a897ab895f4df8342aae13` | verbatim |
 | `http-mcp/test/helpers/wallet-write-batch-child.mjs` | `764309a83279905a9684713aab2102e70c992c1c` | verbatim |
 | `http-mcp/test/helpers/wallet-write-batch-mutants.mjs` | `3dd271d9ef51d69c02c0d14cae1a250459eff6df` | verbatim |
 | `http-mcp/test/identities.test.mjs` | `142ef667e3faa7824ef4dba93d0523d0a881ce7a` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -617,13 +617,13 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/test/operator-session-lifecycle.test.mjs` | `5127a0005d6bdd79cd664f62a66b95123e8a0c68` | verbatim |
 | `http-mcp/test/ops-health-lost-attempt.test.mjs` | `095bdd17b880f52f7ed9bf5d8511a164ac97d964` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/ops-health-native-evidence-race.test.mjs` | `c0e70e28b6de051c31d9d069f39c8944057b26c1` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `http-mcp/test/ops-health-native-transfer-records.test.mjs` | `f80f4f91a57948813add06c6379af4142f2bd7ed` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/ops-health-native-transfer-records.test.mjs` | `386d1606db68cf931ac562eeb8172b1b0181b9a1` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/ops-health-signature-authority.test.mjs` | `b2b3596c44c3714a40c755fa5a8ab83f5473386b` | added: ops health checks a retained failed transfer's signature in the form the node selects, and lists unavailable or mismatched forms |
-| `http-mcp/test/ops-health.test.mjs` | `8f328ef1b79ebca4eb6913454d015ec14107488e` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/ops-health.test.mjs` | `c41ff6dd4ec4ae2a7f3bdb8bf826df1c6b09591c` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/overnight-acceptance-core.test.mjs` | `be9fab0bf534bdffb8f7cf8125e4ae971e7e5b43` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/overnight-acceptance-ui.test.mjs` | `2099f64506281dbf705a3c8c0519c57f5fa719ae` | verbatim |
 | `http-mcp/test/overnight-acceptance.test.mjs` | `8dcbd9c2235ba91efe49e0097fa411edaac6acbc` | verbatim |
-| `http-mcp/test/overnight-core-seller.test.mjs` | `e761db72a2b790235351c3d4986a5ca1db3c3167` | edited: held-gate id renamed; comments: internal references removed; expects the reworded held-write reason |
+| `http-mcp/test/overnight-core-seller.test.mjs` | `36c364285492d0e138f05689a774fb78615bb9d3` | edited: held-gate id renamed; comments: internal references removed; expects the reworded held-write reason |
 | `http-mcp/test/overnight-package.test.mjs` | `ab8fc2c0f82ee716754cae6e5552e41935c9a16e` | changed here after a verbatim import: the Node-floor check no longer reads `deploy/Dockerfile`, which is not carried |
 | `http-mcp/test/overnight-ui.test.mjs` | `ee29f12c9ed915c4a6822ce67af93a507cbe9660` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/package-paths.test.mjs` | `7072517013e0e5643653f37c49625551f018fa9a` | edited: sample list shortened with the exclusion pattern |
@@ -707,24 +707,24 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `http-mcp/test/unsupported-node-fee.test.mjs` | `f5559258e76df9cc5852e9d13825dcd552c1a19e` | verbatim |
 | `http-mcp/test/v2-health.test.mjs` | `ffe4ce270556664372c03148aafc09bc3b13e767` | verbatim |
 | `http-mcp/test/v2-publication-removal.test.mjs` | `0f449b26ea963587bd05a677cdff2730afe463fc` | edited: two tests that read deploy scripts that are not carried deleted; unused imports removed |
-| `http-mcp/test/wallet-additional-fee-hold.test.mjs` | `7a4484a8984819b2baf3fed6d11f7593cd8dae08` | verbatim |
+| `http-mcp/test/wallet-additional-fee-hold.test.mjs` | `4aa49aae05fa719992cc71c19ae3fd3ad5e13d34` | verbatim |
 | `http-mcp/test/wallet-demo-plan-admission.test.mjs` | `b608db84f142991e7d4347cbe6cece89828b41f2` | verbatim |
 | `http-mcp/test/wallet-extension-probe-mutants.test.mjs` | `77a0c826dc69d56ea8df166cc42b9a2cb1c631c8` | verbatim |
-| `http-mcp/test/wallet-extension-probe-r4.test.mjs` | `01b9fab7063f11a75474c756302b0f057d384572` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `http-mcp/test/wallet-extension-probe-r5.test.mjs` | `8050f8dc37c05c4cbf61fddeb73123fcc0afba27` | edited: comments and test names: internal review and process references removed; no behaviour change; further public wording; a pinned documentation sentence updated |
+| `http-mcp/test/wallet-extension-probe-r4.test.mjs` | `b5a0ca08caab79ff4d001bbcc4179a47de0d5d72` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/wallet-extension-probe-r5.test.mjs` | `642d7f5fae1903aa01fc3cd22e77752c97440c80` | edited: comments and test names: internal review and process references removed; no behaviour change; further public wording; a pinned documentation sentence updated |
 | `http-mcp/test/wallet-extension-probe-routes.test.mjs` | `b3521fca674f912d80997d6196f5b60067501861` | edited: comments and test names: internal review and process references removed; no behaviour change; the pinned `portal.js` digest is the published file's |
 | `http-mcp/test/wallet-extension-probe-tx-domain.test.mjs` | `cd82b5c1036fcc45a67a2cc893a8c2dc67a72bf6` | added: the probe checks a wallet's transaction signature in the form the node selects; message checks stay exact-text |
-| `http-mcp/test/wallet-extension-probe.test.mjs` | `4b84b2886471d43cdb5e9f17298722a64488c4ac` | edited: comments and test names: internal review and process references removed; no behaviour change; further public wording; one test renamed and its stub simplified; one test fixture field and one assertion message reworded; two test fixture values changed |
-| `http-mcp/test/wallet-write-batch.test.mjs` | `049f93706b042a6d2aa447f7664bd4b600a70134` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/wallet-extension-probe.test.mjs` | `263600d37d0dd5e4816729a6131853c7d95e0b56` | edited: comments and test names: internal review and process references removed; no behaviour change; further public wording; one test renamed and its stub simplified; one test fixture field and one assertion message reworded; two test fixture values changed |
+| `http-mcp/test/wallet-write-batch.test.mjs` | `1ac41ee542005e3dc2444addb7a5dfaddb607db8` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/wallet-build/.gitignore` | `c2658d7d1b31848c3b71960543cb0368e56cd4c7` | verbatim |
-| `http-mcp/wallet-build/build.mjs` | `ec00e2dc8ec7dc1cf15961a672556b9eeabbaa4e` | verbatim |
-| `http-mcp/wallet-build/entry.mjs` | `6eb51d8f6a17ae3321704d9913c42e8ad15abdd8` | verbatim |
-| `http-mcp/wallet-build/package-lock.json` | `3eb3a13163a28d7612ec08546d84a8261ef90ca3` | verbatim |
-| `http-mcp/wallet-build/package.json` | `6370d54fbf15b44f14e0005bb3471ed93999b52e` | verbatim |
+| `http-mcp/wallet-build/build.mjs` | `5dc3c23f8d262d12ed7efd117dc9da7871003d2d` | verbatim |
+| `http-mcp/wallet-build/entry.mjs` | `df6bed2560132bd26269f4043137c9590aa9f8b8` | verbatim |
+| `http-mcp/wallet-build/package-lock.json` | `942d2562fe409ad3ab0afe872e49cc9ad22e3392` | verbatim |
+| `http-mcp/wallet-build/package.json` | `b8aad47a8b57bef87e9eec96ab8d8dee621e4ab4` | verbatim |
 | `http-mcp/wallet-build/shims.mjs` | `b90f32a3c063bf436cd25a96ab7b27d61491c43c` | verbatim |
 | `package-lock.json` | `02b053fab55700b6fe75742c85076e26dc230628` | added: lockfile of the root package |
 | `package.json` | `386f2e1406304aa7f9d3866a73b8f4118e5bc51b` | added: root package with the gate scripts and the test command; then changed here: the `test:all` script |
-| `public-gate.config.json` | `3339fd400041d3c885564000af90dd88168b053c` | added: gate limits, text extensions and binary dispositions |
+| `public-gate.config.json` | `7e35d935ee7c7e182f716e2fd95270bfd92bcc28` | added: gate limits, text extensions and binary dispositions |
 | `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
 | `scripts/public-gate/check-report.mjs` | `d8967e36b2ff00bf63c300eac3520612206cfb64` | added: public-content gate source |
 | `scripts/public-gate/classify.mjs` | `afe007bda11127b8e9d1baa181a5bba277545bc2` | added: public-content gate source |
@@ -804,11 +804,14 @@ Files: 756 (verbatim 490, edited 215, changed here 13, added 38).
 | `test/ci/root-script.test.mjs` | `1113534311581054298466b4a169d518b8afc40b` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/lib/choice.test.mjs` | `654dead8e6a23f82bf27272959eb827a1d5db717` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/lib/gate-fixtures.mjs` | `53197b06b98db5fe0ab46759853e7bbbdc59d7d8` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/address.test.mjs` | `0762e61559b1b31135a1a058e665833a4147460b` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/check-report.test.mjs` | `09549b3b6da1fd548295b44933e1b2b0e59acbac` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/engine.test.mjs` | `bd5f7814039a0f8462952dc732a7ab46d5567b60` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/eval.test.mjs` | `2ba0c7e79843ac4573c1f97c79337221a86305a1` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/history.test.mjs` | `85e32aeb0a686c9078095ea836ee92895166e0fd` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private-list.test.mjs` | `005f16e31528208ba6f9afbec8c0cfe0b8f20b77` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private-matcher.test.mjs` | `7cea6ab6e576663cc6566a3c033cfacc55e14620` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private.test.mjs` | `a90437a91d66394fd6700f7266b6e790d3045508` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/redact.test.mjs` | `23a902dbf88f50cd9f617e83864f0a4ac45c0be3` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/report.test.mjs` | `85aa337784bb9b1747f7b9eb5ccebe60a580c1f9` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/text.test.mjs` | `06ea728adf272d5249e3bd993cfe69e90a54b850` | added: tests of the public-content gate and of the carried-file inventory |
