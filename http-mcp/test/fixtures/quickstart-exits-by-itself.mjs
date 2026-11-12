@@ -7,7 +7,7 @@ const reply = (res, body) => {
   res.end(JSON.stringify(body));
 };
 
-createServer((req, res) => {
+const server = createServer((req, res) => {
   let raw = '';
   req.on('data', (d) => (raw += d));
   req.on('end', () => {
@@ -26,4 +26,5 @@ createServer((req, res) => {
     reply(res, { jsonrpc: '2.0', id, result: { isError: true, content: [{ type: 'text', text: 'directory not configured' }] } });
     if (method === 'tools/call') setTimeout(() => process.exit(0), 10);
   });
-}).listen(Number(process.env.PORT), '127.0.0.1');
+});
+server.listen(Number(process.env.PORT), '127.0.0.1');

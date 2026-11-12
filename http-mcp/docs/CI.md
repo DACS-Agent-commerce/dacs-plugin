@@ -293,7 +293,8 @@ runner removes the absolute run-directory prefix from failure messages before
 matching each entry's cause. A matching failure is expected until its card
 lands. A passing case, a different failure, or a missing case fails the gate.
 
-An entry's `expect` must name its cause in one of two forms: a file path
+An entry's `expect` must be a single line of at least 30 characters, and
+must name its cause in one of two forms: a file path
 relative to `http-mcp/` (not to the repository root) with at least one
 directory segment and a file extension, such as `src/util/example.mjs`, or a
 package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
