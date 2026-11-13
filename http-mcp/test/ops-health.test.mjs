@@ -220,7 +220,8 @@ test('errors never create absent state; invalid flags, schemas and damaged journ
   for(const args of [['--database',join(h.root,'absent.sqlite')],['--threshold','identity=0'],['--threshold','no-stage=5'],['--limit','1.5'],['--bad','secret'],['--recent-hours','0']])assert.equal(h.cli(args).status,2);
   assert.deepEqual(bytes(h.root),before);
   h.db.prepare("UPDATE meta SET value='999' WHERE key='schema_version'").run();assert.equal(h.cli().status,2);
-  h.db.prepare("UPDATE meta SET value='2' WHERE key='schema_version'").run();
+  // '3' is SCHEMA_VERSION in src/store/database.mjs (not exported).
+  h.db.prepare("UPDATE meta SET value='3' WHERE key='schema_version'").run();
   const j=h.durable('seller-wallet.sqlite');await j.put('TEST',{stage:'verified'});
   const corrupt=new DatabaseSync(join(h.root,'seller-wallet.sqlite'));corrupt.exec(`UPDATE records SET digest='${'0'.repeat(64)}'`);corrupt.close();
   assert.equal(h.cli(['--json']).status,2);

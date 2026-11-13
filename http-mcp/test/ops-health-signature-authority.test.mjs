@@ -235,6 +235,19 @@ test('command line: the configured node\'s answer decides; unavailable authority
   assert.equal((await cli(domain, { DACS_CHAIN_RPC_URL: url })).status, 3);
 });
 
+test('command line: the purchase database must be at the store\'s schema version (3, as src/store/database.mjs writes it); 2 exits 2', async (t) => {
+  const s = withTransfer(t, ACTIVE), setVersion = (value) => {
+    const db = new DatabaseSync(s.databasePath);
+    try { db.prepare("UPDATE meta SET value=? WHERE key='schema_version'").run(value); } finally { db.close(); }
+  };
+  const current = await exitWith(s, ACTIVE);
+  assert.equal(current.status, 0, current.stderr + current.stdout);
+  setVersion('2');
+  assert.equal((await exitWith(s, ACTIVE)).status, 2);
+  setVersion('3');
+  assert.equal((await exitWith(s, ACTIVE)).status, 0);
+});
+
 test('command line: a form mismatch exits 3 with the whole report printed; a signature valid under neither form exits 2', async (t) => {
   const bare = withTransfer(t, INACTIVE), domain = withTransfer(t, ACTIVE), other = createEphemeralWallet();
   for (const [s, answer] of [[bare, ACTIVE], [domain, INACTIVE]]) {
