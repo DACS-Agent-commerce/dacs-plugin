@@ -96,3 +96,13 @@ nothing in it has been run against a live wallet, node or ChatGPT.
 
 MIT, see [`LICENSE`](LICENSE). [`stdio-mcp/LICENSE`](stdio-mcp/LICENSE) keeps the
 stdio package's own MIT notice.
+
+## Focused download deadline regression
+
+From the repository root, run the download and process-boundary tests without installing dependencies:
+
+```sh
+node --test test/lib/fetch-final-close.test.mjs test/lib/fetch-bounded.test.mjs test/lib/run-bounded.test.mjs
+```
+
+This focused command does not establish a clean full suite; the root suite has existing failures.
