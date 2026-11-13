@@ -218,10 +218,11 @@ export function checkThinPlugin(root, config) {
     const starts = [];
     for (const m of entry.modules) {
       if (typeof m?.file !== 'string' || typeof m.registration !== 'string') { issue(unverifiable, 'invalid-entry-module', root); continue; }
-      const key = `${path.resolve(root, m.file)}\0${m.registration}`, owner = claimed.get(key);
+      // An existing module is keyed by its real path, so a symlink cannot give it a second key.
+      const f = safeFile(path.resolve(root, m.file));
+      const key = `${f ?? path.resolve(root, m.file)}\0${m.registration}`, owner = claimed.get(key);
       if (owner !== undefined && owner !== entry.name) issue(unverifiable, 'duplicate-entry-registration', root, 0, `${owner}:${entry.name}:${m.file}:${m.registration}`);
       else claimed.set(key, entry.name);
-      const f = safeFile(path.resolve(root, m.file));
       if (!f) { if (m.optional && !fs.existsSync(path.resolve(root, m.file))) skipped.push({entry: entry.name, file: m.file, reason: 'optional-module-absent'}); else issue(unverifiable, 'missing-entry-module', path.resolve(root, m.file), 0, entry.name); continue; }
       starts.push(f);
       if (!scan(f).registrations.includes(m.registration)) issue(violations, 'missing-handler-registration', f, 0, `${entry.name}:${m.registration}`);
