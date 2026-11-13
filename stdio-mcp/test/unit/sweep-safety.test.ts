@@ -162,7 +162,7 @@ test("a day total equal to the reservations' sum and one above it both load; aft
   assert.equal(readLedgerFile(olderDir).days[TODAY], '4');
 });
 
-test('after each reserve, release and prune the reloaded ledger satisfies the day total check', () => {
+test('reserve and release retain yesterday after settlement and keep reloaded day totals valid', () => {
   const dir = stateDir();
   const reloadsCleanly = (day: string) => {
     assertDayTotalsHold(dir);
@@ -181,7 +181,8 @@ test('after each reserve, release and prune the reloaded ledger satisfies the da
   assert.deepEqual(Object.keys(readLedgerFile(dir).days), ['2026-10-05', '2026-10-06'], 'the open reservation keeps its day through the prune');
   day2.release(b);
   reloadsCleanly('2026-10-06');
-  assert.deepEqual(Object.keys(readLedgerFile(dir).days), ['2026-10-06'], 'the settled day is pruned');
+  // Yesterday stays charged if the clock moves back after its reservation settles.
+  assert.deepEqual(Object.keys(readLedgerFile(dir).days), ['2026-10-05', '2026-10-06'], 'yesterday survives settlement');
   day2.release(c);
   reloadsCleanly('2026-10-06');
 });
