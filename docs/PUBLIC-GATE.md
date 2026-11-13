@@ -196,6 +196,7 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
 - **Scan limit.** The matcher reads each text once whatever the number of entries, with at most one state per code point
   of the list (so at most `maxPrivateListBytes`); at the shipped limits it scans about 25 MiB/s, so `maxTotalBlobBytes`
   takes about 10 s. `scanDeadlineMs` is a backstop: past it the run stops with `limit:scanDeadlineMs` (exit 2, no report).
+  The private-list scan and the wording-list scan each get the full deadline, counted from when that rule starts.
   The scan does not return to the event loop, so SIGINT and SIGTERM stop the run only while git runs (exit 2, no report).
 - **Exit codes.** 0 pass, 1 findings, 2 missing or malformed input, interrupt during a git call, limit or unscannable
   target.
