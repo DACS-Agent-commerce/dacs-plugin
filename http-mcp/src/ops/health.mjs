@@ -305,7 +305,8 @@ function readLegacyPublications(db,now) {
 }
 function readPurchases(databasePath,now,stateRoots) {
   return readOnlySnapshot(databasePath,(db)=>{
-    if(db.prepare("SELECT value FROM meta WHERE key='schema_version'").get()?.value!=='2')fail();
+    // Must equal SCHEMA_VERSION in ../store/database.mjs (not exported), which writes '3'.
+    if(db.prepare("SELECT value FROM meta WHERE key='schema_version'").get()?.value!=='3')fail();
     const events=db.prepare('SELECT at,type,data FROM operation_events WHERE operation_id=? ORDER BY seq');
     const rows=db.prepare("SELECT id,account_id,status,state,created_at,updated_at,expires_at,terms_hash,json_extract(terms,'$.domain.network') AS network,json_extract(terms,'$.domain.chainIdentity') AS chain_identity,json_extract(terms,'$.protocol.jobId') AS job,json_extract(terms,'$.protocol.transportBinding') AS transport_binding,json_extract(terms,'$.buyer.wallet') AS buyer,json_extract(terms,'$.seller.payee') AS seller,json_extract(terms,'$.protocol') IS NOT NULL AS protocol FROM operations WHERE kind='purchase' ORDER BY created_at DESC,id").all().map(row=>{
       if(!ID.test(row.id))fail();
