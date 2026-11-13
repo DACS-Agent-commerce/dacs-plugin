@@ -23,6 +23,20 @@ test('a missing configured handler cannot pass', t => {
   assert.ok(r.violations.some(v => v.rule === 'missing-handler-registration' && v.detail === 'dacs_search:absent'));
 });
 
+test('two entries cannot share one module registration, even on an absent optional module', t => {
+  for (const file of ['src/server.ts', 'buyer/src/server.mjs']) {
+    const f = fixture(t);
+    f.config.entries[2].modules.push({file, registration: 'dacs_buy', optional: true});
+    if (file === 'src/server.ts') f.config.entries[3].modules[0].file = './src/server.ts';
+    else f.config.entries[3].modules.push({file, registration: 'dacs_buy', optional: true});
+    const r = f.run();
+    assert.equal(r.exitCode, 2, file);
+    assert.deepEqual(r.unverifiable.filter(u => u.rule === 'duplicate-entry-registration').map(u => u.detail), [`dacs_buy_prepare:dacs_buy:${file === 'src/server.ts' ? './src/server.ts' : file}:dacs_buy`], file);
+  }
+  const g = fixture(t); g.config.entries[3].modules.push({file: 'src/server.ts', registration: 'dacs_buy'});
+  assert.equal(g.run().exitCode, 0);
+});
+
 test('two module roots must each reach the client independently', t => {
   const f = fixture(t); f.put('src/other.js', `server.registerTool('dacs_search', {}, () => {});`);
   f.config.entries[0].modules.push({file: 'src/other.js', registration: 'dacs_search'});

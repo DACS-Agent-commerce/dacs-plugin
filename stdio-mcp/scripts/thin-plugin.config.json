@@ -46,11 +46,6 @@
         {
           "file": "src/server.ts",
           "registration": "dacs_buy_prepare"
-        },
-        {
-          "file": "buyer/src/server.mjs",
-          "registration": "dacs_buy",
-          "optional": true
         }
       ]
     },

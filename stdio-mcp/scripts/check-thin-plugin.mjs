@@ -211,11 +211,16 @@ export function checkThinPlugin(root, config) {
   const scan = createModuleScanner({ts, config, resolve, exportOrigin: originOf, rel, report, modules});
 
   const entryResults = [];
+  // A module registration serves one entry, so one handler cannot count as covering two.
+  const claimed = new Map();
   for (const entry of config.entries) {
     if (typeof entry?.name !== 'string' || !Array.isArray(entry.modules) || !entry.modules.length) { issue(unverifiable, 'invalid-entry', root); continue; }
     const starts = [];
     for (const m of entry.modules) {
       if (typeof m?.file !== 'string' || typeof m.registration !== 'string') { issue(unverifiable, 'invalid-entry-module', root); continue; }
+      const key = `${path.resolve(root, m.file)}\0${m.registration}`, owner = claimed.get(key);
+      if (owner !== undefined && owner !== entry.name) issue(unverifiable, 'duplicate-entry-registration', root, 0, `${owner}:${entry.name}:${m.file}:${m.registration}`);
+      else claimed.set(key, entry.name);
       const f = safeFile(path.resolve(root, m.file));
       if (!f) { if (m.optional && !fs.existsSync(path.resolve(root, m.file))) skipped.push({entry: entry.name, file: m.file, reason: 'optional-module-absent'}); else issue(unverifiable, 'missing-entry-module', path.resolve(root, m.file), 0, entry.name); continue; }
       starts.push(f);
