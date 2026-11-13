@@ -42,7 +42,7 @@ registerHooks({
 
 async function loadSdk() {
   const require = createRequire(new URL('package.json', buildDir));
-  assert.equal(JSON.parse(readFileSync(new URL('package.json', sdkDir), 'utf8')).version, '4.0.16');
+  assert.equal(JSON.parse(readFileSync(new URL('package.json', sdkDir), 'utf8')).version, '4.0.20');
   const { Demos } = await import(pathToFileURL(require.resolve('@kynesyslabs/demosdk/websdk')).href);
   const { Identities } = await import(new URL('build/abstraction/Identities.js', sdkDir).href);
   const { StorageProgram } = await import(new URL('build/storage/StorageProgram.js', sdkDir).href);

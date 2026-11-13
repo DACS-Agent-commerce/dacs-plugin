@@ -1,4 +1,4 @@
-// Real bundled SDK 4.0.16 sign() (public/portal/embedded-wallet/demos-runtime.mjs)
+// Real bundled SDK 4.0.20 sign() (public/portal/embedded-wallet/demos-runtime.mjs)
 // for the probe tests, offline. Without a node fee quote the SDK derives its own
 // fee from its edits. The fork mode selects its pre- or
 // post-fork serializer, as a node's getNetworkInfo would. Nothing is broadcast.
@@ -21,10 +21,14 @@ export async function createSdkWallet() {
   const address = await demos.connectWallet(demos.newMnemonic(128), { algorithm: 'ed25519' });
   const privateKey = createPrivateKey({ key: Buffer.concat([PKCS8_ED25519, Buffer.from(demos.keypair.privateKey).subarray(0, 32)]), format: 'der', type: 'pkcs8' });
   let postFork = false, networkParameters = null, queue = Promise.resolve();
+  // The node's answer for the signature-domain fork; inactive unless a test sets it.
+  let networkInfo = { chainId: 7, forks: { osDenomination: { activated: true }, signatureDomain: { activated: false } } };
   demos._getNetworkParametersCached = async () => networkParameters;
   demos._isPostForkCached = async () => postFork;
+  demos.getNetworkInfo = async () => networkInfo;
   return {
     address,
+    useNetworkInfo: (info) => { networkInfo = info; },
     signHex: (message) => `0x${sign(null, Buffer.from(message, 'utf8'), privateKey).toString('hex')}`,
     // One sign at a time, so concurrent calls cannot mix fork modes. An optional
     // node fee quote ({ networkFee, rpcFee } in DEM) replaces the derived fee.

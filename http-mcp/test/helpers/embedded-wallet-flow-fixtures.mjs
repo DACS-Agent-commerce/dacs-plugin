@@ -129,7 +129,7 @@ export function installLoopbackOnlyGuard() {
 }
 
 // ---------------------------------------------------------------------------
-// Installed SDK (public npm @kynesyslabs/demosdk 4.0.16 in wallet-build/).
+// Installed SDK (public npm @kynesyslabs/demosdk 4.0.20 in wallet-build/).
 // ---------------------------------------------------------------------------
 const buildDir = new URL('../../wallet-build/', import.meta.url);
 const sdkDir = new URL('node_modules/@kynesyslabs/demosdk/', buildDir);
@@ -161,7 +161,7 @@ export async function loadInstalledSdk() {
   hookSdkResolution();
   const require = createRequire(new URL('package.json', buildDir));
   const version = JSON.parse(readFileSync(new URL('package.json', sdkDir), 'utf8')).version;
-  if (version !== '4.0.16') throw new Error(`expected @kynesyslabs/demosdk 4.0.16, found ${version}`);
+  if (version !== '4.0.20') throw new Error(`expected @kynesyslabs/demosdk 4.0.20, found ${version}`);
   const { Demos } = await import(pathToFileURL(require.resolve('@kynesyslabs/demosdk/websdk')).href);
   const { Identities } = await import(new URL('build/abstraction/Identities.js', sdkDir).href);
   const { validateMnemonic: bip39Validate } = await import(pathToFileURL(require.resolve('@scure/bip39')).href);
@@ -275,7 +275,7 @@ export async function startSdkChainFixture({ postFork = true } = {}) {
       case 'getAddressNonce':
         return nonces.get(String(data.address).toLowerCase()) ?? 0;
       case 'getNetworkInfo':
-        return { forks: { osDenomination: { activated: postFork, activationHeight: 0 } }, chainHead: blocks.length, simulated: true };
+        return { chainId: 7, forks: { osDenomination: { activated: postFork, activationHeight: 0 }, signatureDomain: { activated: false, activationHeight: 0 } }, chainHead: blocks.length, simulated: true };
       case 'getNetworkParameters':
         return { networkFee: 0, rpcFee: 0, simulated: true };
       case 'getAddressInfo':

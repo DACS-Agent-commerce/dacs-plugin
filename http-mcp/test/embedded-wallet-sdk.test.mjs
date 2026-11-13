@@ -1,5 +1,5 @@
 // Embedded wallet SDK seam: public/portal/embedded-wallet/sdk-provider.mjs over
-// the actual upstream @kynesyslabs/demosdk 4.0.16 (installed in wallet-build/)
+// the actual upstream @kynesyslabs/demosdk 4.0.20 (installed in wallet-build/)
 // and over the built browser bundle demos-runtime.mjs loaded in Node.
 //
 // Functional, source-aware fixture tests only: not a security review and not
@@ -69,7 +69,7 @@ registerHooks({
 
 async function loadSdk() {
   const require = createRequire(new URL('package.json', buildDir));
-  assert.equal(JSON.parse(readFileSync(new URL('package.json', sdkDir), 'utf8')).version, '4.0.16');
+  assert.equal(JSON.parse(readFileSync(new URL('package.json', sdkDir), 'utf8')).version, '4.0.20');
   const { Demos } = await import(pathToFileURL(require.resolve('@kynesyslabs/demosdk/websdk')).href);
   const { Identities } = await import(new URL('build/abstraction/Identities.js', sdkDir).href);
   const { validateMnemonic: bip39Validate } = await import(pathToFileURL(require.resolve('@scure/bip39')).href);
@@ -320,7 +320,7 @@ test('actual SDK Identities: web2 proof payload is produced locally after approv
 
 test('built demos-runtime.mjs graph is closed and local, labelled and carries notices', { skip: BUNDLE_BLOCKED }, () => {
   const text = readFileSync(bundleUrl, 'utf8');
-  assert.match(text.slice(0, 600), /unmodified upstream @kynesyslabs\/demosdk 4\.0\.16/);
+  assert.match(text.slice(0, 600), /unmodified upstream @kynesyslabs\/demosdk 4\.0\.20/);
   assert.match(text.slice(0, 600), /Not the V2 server-only modified runtime/);
   // Every file of the generated graph, as shipped: exact bytes, only local
   // relative imports, closure from the entry equal to the declared file set.
@@ -328,7 +328,7 @@ test('built demos-runtime.mjs graph is closed and local, labelled and carries no
   assert.doesNotMatch(text, /\bimport\s*\(\s*["'`]https?:/);
   assert.doesNotMatch(text, /from\s*["']https?:/);
   const notices = text.slice(text.lastIndexOf('THIRD-PARTY NOTICES'));
-  assert.match(notices, /@kynesyslabs\/demosdk@4\.0\.16 — license: MIT/);
+  assert.match(notices, /@kynesyslabs\/demosdk@4\.0\.20 — license: MIT/);
   assert.match(notices, /@scure\/bip39@/);
 });
 
@@ -347,7 +347,7 @@ test('built demos-runtime.mjs works offline and derives the same keys as the ins
   // Let the SDK's import-time node-seal initialisation settle (bounded).
   await new Promise((resolve) => setTimeout(resolve, 2000));
   for (const name of ['Demos', 'Identities', 'validateMnemonic']) assert.equal(typeof runtime[name], 'function', `exports ${name}`);
-  assert.equal(runtime.DEMOS_SDK_VERSION, '4.0.16');
+  assert.equal(runtime.DEMOS_SDK_VERSION, '4.0.20');
 
   const bundled = session({ approve: async () => true }, runtime);
   const created = await bundled.create();

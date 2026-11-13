@@ -19,6 +19,7 @@ import { DENIED_UNSIGNED } from '../src/dacs/demos-sr2-adapter.mjs';
 import * as health from '../src/ops/health.mjs';
 const { opsHealth, formatOpsHealth, readOnlySnapshot, STAGE_THRESHOLDS } = health;
 
+const INACTIVE_NETWORK={chainId:7,forks:{osDenomination:{activated:true},signatureDomain:{activated:false}}};
 const NOW=Date.now(),address=`0x${'a'.repeat(64)}`,buyer=`did:demos:agent:${'b'.repeat(64)}`,seller=`did:demos:agent:${'a'.repeat(64)}`;
 const sha=(value)=>createHash('sha256').update(value).digest('hex');
 // A wallet-Agreement purchase's scope on the source transport: its terms.domain
@@ -45,7 +46,8 @@ function fixture(t){
     return ops.createIdempotent({accountId:s.account,kind:'purchase',idempotencyKey:String(counter++),request:{n:counter},status,terms:{buyer:{wallet:s.buyer},seller:{payee:address},...domain,...(protocol||wallet?{protocol:{jobId:s.jobId,...(wallet?{transportBinding:s.transportBinding}:{})}}:{})},termsHash:s.termsHash,expiresAt:new Date(at+3600000).toISOString(),state:protocol||wallet?{protocol:{stage,...(wallet?{planned:{plan:{agreementHash:s.agreementHash}},walletAnchor}:{})}}:{}}).operation;
   };
   let counter=0;
-  const report=(options={})=>opsHealth({databasePath:path,now:NOW,operatorState:root,...options});
+  // The retained failed transfers here are signed over the bare hash, as the node does while its signatureDomain fork is inactive.
+  const report=(options={})=>opsHealth({databasePath:path,now:NOW,operatorState:root,networkInfo:INACTIVE_NETWORK,...options});
   const cli=(args=[])=>spawnSync(process.execPath,['scripts/ops-health.mjs','--database',path,'--operator-state',root,...args],{cwd:resolve('.'),encoding:'utf8',timeout:10000});
   const durable=(file)=>{const j=openDurableWalletJournal({path:join(root,file),mode:'create'});t.after(()=>j.close());return j;};
   return {root,path,db,clock,ops,create,report,cli,durable};
@@ -218,7 +220,8 @@ test('errors never create absent state; invalid flags, schemas and damaged journ
   for(const args of [['--database',join(h.root,'absent.sqlite')],['--threshold','identity=0'],['--threshold','no-stage=5'],['--limit','1.5'],['--bad','secret'],['--recent-hours','0']])assert.equal(h.cli(args).status,2);
   assert.deepEqual(bytes(h.root),before);
   h.db.prepare("UPDATE meta SET value='999' WHERE key='schema_version'").run();assert.equal(h.cli().status,2);
-  h.db.prepare("UPDATE meta SET value='2' WHERE key='schema_version'").run();
+  // '3' is SCHEMA_VERSION in src/store/database.mjs (not exported).
+  h.db.prepare("UPDATE meta SET value='3' WHERE key='schema_version'").run();
   const j=h.durable('seller-wallet.sqlite');await j.put('TEST',{stage:'verified'});
   const corrupt=new DatabaseSync(join(h.root,'seller-wallet.sqlite'));corrupt.exec(`UPDATE records SET digest='${'0'.repeat(64)}'`);corrupt.close();
   assert.equal(h.cli(['--json']).status,2);

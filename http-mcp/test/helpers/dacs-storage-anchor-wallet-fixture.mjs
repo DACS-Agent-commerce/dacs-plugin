@@ -50,7 +50,10 @@ export function anchorRequest(address, network, { artifact, artifactKind, logica
   };
 }
 
-export async function startAnchorFixture({ postFork = true, networkFee = 2, rpcFee = 3 } = {}) {
+// domain: the node's signature-domain fork. Its getNetworkInfo says so (answer
+// overrides what it says, undefined leaves the member out) and it verifies a
+// signature over "demos-tx:v1:<chainId>:<hash>" when active, over the bare hash otherwise.
+export async function startAnchorFixture({ postFork = true, networkFee = 2, rpcFee = 3, domain = { active: false, chainId: 7 } } = {}) {
   const nonces = new Map();
   const programs = new Map();
   const confirmed = new Map();
@@ -60,7 +63,8 @@ export async function startAnchorFixture({ postFork = true, networkFee = 2, rpcF
   function signatureValid(tx) {
     try {
       const key = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: Buffer.from(tx.content.from.slice(2), 'hex').toString('base64url') }, format: 'jwk' });
-      return verify(null, Buffer.from(tx.hash), key, Buffer.from(tx.signature.data.replace(/^0x/, ''), 'hex'));
+      const preimage = domain.active ? `demos-tx:v1:${domain.chainId}:${tx.hash}` : tx.hash;
+      return verify(null, Buffer.from(preimage), key, Buffer.from(tx.signature.data.replace(/^0x/, ''), 'hex'));
     } catch { return false; }
   }
   function projected(content, txHash) {
@@ -108,7 +112,9 @@ export async function startAnchorFixture({ postFork = true, networkFee = 2, rpcF
       if (call.message === 'getAddressInfo') return send(200, envelope({ balance: '1000000000000' }));
       if (call.message === 'getAddressNonce') return send(200, envelope(nonces.get(call.data.address) ?? 0));
       if (call.message === 'getNetworkInfo') return send(200, envelope({ simulated: faults.simulated, chainIdentity: faults.chainIdentity,
-        forks: { osDenomination: { activated: faults.postFork, activationHeight: 0 } } }));
+        chainId: domain.chainId,
+        forks: { osDenomination: { activated: faults.postFork, activationHeight: 0 },
+          ...('answer' in domain ? (domain.answer === undefined ? {} : { signatureDomain: domain.answer }) : { signatureDomain: { activated: domain.active, activationHeight: 0 } }) } }));
       if (call.message === 'getNetworkParameters') {
         faults.beforeNetworkParameters?.();
         return send(200, envelope({ networkFee: faults.networkFee, rpcFee: faults.rpcFee }));

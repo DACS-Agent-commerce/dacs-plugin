@@ -1,3 +1,4 @@
+import { txSignatureText } from './tx-signature.mjs';
 import { assertProbeTransaction } from './vectors.mjs';
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 export const hasKeys = (v, keys) => object(v) && Object.keys(v).length === keys.length && keys.every((k) => Object.hasOwn(v, k));
@@ -97,7 +98,7 @@ export function fieldDiffs(expected, actual) {
   visit(expected, actual, '$');
   return diffs.map((d) => ({ path: d.path, kind: d.kind }));
 }
-// The bundled SDK's sign() (4.0.16) always sets content.gcr_edits, adds
+// The bundled SDK's sign() (4.0.20) always sets content.gcr_edits, adds
 // content.from_ed25519_address (the signing key) when absent and replaces the
 // transaction_fee values. It then serializes the whole content in one fork
 // mode: pre-fork, amounts and fees are DEM numbers; post-fork, they are decimal
@@ -170,7 +171,14 @@ export function diffSummary(diffs, signed, address, requested) {
     : profile.unexpected === 0 ? 'sdk-expected-only' : 'other-unexpected-diffs';
   return { reading, nonceChanged, recipientChanged, signerChanged, amountChanged, sdkProfile: profile.name, sdkExpected: profile.expected, unexpected: profile.unexpected };
 }
-export async function checkSignedTransaction(requested, signed, address) {
+// What a transaction signature covers follows the configured node's own
+// getNetworkInfo answer, which the probe reads independently of the wallet: the
+// bare hash while its signatureDomain fork is inactive or absent, "demos-tx:v1:<chainId>:<hash>"
+// once it is active. An answer that does not say which, or gives no safe chain
+// id when active, selects nothing (null): no signature verifies, and no other
+// form is tried. Message checks (verifyExact on the message text) are unchanged.
+export { txSignatureText };
+export async function checkSignedTransaction(requested, signed, address, networkInfo = null, activatedChains = new Set()) {
   await assertProbeTransaction(requested);
   const compared = jsonCopy(signed);
   if (object(compared)) {
@@ -182,7 +190,8 @@ export async function checkSignedTransaction(requested, signed, address) {
   const computedHash = object(signed?.content) ? await sha256(JSON.stringify(signed.content)) : null;
   const hashValid = /^[0-9a-f]{64}$/.test(signed?.hash ?? '') && signed.hash === computedHash;
   const hashMatchesRequested = signed?.hash === requestedHash;
-  const signatureValid = hasKeys(signed?.signature, ['type', 'data']) && signed.signature.type === 'ed25519'
-    && await verifyExact(address, signed.hash, signed.signature.data);
+  const text = typeof signed?.hash === 'string' ? txSignatureText(networkInfo, signed.hash, activatedChains) : null;
+  const signatureValid = text !== null && hasKeys(signed?.signature, ['type', 'data']) && signed.signature.type === 'ed25519'
+    && await verifyExact(address, text, signed.signature.data);
   return { ok: diffs.length === 0 && hashValid && hashMatchesRequested && signatureValid, diffs, diffSummary: diffSummary(diffs, compared, address, requested), requestedHash, computedHash, hashValid, hashMatchesRequested, signatureValid };
 }

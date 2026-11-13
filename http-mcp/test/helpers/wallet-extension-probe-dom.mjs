@@ -44,10 +44,16 @@ export function fakeExtension({ wallet = createEphemeralWallet(), signMessage, s
   }, { get(target, key) { assert.ok(['request', 'accounts'].includes(key), `forbidden provider property ${String(key)}`); return target[key]; } });
   return { wallet, calls, provider };
 }
-export function signedTransaction(wallet, tx, mutate = () => {}) {
+// The node's network answer while its signatureDomain fork is inactive (a transaction
+// signature covers the bare hash) and while it is active on chain 7 (it covers
+// "demos-tx:v1:7:<hash>"). Shared by the probe tests.
+export const INACTIVE_NETWORK = Object.freeze({ chainId: 7, forks: { osDenomination: { activated: true }, signatureDomain: { activated: false } } });
+export const ACTIVE_NETWORK = Object.freeze({ chainId: 7, forks: { osDenomination: { activated: true }, signatureDomain: { activated: true } } });
+export function signedTransaction(wallet, tx, mutate = () => {}, networkInfo = INACTIVE_NETWORK) {
   const signed = structuredClone(tx); mutate(signed);
   signed.hash = createHash('sha256').update(JSON.stringify(signed.content)).digest('hex');
-  signed.signature = { type: 'ed25519', data: wallet.signHex(signed.hash) };
+  const active = networkInfo.forks.signatureDomain.activated;
+  signed.signature = { type: 'ed25519', data: wallet.signHex(active ? `demos-tx:v1:${networkInfo.chainId}:${signed.hash}` : signed.hash) };
   return signed;
 }
 export function fakeWindow(provider, { delay = 0, absent = false } = {}) {

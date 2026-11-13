@@ -12,7 +12,7 @@ const LIMITS = CONFIG.limits;
 const EVAL_CALL = 'eval("1 + 1");\n';
 const RUNTIME_DIR = 'http-mcp/public/portal/embedded-wallet';
 /** The listed chunk that holds dynamic evaluation today. */
-const GENERATED_PATH = `${RUNTIME_DIR}/runtime-chunks/chunk-YUIZVLEY.mjs`;
+const GENERATED_PATH = `${RUNTIME_DIR}/runtime-chunks/chunk-Z5FLFX6Z.mjs`;
 const GENERATED_BYTES = readFileSync(path.join(REPO_ROOT, GENERATED_PATH));
 const UNLISTED_COPY = 'src/copy-of-runtime.mjs';
 
@@ -338,9 +338,9 @@ test('eval :: "every JS and TS extension, including .jsx, .tsx, .mts, .cts and .
 
 test('eval :: "the generated-file list is exact: a new unlisted chunk fails and a stale entry fails" (T10)', async (t) => {
   const listed = CONFIG.evalGeneratedFiles;
-  await t.test('the shipped list names the seven runtime chunks and demos-runtime.mjs, each with the SHA-256 of the file the repository holds', () => {
-    assert.equal(listed.length, 8);
-    assert.equal(listed.filter(({ path: file }) => file.includes('/runtime-chunks/')).length, 7);
+  await t.test('the shipped list names the nine runtime chunks and demos-runtime.mjs, each with the SHA-256 of the file the repository holds', () => {
+    assert.equal(listed.length, 10);
+    assert.equal(listed.filter(({ path: file }) => file.includes('/runtime-chunks/')).length, 9);
     assert.ok(listed.some(({ path: file }) => file === `${RUNTIME_DIR}/demos-runtime.mjs`));
     assert.ok(listed.some(({ path: file }) => file === GENERATED_PATH));
     for (const entry of listed) assert.equal(sha256(readFileSync(path.join(REPO_ROOT, entry.path))), entry.sha256, entry.path);

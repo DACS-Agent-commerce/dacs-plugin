@@ -431,8 +431,8 @@ const MAPPED_LOOPBACK_HEX = ipv6('', '', 'ffff', '7f00', '1');
 const EXPANDED_LOOPBACK = ipv6(0, 0, 0, 0, 0, 0, 0, 1);
 const COMMON_NAME_OID = ipv4(2, 5, 4, 3);
 const QUOTED_CONTEXT ="= '<ip>';";
-const OID_CHUNK = 'http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs';
-const OID_CHUNK_BLOB = 'c420e04e0b82c351d8726241668da69301690713';
+const OID_CHUNK = 'http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-DZZ3U4SS.mjs';
+const OID_CHUNK_BLOB = 'ef03bcdce54bd56703c371ddc829057cb0e820ba';
 const OID_LINE = 5;
 const LOOPBACK_TEST = 'http-mcp/test/oauth-loopback.test.mjs';
 const LOOPBACK_LINE = 161;
@@ -454,7 +454,7 @@ const refusedLinesOf = (file, { oid, text }, config) => scanIps({ entries: [{ po
 /** `text` with `edit` applied to its 1-based line `number`. */
 const withLineEdited = ({ oid, text }, number, edit) => ({ oid, text: text.split('\n').map((line, index) => (index + 1 === number ? edit(line) : line)).join('\n') });
 
-test('addresses: public, private IPv4, shared, unique-local IPv6 and link-local literals each fail when planted in code, config, prose and a path name; loopback and unspecified bind settings, reserved documentation examples, the two IPv4-mapped loopback literals and the expanded IPv6 loopback literal at http-mcp/test/oauth-loopback.test.mjs:161 pass; the 55 ASN.1 object-identifier tokens on line 5 of http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-7OGVXGZV.mjs pass only under their exact per-token dispositions; a public address added on that line outside the listed tokens and a mapped non-loopback address fail; an exact reviewed disposition passes only its own path, blob, line, context and value', () => {
+test('addresses: public, private IPv4, shared, unique-local IPv6 and link-local literals each fail when planted in code, config, prose and a path name; loopback and unspecified bind settings, reserved documentation examples, the two IPv4-mapped loopback literals and the expanded IPv6 loopback literal at http-mcp/test/oauth-loopback.test.mjs:161 pass; the 55 ASN.1 object-identifier tokens on line 5 of http-mcp/public/portal/embedded-wallet/runtime-chunks/chunk-DZZ3U4SS.mjs pass only under their exact per-token dispositions; a public address added on that line outside the listed tokens and a mapped non-loopback address fail; an exact reviewed disposition passes only its own path, blob, line, context and value', () => {
   const planted = {
     'src/server.mjs': `const ok = 1;\nconst host = '${PUBLIC_V4}';\n`,
     'conf/net.json': `{\n  "peer": "${PRIVATE_V4}:8080"\n}\n`,
