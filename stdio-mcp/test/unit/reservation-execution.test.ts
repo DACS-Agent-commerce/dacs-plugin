@@ -39,6 +39,33 @@ test('a release after a restart and after midnight frees only its own amount and
   assert.equal(f.reservations?.length, 2);
 });
 
+for (const [before, after] of [
+  ['2026-10-31T23:59:59Z', '2026-11-01T00:00:01Z'],
+  ['2026-12-31T23:59:59Z', '2027-01-01T00:00:01Z'],
+  ['2028-02-29T23:59:59Z', '2028-03-01T00:00:01Z'],
+]) {
+  test(`a backward midnight clock step keeps settled spend charged across ${after}`, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'spend-exec-'));
+    let clock = before!;
+    const ledger = new SpendLedger(dir, 100n, () => new Date(clock));
+    const first = ledger.reserve(parts(80n, 0n), 'before midnight');
+    ledger.release(first, parts(80n, 0n)); // settled debit, no open reservation to retain it
+    clock = after!;
+    const next = ledger.reserve(parts(10n, 0n), 'after midnight');
+    ledger.release(next, parts(10n, 0n));
+    assert.equal(ledger.spentToday(), 10n, 'the new day has its own total');
+    clock = before!;
+    const restarted = new SpendLedger(dir, 100n, () => new Date(clock));
+    assert.equal(restarted.spentToday(), 80n, 'settled spend survives a restart and clock rollback');
+    assert.equal(restarted.remainingToday(), 20n);
+    assert.throws(() => restarted.reserve(parts(21n, 0n), 'over cap'), /cap/);
+    restarted.reserve(parts(20n, 0n), 'remaining cap');
+    assert.equal(restarted.remainingToday(), 0n);
+    clock = after!;
+    assert.equal(ledger.spentToday(), 10n, 'spending after rollback leaves the new day alone');
+  });
+}
+
 const PAY_ONE_DEM = { to: ADDR_B, amount_dem: '1' }; // 1 DEM + 2 DEM quoted fee = 3 DEM reserved
 
 async function submitPay(h: Harness) {
