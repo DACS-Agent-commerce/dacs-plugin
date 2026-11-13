@@ -236,7 +236,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/src/mcp/showcase-start.mjs` | `5f9f4f6f12f500f31d3e83626cd22aed7f344992` | verbatim |
 | `http-mcp/src/mcp/ui.mjs` | `09bb1873381c742b3a0d5bbec9e7ea17288807bf` | verbatim |
 | `http-mcp/src/operations.mjs` | `04016e7459b47fa4e3070d823c908d51ab17f8ec` | verbatim |
-| `http-mcp/src/ops/health.mjs` | `d459f69a1438bd80d2a5fddb0388d45b718d220e` | changed here after a verbatim import: checks a retained failed transfer's signature against the configured node's answer and lists one signed in the other form |
+| `http-mcp/src/ops/health.mjs` | `de25c49c4e0c477a723c464641117be549a31075` | changed here after a verbatim import: checks a retained failed transfer's signature against the configured node's answer and lists one signed in the other form; then changed here: reads the store's schema version 3 |
 | `http-mcp/src/ops/purchase-timeline.mjs` | `0762ca4d2bf7892f1e63a6725cdb695a9cb5e11c` | verbatim |
 | `http-mcp/src/portal/auto-advance-assets.mjs` | `c3865316bb72ef15b5144add5cc1639ee7db269e` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/src/portal/intent-hooks.mjs` | `32ff5094e0fefc710c722169cb5230141e3b6acf` | verbatim |
@@ -618,8 +618,8 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/test/ops-health-lost-attempt.test.mjs` | `095bdd17b880f52f7ed9bf5d8511a164ac97d964` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/ops-health-native-evidence-race.test.mjs` | `c0e70e28b6de051c31d9d069f39c8944057b26c1` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/ops-health-native-transfer-records.test.mjs` | `386d1606db68cf931ac562eeb8172b1b0181b9a1` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `http-mcp/test/ops-health-signature-authority.test.mjs` | `b2b3596c44c3714a40c755fa5a8ab83f5473386b` | added: ops health checks a retained failed transfer's signature in the form the node selects, and lists unavailable or mismatched forms |
-| `http-mcp/test/ops-health.test.mjs` | `c41ff6dd4ec4ae2a7f3bdb8bf826df1c6b09591c` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `http-mcp/test/ops-health-signature-authority.test.mjs` | `2021a2fe29dfdf1a2aa136b4bd071ecc4394f295` | added: ops health checks a retained failed transfer's signature in the form the node selects, and lists unavailable or mismatched forms; then a test that health reads the store's schema version 3 and refuses 2 |
+| `http-mcp/test/ops-health.test.mjs` | `37b416f0ae5f9bcf86ef7d13082c0b24ac31fd9a` | edited: comments and test names: internal review and process references removed; no behaviour change; then the valid schema version written back is the store's 3 |
 | `http-mcp/test/overnight-acceptance-core.test.mjs` | `be9fab0bf534bdffb8f7cf8125e4ae971e7e5b43` | edited: public wording: internal process and layout references reworded
 | `http-mcp/test/overnight-acceptance-ui.test.mjs` | `2099f64506281dbf705a3c8c0519c57f5fa719ae` | verbatim |
 | `http-mcp/test/overnight-acceptance.test.mjs` | `8dcbd9c2235ba91efe49e0097fa411edaac6acbc` | verbatim |
