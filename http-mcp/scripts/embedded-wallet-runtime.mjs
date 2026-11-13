@@ -19,11 +19,11 @@ export const RUNTIME_MANIFEST_SCHEMA = 'dacs-embedded-wallet-runtime-manifest/1'
 export const RUNTIME_ENTRY = 'demos-runtime.mjs';
 export const RUNTIME_CHUNK_DIR = 'runtime-chunks';
 export const RUNTIME_MANIFEST = 'runtime-manifest.json';
-export const RUNTIME_SDK = Object.freeze({ name: '@kynesyslabs/demosdk', version: '4.0.16' });
+export const RUNTIME_SDK = Object.freeze({ name: '@kynesyslabs/demosdk', version: '4.0.20' });
 export const RUNTIME_ESBUILD_VERSION = '0.25.12';
-export const RUNTIME_LABEL = 'upstream-demosdk-4.0.16-browser-bundle';
+export const RUNTIME_LABEL = 'upstream-demosdk-4.0.20-browser-bundle';
 export const RUNTIME_BANNER = 'demos-runtime.mjs — GENERATED, do not edit.';
-export const RUNTIME_SDK_LABEL = 'unmodified upstream @kynesyslabs/demosdk 4.0.16';
+export const RUNTIME_SDK_LABEL = 'unmodified upstream @kynesyslabs/demosdk 4.0.20';
 
 const CHUNK_PATH = /^runtime-chunks\/[A-Za-z0-9_-]+\.mjs$/;
 

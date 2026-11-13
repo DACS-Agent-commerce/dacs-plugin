@@ -1,5 +1,5 @@
 // Embedded wallet transactions with the REAL upstream @kynesyslabs/demosdk
-// 4.0.16 (installed in wallet-build/): sdk-provider.mjs signs, confirms and
+// 4.0.20 (installed in wallet-build/): sdk-provider.mjs signs, confirms and
 // broadcasts through the plugin server's same-origin relay
 // (/portal/api/wallet-rpc, simulated-loopback profile) to a SIMULATED loopback
 // Demos node that verifies hash, Ed25519 signature, request auth and nonce
@@ -42,7 +42,7 @@ registerHooks({
 
 async function loadSdk() {
   const require = createRequire(new URL('package.json', buildDir));
-  assert.equal(JSON.parse(readFileSync(new URL('package.json', sdkDir), 'utf8')).version, '4.0.16');
+  assert.equal(JSON.parse(readFileSync(new URL('package.json', sdkDir), 'utf8')).version, '4.0.20');
   const { Demos } = await import(pathToFileURL(require.resolve('@kynesyslabs/demosdk/websdk')).href);
   const { Identities } = await import(new URL('build/abstraction/Identities.js', sdkDir).href);
   const { validateMnemonic: bip39Validate } = await import(pathToFileURL(require.resolve('@scure/bip39')).href);

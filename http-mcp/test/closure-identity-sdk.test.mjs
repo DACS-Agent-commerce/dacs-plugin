@@ -1,6 +1,6 @@
 // Closure (identity recovery) with the REAL pinned embedded wallet: the actual
 // public/portal/embedded-wallet/sdk-provider.mjs session over the installed
-// upstream @kynesyslabs/demosdk 4.0.16 (wallet-build/), through the plugin's
+// upstream @kynesyslabs/demosdk 4.0.20 (wallet-build/), through the plugin's
 // same-origin relay to a SIMULATED loopback node that records every call.
 // It shows which wallet answers happen before any broadcast (the node log has
 // no broadcastTx), that the server then closes the action instead of
@@ -41,7 +41,7 @@ registerHooks({
 
 async function loadSdk() {
   const require = createRequire(new URL('package.json', buildDir));
-  assert.equal(JSON.parse(readFileSync(new URL('package.json', sdkDir), 'utf8')).version, '4.0.16');
+  assert.equal(JSON.parse(readFileSync(new URL('package.json', sdkDir), 'utf8')).version, '4.0.20');
   const { Demos } = await import(pathToFileURL(require.resolve('@kynesyslabs/demosdk/websdk')).href);
   const { Identities } = await import(new URL('build/abstraction/Identities.js', sdkDir).href);
   const { validateMnemonic: bip39Validate } = await import(pathToFileURL(require.resolve('@scure/bip39')).href);

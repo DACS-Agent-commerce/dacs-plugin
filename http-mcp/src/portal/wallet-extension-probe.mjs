@@ -39,6 +39,7 @@ export function createWalletExtensionProbeRouter({ config, authServer, accounts,
   });
   const dir=fileURLToPath(new URL('../../public/wallet-extension-probe/',import.meta.url));
   router.get('/',(_req,res)=>res.type('html').send(readFileSync(`${dir}index.html`,'utf8')));
+  router.get('/assets/tx-signature.mjs',(_req,res)=>res.sendFile(fileURLToPath(new URL('../../public/portal/embedded-wallet/tx-signature.mjs',import.meta.url))));
   router.use('/assets',express.static(dir,{index:false,fallthrough:false,maxAge:0}));
   router.get('/nonce/:address',async(req,res)=>{
     try {
@@ -49,6 +50,14 @@ export function createWalletExtensionProbeRouter({ config, authServer, accounts,
       const balance=await chain.getAddressBalance(address,{encoding:config.demAmountEncoding});
       res.json({address,currentNonce,nextNonce:currentNonce+1,balanceOs:balance.toString()});
     } catch { res.status(500).json({error:'nonce_unavailable'}); }
+  });
+  // The configured node's own network answer, for the form of a transaction signature.
+  router.get('/network',async(_req,res)=>{
+    try {
+      const info=await chain.getNetworkInfo();
+      if(info===null||typeof info!=='object'||Array.isArray(info)) throw new Error('network_unavailable');
+      res.json(info);
+    } catch { res.status(500).json({error:'network_unavailable'}); }
   });
   return router;
 }

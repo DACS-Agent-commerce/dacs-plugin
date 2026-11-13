@@ -1,14 +1,14 @@
 /*
  * demos-runtime.mjs — GENERATED, do not edit. Experimental, default-off.
- * Browser bundle of the unmodified upstream @kynesyslabs/demosdk 4.0.16 (public npm,
+ * Browser bundle of the unmodified upstream @kynesyslabs/demosdk 4.0.20 (public npm,
  * license "MIT" declared in its package.json, author Kynesys Labs; the package ships no
  * LICENSE file) built with esbuild 0.25.12 from chatgpt/wallet-build (entry.mjs, build.mjs).
  * Not the V2 server-only modified runtime. No CDN imports; no network work on import.
- * Local module graph: this entry plus 7 chunks in ./runtime-chunks/, listed with
+ * Local module graph: this entry plus 9 chunks in ./runtime-chunks/, listed with
  * SHA-256 in ./runtime-manifest.json. Packages with shipped code: 13. Third-party
  * notices of all 34 packages read by the build are appended at the end of this file.
  */
-export * from "./runtime-chunks/entry-AVSAFOKW.mjs";
+export * from "./runtime-chunks/entry-AMKAXJUC.mjs";
 
 /*
  * THIRD-PARTY NOTICES
@@ -1600,7 +1600,7 @@ export * from "./runtime-chunks/entry-AVSAFOKW.mjs";
  * @iden3/binfileutils@0.0.11 — license: GPL-3.0 — author: Jordi Baylina
  * (no license file shipped in the package; license as declared in its package.json)
  *
- * @kynesyslabs/demosdk@4.0.16 — license: MIT — author: Kynesys Labs
+ * @kynesyslabs/demosdk@4.0.20 — license: MIT — author: Kynesys Labs
  * (no license file shipped in the package; license as declared in its package.json)
  *
  * @noble/hashes@1.8.0 — license: MIT — author: Paul Miller (https://paulmillr.com)

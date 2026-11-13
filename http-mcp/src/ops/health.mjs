@@ -1,7 +1,7 @@
 import { sellerFailureCause } from '../dacs/seller-http.mjs';
 import { canonicalize, contentHash, fixedPriceAgreementLogicalAddress, isCanonicalJobId, logicalToStorageProgramName } from '@kynesyslabs/dacs';
 import { deriveStorageAddress } from '../dacs/wallet-transactions.mjs';
-import { verifyDemosSignature } from '../wallet/demos-signature.mjs';
+import { verifyDemosTransactionSignature } from '../wallet/demos-transaction-signature.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { readFileSync, lstatSync, realpathSync, readlinkSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
@@ -286,7 +286,7 @@ function journal(path,stateRoots) {
 // Open publications use the same five-minute readback window as payments.
 const PUBLICATION_WAIT_MS=300_000;
 const PUBLICATION_STATUSES=new Set(['awaiting_identity_signature','awaiting_listing_signature','listing_signed','publication_handoff','broadcast_reported','chain_verified','directory_submitted','directory_visible','publication_uncertain','publication_mismatch','cancelled']);
-const OPEN_PUBLICATIONS=new Set(['publication_handoff','broadcast_reported','publication_uncertain']);
+export const OPEN_PUBLICATIONS=new Set(['publication_handoff','broadcast_reported','publication_uncertain']);
 // A cancelled publication whose handed-off write was never read back can still
 // land later (cancelling only checks the wallet nonce at that moment), so it
 // stays listed until a readback verifies it. Cancelled rows are informational:
@@ -305,7 +305,8 @@ function readLegacyPublications(db,now) {
 }
 function readPurchases(databasePath,now,stateRoots) {
   return readOnlySnapshot(databasePath,(db)=>{
-    if(db.prepare("SELECT value FROM meta WHERE key='schema_version'").get()?.value!=='2')fail();
+    // Must equal SCHEMA_VERSION in ../store/database.mjs (not exported), which writes '3'.
+    if(db.prepare("SELECT value FROM meta WHERE key='schema_version'").get()?.value!=='3')fail();
     const events=db.prepare('SELECT at,type,data FROM operation_events WHERE operation_id=? ORDER BY seq');
     const rows=db.prepare("SELECT id,account_id,status,state,created_at,updated_at,expires_at,terms_hash,json_extract(terms,'$.domain.network') AS network,json_extract(terms,'$.domain.chainIdentity') AS chain_identity,json_extract(terms,'$.protocol.jobId') AS job,json_extract(terms,'$.protocol.transportBinding') AS transport_binding,json_extract(terms,'$.buyer.wallet') AS buyer,json_extract(terms,'$.seller.payee') AS seller,json_extract(terms,'$.protocol') IS NOT NULL AS protocol FROM operations WHERE kind='purchase' ORDER BY created_at DESC,id").all().map(row=>{
       if(!ID.test(row.id))fail();
@@ -506,13 +507,29 @@ function buyerCreateHandoff(key,value,purchases){
 // by another transfer, kept under its intent key and on its wallet lane. It
 // is resolved and never resent, as an observed transfer is.
 const FAILURES=[['blockNumber','nonceFence'],['blockNumber','supersededByHash']];
-function failedTransfer(key,value,purchases){
+// The signature is checked in the form the configured node uses (its
+// getNetworkInfo answer, passed in as authority.networkInfo). Without a usable
+// answer the record is not called corrupt: it is listed in authority.unavailable,
+// and its other fields are still checked. A signature invalid in that form but
+// valid in the other (the answer's chain id, a fresh run record) is not called
+// corrupt either: it is listed in authority.mismatch, neither accepted nor
+// authorising a retry. One valid in neither form is invalid.
+function failedTransfer(key,value,purchases,authority){
   if(value?.stage!=='failed')return false;
   const tx=value.signedTransaction,c=tx?.content,n=value.networkBinding,f=value.failure;
+  const badSignature=()=>{
+    const verify=(networkInfo,activatedChains)=>verifyDemosTransactionSignature({networkInfo,activatedChains,hash:tx.hash,signature:tx.signature.data,publicKey:c.from});
+    const verdict=verify(authority.networkInfo,authority.activatedChains),info=authority.networkInfo;
+    if(verdict==='unavailable')authority.unavailable.push({source:'node2-transport.sqlite',recordId:sha(key)});
+    if(verdict!=='invalid')return false;
+    if(verify({chainId:info.chainId,forks:{signatureDomain:{activated:info.forks?.signatureDomain?.activated!==true}}},new Set())!=='valid')return true;
+    if(!authority.mismatch.some(row=>row.hash===tx.hash))authority.mismatch.push({hash:tx.hash,purchaseIds:[...purchases.values()].filter(p=>p.buyer===c.from&&p.scope.network===n.network&&p.scope.chainIdentity===n.chainIdentity).map(p=>p.purchaseId).sort()});
+    return false;
+  };
   if(!plain(value)||!sameKeys(value,['stage','hash','nonce','signedTransaction','networkBinding','failure'])||!text(value.hash,HASH)||!Number.isSafeInteger(value.nonce)||value.nonce<0
     ||!plain(tx)||tx.hash!==value.hash||!plain(c)||c.type!=='native'||!text(c.from,WALLET)||c.nonce!==value.nonce||!plain(n)
     ||!Array.isArray(c.data)||c.data[0]!=='native'||c.data[1]?.nativeOperation!=='send'||!Array.isArray(c.data[1].args)||c.data[1].args.length!==2||c.data[1].args[0]!==c.to
-    ||sha(JSON.stringify(c))!==tx.hash||tx.signature?.type!=='ed25519'||!verifyDemosSignature({address:c.from,message:tx.hash,signature:tx.signature.data})
+    ||sha(JSON.stringify(c))!==tx.hash||tx.signature?.type!=='ed25519'||badSignature()
     ||![...purchases.values()].some(p=>p.buyer===c.from&&p.scope.network===n.network&&p.scope.chainIdentity===n.chainIdentity)
     ||(key!==`devnet/native-transfer/${value.hash}`&&key!==`devnet/native-wallet/${JSON.stringify([n.network,n.chainIdentity,c.from])}`)
     ||!plain(f)||!FAILURES.some(keys=>sameKeys(f,keys))||!Number.isSafeInteger(f.blockNumber)||f.blockNumber<0
@@ -555,7 +572,7 @@ function deniedCreatePlan(key,value,purchases){
   }catch{}
   fail();
 }
-function sellerWrites(operatorState,present,sellers,buyers,stateRoots,purchases) {
+function sellerWrites(operatorState,present,sellers,buyers,stateRoots,purchases,authority) {
   if(!operatorState)return {journals:null,unconfirmed:[]};
   const rows=[];
   for(const source of present)for(const row of journal(join(operatorState,source),stateRoots))rows.push({...row,source});
@@ -564,7 +581,7 @@ function sellerWrites(operatorState,present,sellers,buyers,stateRoots,purchases)
   const unconfirmed=[];
   for(const {source,key,value} of rows){
     if(source==='node2-transport.sqlite'){
-      if(payerRecord(key,value,purchases)||buyerCreateHandoff(key,value,purchases)||failedTransfer(key,value,purchases)||deniedCreatePlan(key,value,purchases))continue;
+      if(payerRecord(key,value,purchases)||buyerCreateHandoff(key,value,purchases)||failedTransfer(key,value,purchases,authority)||deniedCreatePlan(key,value,purchases))continue;
       if(!JOURNAL_STAGES.has(value?.stage))fail();
       if(!owners.has(owner(value))){
         if(PENDING.has(value.stage)&&!buyers.has(owner(value)))fail();
@@ -579,7 +596,9 @@ function sellerWrites(operatorState,present,sellers,buyers,stateRoots,purchases)
   }
   return {journals:present,unconfirmed};
 }
-export function opsHealth({databasePath,operatorState=null,logPath=null,now=Date.now(),recentHours=24,limit=100,thresholds={}}={}) {
+// networkInfo is the configured node's getNetworkInfo answer, when the caller
+// has one; it only decides how a retained failed transfer's signature is checked.
+export function opsHealth({databasePath,operatorState=null,logPath=null,now=Date.now(),recentHours=24,limit=100,thresholds={},networkInfo=null}={}) {
   if(!Number.isSafeInteger(now)||now<0||!Number.isSafeInteger(limit)||limit<1||limit>10000||!Number.isFinite(recentHours)||recentHours<=0)fail();
   for(const [key,value] of Object.entries(thresholds))if(!Object.hasOwn(STAGE_THRESHOLDS,key)||!Number.isSafeInteger(value)||value<1)fail();
   const configured={...STAGE_THRESHOLDS,...thresholds};
@@ -622,8 +641,9 @@ export function opsHealth({databasePath,operatorState=null,logPath=null,now=Date
     timeline.sort((a,b)=>a.timestampMs-b.timestampMs);
     return {purchaseId:row.purchaseId,stage:row.stage,ageMs:Math.max(0,now-row.enteredAt),outcome:outcome(row),...(row.lastAttemptDispatched===false?{lastAttemptDispatched:false}:{}),...(sellerFailureCause(row.causeCode)?{causeCode:row.causeCode}:{}),unresolvedWrites:row.writes,timeline:timeline.map((event,i)=>({stage:event.stage,lane:event.lane,source:event.source,at:new Date(event.timestampMs).toISOString(),gapMs:i?Math.max(0,event.timestampMs-timeline[i-1].timestampMs):0}))};
   });
-  const {journals,unconfirmed}=sellerWrites(operatorState,present,rows.map(row=>row.seller),new Set(rows.map(row=>row.buyer).filter(value=>/^0x[0-9a-f]{64}$/.test(value??''))),stateRoots,new Map(rows.map(row=>[row.purchaseId,row])));
-  return {format:'dacs-ops-health/v2',legacyPublications,at:new Date(now).toISOString(),healthy:stuck.length===0&&unconfirmed.length===0&&!legacyPublications.some(row=>OPEN_PUBLICATIONS.has(row.status)),purchases,stuck,seller:{journals,unconfirmed},thresholdsMs:configured};
+  const authority={networkInfo,activatedChains:new Set(),unavailable:[],mismatch:[]};
+  const {journals,unconfirmed}=sellerWrites(operatorState,present,rows.map(row=>row.seller),new Set(rows.map(row=>row.buyer).filter(value=>/^0x[0-9a-f]{64}$/.test(value??''))),stateRoots,new Map(rows.map(row=>[row.purchaseId,row])),authority);
+  return {format:'dacs-ops-health/v2',legacyPublications,at:new Date(now).toISOString(),healthy:stuck.length===0&&unconfirmed.length===0&&authority.unavailable.length===0&&authority.mismatch.length===0&&!legacyPublications.some(row=>OPEN_PUBLICATIONS.has(row.status)),purchases,stuck,seller:{journals,unconfirmed},signatureAuthorityUnavailable:authority.unavailable,signatureFormMismatch:authority.mismatch,thresholdsMs:configured};
 }
 export function formatOpsHealth(report) {
   const lines=[`${report.healthy?'HEALTHY':'STUCK'} ${report.at}`];
@@ -638,5 +658,7 @@ export function formatOpsHealth(report) {
   lines.push(journals===null?'seller journals: not selected':`seller journals: ${journals.join(', ')||'absent'}`);
   for(const row of unconfirmed)lines.push(`seller readback source=${row.source} record=${row.recordId} hash=${row.hash??'unknown'} stage=${row.stage} next=${row.nextExpected}`);
   if(journals?.length&&!unconfirmed.length)lines.push('seller unconfirmed writes: none');
+  for(const row of report.signatureAuthorityUnavailable)lines.push(`signature authority unavailable source=${row.source} record=${row.recordId} next=read the configured node's network information; the record is neither accepted nor called corrupt`);
+  for(const row of report.signatureFormMismatch)lines.push(`signature form mismatch hash=${row.hash} purchases=${row.purchaseIds.join(',')} next=nothing is resent; the record stays at rest and is reported`);
   return `${lines.join('\n')}\n`;
 }

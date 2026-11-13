@@ -157,8 +157,8 @@ test('built runtime exports exactly the documented upstream SDK surface', { skip
   assert.equal(typeof runtime.Identities, 'function');
   assert.equal(typeof runtime.validateMnemonic, 'function');
   assert.equal(runtime.DEMOS_SDK_PACKAGE, '@kynesyslabs/demosdk');
-  assert.equal(runtime.DEMOS_SDK_VERSION, '4.0.16');
-  assert.equal(runtime.RUNTIME_LABEL, 'upstream-demosdk-4.0.16-browser-bundle');
+  assert.equal(runtime.DEMOS_SDK_VERSION, '4.0.20');
+  assert.equal(runtime.RUNTIME_LABEL, 'upstream-demosdk-4.0.20-browser-bundle');
   assert.equal(runtime.validateMnemonic('correct horse battery staple'), false);
   assert.equal(runtime.validateMnemonic(42), false);
   const demos = new runtime.Demos();

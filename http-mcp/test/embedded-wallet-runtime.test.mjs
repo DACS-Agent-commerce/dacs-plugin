@@ -6,7 +6,7 @@
 // lists every graph file with exact bytes and SHA-256 and its local static and
 // dynamic imports; all imports are relative and resolve to declared files; the
 // static+dynamic closure from the entry is exactly the declared set; nothing
-// undeclared sits in runtime-chunks/; identity pins are demosdk 4.0.16 and
+// undeclared sits in runtime-chunks/; identity pins are demosdk 4.0.20 and
 // esbuild 0.25.12. Fixture manifests are written by hand here (not by
 // serializeRuntimeManifest), and each negative case starts from the accepting
 // control and changes one thing, re-hashing the changed file so the targeted
@@ -40,8 +40,8 @@ function fixture({ sources = FIXTURE_SOURCES, edges = FIXTURE_EDGES, patch = (m)
   const manifest = patch({
     schema: RUNTIME_MANIFEST_SCHEMA,
     entry: 'demos-runtime.mjs',
-    runtimeLabel: 'upstream-demosdk-4.0.16-browser-bundle',
-    sdk: { name: '@kynesyslabs/demosdk', version: '4.0.16' },
+    runtimeLabel: 'upstream-demosdk-4.0.20-browser-bundle',
+    sdk: { name: '@kynesyslabs/demosdk', version: '4.0.20' },
     esbuild: '0.25.12',
     shippedPackages: [],
     noticePackages: [],
@@ -121,10 +121,10 @@ test('a declared file no import reaches is reported', () => {
 
 test('identity pins, schema, entry and declared paths are enforced', () => {
   const cases = [
-    [(m) => ({ ...m, sdk: { name: '@kynesyslabs/demosdk', version: '4.0.17' } }), 'sdk {"name":"@kynesyslabs/demosdk","version":"4.0.17"} != @kynesyslabs/demosdk@4.0.16'],
+    [(m) => ({ ...m, sdk: { name: '@kynesyslabs/demosdk', version: '4.0.17' } }), 'sdk {"name":"@kynesyslabs/demosdk","version":"4.0.17"} != @kynesyslabs/demosdk@4.0.20'],
     [(m) => ({ ...m, esbuild: '0.25.11' }), 'esbuild "0.25.11" != 0.25.12'],
     [(m) => ({ ...m, schema: 'other/1' }), `schema "other/1" != ${RUNTIME_MANIFEST_SCHEMA}`],
-    [(m) => ({ ...m, runtimeLabel: 'patched' }), 'runtimeLabel "patched" != upstream-demosdk-4.0.16-browser-bundle'],
+    [(m) => ({ ...m, runtimeLabel: 'patched' }), 'runtimeLabel "patched" != upstream-demosdk-4.0.20-browser-bundle'],
   ];
   for (const [patch, problem] of cases) assert.deepEqual(checkRuntimeGraph(fixture({ patch })), [problem]);
   const traversal = fixture({ patch: (m) => ({ ...m, files: [...m.files, { path: '../secret.mjs', bytes: 1, sha256: '0'.repeat(64), imports: [], dynamicImports: [] }] }) });
@@ -175,7 +175,7 @@ test('real shipped graph: closed, local, pinned, content-named, with lazy chunks
   for (const { path } of manifest.files) if (path !== RUNTIME_ENTRY) assert.match(path, new RegExp(`^${RUNTIME_CHUNK_DIR}/(chunk|entry)-[A-Z0-9]{8}\\.mjs$`), path);
   const { eager, lazy } = runtimeLoadSets(manifest);
   assert.ok(eager.includes(RUNTIME_ENTRY) && lazy.length > 0, 'eager entry plus lazily loaded chunks');
-  assert.ok(manifest.shippedPackages.includes('@kynesyslabs/demosdk@4.0.16'));
+  assert.ok(manifest.shippedPackages.includes('@kynesyslabs/demosdk@4.0.20'));
   assert.ok(!manifest.shippedPackages.some((id) => id.startsWith('node-seal@')), 'node-seal code is not shipped');
   for (const id of manifest.shippedPackages) assert.ok(manifest.noticePackages.includes(id), `notices cover ${id}`);
   const notices = files.get(RUNTIME_ENTRY).toString('utf8');

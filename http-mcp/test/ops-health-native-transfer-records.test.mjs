@@ -16,7 +16,8 @@
 // the real embedded wallet.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import http from 'node:http';
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -116,7 +117,22 @@ function withRecord(t, state, key, value) {
   const journal = openDurableWalletJournal({ path: join(copy, 'node2-transport.sqlite'), mode: 'open' });
   return journal.put(key, value).finally(() => journal.close()).then(() => copy);
 }
-const health = (state) => opsHealth({ databasePath: join(state, 'app', 'dacs-chatgpt.sqlite'), operatorState: state });
+// The failed transfer here is signed over the bare hash, as the node accepts it while its signatureDomain fork is inactive.
+const INACTIVE_NETWORK = { chainId: 7, forks: { osDenomination: { activated: true }, signatureDomain: { activated: false } } };
+const health = (state) => opsHealth({ databasePath: join(state, 'app', 'dacs-chatgpt.sqlite'), operatorState: state, networkInfo: INACTIVE_NETWORK });
+// The command line, asking a loopback node that says the fork is inactive (an asynchronous spawn: the node answers from this process).
+async function cliWithNode(state) {
+  const node = http.createServer((req, res) => { req.resume(); req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ result: 200, response: INACTIVE_NETWORK })); }); });
+  await new Promise((done) => node.listen(0, '127.0.0.1', done));
+  try {
+    return await new Promise((done) => {
+      const child = spawn(process.execPath, ['scripts/ops-health.mjs', '--operator-state', state, '--json'], { cwd: resolve('.'), env: { ...process.env, DACS_CHAIN_RPC_URL: `http://127.0.0.1:${node.address().port}` } });
+      let stderr = '';
+      child.stderr.on('data', (c) => { stderr += c; });
+      child.on('close', (status) => done({ status, stderr }));
+    });
+  } finally { await new Promise((done) => { node.close(done); node.closeAllConnections(); }); }
+}
 const cli = (state) => spawnSync(process.execPath, ['scripts/ops-health.mjs', '--operator-state', state, '--json'], { cwd: resolve('.'), encoding: 'utf8', timeout: 30000 });
 
 test('ops health after a native payment cancelled while its transfer dialog was open (refused at its lease) and a paid one: the source journal\'s cancellation, claim and refusal records and both browser Agreement CREATE handoffs are not issued writes, so health exits 0; malformed, under an unknown key, or for a wallet or purchase that is not here, they exit 2', { timeout: 900_000 }, async (t) => {
@@ -264,7 +280,7 @@ test('ops health after a native payment read back failed and then cancelled: the
   assert.equal(report.healthy, true, JSON.stringify(report.stuck));
   assert.deepEqual([report.seller.journals, report.seller.unconfirmed], [['node2-transport.sqlite'], []]);
   assert.deepEqual(report.purchases.map((row) => [row.purchaseId, row.stage]), [[a.id, 'cancelled']]);
-  assert.equal(cli(state).status, 0);
+  assert.equal((await cliWithNode(state)).status, 0);
 
   const record = failed[intentKey(signed.hash)], other = `0x${'c'.repeat(64)}`;
   const stranger = structuredClone(record); stranger.signedTransaction.content.from = other;

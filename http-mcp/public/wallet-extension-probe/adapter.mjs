@@ -1,4 +1,4 @@
-import { addressOf, checkSignedTransaction, hasKeys, jsonCopy, messageSignature, publicView, verifyExact } from './checks.mjs';
+import { txSignatureText, addressOf, checkSignedTransaction, hasKeys, jsonCopy, messageSignature, publicView, verifyExact } from './checks.mjs';
 import { PROBE_MAX_BALANCE_OS, assertProbeTransaction } from './vectors.mjs';
 
 async function readAccountState(address) {
@@ -7,6 +7,14 @@ async function readAccountState(address) {
   const value=jsonCopy(await response.json());
   if(!hasKeys(value,['address','currentNonce','nextNonce','balanceOs'])||value.address!==address||value.nextNonce!==value.currentNonce+1) throw new Error('nonce_unavailable');
   return { currentNonce: value.currentNonce, balanceOs: value.balanceOs };
+}
+// The configured node's getNetworkInfo answer, read through the portal rather
+// than from the wallet under test; it decides which bytes a transaction
+// signature covers.
+async function readNetworkInfo() {
+  const response=await fetch('/portal/wallet-extension-probe/network',{cache:'no-store',credentials:'same-origin',signal:AbortSignal.timeout(10000)});
+  if(!response.ok) throw new Error('network_unavailable');
+  return jsonCopy(await response.json());
 }
 // Checked before the provider sees a transaction. The requested nonce must
 // already be used and the account must be a throwaway holding at most
@@ -19,9 +27,9 @@ function assertSignable(account, nonce) {
 const sameAccount = (value, connected) => { try { return addressOf(value) === connected; } catch { return false; } };
 
 const REQUEST_METHODS = Object.freeze(['connect', 'sign', 'signTransaction']);
-export function createExtensionProbeAdapter({ windowObject = window, discoveryTimeoutMs = 3000, requestTimeoutMs = 60000, now = () => Date.now(), readAccount = readAccountState } = {}) {
+export function createExtensionProbeAdapter({ windowObject = window, discoveryTimeoutMs = 3000, requestTimeoutMs = 60000, now = () => Date.now(), readAccount = readAccountState, readNetwork = readNetworkInfo } = {}) {
   let provider = null, address = null, busy = false, timedOut = false, popupIssued = false;
-  const records = [];
+  const records = [], activatedChains = new Set();
   const record = (probe, result) => { records.push({ probe, at: new Date(now()).toISOString(), ...jsonCopy(result) }); return result; };
   // `reserved` means the caller already holds the session fence and releases it.
   async function call(method, params, reserved = false) {
@@ -97,13 +105,15 @@ export function createExtensionProbeAdapter({ windowObject = window, discoveryTi
       try {
         await assertProbeTransaction(requested);
         assertSignable(await readAccount(connected), requested.content.nonce);
+        const networkInfo = await readNetwork();
+        if (txSignatureText(networkInfo, '', activatedChains) === null) throw new Error('network_unavailable');
         // The SDK signs as the extension's active account. A switch since connect
         // would sign with an account whose nonce and balance were never read.
         // A switch after this read and before the wallet signs is not detected.
         const active = await call('accounts', undefined, true);
         if (!hasKeys(active, ['code', 'data']) || active.code !== 200 || !sameAccount(active.data, connected)) throw new Error('connected_account_changed');
         const signed = await call('signTransaction', [requested], true);
-        const result = await checkSignedTransaction(requested, signed, connected);
+        const result = await checkSignedTransaction(requested, signed, connected, networkInfo, activatedChains);
         return record(requested.content.type === 'native' ? 'P4' : 'P5', { method: 'signTransaction', ...result });
       } finally { busy = false; }
     },

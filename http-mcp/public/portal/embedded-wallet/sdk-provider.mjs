@@ -3,7 +3,7 @@
 // live hosts.
 //
 // Contract (docs/EMBEDDED-WALLET-SDK.md):
-//  - DemosCtor is the upstream @kynesyslabs/demosdk 4.0.16 `Demos` class (the
+//  - DemosCtor is the upstream @kynesyslabs/demosdk 4.0.20 `Demos` class (the
 //    browser build is ./demos-runtime.mjs). Its local wallet primitives are
 //    used for every session: newMnemonic, connectWallet(…, {algorithm:"ed25519"}),
 //    getAddress, signMessage, disconnect. Creating, importing and signing
@@ -49,6 +49,8 @@
 //    they are not authenticated real-chain identity or finality. Production
 //    durable journaling, arbitrary normative receipt hashes and purchase/adapter
 //    integration remain held. Existing Listing validation is unchanged.
+
+import { txSignatureText } from './tx-signature.mjs';
 
 const ADDRESS = /^0x[0-9a-f]{64}$/;
 const SIGNATURE_HEX = /^(0x)?[0-9a-f]{128}$/;
@@ -303,8 +305,10 @@ async function sha256HexOfText(value) {
 // sha256("ed25519:<address>:<timestamp>"). It signs no transaction.
 // Module-private: the digest is built here from the wallet and the timestamp,
 // never from a caller-supplied string, and `sign` cannot reach this function.
+// The digest is 64 hex characters, which the SDK refuses to sign as a message
+// unless the protocol option `raw` is set.
 async function signRpcAuthDigest(demos, address, timestamp) {
-  return demos.signMessage(await sha256HexOfText(`ed25519:${address}:${timestamp}`), { algorithm: 'ed25519' });
+  return demos.signMessage(await sha256HexOfText(`ed25519:${address}:${timestamp}`), { algorithm: 'ed25519', raw: true });
 }
 
 async function sourceAuthHeaders(demos, address) {
@@ -729,14 +733,36 @@ function anchorContentMatches(c, plan, debit, address, postFork, txHash = '') {
     && anchorFeesMatch(c.transaction_fee, debit, postFork, Boolean(txHash)) && c.transaction_fee.rpc_address === null;
 }
 
-async function anchorSignatureMatches(signed, address) {
+// What a transaction signature covers follows the configured node's own
+// getNetworkInfo answer: the bare hash while its signatureDomain fork is
+// inactive or absent, "demos-tx:v1:<chainId>:<hash>" once it is active. An answer that
+// does not say which, or that gives no safe chain id when active, selects
+// nothing (null): no signature verifies. There is no second form to fall back to.
+
+// Demos.sign reads the node's network answer several times; this makes it read
+// once, and hands that one answer back for the check of what it signed.
+async function signWithNetworkAnswer(demos, tx, options) {
+  const own = Object.hasOwn(demos, 'getNetworkInfo'), original = demos.getNetworkInfo;
+  let read;
+  demos.getNetworkInfo = () => (read ??= Promise.resolve().then(() => original.call(demos)).catch(() => null));
+  try {
+    const signed = await demos.sign(tx, options);
+    return { signed, answer: await read };
+  } finally {
+    if (own) demos.getNetworkInfo = original; else delete demos.getNetworkInfo;
+  }
+}
+
+async function anchorSignatureMatches(signed, address, answer, activatedChains) {
   if (!hasKeys(signed, ['content', 'signature', 'hash', 'status', 'blockNumber']) || signed.status !== '' || signed.blockNumber !== null
     || !hasKeys(signed.signature, ['type', 'data']) || !HASH.test(signed?.hash ?? '') || signed.signature?.type !== 'ed25519' || !SIGNATURE_HEX.test(signed.signature.data ?? '')
     || await sha256HexOfText(JSON.stringify(signed.content)) !== signed.hash) return false;
+  const text = txSignatureText(answer, signed.hash, activatedChains);
+  if (text === null) return false;
   try {
     const bytes = (v) => Uint8Array.from(v.replace(/^0x/, '').match(/../g), (b) => Number.parseInt(b, 16));
     const key = await crypto.subtle.importKey('raw', bytes(address), { name: 'Ed25519' }, false, ['verify']);
-    return await crypto.subtle.verify('Ed25519', key, bytes(signed.signature.data), new TextEncoder().encode(signed.hash));
+    return await crypto.subtle.verify('Ed25519', key, bytes(signed.signature.data), new TextEncoder().encode(text));
   } catch { return false; }
 }
 
@@ -753,7 +779,7 @@ function proofHandle(context, proofUrl) {
 
 export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, transactionTransport, validateMnemonic, anchorJournal } = {}) {
   if (typeof DemosCtor !== 'function') throw new TypeError('createSdkWalletSession requires the Demos SDK class as DemosCtor');
-  const transport = readTransport(transactionTransport);
+  const transport = readTransport(transactionTransport), activatedChains = new Set();
   // Explicit caller-owned atomic journal. RAM implementations are offline
   // evidence only; production persistence/recovery is a separate integration.
   const journal = anchorJournal && ['get', 'put', 'withWalletLock'].every((k) => typeof anchorJournal[k] === 'function') ? anchorJournal : null;
@@ -789,6 +815,8 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
 
   async function open(mnemonic) {
     const demos = new DemosCtor();
+    const getNetworkInfo = demos.getNetworkInfo?.bind(demos);
+    if (getNetworkInfo) demos.getNetworkInfo = async () => { const answer = await getNetworkInfo(); txSignatureText(answer, '', activatedChains); return answer; };
     await demos.connectWallet(mnemonic, { algorithm: 'ed25519' });
     const address = String(demos.getAddress()).toLowerCase();
     if (!ADDRESS.test(address)) {
@@ -1003,9 +1031,9 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
     }
     // SDK sign of the exact server payload with its exact nonce; the SDK fills
     // from/from_ed25519_address, gcr_edits and the node-reported fee.
-    let signed;
+    let signed, answer;
     try {
-      signed = await demos.sign(structuredClone(tx), { nonce: plan.nonce });
+      ({ signed, answer } = await signWithNetworkAnswer(demos, structuredClone(tx), { nonce: plan.nonce }));
     } catch {
       stillCurrent(started);
       throw new EmbeddedWalletError('sdk_error', 'the Demos SDK could not sign this transaction; nothing was sent');
@@ -1020,7 +1048,7 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
       || typeof signed.hash !== 'string' || !HASH.test(signed.hash) || signed.signature?.type !== 'ed25519') {
       throw new EmbeddedWalletError('payload_mismatch', 'the signed transaction differs from what was approved; nothing was sent');
     }
-    if(transport.devnetNative && !await anchorSignatureMatches(signed,address)) throw new EmbeddedWalletError('payload_mismatch','the SDK native signature/hash does not authenticate the original bytes');
+    if(transport.devnetNative && !await anchorSignatureMatches(signed,address,answer,activatedChains)) throw new EmbeddedWalletError('payload_mismatch','the SDK native signature/hash does not authenticate the original bytes');
     const originalSignedBytes=transport.devnetNative ? JSON.stringify(signed) : null;
     const validity = await confirmed(() => demos.confirm(signed), started);
     if (validity.response.data.transaction.hash.toLowerCase().replace(/^0x/, '') !== signed.hash) {
@@ -1080,11 +1108,11 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
       }
       if (await nextNonce(demos, started, address) !== plan.nonce) throw new EmbeddedWalletError('stale_plan', 'the wallet nonce changed during approval; nothing was signed');
       if(transport.devnetAgreement){lease=await sourcePhase({phase:'signature',binding});binding=lease.binding;}
-      let signed;
-      try { signed = await demos.sign(structuredClone(plan.transaction), { nonce: plan.nonce }); }
+      let signed, answer;
+      try { ({ signed, answer } = await signWithNetworkAnswer(demos, structuredClone(plan.transaction), { nonce: plan.nonce })); }
       catch { stillCurrent(started); throw new EmbeddedWalletError('sdk_error', 'the SDK could not sign the anchor; nothing was sent'); }
       stillCurrent(started);
-      if (demos.rpc_url !== transport.rpcUrl || !anchorContentMatches(signed?.content, plan, debit, address, postFork) || !await anchorSignatureMatches(signed, address)) {
+      if (demos.rpc_url !== transport.rpcUrl || !anchorContentMatches(signed?.content, plan, debit, address, postFork) || !await anchorSignatureMatches(signed, address, answer, activatedChains)) {
         throw new EmbeddedWalletError('payload_mismatch', 'the signed anchor differs from the approved scope, CREATE, network or debit; nothing was sent');
       }
       const validity = await confirmed(() => demos.confirm(signed), started);
@@ -1333,7 +1361,7 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
           if (transport) throw new EmbeddedWalletError('unsupported', `${method} is not supported by the embedded wallet`);
           throw new EmbeddedWalletError(
             transactionTransport ? 'unsupported' : 'not_configured',
-            `${method} is not available in the embedded wallet: Demos SDK 4.0.16 sends it through its own network client, so a loopback-only path is not proven. Use the Demos wallet extension.`,
+            `${method} is not available in the embedded wallet: Demos SDK 4.0.20 sends it through its own network client, so a loopback-only path is not proven. Use the Demos wallet extension.`,
           );
         }
         if (!live) throw new EmbeddedWalletError('locked', 'the wallet is locked');

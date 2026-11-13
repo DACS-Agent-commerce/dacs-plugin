@@ -10,11 +10,11 @@ import { buildNativeTransferPayload, buildStorageProgramCreatePayload, deriveSto
 import { canonicalize, contentHash, logicalToStorageProgramName } from '@kynesyslabs/dacs';
 import { verifyDemosSignature } from '../src/wallet/demos-signature.mjs';
 import { createEphemeralWallet } from './fixtures/wallet.mjs';
-import { fakeExtension, fakeWindow, signedTransaction, installProbeDom } from './helpers/wallet-extension-probe-dom.mjs';
+import { fakeExtension, fakeWindow, signedTransaction, installProbeDom, INACTIVE_NETWORK } from './helpers/wallet-extension-probe-dom.mjs';
 
 async function setup(options = {}, adapterOptions = {}) {
   const fake = fakeExtension(options), win = fakeWindow(fake.provider);
-  const adapter = createExtensionProbeAdapter({ windowObject: win, readAccount: async () => ({ currentNonce: 7, balanceOs: '1' }), ...adapterOptions });
+  const adapter = createExtensionProbeAdapter({ windowObject: win, readAccount: async () => ({ currentNonce: 7, balanceOs: '1' }), readNetwork: async () => INACTIVE_NETWORK, ...adapterOptions });
   await adapter.discover(); return { ...fake, win, adapter };
 }
 const native = (address, options = {}) => nativeVector({ from: address, nonce: PROBE_NONCE, timestamp: 1234, ...options });
@@ -130,7 +130,7 @@ test('P4/P5 exact signed transactions verify; nonce, fee, recipient, denominatio
       (s) => { delete s.content.from; }, (s) => { s.content.from_ed25519_address = createEphemeralWallet().address; },
     ];
     for (const mutate of mutations) {
-      const changed = signedTransaction(wallet, tx, mutate), result = await checkSignedTransaction(tx, changed, wallet.address);
+      const changed = signedTransaction(wallet, tx, mutate), result = await checkSignedTransaction(tx, changed, wallet.address, INACTIVE_NETWORK);
       assert.equal(result.ok, false); assert.ok(result.diffs.length > 0); assert.equal(result.hashValid, true); assert.equal(result.signatureValid, true);
     }
   }
@@ -144,7 +144,7 @@ test('P4/P5 reject bad hash, signature, account, algorithm, missing fields and c
     (s) => { s.signature.type = 'rsa'; }, (s) => { s.signature.extra = true; }, (s) => { s.signature.data = 'bad'; },
     (s) => { delete s.hash; }, (s) => { delete s.signature; }, (s) => { s.content = Object.fromEntries(Object.entries(s.content).reverse()); s.hash = createHash('sha256').update(JSON.stringify(s.content)).digest('hex'); s.signature.data = wallet.signHex(s.hash); },
   ];
-  for (const mutate of mutations) { const signed = signedTransaction(wallet, tx); mutate(signed); assert.equal((await checkSignedTransaction(tx, signed, wallet.address)).ok, false); }
+  for (const mutate of mutations) { const signed = signedTransaction(wallet, tx); mutate(signed); assert.equal((await checkSignedTransaction(tx, signed, wallet.address, INACTIVE_NETWORK)).ok, false); }
   const wrongHash = signedTransaction(wallet, tx); wrongHash.hash = 'a'.repeat(64);
   assert.equal((await checkSignedTransaction(tx, wrongHash, wallet.address)).hashValid, false);
 });
@@ -408,7 +408,7 @@ function switchingExtension(wallet, signer) {
       const tx = r.params[0]; tx.content.from = signer.address; return { success: true, data: signedTransaction(signer, tx) };
     },
   };
-  const adapter = createExtensionProbeAdapter({ windowObject: fakeWindow(provider), readAccount: async () => { log.push('read'); return { currentNonce: 7, balanceOs: '1' }; } });
+  const adapter = createExtensionProbeAdapter({ windowObject: fakeWindow(provider), readAccount: async () => { log.push('read'); return { currentNonce: 7, balanceOs: '1' }; }, readNetwork: async () => INACTIVE_NETWORK });
   return { log, state, adapter };
 }
 test('an extension account switch between connect and signing is refused before the wallet is asked to sign', async () => {
@@ -472,7 +472,7 @@ test('honest SDK signing diffs are reported apart from nonce, recipient and sign
   const wallet = await createSdkWallet(), other = createEphemeralWallet();
   const summary = (reading, extra = {}) => ({ reading, nonceChanged: false, recipientChanged: false, signerChanged: false, amountChanged: false, ...extra });
   for (const tx of [native(wallet.address), await storage(wallet.address)]) {
-    const check = async (mutate) => checkSignedTransaction(tx, signedTransaction(wallet, tx, mutate), wallet.address);
+    const check = async (mutate) => checkSignedTransaction(tx, signedTransaction(wallet, tx, mutate), wallet.address, INACTIVE_NETWORK);
     const sdk = await honestSdk(wallet, tx, true);
     const exact = await check(() => {});
     assert.equal(exact.ok, true); assert.deepEqual(exact.diffSummary, summary('no-field-diffs', { sdkProfile: null, sdkExpected: 0, unexpected: 0 }));

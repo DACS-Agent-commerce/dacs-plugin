@@ -7,7 +7,7 @@ import { checkSignedTransaction } from '../public/wallet-extension-probe/checks.
 import { nativeVector, storageVector } from '../public/wallet-extension-probe/vectors.mjs';
 import { createWalletExtensionProbeRouter } from '../src/portal/wallet-extension-probe.mjs';
 import { createEphemeralWallet } from './fixtures/wallet.mjs';
-import { signedTransaction, installProbeDom } from './helpers/wallet-extension-probe-dom.mjs';
+import { signedTransaction, installProbeDom, INACTIVE_NETWORK } from './helpers/wallet-extension-probe-dom.mjs';
 import { createSdkWallet, honestSdk } from './helpers/wallet-extension-probe-sdk.mjs';
 
 const wallet = await createSdkWallet(), other = createEphemeralWallet();
@@ -16,7 +16,7 @@ const storage = () => storageVector({ from: wallet.address, nonce: 1, timestamp:
 // Real bundled SDK output in the given fork mode, then the mutation.
 const check = async (tx, mutate, postFork) => {
   const sdk = await honestSdk(wallet, tx, postFork);
-  return checkSignedTransaction(tx, signedTransaction(wallet, tx, (s) => { sdk(s); mutate(s.content.gcr_edits, s, postFork); }), wallet.address);
+  return checkSignedTransaction(tx, signedTransaction(wallet, tx, (s) => { sdk(s); mutate(s.content.gcr_edits, s, postFork); }), wallet.address, INACTIVE_NETWORK);
 };
 // Fee values in the profile's own form, so only the edits differ.
 const fee = (dem, postFork) => postFork ? `${dem}000000000` : dem;
@@ -80,7 +80,7 @@ for (const [name, vector, mutate, flags] of parents) test(`sensitive parent repl
   const sdk = await honestSdk(wallet, tx, true);
   let s = signedTransaction(wallet, tx, (s) => { sdk(s); mutate(s); });
   if (name === 'envelope array') s = [];
-  const r = await checkSignedTransaction(tx, s, wallet.address);
+  const r = await checkSignedTransaction(tx, s, wallet.address, INACTIVE_NETWORK);
   assert.equal(r.diffSummary.reading, 'nonce-recipient-or-signer-changed');
   assert.deepEqual([r.diffSummary.nonceChanged, r.diffSummary.recipientChanged, r.diffSummary.signerChanged], flags);
 });
