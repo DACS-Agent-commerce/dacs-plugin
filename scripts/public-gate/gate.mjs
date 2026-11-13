@@ -131,6 +131,23 @@ export const compareText = (first, second) => (first === second ? 0 : first < se
 const compareFindings = (first, second) => compareText(first.rule, second.rule) || compareText(first.kind, second.kind)
   || first.entry.position - second.entry.position || (first.line ?? 0) - (second.line ?? 0);
 
+/**
+ * Runs `rules` over `entries` in order and returns their findings. R-PRIVATE and R-WORDING each build their matcher, with
+ * its own scan deadline, when that rule starts, so the time earlier rules take does not count against it. A rule that
+ * needs the private list is skipped when there is none. Throws what a rule throws, GateInputError(limit:scanDeadlineMs)
+ * once a matcher passes its deadline.
+ */
+export function runTreeRules({ entries, listEntries, wordingList, config, rules = RULES, clock }) {
+  const scanDeadline = () => createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs, clock });
+  const contextFor = (rule) => {
+    if (rule.id === PRIVATE_RULE_ID) return { matcher: createPrivateMatcher(listEntries, scanDeadline()) };
+    if (rule.id === WORDING_RULE_ID) return { wordingMatcher: createWordingMatcher(wordingList.entries, scanDeadline()) };
+    return {};
+  };
+  return rules.filter((rule) => listEntries || !rule.completeOnly)
+    .flatMap((rule) => rule.run({ entries, ...contextFor(rule), config, limits: config.limits }));
+}
+
 async function runGate(argv, signal) {
   const options = readOptions(argv);
   const config = loadConfig();
@@ -139,14 +156,12 @@ async function runGate(argv, signal) {
   const { entries, ...target } = await readCommitObjects({ repo: options.repo, commit: options.commit, limits: config.limits, signal });
   const { commits } = await readHistory({ repo: options.repo, refs: [options.commit], limits: config.limits, signal });
   requireExpectedRoot(commits, options.expectedRoot);
-  const matcher = listEntries && createPrivateMatcher(listEntries, createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs }));
-  const wordingMatcher = wordingList && createWordingMatcher(wordingList.entries, createScanDeadline({ deadlineMs: config.limits.scanDeadlineMs }));
   const evalScanner = createEvalScanner({ config, limits: config.limits, signal });
   const evalScan = await evalScanner.scan(entries);
   evalScanner.requireNoStaleException();
   const unscannable = [...unscannableEntries(entries, config), ...evalScan.unscannable];
   if (unscannable.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} unscannable entries`);
-  const treeFindings = RULES.filter((rule) => matcher || !rule.completeOnly).flatMap((rule) => rule.run({ entries, matcher, wordingMatcher, config, limits: config.limits }));
+  const treeFindings = runTreeRules({ entries, listEntries, wordingList, config });
   requireNoStaleLockfileDisposition(entries, config.lockfileDispositions);
   const findings = [...treeFindings, ...evalScan.findings, ...await scanSecrets({ entries, config, scanner: options.scanner, signal })].sort(compareFindings);
   if (findings.length > config.limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${config.limits.maxReportEntries} findings`);
