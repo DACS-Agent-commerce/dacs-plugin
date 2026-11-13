@@ -324,7 +324,7 @@ export function createModuleScanner(context) {
       if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left)) primitive(n, n.left.name.text);
       if (ts.isBindingElement(n) && n.initializer && ts.isIdentifier(n.name)) primitive(n, n.name.text);
       if (ts.isVariableDeclaration(n) && (n.initializer?.getText(ast) === 'require' || (ts.isCallExpression(unparen(n.initializer) ?? {}) && requireFactory(unparen(n.initializer).expression) && n.name.getText(ast) !== 'require'))) flag('unverifiable', 'aliased-require', file, lineOf(n));
-      if (ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isClassDeclaration(n) || ts.isVariableDeclaration(n) || (ts.isPropertyAssignment(n) && ts.isFunctionLike(n.initializer))) primitive(n, n.name && (ts.isIdentifier(n.name) || ts.isStringLiteralLike(n.name)) ? n.name.text : ts.isComputedPropertyName(n.name ?? {}) && ts.isStringLiteralLike(unparen(n.name.expression)) ? unparen(n.name.expression).text : null);
+      if (ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isClassDeclaration(n) || ts.isVariableDeclaration(n) || (ts.isPropertyAssignment(n) && ts.isFunctionLike(unparen(n.initializer)))) primitive(n, n.name && (ts.isIdentifier(n.name) || ts.isStringLiteralLike(n.name)) ? n.name.text : ts.isComputedPropertyName(n.name ?? {}) && ts.isStringLiteralLike(unparen(n.name.expression)) ? unparen(n.name.expression).text : null);
       ts.forEachChild(n, walk);
     }; walk(ast);
     // A readback reference must sit inside a checked definition. Inside an unnamed function

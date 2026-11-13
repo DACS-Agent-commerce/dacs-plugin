@@ -486,14 +486,16 @@ test('a computed string-literal key in a destructure reads the readback member l
   assert.deepEqual(p.found.unverifiable, []);
 });
 
-test('a parenthesised string key is read like the plain string key', t => {
+test('a parenthesised string key or function value is read like the plain one', t => {
   const p = project(t, {
     'pattern.ts': 'export function decide(c: any, h: string) { const {[("getTxByHash")]: read} = c; return read(h); }\n',
     'method.ts': 'export const o = {[("canonicalize")](v: any) { return v; }};\n',
     'property.ts': 'export const o = {[(("deriveJobId"))]: function (v: any) { return v; }};\n',
+    'wrapped-value.ts': 'export const o = {[(("deriveJobId"))]: (function (v: any) { return v; })};\n',
+    'plain-key.ts': 'export const o = {deriveJobId: ((v: any) => v)};\n',
   });
-  for (const f of ['pattern.ts', 'method.ts', 'property.ts']) p.scan(f);
-  assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`).sort(), ['method.ts:canonical-json:canonicalize', 'pattern.ts:execution-readback:decide', 'property.ts:job-id:deriveJobId']);
+  for (const f of ['pattern.ts', 'method.ts', 'property.ts', 'wrapped-value.ts', 'plain-key.ts']) p.scan(f);
+  assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`).sort(), ['method.ts:canonical-json:canonicalize', 'pattern.ts:execution-readback:decide', 'plain-key.ts:job-id:deriveJobId', 'property.ts:job-id:deriveJobId', 'wrapped-value.ts:job-id:deriveJobId']);
   assert.deepEqual(p.found.unverifiable, []);
 });
 
