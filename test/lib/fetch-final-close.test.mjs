@@ -18,6 +18,7 @@ test('a deadline during the final close refuses success and removes the file', a
   const realOpen = fs.open;
   let closeReached = false;
   let deadlineFired = false;
+  let firedBeforeFinalClose = null;
   const patch = t.mock.method(fs, 'open', async (...args) => {
     const handle = await realOpen(...args);
     const close = handle.close.bind(handle);
@@ -26,6 +27,9 @@ test('a deadline during the final close refuses success and removes the file', a
       if (firstClose) {
         firstClose = false;
         closeReached = true;
+        // The successful final close must start before the deadline, so that the
+        // deadline fires while this close is pending, not during cleanup.
+        firedBeforeFinalClose = deadlineFired;
         await delay(100);
       }
       return close();
@@ -48,6 +52,7 @@ test('a deadline during the final close refuses success and removes the file', a
   });
   await assert.rejects(outcome, (error) => error.cause === 'download-timeout');
   assert.equal(closeReached, true);
+  assert.equal(firedBeforeFinalClose, false);
   assert.equal(deadlineFired, true);
   await assert.rejects(fs.stat(destination), { code: 'ENOENT' });
 });
