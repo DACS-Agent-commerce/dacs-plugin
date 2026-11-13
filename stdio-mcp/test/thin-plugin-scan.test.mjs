@@ -499,6 +499,17 @@ test('a parenthesised string key or function value is read like the plain one', 
   assert.deepEqual(p.found.unverifiable, []);
 });
 
+test('a wrapped value under a parenthesised key still matches a renamed canonical-json primitive', t => {
+  const p = project(t, {
+    'renamed.ts': 'export const o = {\n  [("helper")]: (function (v: any) {\n    return "dacs-agreement:v1:" + JSON.stringify(v, Object.keys(v).sort());\n  })\n};\n',
+    'variable.ts': 'export const helper = ((v: any) => "dacs-agreement:v1:" + JSON.stringify(v, Object.keys(v).sort()));\n',
+    'benign.ts': 'export const o = {[("helper")]: (function (v: any) { return v; })};\n',
+  });
+  for (const f of ['renamed.ts', 'variable.ts', 'benign.ts']) p.scan(f);
+  assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.line}:${r.detail}`).sort(), ['renamed.ts:2:canonical-json:helper', 'variable.ts:1:canonical-json:helper']);
+  assert.deepEqual(p.found.unverifiable, []);
+});
+
 test('a type-only re-export of a waived dependency namespace is not a runtime namespace escape', t => {
   const p = project(t, {
     'helper.ts': '// thin-plugin-waiver primitive:execution-readback -- status display only\nexport function show(c: any) { return c.getTxByHash("h"); }\n',

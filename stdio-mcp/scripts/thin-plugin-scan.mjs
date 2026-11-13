@@ -267,7 +267,7 @@ export function createModuleScanner(context) {
       if (!name || !node) return;
       // Declaration-only signatures (.d.ts, declare, overloads) carry no implementation.
       if (ambient(node) || ((ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && !node.body)) return;
-      const line = lineOf(node), target = node.initializer ?? (ts.isBinaryExpression(node) ? node.right : node), fnLike = target && ts.isFunctionLike(target), body = callsIn(target);
+      const line = lineOf(node), target = unparen(node.initializer ?? (ts.isBinaryExpression(node) ? node.right : node)), fnLike = target && ts.isFunctionLike(target), body = callsIn(target);
       if (fnLike) checkedTargets.add(target);
       for (const rule of rules) {
         const named = rule.names?.includes(name);
