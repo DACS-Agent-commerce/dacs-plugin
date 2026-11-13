@@ -1064,7 +1064,13 @@ export function createServer(deps: Deps): McpServer {
       // completed, or failed with a known fee: keep the price and the fee paid, free the rest of the quote.
       // Pending and unknown outcomes keep the whole reservation open.
       if (r.actualSpendOs !== undefined && (r.chain?.state === 'included' || r.chain?.state === 'failed')) {
-        releaseReservation({ priceOs, networkFeeOs: r.actualSpendOs - priceOs });
+        try {
+          releaseReservation({ priceOs, networkFeeOs: r.actualSpendOs - priceOs });
+        } catch {
+          // the transaction already left this process: a ledger fault here must not lose its receipt.
+          // Whether the ledger applied the release is not known, so say so instead of assuming either way.
+          r = { ...r, output: { ...(r.output ?? {}), warning: 'The transaction was sent and its receipt is below, but closing the spend-cap reservation failed, so the cap accounting for this action is unconfirmed. Do not resubmit; check the spend ledger before preparing another write.' } };
+        }
       }
       const receipt = buildReceipt(
         {
