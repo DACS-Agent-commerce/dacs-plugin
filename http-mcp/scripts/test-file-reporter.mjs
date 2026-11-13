@@ -12,9 +12,10 @@
 // (named after the file, located at the file) with the process's exit code and
 // signal, which `test:exit` passes on.
 // A file that cannot load, because a module it imports is not there, ends with
-// Node's fatal-error diagnostic on stderr and no test. When that diagnostic is
-// the whole of stderr and names one missing file inside the run directory,
-// `test:load-failure` passes the file's path on; any other shape gives none.
+// Node's fatal-error diagnostic on stderr and no test. When the file printed
+// nothing to stdout, that diagnostic is the whole of stderr and names one
+// missing file inside the run directory, `test:load-failure` passes the file's
+// path on; any other shape gives none.
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 const ASYNC_AFTER_END = /generated asynchronous activity after the test ended/;
@@ -44,6 +45,8 @@ export default async function* reporter(events) {
       stderrBytes += Buffer.byteLength(data.message);
       stderr.push(data.message);
     }
+    // Output on stdout means the file ran code before the failure, so the failure is not only a load failure.
+    if (type === 'test:stdout') started = true;
     if (type === 'test:start') {
       if (data.nesting > 0) started = true;
       suites.length = data.nesting;

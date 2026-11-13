@@ -342,7 +342,7 @@ export function createServer(deps: Deps): McpServer {
     'demos_tx_get',
     {
       title: 'Get Demos transaction',
-      description: 'Look up a transaction by hash: inclusion state (included / failed / pending / not_found, or unknown when the node does not know the hash; found is false for unknown and not_found), block, type, from, to, amount, fee. A not_found answer is not proof of absence. Read-only.',
+      description: 'Look up a transaction by hash: inclusion state (included / failed / pending / not_found, or unknown when the node does not know the hash; found is false for unknown and not_found), executed (true only once the stored transaction was read back and matched), detail (why an included transaction is not yet shown as executed), block, type, from, to, amount, fee. A not_found answer is not proof of absence. Read-only.',
       inputSchema: { hash: TX_HASH },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
