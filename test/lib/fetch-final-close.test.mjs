@@ -5,17 +5,26 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import { fetchBounded } from '../../scripts/lib/fetch-bounded.mjs';
 
-// The injected filesystem delay makes the last asynchronous operation cross the
-// deadline, after a complete body and correct digest have already been read.
+// Hold the final close until the test fires the captured deadline callback,
+// after a complete body and correct digest have already been read.
 test('a deadline during the final close refuses success and removes the file', async (t) => {
   const folder = await fs.mkdtemp(path.join(tmpdir(), 'download-close-'));
   t.after(() => fs.rm(folder, { recursive: true, force: true }));
   const destination = path.join(folder, 'archive.tgz');
   const payload = Buffer.from('complete and correctly hashed');
   const realOpen = fs.open;
+  let enterClose;
+  const closeEntered = new Promise((resolve) => { enterClose = resolve; });
+  let releaseClose;
+  const closePending = new Promise((resolve) => { releaseClose = resolve; });
+  t.after(() => releaseClose());
+  let fireDeadline;
+  t.mock.method(globalThis, 'setTimeout', (callback) => {
+    fireDeadline = callback;
+    return undefined;
+  });
   let closeReached = false;
   let deadlineFired = false;
   let firedBeforeFinalClose = null;
@@ -30,7 +39,8 @@ test('a deadline during the final close refuses success and removes the file', a
         // The successful final close must start before the deadline, so that the
         // deadline fires while this close is pending, not during cleanup.
         firedBeforeFinalClose = deadlineFired;
-        await delay(100);
+        enterClose();
+        await closePending;
       }
       return close();
     };
@@ -50,7 +60,15 @@ test('a deadline during the final close refuses success and removes the file', a
       };
     },
   });
-  await assert.rejects(outcome, (error) => error.cause === 'download-timeout');
+  const rejection = assert.rejects(outcome, (error) => error.cause === 'download-timeout');
+  await closeEntered;
+  assert.equal(firedBeforeFinalClose, false);
+  try {
+    fireDeadline();
+  } finally {
+    releaseClose();
+  }
+  await rejection;
   assert.equal(closeReached, true);
   assert.equal(firedBeforeFinalClose, false);
   assert.equal(deadlineFired, true);
