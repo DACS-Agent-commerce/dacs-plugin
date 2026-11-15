@@ -9,7 +9,7 @@ import { WORKFLOW_DIRECTORY, commandOf, directoryOf, inventoryRoots, makeJobChec
 const GATE_WORKFLOW = 'public-gate.yml';
 const HTTP_WORKFLOW = 'http-mcp-tests.yml';
 const SHARED_INPUT_PATHS = ['scripts/ci/**', 'package.json', 'package-lock.json'];
-const HTTP_VALIDATION = 'node ../scripts/ci/sdk-input.mjs --prepare http-mcp';
+const HTTP_VALIDATION = 'node ../scripts/ci/sdk-input.mjs --prepare http-mcp --candidate-dir "$RUNNER_TEMP/http-mcp-sdk-candidate"';
 const GATE_VALIDATION = 'node scripts/ci/sdk-input.mjs --prepare root';
 const NPM_COMMAND = /\bnpm\s+(?:ci|install|i|rebuild|run|test|exec)\b[^\n]*/g;
 const SKIPPED_FOLDERS = new Set(['node_modules', '.git']);
@@ -106,7 +106,7 @@ const pathFilter = (text, event) => [...(new RegExp(`^ {2}${event}:\\n((?: {4}.*
 test('the http-mcp job runs sdk-input before both installs, http-mcp and wallet-build, and the public-gate job runs it before the root install; while the input is unavailable the http-mcp job reports unverifiable, not a test failure; both http-mcp push and pull-request filters contain scripts/ci/**, package.json and package-lock.json', async (t) => {
   const http = readWorkflow(HTTP_WORKFLOW);
   const httpSteps = stepsOf(http);
-  const validations = indicesOf(httpSteps, (command) => command === HTTP_VALIDATION);
+  const validations = indicesOf(httpSteps, (command) => command === HTTP_VALIDATION || command === 'node ../scripts/ci/sdk-input.mjs --prepare http-mcp');
   const installs = indicesOf(httpSteps, (command) => command.startsWith('npm ci '));
 
   await t.test('http-mcp validates before the http-mcp install and again before the wallet-build install', () => {
@@ -143,6 +143,26 @@ test('the http-mcp job runs sdk-input before both installs, http-mcp and wallet-
       assert.deepEqual([...filter].sort(), ['.github/workflows/http-mcp-tests.yml', 'http-mcp/**', ...SHARED_INPUT_PATHS].sort(), event);
     }
   });
+});
+
+test('http-mcp builds the pinned SDK archives outside the checkout, validates their lock digests, and seeds the npm cache before installing', () => {
+  const workflow = readWorkflow(HTTP_WORKFLOW);
+  const steps = stepsOf(workflow);
+  const preparation = steps.findIndex((step) => step.includes('fetch --depth 1 https://github.com/DACS-Agent-commerce/dacs-sdk.git'));
+  const validation = steps.findIndex((step) => commandOf(step) === HTTP_VALIDATION);
+  const cache = steps.findIndex((step) => step.includes('npm cache add'));
+  const install = steps.findIndex((step) => (commandOf(step) ?? '').startsWith('npm ci --ignore-scripts --omit=optional'));
+  assert.ok(0 <= preparation && preparation < validation && validation < cache && cache < install);
+  assert.match(steps[preparation], /npm -v.*10\.9\.9/);
+  assert.match(steps[preparation], /npm install --global npm@10\.9\.9/);
+  assert.match(steps[preparation], /test "\$\(npm -v\)" = "10\.9\.9"/);
+  assert.match(steps[preparation], /umask 022[\s\S]*git -C "\$sdk_source" fetch --depth 1 https:\/\/github\.com\/DACS-Agent-commerce\/dacs-sdk\.git cc301976133bd2b0046c9a979cba88c82be19d97/);
+  assert.match(steps[preparation], /\$RUNNER_TEMP\/http-mcp-sdk-candidate/);
+  assert.match(steps[preparation], /umask 077[\s\S]*npm pack --json --pack-destination[^\n]*[\s\S]*cd packages\/dacs-client[\s\S]*cd \.\.\/dacs-node/);
+  assert.equal([...steps[preparation].matchAll(/npm pack --json --pack-destination/g)].length, 3);
+  assert.match(steps[cache], /for name in dacs dacs-client dacs-node; do/);
+  assert.match(steps[cache], /kynesyslabs-\$\{name\}-0\.1\.0-alpha\.0\.tgz/);
+  assert.match(steps[install], /--prefer-offline --cache "\$RUNNER_TEMP\/http-mcp-npm-cache"/);
 });
 
 const STDIO_WORKFLOW = 'stdio-mcp.yml';

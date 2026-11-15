@@ -15,20 +15,29 @@ to `main` that changes `http-mcp/**`, the workflow itself, `scripts/ci/**` or th
 root `package.json` and `package-lock.json` (the shared validation tool and its
 inputs). It runs on the
 `ubuntu-24.04` host, with tests inside the digest-pinned Playwright 1.56.1 Noble
-container declared in the workflow, Node `22.23.3` and
-`npm ci --ignore-scripts --omit=optional --no-audit --no-fund` in `http-mcp/` (the
+container declared in the workflow, Node `22.23.3` and npm `10.9.9`. It fetches
+the full pinned `dacs-sdk` commit into the runner's temporary directory, installs
+its dependencies with umask `022`, and packs the root, client and node packages
+with umask `077`. The job downloads the published Demos SDK archive for the
+wallet root's candidate check. `sdk-input --prepare http-mcp --candidate-dir`
+checks all four archives against the frozen lockfile before the three source
+archives enter a fresh npm cache. The install then runs
+`npm ci --ignore-scripts --omit=optional --no-audit --no-fund --prefer-offline`
+with that cache in `http-mcp/` (the
 optional cross-chain bridge packages of the Demos SDK are not installed), and in
 `http-mcp/wallet-build/` without `--omit=optional` (the pinned Demos SDK the
 embedded wallet's payment and broadcast tests need; esbuild's platform binary is an
 optional package). Before each of those two installs the job runs
-`node ../scripts/ci/sdk-input.mjs --prepare http-mcp`, and the `public-gate`
+`node ../scripts/ci/sdk-input.mjs --prepare http-mcp` (the first time with the
+candidate directory), and the `public-gate`
 workflow runs `node scripts/ci/sdk-input.mjs --prepare root` before its root
 install. A forbidden SDK input (a path, `file:`, `link:` or vendored spec or
 resolution) fails that step with status 1 (`sdk-input-refused`); an input that
 is unavailable or cannot be verified fails it with status 2
 (`sdk-input-unavailable`). A registry URL with an exact version and integrity can
-pass validation even while the registry returns 404: the http-mcp step then exits
-0 and `npm ci` fails before tests run. The three SDK packages
+pass validation even while the registry returns 404. The candidate check also
+requires local archive bytes matching each lock digest, so the HTTP MCP install
+does not depend on those archives being published. The three SDK packages
 `@kynesyslabs/dacs`, `@kynesyslabs/dacs-client` and `@kynesyslabs/dacs-node` are
 pinned in `http-mcp/package-lock.json` by exact version and sha512, with no
 `file:` path, no vendored archive and no bundled dependency. The package has
