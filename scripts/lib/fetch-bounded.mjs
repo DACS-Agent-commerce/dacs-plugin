@@ -160,6 +160,8 @@ async function downloadOnce({ address, destination, sha256, maxBytes, maxRedirec
     if (response.contentLength !== null && received !== response.contentLength) throw refusal('download-truncated', `the body held ${received} bytes, not the announced ${response.contentLength}`);
     if (digest !== sha256) throw refusal('download-checksum-mismatch', 'the download does not match its SHA-256');
     await file.close();
+    // Closing is asynchronous too: a stop during it must not become success.
+    if (stop.error()) throw stop.error();
     return { result: { bytes: received, sha256: digest } };
   } catch (error) {
     const stopped = stop.error();

@@ -358,3 +358,9 @@ MIT, matching `@kynesyslabs/demosdk` and the DACS-Standard.
 After installing the stdio package dependencies, run from the repository root:
 
 `cd stdio-mcp && node --import tsx --test test/unit/purchase-only.test.ts`
+
+### Spend-ledger regression check
+
+After installing the stdio package dependencies, run from the repository root:
+
+`cd stdio-mcp && node --import tsx --test test/unit/reservation-execution.test.ts`

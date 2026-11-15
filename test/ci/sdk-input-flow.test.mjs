@@ -8,7 +8,7 @@ const SDK_LOCK_KEY = `node_modules/${SDK_KEY}`;
 /** Each job's own validation command, its first install, and the root that install reads. */
 const JOBS = [
   { name: 'public-gate', workflow: 'public-gate.yml', validation: /sdk-input\.mjs --prepare root$/, install: 'npm ci', root: '.' },
-  { name: 'http-mcp', workflow: 'http-mcp-tests.yml', validation: /sdk-input\.mjs --prepare http-mcp$/, install: 'npm ci ', root: 'http-mcp/wallet-build' },
+  { name: 'http-mcp', workflow: 'http-mcp-tests.yml', validation: /sdk-input\.mjs --prepare http-mcp --candidate-dir /, install: 'npm ci ', root: 'http-mcp/wallet-build' },
 ];
 
 const STDIO_JOB = { name: 'stdio-mcp', workflow: 'stdio-mcp.yml', validation: /sdk-input\.mjs --prepare stdio$/, install: 'npm ci ', root: 'stdio-mcp' };

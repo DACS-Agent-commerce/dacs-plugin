@@ -71,6 +71,18 @@ export function createModuleScanner(context) {
     for (let a = p; a; a = a.parent) { if (ts.isTypeNode(a) || ts.isInterfaceDeclaration(a) || ts.isTypeAliasDeclaration(a)) return false; if (ts.isFunctionLike(a) || ts.isSourceFile(a)) break; }
     return true;
   };
+  // True for an object or array literal that is written to by a destructuring assignment, on its own or
+  // nested in another: ({m: x} = c), [{m: x}] = cs, ({y: {m: x} = {}} = c), for ({m: x} of cs).
+  const writtenByDestructuring = n => {
+    const p = n.parent;
+    if (!p) return false;
+    if (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.EqualsToken) return p.left === n;
+    if (ts.isForOfStatement(p) || ts.isForInStatement(p)) return p.initializer === n;
+    if (ts.isPropertyAssignment(p)) return p.initializer === n && writtenByDestructuring(p.parent);
+    if (ts.isArrayLiteralExpression(p)) return writtenByDestructuring(p);
+    if (ts.isSpreadElement(p)) return writtenByDestructuring(p.parent);
+    return false;
+  };
   const computedDefinitionRisk = n => { const r = unparen(n.right); return exportTarget(n.left.expression) || ts.isFunctionLike(r) || ts.isClassExpression(r); };
 
   return function scan(file) {
@@ -94,7 +106,7 @@ export function createModuleScanner(context) {
     }
     // Reference-tracked calls (primitive `references`, e.g. getTxByHash): any member
     // reference (x.m, x?.m, x['m']), destructured property, bare use, lexical alias
-    // (const f = x.m; const {m: f} = x) or call of a waived same-module/imported
+    // (const f = x.m; const {m: f} = x; ({m: f} = x)) or call of a waived same-module/imported
     // readback function counts as the call, so an alias cannot hide it.
     const refRules = config.primitives.filter(r => Array.isArray(r.references) && r.references.length);
     const refNames = new Set(refRules.flatMap(r => r.references));
@@ -160,6 +172,13 @@ export function createModuleScanner(context) {
       if (ts.isComputedPropertyName(key)) { const x = unparen(key.expression); return ts.isStringLiteralLike(x) ? x.text : null; }
       return ts.isIdentifier(key) || ts.isStringLiteralLike(key) ? key.text : null;
     };
+    // A property of a destructuring assignment pattern, ({getTxByHash: read} = c), and the variable it writes.
+    const patternProperty = e => ts.isPropertyAssignment(e) && writtenByDestructuring(e.parent);
+    const patternTarget = e => { const x = unparen(e.initializer); return ts.isBinaryExpression(x) && x.operatorToken.kind === ts.SyntaxKind.EqualsToken ? unparen(x.left) : x; };
+    const readbackPatternProperty = e => patternProperty(e) && refNames.has(patternKey(e));
+    const targetBinding = e => { const x = patternTarget(e); return ts.isIdentifier(x) ? resolveBinding(x) : null; };
+    const writtenByPattern = id => { let o = outerOf(id), e = o.parent; if (ts.isBinaryExpression(e) && e.left === o) { o = outerOf(e); e = o.parent; } return ts.isPropertyAssignment(e) && e.initializer === o && patternProperty(e); };
+    const assignsReadbackMember = n => (ts.isPropertyAssignment(n) && readbackPatternProperty(n)) || !!ts.forEachChild(n, assignsReadbackMember);
     const memberRef = n => { n = unparen(n); if (!n) return null; if (ts.isPropertyAccessExpression(n) && refNames.has(n.name.text)) return n.name.text; if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression) && refNames.has(n.argumentExpression.text)) return n.argumentExpression.text; return null; };
     // A module-level binding of a readback member (including nested object/array patterns) can be
     // exported, so until the module is settled it cannot vouch for itself, like a waived helper.
@@ -169,6 +188,8 @@ export function createModuleScanner(context) {
         return (ts.isObjectBindingPattern(name) && refNames.has(patternKey(e))) || bindsReadbackMember(e.name);
       });
     result.readbackWaivers ||= ast.statements.some(s => ts.isVariableStatement(s) && s.declarationList.declarations.some(d => bindsReadbackMember(d.name, d.initializer)));
+    // A destructuring assignment can fill an exported mutable binding from anywhere in the module.
+    result.readbackWaivers ||= assignsReadbackMember(ast);
     // Plain destructures of local namespaces can forward readback aliases too. Mark them before
     // scanning dependencies: in a cycle, the namespace's waivers may not be available yet.
     result.forwardsLocal ||= ast.statements.some(s => ts.isVariableStatement(s) && s.declarationList.declarations.some(d => {
@@ -187,7 +208,8 @@ export function createModuleScanner(context) {
         if (b && key && namespaceOf.get(b)?.has(key)) name = namespaceOf.get(b).get(key);
       }
       if (!name && ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent) && refNames.has(patternKey(n))) name = patternKey(n);
-      if (!name && ts.isIdentifier(n) && !isDeclName(n)) {
+      if (!name && ts.isPropertyAssignment(n) && readbackPatternProperty(n)) name = patternKey(n);
+      if (!name && ts.isIdentifier(n) && !isDeclName(n) && !writtenByPattern(n)) {
         if (refNames.has(n.text)) name = n.text;
         else if (aliasOf.size) { const b = resolveBinding(n); if (b && aliasOf.has(b)) name = aliasOf.get(b); }
       }
@@ -200,10 +222,15 @@ export function createModuleScanner(context) {
     }; walk(node); return {calls, literals}; };
     const matches = (rule, body) => (rule.calls?.length ? rule.calls : rule.references ?? []).every(c => [...body.calls].some(x => x === c || x.endsWith('.' + c))) && (!rule.literals?.length || rule.literals.some(s => body.literals.includes(s)));
     if (refNames.size) {
-      // Lexical aliases of a readback member: const f = x.getTxByHash / const {getTxByHash: f} = x.
+      // Lexical aliases of a readback member: const f = x.getTxByHash / const {getTxByHash: f} = x / ({getTxByHash: f} = x).
       const collectAliases = n => {
         if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && memberRef(n.initializer)) aliasOf.set(n.name, memberRef(n.initializer));
         if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent) && ts.isIdentifier(n.name) && refNames.has(patternKey(n))) aliasOf.set(n.name, patternKey(n));
+        // ({getTxByHash: f} = x): the variable it writes is the alias; any other target cannot be followed.
+        if (ts.isPropertyAssignment(n) && readbackPatternProperty(n)) {
+          const b = targetBinding(n);
+          if (b) aliasOf.set(b, patternKey(n)); else flag('unverifiable', 'readback-alias-target', file, lineOf(n), patternKey(n));
+        }
         // const {show} = h, where h is the namespace of a waived dependency.
         if (ts.isVariableDeclaration(n) && n.initializer && ts.isIdentifier(unparen(n.initializer)) && plainPattern(n.name)) {
           const b = resolveBinding(unparen(n.initializer)), w = b && namespaceOf.get(b);
@@ -267,7 +294,7 @@ export function createModuleScanner(context) {
       if (!name || !node) return;
       // Declaration-only signatures (.d.ts, declare, overloads) carry no implementation.
       if (ambient(node) || ((ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && !node.body)) return;
-      const line = lineOf(node), target = node.initializer ?? (ts.isBinaryExpression(node) ? node.right : node), fnLike = target && ts.isFunctionLike(target), body = callsIn(target);
+      const line = lineOf(node), target = unparen(node.initializer ?? (ts.isBinaryExpression(node) ? node.right : node)), fnLike = target && ts.isFunctionLike(target), body = callsIn(target);
       if (fnLike) checkedTargets.add(target);
       for (const rule of rules) {
         const named = rule.names?.includes(name);
@@ -320,11 +347,11 @@ export function createModuleScanner(context) {
       else if (refNames.size && computedCallableRead(n)) flag('unverifiable', 'computed-member-read', file, lineOf(n));
       if (ts.isIdentifier(n) && n.text === 'require' && !(ts.isCallExpression(n.parent) && n.parent.expression === n) && !(ts.isPropertyAccessExpression(n.parent) && (n.parent.name === n || (n.parent.expression === n && !['call', 'apply', 'bind'].includes(n.parent.name.text)))) && !(ts.isVariableDeclaration(n.parent) && n.parent.name === n) && !ts.isImportEqualsDeclaration(n.parent)) flag('unverifiable', 'aliased-require', file, lineOf(n));
       if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left)) { if (ts.isStringLiteralLike(n.left.argumentExpression)) primitive(n, n.left.argumentExpression.text); else if (computedDefinitionRisk(n) || functionValued(n.right)) flag('unverifiable', 'computed-export', file, lineOf(n)); }
-      if (ts.isComputedPropertyName(n) && !ts.isStringLiteralLike(n.expression)) flag('unverifiable', 'computed-member', file, lineOf(n));
+      if (ts.isComputedPropertyName(n) && !ts.isStringLiteralLike(unparen(n.expression))) flag('unverifiable', 'computed-member', file, lineOf(n));
       if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left)) primitive(n, n.left.name.text);
       if (ts.isBindingElement(n) && n.initializer && ts.isIdentifier(n.name)) primitive(n, n.name.text);
       if (ts.isVariableDeclaration(n) && (n.initializer?.getText(ast) === 'require' || (ts.isCallExpression(unparen(n.initializer) ?? {}) && requireFactory(unparen(n.initializer).expression) && n.name.getText(ast) !== 'require'))) flag('unverifiable', 'aliased-require', file, lineOf(n));
-      if (ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isClassDeclaration(n) || ts.isVariableDeclaration(n) || (ts.isPropertyAssignment(n) && ts.isFunctionLike(n.initializer))) primitive(n, n.name && (ts.isIdentifier(n.name) || ts.isStringLiteralLike(n.name)) ? n.name.text : ts.isComputedPropertyName(n.name ?? {}) && ts.isStringLiteralLike(n.name.expression) ? n.name.expression.text : null);
+      if (ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isClassDeclaration(n) || ts.isVariableDeclaration(n) || (ts.isPropertyAssignment(n) && ts.isFunctionLike(unparen(n.initializer)))) primitive(n, n.name && (ts.isIdentifier(n.name) || ts.isStringLiteralLike(n.name)) ? n.name.text : ts.isComputedPropertyName(n.name ?? {}) && ts.isStringLiteralLike(unparen(n.name.expression)) ? unparen(n.name.expression).text : null);
       ts.forEachChild(n, walk);
     }; walk(ast);
     // A readback reference must sit inside a checked definition. Inside an unnamed function
@@ -340,6 +367,7 @@ export function createModuleScanner(context) {
       // Only a statement of the module itself is an alias definition its exports can forward: a hoisted var in a
       // block, or a declaration in a namespace, is not found by the binding lookup, and export = forwards nothing.
       const aliasDef = (((ts.isVariableDeclaration(n.parent) && n.parent.initializer && unparen(n.parent.initializer) === n && aliasOf.has(n.parent.name)) || (ts.isBindingElement(n) && aliasOf.has(n.name))) && inModuleStatement(n))
+        || (ts.isPropertyAssignment(n) && (!targetBinding(n) || inModuleStatement(targetBinding(n))))
         || (ts.isIdentifier(n) && ts.isExportAssignment(n.parent) && !n.parent.isExportEquals && n.parent.expression === n);
       if (!aliasDef) flag('unverifiable', 'readback-reference-escape', file, lineOf(n), refOf(n));
     }

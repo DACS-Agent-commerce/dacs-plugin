@@ -227,11 +227,13 @@ export class SpendLedger {
     });
   }
 
-  /** Persist the ledger, dropping settled days before today: only today and days with an open reservation stay. */
+  /** Persist the ledger, retaining yesterday for small backward clock steps across UTC midnight. */
   private write(f: LedgerFile): void {
-    const today = this.day();
+    const yesterday = new Date(`${this.day()}T00:00:00.000Z`);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    const oldestSettledDay = yesterday.toISOString().slice(0, 10);
     const openDays = new Set((f.reservations ?? []).map((r) => r.day));
-    for (const d of Object.keys(f.days)) if (d < today && !openDays.has(d)) delete f.days[d];
+    for (const d of Object.keys(f.days)) if (d < oldestSettledDay && !openDays.has(d)) delete f.days[d];
     const tmp = `${this.path}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(f, null, 2), { mode: 0o600 });
     renameSync(tmp, this.path);

@@ -9,10 +9,12 @@ const flag = /--omit=optional(?:[\s'"\],;&|]|$)/;
 // The wallet-build install is the one install that must keep optional packages:
 // esbuild's platform binary is an optional dependency.
 const walletBuildStep = /^( *)- run: [^\n]*\n\1 {2}working-directory: http-mcp\/wallet-build\n/gm;
+const sdkSourceStep = /^ {6}- name: Pack the pinned SDK source\n[\s\S]*?(?=^ {6}- name: Validate the SDK input before the http-mcp install)/m;
 
 function missingFlags(file, source) {
   // Preserve offsets for diagnostics, including continued shell commands.
-  const code = source.replace(/^\s*(?:\/\/|#)[^\n]*/gm, (s) => s.replace(/[^\n]/g, ' '))
+  const workflow = file === '.github/workflows/http-mcp-tests.yml' ? source.replace(sdkSourceStep, (s) => s.replace(/[^\n]/g, ' ')) : source;
+  const code = workflow.replace(/^\s*(?:\/\/|#)[^\n]*/gm, (s) => s.replace(/[^\n]/g, ' '))
     .replace(walletBuildStep, (s) => s.replace(/[^\n]/g, ' '))
     .replace(/\\\r?\n/g, (s) => ' '.repeat(s.length));
   const commands = /\b(installOffline)\([^,]*,\s*\[[^\]]*\]|\bnpm\s+(?:ci|install)\b[^\n;&|`'"]*|\[\s*(?:npmCli\(['"]npm['"]\)\s*,\s*)?['"](?:ci|install)['"][^\]]*\]/g;
@@ -65,6 +67,20 @@ test('install flag fixture exempts only a workflow step that runs in wallet-buil
   assert.deepEqual(missingFlags('workflow.yml', step('http-mcp/wallet-build')), []);
   assert.deepEqual(missingFlags('workflow.yml', step('http-mcp')), [
     'workflow.yml:2: install requires --omit=optional',
+  ]);
+});
+
+test('install flag fixture exempts SDK source setup but still checks the plugin install', () => {
+  const workflow = `      - name: Pack the pinned SDK source
+        run: |
+          npm install --global npm@10.9.9
+          (cd "$sdk_source" && npm ci --no-audit --no-fund)
+      - name: Validate the SDK input before the http-mcp install
+        run: node ../scripts/ci/sdk-input.mjs --prepare http-mcp
+      - run: npm ci --ignore-scripts
+`;
+  assert.deepEqual(missingFlags('.github/workflows/http-mcp-tests.yml', workflow), [
+    '.github/workflows/http-mcp-tests.yml:7: install requires --omit=optional',
   ]);
 });
 

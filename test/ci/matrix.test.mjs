@@ -35,12 +35,13 @@ function matrixRows(text) {
 function jobFacts(text) {
   const steps = stepsOf(text);
   const commandLines = (step) => step.split('\n').map((line) => line.trim().replace(/^(?:- )?run: /, ''));
-  const validation = steps.findIndex((step) => /sdk-input\.mjs --prepare \S+$/m.test(step));
+  const validationCommand = /sdk-input\.mjs --prepare (\S+)(?: --candidate-dir \S+)?$/m;
+  const validation = steps.findIndex((step) => validationCommand.test(step));
   const installs = steps.flatMap((step, index) => (commandLines(step).some((line) => line.startsWith('npm ci')) ? [{ index, directory: directoryOf(text, step) }] : []));
   return {
     steps,
     runtimes: [...new Set([...text.matchAll(/^\s+node-version: (.+)$/gm)].flatMap((match) => match[1].match(VERSION) ?? []))],
-    target: /sdk-input\.mjs --prepare (\S+)$/m.exec(steps[validation] ?? '')?.[1],
+    target: validationCommand.exec(steps[validation] ?? '')?.[1],
     validatedBeforeInstalls: validation >= 0 && installs.length > 0 && installs.every(({ index }) => index > validation),
     installDirectories: installs.map(({ directory }) => directory),
     runsCommand: (command, directory) => steps.some((step) => directoryOf(text, step) === directory

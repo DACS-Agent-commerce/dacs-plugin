@@ -23,6 +23,46 @@ test('a missing configured handler cannot pass', t => {
   assert.ok(r.violations.some(v => v.rule === 'missing-handler-registration' && v.detail === 'dacs_search:absent'));
 });
 
+test('two entries cannot share one module registration, even on an absent optional module', t => {
+  for (const file of ['src/server.ts', 'buyer/src/server.mjs']) {
+    const f = fixture(t);
+    f.config.entries[2].modules.push({file, registration: 'dacs_buy', optional: true});
+    if (file === 'src/server.ts') f.config.entries[3].modules[0].file = './src/server.ts';
+    else f.config.entries[3].modules.push({file, registration: 'dacs_buy', optional: true});
+    const r = f.run();
+    assert.equal(r.exitCode, 2, file);
+    assert.deepEqual(r.unverifiable.filter(u => u.rule === 'duplicate-entry-registration').map(u => u.detail), [`dacs_buy_prepare:dacs_buy:${file === 'src/server.ts' ? './src/server.ts' : file}:dacs_buy`], file);
+  }
+  const g = fixture(t); g.config.entries[3].modules.push({file: 'src/server.ts', registration: 'dacs_buy'});
+  assert.equal(g.run().exitCode, 0);
+});
+
+for (const [kind, link, target, file] of [['file', 'src/alias.ts', 'server.ts', 'src/alias.ts'], ['directory', 'alias-dir', 'src', 'alias-dir/server.ts']]) {
+  test(`a ${kind} symlink cannot let two entries share one module registration`, t => {
+    const f = fixture(t);
+    fs.symlinkSync(target, path.join(f.root, link));
+    f.config.entries[2].modules = [{file, registration: 'dacs_buy'}];
+    const r = f.run();
+    assert.equal(r.exitCode, 2);
+    assert.deepEqual(r.unverifiable.filter(u => u.rule === 'duplicate-entry-registration').map(u => u.detail), ['dacs_buy_prepare:dacs_buy:src/server.ts:dacs_buy']);
+  });
+}
+
+test('a symlinked alias in one entry, another registration or another module still passes', t => {
+  const f = fixture(t);
+  fs.symlinkSync('server.ts', path.join(f.root, 'src/alias.ts'));
+  f.config.entries[3].modules.push({file: 'src/alias.ts', registration: 'dacs_buy'});
+  assert.equal(f.run().exitCode, 0, 'same-entry alias');
+  const g = fixture(t);
+  fs.symlinkSync('server.ts', path.join(g.root, 'src/alias.ts'));
+  g.config.entries[2].modules = [{file: 'src/alias.ts', registration: 'dacs_buy_prepare'}];
+  assert.equal(g.run().exitCode, 0, 'another registration on the same module');
+  const h = fixture(t);
+  h.put('src/other.ts', fs.readFileSync(path.join(h.root, 'src/server.ts'), 'utf8'));
+  h.config.entries[2].modules = [{file: 'src/other.ts', registration: 'dacs_buy'}];
+  assert.equal(h.run().exitCode, 0, 'the same registration on another module');
+});
+
 test('two module roots must each reach the client independently', t => {
   const f = fixture(t); f.put('src/other.js', `server.registerTool('dacs_search', {}, () => {});`);
   f.config.entries[0].modules.push({file: 'src/other.js', registration: 'dacs_search'});
