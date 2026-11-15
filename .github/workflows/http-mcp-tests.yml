@@ -51,11 +51,44 @@ jobs:
           cache-dependency-path: |
             http-mcp/package-lock.json
             http-mcp/wallet-build/package-lock.json
-      # A forbidden or unverifiable SDK input stops here. Exact registry pins can pass this
-      # check even when npm later gets 404; in that case npm ci fails before tests run.
+      - name: Pack the pinned SDK source
+        run: |
+          test "$(node -v)" = "v22.23.3"
+          if [ "$(npm -v)" != "10.9.9" ]; then
+            npm install --global npm@10.9.9 --no-audit --no-fund
+          fi
+          test "$(npm -v)" = "10.9.9"
+          umask 022
+          sdk_source="$RUNNER_TEMP/http-mcp-sdk-source"
+          archive_dir="$RUNNER_TEMP/http-mcp-sdk-candidate"
+          mkdir -p "$sdk_source" "$archive_dir"
+          git -C "$sdk_source" init -q
+          git -C "$sdk_source" fetch --depth 1 https://github.com/DACS-Agent-commerce/dacs-sdk.git cc301976133bd2b0046c9a979cba88c82be19d97
+          git -C "$sdk_source" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$sdk_source" rev-parse HEAD)" = "cc301976133bd2b0046c9a979cba88c82be19d97"
+          # No dependency install scripts run before the archives are checked against the lock.
+          (cd "$sdk_source" && npm ci --ignore-scripts --no-audit --no-fund)
+          (
+            umask 077
+            cd "$sdk_source"
+            npm pack --json --pack-destination "$archive_dir" > /dev/null
+            cd packages/dacs-client
+            npm pack --json --pack-destination "$archive_dir" > /dev/null
+            cd ../dacs-node
+            npm pack --json --pack-destination "$archive_dir" > /dev/null
+          )
+          # The wallet-build root is also checked by --prepare http-mcp.
+          npm pack @kynesyslabs/demosdk@4.0.20 --silent --pack-destination "$archive_dir" > /dev/null
+      # The candidate gate hashes the source archives and the published wallet SDK
+      # against their lockfile pins before any package is placed in the npm cache.
       - name: Validate the SDK input before the http-mcp install
-        run: node ../scripts/ci/sdk-input.mjs --prepare http-mcp
-      - run: npm ci --ignore-scripts --omit=optional --no-audit --no-fund
+        run: node ../scripts/ci/sdk-input.mjs --prepare http-mcp --candidate-dir "$RUNNER_TEMP/http-mcp-sdk-candidate"
+      - name: Seed the SDK archives in a fresh npm cache
+        run: |
+          for name in dacs dacs-client dacs-node; do
+            npm cache add "$RUNNER_TEMP/http-mcp-sdk-candidate/kynesyslabs-${name}-0.1.0-alpha.0.tgz" --cache "$RUNNER_TEMP/http-mcp-npm-cache"
+          done
+      - run: npm ci --ignore-scripts --omit=optional --no-audit --no-fund --prefer-offline --cache "$RUNNER_TEMP/http-mcp-npm-cache"
       - name: Validate the SDK input before the wallet-build install
         run: node ../scripts/ci/sdk-input.mjs --prepare http-mcp
       # The embedded wallet's payment and broadcast tests need the pinned Demos SDK.

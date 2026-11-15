@@ -9,8 +9,10 @@ Every check here runs against SIMULATED local fixtures: chain, directory and wal
 ## Runtime
 
 - Node `^22.22.2 || ^24.15.0`; the recorded 22.22.0 runs are historical and below this supported range.
-- Install from the lockfile, in `http-mcp/`, with lifecycle scripts disabled:
-  `npm ci --ignore-scripts --omit=optional --no-audit --no-fund`
+- CI builds the pinned SDK source and checks its archives against the lockfile
+  before installing. With those archives seeded into a fresh npm cache, install
+  in `http-mcp/` with lifecycle scripts disabled:
+  `npm ci --ignore-scripts --omit=optional --no-audit --no-fund --prefer-offline --cache <cache-directory>`
 - Browser checks need a real local Chrome or Chromium binary. Point `DACS_TEST_CHROME` at it; the macOS default path does not exist on Linux. Use the binary that matches the installed `playwright-core`, which records its expected revision in `node_modules/playwright-core/browsers.json`. A missing browser is a BLOCKED skip, never a pass.
 
 ## Use a short TMPDIR
