@@ -17,8 +17,8 @@ inputs). It runs on the
 `ubuntu-24.04` host, with tests inside the digest-pinned Playwright 1.56.1 Noble
 container declared in the workflow, Node `22.23.3` and npm `10.9.9`. It fetches
 the full pinned `dacs-sdk` commit into the runner's temporary directory, installs
-its dependencies with umask `022`, and packs the root, client and node packages
-with umask `077`. The job downloads the published Demos SDK archive for the
+its dependencies with `--ignore-scripts` and umask `022`, and packs the root,
+client and node packages with umask `077`. The job downloads the published Demos SDK archive for the
 wallet root's candidate check. `sdk-input --prepare http-mcp --candidate-dir`
 checks all four archives against the frozen lockfile before the three source
 archives enter a fresh npm cache. The install then runs
@@ -63,6 +63,19 @@ secret is needed. No server is deployed. Runtime configuration and write protect
 unchanged. These `v4` actions target Node 20, which GitHub has deprecated: it
 runs them on Node 24 instead and warns. Moving to the next majors waits for a
 change whose new SHAs can be checked against the actions' repositories.
+
+The lockfile's SHA-512 pins cover the complete archive bytes, including file
+modes and other tar metadata. Reproduce them with the workflow's pinned SDK
+commit and Node/npm versions, the `022` checkout/install umask, and the `077`
+pack subshell in root, client, node order. The source install disables dependency
+install scripts; the pack commands still run the SDK's `prepack` builds. Generated
+file permissions can affect the resulting archive bytes. A digest mismatch is a
+reason to inspect the build recipe and candidate archive, keeping the existing
+lock integrity values as the comparison target.
+
+The three source archives seed a dedicated temporary cache. `--prefer-offline`
+can still request missing data from the registry; it does not disable networking
+or relax integrity checks. Published dependencies still use the registry.
 
 `npm run test:ci` discovers `*.test.mjs` files under `test/`, the only root,
 excluding `fixtures/` and `helpers/` directories and

@@ -168,6 +168,58 @@ test('http-mcp builds the pinned SDK archives outside the checkout, validates th
   assert.match(steps[install], /--prefer-offline --cache "\$RUNNER_TEMP\/http-mcp-npm-cache"/);
 });
 
+function assertHttpSdkSetup(workflow) {
+  const steps = stepsOf(workflow);
+  const preparation = steps[stepIndex(steps, 'fetch --depth 1 https://github.com/DACS-Agent-commerce/dacs-sdk.git')];
+  const commandLines = (step) => step.split('\n').map((line) => line.trim()
+    .replace(/("[^"]*"|'[^']*')|\s+#.*$/g, (match, quoted) => quoted ?? '')
+    .replace(/^run: /, '')).filter((line) => line && !line.startsWith('#'));
+  const commands = commandLines(preparation);
+  const position = (command) => {
+    assert.equal(commands.filter((line) => line === command).length, 1, `the setup step runs exactly once: ${command}`);
+    return commands.indexOf(command);
+  };
+
+  const lockedDemosdk = (root) => JSON.parse(readFileSync(path.join(REPO_ROOT, root, 'package-lock.json'), 'utf8')).packages['node_modules/@kynesyslabs/demosdk'].version;
+  const version = lockedDemosdk('http-mcp');
+  assert.equal(lockedDemosdk('http-mcp/wallet-build'), version, 'both http-mcp roots lock one demosdk version, so one archive serves the candidate check');
+  position(`npm pack @kynesyslabs/demosdk@${version} --silent --pack-destination "$archive_dir" > /dev/null`);
+
+  const checkout = position('git -C "$sdk_source" checkout -q --detach FETCH_HEAD');
+  const verified = position('test "$(git -C "$sdk_source" rev-parse HEAD)" = "cc301976133bd2b0046c9a979cba88c82be19d97"');
+  const sourceInstall = commands.findIndex((line) => line.startsWith('(cd "$sdk_source" && npm ci'));
+  assert.ok(checkout < verified && verified < sourceInstall, 'the fetched commit is verified after checkout and before anything is installed from it');
+
+  const cacheOf = (step, prefix) => {
+    const lines = commandLines(step).filter((line) => line.startsWith(prefix));
+    assert.equal(lines.length, 1, `exactly one executable ${prefix}command`);
+    return [...lines[0].matchAll(/ --cache ("[^"\n]+")/g)].map((match) => match[1]);
+  };
+  const seeded = cacheOf(steps[stepIndex(steps, 'npm cache add')], 'npm cache add ');
+  const installed = cacheOf(steps.find((step) => (commandOf(step) ?? '').startsWith('npm ci --ignore-scripts --omit=optional')), 'npm ci ');
+  assert.equal(seeded.length, 1);
+  assert.deepEqual(installed, seeded, 'the install reads the cache the archives were added to');
+}
+
+test('http-mcp setup verifies the fetched SDK commit, packs the published demosdk at the locked version before candidate validation, and seeds the cache directory the install reads', () => {
+  assertHttpSdkSetup(readWorkflow(HTTP_WORKFLOW));
+});
+
+test('http-mcp setup checks ignore cache examples in comments and require executable cache seeding', () => {
+  const workflow = readWorkflow(HTTP_WORKFLOW);
+  const lines = workflow.split('\n');
+  const seedIndex = lines.findIndex((line) => line.trim().startsWith('npm cache add '));
+  assert.ok(seedIndex >= 0, 'the fixture replaces the real cache seed command');
+  const seed = lines[seedIndex];
+  const withSeed = (replacement) => lines.map((line, index) => index === seedIndex ? replacement : line).join('\n');
+  assert.throws(() => assertHttpSdkSetup(withSeed(`            # ${seed.trim()}`)));
+  assert.throws(() => assertHttpSdkSetup(withSeed(`            : # ${seed.trim()}`)));
+  assert.doesNotThrow(() => assertHttpSdkSetup(withSeed(`            # Example --cache "ignored"\n${seed}`)));
+  assert.doesNotThrow(() => assertHttpSdkSetup(withSeed(`${seed} # Example --cache "ignored"`)));
+  assert.doesNotThrow(() => assertHttpSdkSetup(withSeed(`            # Example: ${seed}\n${seed}`)));
+  assert.doesNotThrow(() => assertHttpSdkSetup(workflow.replaceAll('$RUNNER_TEMP/http-mcp-npm-cache', '$RUNNER_TEMP/cache # fixture')));
+});
+
 const STDIO_WORKFLOW = 'stdio-mcp.yml';
 const STDIO_VALIDATION = 'node ../scripts/ci/sdk-input.mjs --prepare stdio';
 /**
