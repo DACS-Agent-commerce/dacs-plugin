@@ -158,6 +158,9 @@ test('http-mcp builds the pinned SDK archives outside the checkout, validates th
   assert.match(steps[preparation], /test "\$\(npm -v\)" = "10\.9\.9"/);
   assert.match(steps[preparation], /umask 022[\s\S]*git -C "\$sdk_source" fetch --depth 1 https:\/\/github\.com\/DACS-Agent-commerce\/dacs-sdk\.git cc301976133bd2b0046c9a979cba88c82be19d97/);
   assert.match(steps[preparation], /\$RUNNER_TEMP\/http-mcp-sdk-candidate/);
+  const sourceInstalls = [...steps[preparation].matchAll(/cd "\$sdk_source" && (npm ci[^)\n]*)/g)].map((m) => m[1]);
+  assert.equal(sourceInstalls.length, 1);
+  assert.match(sourceInstalls[0], /--ignore-scripts/, 'the SDK source install runs no dependency scripts before the digest check');
   assert.match(steps[preparation], /umask 077[\s\S]*npm pack --json --pack-destination[^\n]*[\s\S]*cd packages\/dacs-client[\s\S]*cd \.\.\/dacs-node/);
   assert.equal([...steps[preparation].matchAll(/npm pack --json --pack-destination/g)].length, 3);
   assert.match(steps[cache], /for name in dacs dacs-client dacs-node; do/);

@@ -66,7 +66,8 @@ jobs:
           git -C "$sdk_source" fetch --depth 1 https://github.com/DACS-Agent-commerce/dacs-sdk.git cc301976133bd2b0046c9a979cba88c82be19d97
           git -C "$sdk_source" checkout -q --detach FETCH_HEAD
           test "$(git -C "$sdk_source" rev-parse HEAD)" = "cc301976133bd2b0046c9a979cba88c82be19d97"
-          (cd "$sdk_source" && npm ci --no-audit --no-fund)
+          # No dependency install scripts run before the archives are checked against the lock.
+          (cd "$sdk_source" && npm ci --ignore-scripts --no-audit --no-fund)
           (
             umask 077
             cd "$sdk_source"
