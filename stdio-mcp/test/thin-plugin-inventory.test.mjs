@@ -15,6 +15,8 @@ test('the inventory keeps all five entries, each on the required server module',
     assert.deepEqual(required, [{file: 'src/server.ts', registration: entry.name}], entry.name);
     assert.ok(entry.modules.filter(m => m.optional).every(m => m.file.startsWith('buyer/')), entry.name);
   }
+  const pairs = config.entries.flatMap(e => e.modules.map(m => `${m.file}:${m.registration}`));
+  assert.equal(new Set(pairs).size, pairs.length);
 });
 
 test('the inventory keeps the root dependency checks and the buyer roots as optional', () => {
