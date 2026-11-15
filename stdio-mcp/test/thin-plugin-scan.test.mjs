@@ -486,6 +486,89 @@ test('a computed string-literal key in a destructure reads the readback member l
   assert.deepEqual(p.found.unverifiable, []);
 });
 
+const assignmentAliases = {
+  object: '({getTxByHash: read} = c);',
+  quoted: '({"getTxByHash": read} = c);',
+  computed: '({["getTxByHash"]: read} = c);',
+  defaulted: '({getTxByHash: read = () => null} = c);',
+  parenthesized: '({getTxByHash: (read)} = c);',
+  'with-rest': '({getTxByHash: read, ...rest} = c);',
+  nested: '({x: {getTxByHash: read}} = c);',
+  array: '[{getTxByHash: read}] = [c];',
+  'defaulted-element': '[{getTxByHash: read} = c] = [];',
+  'for-of': 'for ({getTxByHash: read} of [c]) {}',
+};
+for (const [shape, assignment] of Object.entries(assignmentAliases)) {
+  test(`a destructuring assignment of a readback member makes its target readback: ${shape}`, t => {
+    const p = project(t, {
+      'assign.ts': `let read: any, rest: any;\n// thin-plugin-waiver primitive:execution-readback -- status display only\nexport function setup(c: any) { ${assignment} }\nexport function decide(h: string) { return read(h); }\n`,
+    });
+    p.scan('assign.ts');
+    assert.deepEqual(p.found.violation.map(r => `${r.rule}:${r.detail}`), ['local-protocol-primitive:execution-readback:decide']);
+    assert.deepEqual(p.found.unverifiable, []);
+    assert.equal(p.found.waiver.length, 1);
+  });
+}
+
+test('a destructuring assignment of a readback member is flagged where it is written', t => {
+  const p = project(t, {
+    'in-function.ts': 'export function decide(c: any, h: string) { let read: any; ({getTxByHash: read} = c); return read(h); }\n',
+    'plain-object.ts': 'export function make(read: () => void) { return {getTxByHash: read}; }\n',
+  });
+  p.scan('in-function.ts'); p.scan('plain-object.ts');
+  assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`), ['in-function.ts:execution-readback:decide']);
+  assert.deepEqual(p.found.unverifiable, []);
+});
+
+test('an exported mutable binding that a destructuring assignment fills makes its importer readback', t => {
+  const helpers = {
+    'module-level.ts': 'declare const client: any;\nexport let read: any;\n({getTxByHash: read} = client);\n',
+    'in-function.ts': 'declare const client: any;\nexport let read: any;\n// thin-plugin-waiver primitive:execution-readback -- status display only\nexport function init() { ({getTxByHash: read} = client); }\n',
+    'local-export.ts': 'declare const client: any;\nlet read: any;\n// thin-plugin-waiver primitive:execution-readback -- status display only\nfunction init() { ({getTxByHash: read} = client); }\nexport {read};\n',
+    'default-export.ts': 'declare const client: any;\nlet read: any;\n// thin-plugin-waiver primitive:execution-readback -- status display only\nfunction init() { ({getTxByHash: read} = client); }\nexport default read;\n',
+  };
+  const importers = {
+    'use-module-level.ts': 'import {read} from "./module-level.js";\nexport function viaModuleLevel(h: string) { return read(h); }\n',
+    'use-in-function.ts': 'import {read} from "./in-function.js";\nexport function viaInFunction(h: string) { return read(h); }\n',
+    'use-local-export.ts': 'import {read} from "./local-export.js";\nexport function viaLocalExport(h: string) { return read(h); }\n',
+    'use-default-export.ts': 'import read from "./default-export.js";\nexport function viaDefaultExport(h: string) { return read(h); }\n',
+  };
+  const p = project(t, {...helpers, ...importers});
+  for (const f of Object.keys(importers)) p.scan(f);
+  assert.deepEqual(p.found.violation.map(r => `${r.file}:${r.detail}`).sort(), [
+    'use-default-export.ts:execution-readback:viaDefaultExport', 'use-in-function.ts:execution-readback:viaInFunction',
+    'use-local-export.ts:execution-readback:viaLocalExport', 'use-module-level.ts:execution-readback:viaModuleLevel',
+  ]);
+  assert.deepEqual(p.found.unverifiable, []);
+});
+
+test('a destructuring assignment of a readback member to a target that cannot be followed is unverifiable', t => {
+  const waived = body => `declare const holder: any;\n// thin-plugin-waiver primitive:execution-readback -- status display only\nexport function setup(c: any) { ${body} }\n`;
+  const p = project(t, {
+    'member.ts': waived('({getTxByHash: holder.read} = c);'),
+    'element.ts': waived('({getTxByHash: holder["read"]} = c);'),
+    'undeclared.ts': waived('({getTxByHash: undeclared} = c);'),
+    'module-level.ts': 'declare const holder: any, client: any;\n({getTxByHash: holder.read} = client);\n',
+  });
+  for (const f of ['member.ts', 'element.ts', 'undeclared.ts', 'module-level.ts']) p.scan(f);
+  assert.deepEqual(p.found.unverifiable.map(r => `${r.file}:${r.line}:${r.rule}`).sort(),
+    ['element.ts:3:readback-alias-target', 'member.ts:3:readback-alias-target', 'module-level.ts:2:readback-alias-target', 'undeclared.ts:3:readback-alias-target']);
+  assert.deepEqual(p.found.violation, []);
+});
+
+test('an import cycle cannot hide an exported mutable binding that a destructuring assignment fills', t => {
+  const files = {
+    'helper.ts': 'import {decide} from "./caller.js";\ndeclare const client: any;\nexport let read: any;\n({getTxByHash: read} = client);\nexport const again = decide;\n',
+    'caller.ts': 'import {read} from "./helper.js";\nexport function decide(h: string) { return read(h); }\n',
+  };
+  const helperFirst = project(t, files), callerFirst = project(t, files);
+  helperFirst.scan('helper.ts'); callerFirst.scan('caller.ts');
+  assert.deepEqual(helperFirst.found.unverifiable.map(r => `${r.file}:${r.rule}:${r.detail}`), ['caller.ts:cyclic-waived-import:./helper.js']);
+  assert.deepEqual(callerFirst.found.violation.map(r => `${r.file}:${r.detail}`), ['caller.ts:execution-readback:decide']);
+  assert.deepEqual(helperFirst.found.violation, []);
+  assert.deepEqual(callerFirst.found.unverifiable, []);
+});
+
 test('a parenthesised string key or function value is read like the plain one', t => {
   const p = project(t, {
     'pattern.ts': 'export function decide(c: any, h: string) { const {[("getTxByHash")]: read} = c; return read(h); }\n',
