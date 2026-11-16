@@ -353,6 +353,12 @@ skills/         demos-safe-flow
 
 MIT, matching `@kynesyslabs/demosdk` and the DACS-Standard.
 
+### Wallet rollback regression check
+
+After installing the stdio package dependencies, run from the repository root:
+
+`cd stdio-mcp && node --import tsx --test test/unit/purchase-only.test.ts`
+
 ### Spend-ledger regression check
 
 After installing the stdio package dependencies, run from the repository root:

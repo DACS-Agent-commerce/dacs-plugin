@@ -405,32 +405,36 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
            * A marker appeared after publication: take back what was just published (it was never shown), but only the
            * exact files. The keystore carries a fresh salt and IV, so equal bytes are the file this call wrote.
            */
-          const takeBack = () => {
-            try {
-              if (readFileSync(path).equals(bytes)) safeUnlink(path);
-            } catch {
-              /* already gone */
-            }
-            try {
-              if (remember && readFileSync(config.keystorePassphraseFile!, 'utf8') === pass + '\n') safeUnlink(config.keystorePassphraseFile!);
-            } catch {
-              /* already gone */
-            }
+          const takeBack = (): string | null => {
+            const retained: string[] = [];
+            const removeOwnFile = (file: string, expected: Buffer) => {
+              try {
+                if (readFileSync(file).equals(expected)) unlinkSync(file);
+                else retained.push(file); // a replacement belongs to someone else
+              } catch (e) {
+                if ((e as NodeJS.ErrnoException).code !== 'ENOENT') retained.push(file);
+              }
+            };
+            removeOwnFile(path, bytes);
+            if (remember) removeOwnFile(config.keystorePassphraseFile!, Buffer.from(pass + '\n', 'utf8'));
             if (!remember) setSessionPassphrase(null);
+            return retained.length
+              ? `This wallet is fenced for purchase-only use. Wallet rollback is incomplete; files may remain at: ${retained.join(', ')}. Check these paths before retrying.`
+              : null;
           };
           if (blockedNow()) {
-            takeBack();
-            return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
+            const rollbackError = takeBack();
+            return { error: rollbackError ?? 'This wallet is fenced for purchase-only use; no wallet is created.' };
           }
           if (!remember) setSessionPassphrase(pass); // this session only
           created = true;
           writeState({ ...readState(), address, walletCreatedAt: new Date(d.now()).toISOString(), backupAcknowledged: false });
           // the last check: a marker written after this line, before the return, reads as "created, then fenced" (SECURITY.md)
           if (blockedNow()) {
-            takeBack();
+            const rollbackError = takeBack();
             created = false;
             writeState(stateBefore);
-            return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
+            return { error: rollbackError ?? 'This wallet is fenced for purchase-only use; no wallet is created.' };
           }
           return { html: phrasePage(address, mnemonic, 'was created'), ackLabel: 'I have written the words down' };
         },

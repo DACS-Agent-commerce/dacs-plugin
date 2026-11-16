@@ -3,6 +3,8 @@
  * or sign. The fence is rechecked at each use, not only at startup.
  */
 import { test } from 'node:test';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -417,6 +419,53 @@ test('a marker that appears after publication takes back the wallet, the passphr
   assert.equal(existsSync(passFile), false, 'the passphrase file was taken back');
   assert.equal((await h.call('demos_onboard_status')).json.steps.wallet, null, 'the onboarding state was restored');
 });
+
+for (const failed of ['keystore', 'passphrase', 'both'] as const) {
+  test(`a failed take-back reports retained ${failed} files instead of claiming no wallet exists`, async (t) => {
+    const wf = {
+      newMnemonic: () => 'fixture-value',
+      addressOf: async (m: string) => '0x' + createHash('sha256').update(m).digest('hex'),
+    };
+    const h = await harness({ DEMOS_MNEMONIC_FILE: '' }, { approval: true, walletFactory: wf });
+    t.after(async () => {
+      await h.approval!.stop();
+      rmSync(h.config.stateDir, { recursive: true, force: true });
+    });
+    const keystore = join(h.config.stateDir, 'wallet.keystore.json');
+    const passFile = h.config.keystorePassphraseFile!;
+    const retained = new Set(failed === 'both' ? [keystore, passFile] : [failed === 'keystore' ? keystore : passFile]);
+    const pass = 'correct horse battery staple';
+    await h.call('demos_onboard_create_wallet');
+    let fired = false;
+    t.after(onFirstDateAfterPublish(keystore, () => {
+      fired = true;
+      writeFileSync(`${keystore}.purchase-only`, '');
+    }));
+    const unlink = fs.unlinkSync;
+    t.mock.method(fs, 'unlinkSync', (path: fs.PathLike) => {
+      if (retained.has(String(path))) throw Object.assign(new Error('synthetic unlink refusal'), { code: 'EACCES' });
+      return unlink(path);
+    });
+    syncBuiltinESMExports();
+    let shown: string;
+    try {
+      shown = await post(h.channel.last().approveUrl! + '/approve', { passphrase: pass, confirm: pass, remember: 'on' });
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+    assert.equal(fired, true, 'the fence appeared after publication');
+    assert.doesNotMatch(shown, /no wallet is created/i);
+    assert.match(shown, /rollback.*incomplete/i);
+    for (const file of [keystore, passFile]) {
+      assert.equal(existsSync(file), retained.has(file), 'each removal was attempted independently');
+      if (retained.has(file)) assert.ok(shown.includes(file), 'the retained path is reported');
+    }
+    assert.ok(!shown.includes('<li>fixture-value</li>'), 'the recovery phrase is never shown');
+    assert.ok(!shown.includes(pass), 'the passphrase is never shown');
+    assert.equal((await h.call('demos_onboard_status')).json.steps.recovery_phrase_backed_up, false);
+  });
+}
 
 test('a late take-back leaves a different file at the keystore path alone', async (t) => {
   const wf = {
