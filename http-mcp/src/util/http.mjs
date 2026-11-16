@@ -31,6 +31,8 @@ async function readCapped(response, maxBytes) {
     return text + decoder.decode();
   } catch (error) {
     if (error instanceof OutboundError) throw error;
+    // The request deadline also covers the body: reported like a deadline before the headers.
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw new OutboundError('unavailable', 'request timed out');
     throw new OutboundError('invalid', 'response body is not valid UTF-8');
   }
 }
