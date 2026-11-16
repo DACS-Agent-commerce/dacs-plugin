@@ -254,13 +254,51 @@ test('registry precondition classifier: network and TLS failures vs other npm er
   assert.equal(registryPrecondition('npm error code ETARGET\nnpm error notarget No matching version found for zod@9.9.9'), null);
 });
 
+// The card-owned clean-install failure (P42aa) is npm's report of one E404 for the pinned SDK and nothing else.
+// Every nonblank line of npm's complete stderr must belong to that report; any other line is a different failure.
+const NPM_CODE = /^npm error code E404$/;
+const NPM_CAUSE = /^npm error 404\s+'@kynesyslabs\/dacs@0\.1\.0-alpha\.0' is not in this registry\.$/;
+const NPM_REPORT_LINES = [
+  /^npm error 404 Not Found - GET https:\/\/\S+\/@kynesyslabs%2fdacs - Not found$/,
+  /^npm error 404$/,
+  /^npm error 404 Note that you can also install from a$/,
+  /^npm error 404 tarball, folder, http url, or git url\.$/,
+  /^npm error A complete log of this run can be found in: \S.*$/,
+];
+function onlyCardInstallCause(stderr) {
+  const lines = stderr.split(/\r?\n/).filter((line) => line.trim() !== '');
+  const count = (pattern) => lines.filter((line) => pattern.test(line)).length;
+  return count(NPM_CODE) === 1 && count(NPM_CAUSE) === 1 &&
+    lines.every((line) => NPM_CODE.test(line) || NPM_CAUSE.test(line) || NPM_REPORT_LINES.some((pattern) => pattern.test(line)));
+}
+
+test('the clean-install card message needs npm\'s whole output to be the one listed E404', () => {
+  const report = [
+    'npm error code E404',
+    'npm error 404 Not Found - GET https://registry.npmjs.org/@kynesyslabs%2fdacs - Not found',
+    'npm error 404',
+    "npm error 404  '@kynesyslabs/dacs@0.1.0-alpha.0' is not in this registry.",
+    'npm error 404',
+    'npm error 404 Note that you can also install from a',
+    'npm error 404 tarball, folder, http url, or git url.',
+    'npm error A complete log of this run can be found in: /home/tester/.npm/_logs/2026-11-16T00_00_00_000Z-debug-0.log',
+  ].join('\n');
+  assert.equal(onlyCardInstallCause(report), true);
+  assert.equal(onlyCardInstallCause(`npm error unrelated failure: response was invalid\n${report}`), false);
+  assert.equal(onlyCardInstallCause(`${report}\nunrelated failure: response was invalid`), false);
+  assert.equal(onlyCardInstallCause(`npm error code EINTEGRITY\n${report}`), false);
+  assert.equal(onlyCardInstallCause(`${report}\nnpm error 404  '@kynesyslabs/dacs-client@0.1.0-alpha.0' is not in this registry.`), false);
+  assert.equal(onlyCardInstallCause(report.replace('@kynesyslabs/dacs@', '@kynesyslabs/dacs-node@')), false);
+  assert.equal(onlyCardInstallCause(''), false);
+});
+
 function run(file, args, { cwd, env, timeout = 300_000 }) {
   return new Promise((resolve, reject) => {
     execFile(file, args, { cwd, env, timeout, killSignal: 'SIGKILL', maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
       const detail = String(stderr || error.message);
       const precondition = registryPrecondition(detail);
-      reject(new Error(`${precondition ? `${precondition}: ` : ''}${args.slice(1, 3).join(' ')} failed: ${detail.slice(0, 400)}`));
+      reject(new Error(`${precondition ? `${precondition}: ` : ''}${args.slice(1, 3).join(' ')} failed: ${detail.slice(0, 400)}`, { cause: new Error(detail) }));
     });
   });
 }
@@ -353,7 +391,12 @@ test('source -> reproducible npm tarball -> clean install -> documented `npx dac
   const project = join(work, 'project');
   mkdirSync(project);
   writeFileSync(join(project, 'package.json'), `${JSON.stringify({ name: 'dacs-tester', version: '1.0.0', private: true }, null, 2)}\n`);
-  await run(process.execPath, [npmCli('npm'), 'install', first.path, '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', '--omit=dev'], { cwd: project, env });
+  await run(process.execPath, [npmCli('npm'), 'install', first.path, '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', '--omit=dev'], { cwd: project, env }).catch((error) => {
+    const stderr = error.cause?.message ?? error.message;
+    t.diagnostic(stderr);
+    assert.ok(!onlyCardInstallCause(stderr), 'Clean install failed: @kynesyslabs/dacs@0.1.0-alpha.0 is not in this registry');
+    throw error;
+  });
   const lock = JSON.parse(readFileSync(join(project, 'package-lock.json'), 'utf8'));
   assert.equal(lock.packages?.[`node_modules/${PACKAGE_NAME}`]?.integrity, first.integrity, 'installed from exactly this tarball');
   assert.ok(!existsSync(join(project, 'node_modules', 'playwright-core')), 'no dev dependency installed');

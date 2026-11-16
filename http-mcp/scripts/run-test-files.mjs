@@ -181,7 +181,7 @@ export function judge(file, { failures, passing, seen, exit }, known, expected =
     const entry = expected.get(key(file, test));
     return !!entry && seen.filter((name) => name === test).length === 1 &&
       failures.filter((failure) => failure.test === test).every(({ error, cause }) =>
-        [error, cause].some((message) => normalizeExpectedMessage(message, dir).includes(entry.expect)));
+        [error, cause].some((message) => matches(normalizeExpectedMessage(message, dir), entry.expect)));
   };
   // Only a file that ran to completion shows which tests exist in it.
   const complete = !failing.some((test) => SENTINELS.includes(test));
