@@ -74,7 +74,7 @@
   {
     "file": "test/tester-quickstart.test.mjs",
     "test": "the documented loopback startup answers /health and MCP with honest not_configured results",
-    "expect": "Cannot find module 'src/util/purchase-readback-cache.mjs'",
+    "expect": "Quickstart startup failed: missing src/util/purchase-readback-cache.mjs",
     "card": "P42aa",
     "issue": "DACS-Agent-commerce/dacs-plugin#322",
     "reason": "The quickstart server cannot start without the purchase readback cache."
@@ -82,7 +82,7 @@
   {
     "file": "test/overnight-package.test.mjs",
     "test": "source -> reproducible npm tarball -> clean install -> documented `npx dacs-chatgpt-plugin` cold start, HTTP + MCP, Ctrl-C; bin-shim restart, SIGTERM",
-    "expect": "'@kynesyslabs/dacs@0.1.0-alpha.0' is not in this registry",
+    "expect": "Clean install failed: @kynesyslabs/dacs@0.1.0-alpha.0 is not in this registry",
     "card": "P42aa",
     "issue": "DACS-Agent-commerce/dacs-plugin#326",
     "reason": "The pinned SDK package is unavailable in the public registry."

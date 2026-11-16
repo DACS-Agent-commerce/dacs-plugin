@@ -844,11 +844,36 @@ test('runner: a test that fails reading an absent file at module evaluation (ENO
 const expectedCause = "ENOENT: no such file or directory, open 'deploy/env-contract.json'";
 const expectedEntry = (file, name, expect = expectedCause) => ({ file, test: name, expect, card: 'P46', issue: 'DACS-Agent-commerce/dacs-plugin#323', reason: 'The deploy contract is absent.' });
 
+test('a listed cause on the first line never hides an unrelated failure on the second line', () => {
+  const file = 'test/example.test.mjs', name = 'reads contract', dir = '/work/http-mcp';
+  const expected = new Map([[JSON.stringify([file, name]), expectedEntry(file, name)]]);
+  const message = `ENOENT: no such file or directory, open '${dir}/deploy/env-contract.json'\nunrelated failure: response was invalid`;
+  for (const field of ['error', 'cause']) {
+    const result = judge(file, { failures: [{ test: name, [field]: message }], passing: [], seen: [name], exit: 1 }, new Map(), expected, dir);
+    assert.deepEqual(result.expectedUntilCard, [], field);
+    assert.deepEqual(result.newFailures, [name], field);
+  }
+});
+
+test('each card-owned startup message leaves an appended unrelated failure new', () => {
+  const expected = readExpected(join(root, 'test/expected-until-card.json'));
+  for (const file of ['test/tester-quickstart.test.mjs', 'test/overnight-package.test.mjs']) {
+    const { test: name, expect } = [...expected.values()].find((entry) => entry.file === file);
+    for (const field of ['error', 'cause']) {
+      const check = (message) => judge(file, { failures: [{ test: name, [field]: message }], passing: [], seen: [name], exit: 1 }, new Map(), expected, root);
+      assert.deepEqual(check(expect).expectedUntilCard, [name], `${file}: ${field}: listed cause`);
+      const extra = check(`${expect}\nunrelated failure: response was invalid`);
+      assert.deepEqual(extra.expectedUntilCard, [], `${file}: ${field}: extra failure`);
+      assert.deepEqual(extra.newFailures, [name], `${file}: ${field}: extra failure`);
+    }
+  }
+});
+
 test('a listed failure with its cause is expected after absolute prefixes are removed', () => {
   const file = 'test/example.test.mjs', name = 'reads contract', dir = '/work/http-mcp';
   const expected = new Map([[JSON.stringify([file, name]), expectedEntry(file, name)]]);
-  const message = `first line\nENOENT: no such file or directory, open '${dir}/deploy/env-contract.json'\nlast line`;
-  assert.equal(normalizeExpectedMessage(message, dir), `first line\n${expectedCause}\nlast line`);
+  const message = `ENOENT: no such file or directory, open '${dir}/deploy/env-contract.json'`;
+  assert.equal(normalizeExpectedMessage(message, dir), expectedCause);
   const result = judge(file, { failures: [{ test: name, error: message }], passing: [], seen: [name], exit: 1 }, new Map(), expected, dir);
   assert.deepEqual(result.expectedUntilCard, [name]);
   assert.deepEqual(result.newFailures, []);
