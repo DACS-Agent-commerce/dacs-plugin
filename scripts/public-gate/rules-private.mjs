@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, constants, existsSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { decodeUtf8Strict, GateInputError, gitEnvironment } from './objects.mjs';
+import { decodeUtf8Strict, findingEntry, GateInputError, gitEnvironment } from './objects.mjs';
 
 /** Id of the private-list rule in reports. */
 export const PRIVATE_RULE_ID = 'R-PRIVATE';
@@ -211,13 +211,13 @@ export function createPrivateMatcher(entries, checkpoint) {
  * R-PRIVATE: finds list entries in every path and in every blob that was read, binary blobs included (decoded as UTF-8,
  * U+FFFD for invalid bytes). A text blob (valid UTF-8, no NUL byte) is also read with every backslash removed, so an entry
  * written with regex or string escapes is found; the removal keeps every line break, so the lines are the blob's own.
- * Returns findings { rule, kind: 'path' | 'content', entry, line? }, `entry` being the object reader's entry. Throws
+ * Returns findings { rule, kind: 'path' | 'content', entry, line? }, `entry` being the object reader's entry without its bytes. Throws
  * GateInputError(limit:maxReportEntries) past that many findings.
  */
 export function scanPrivate({ entries, matcher, limits }) {
   const findings = [];
   const add = (finding) => {
-    findings.push({ rule: PRIVATE_RULE_ID, ...finding });
+    findings.push({ rule: PRIVATE_RULE_ID, ...finding, entry: findingEntry(finding.entry) });
     if (findings.length > limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${limits.maxReportEntries} findings`);
   };
   for (const entry of entries.filter((candidate) => candidate.path !== null)) {
