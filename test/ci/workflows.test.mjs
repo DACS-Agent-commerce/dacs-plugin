@@ -250,6 +250,13 @@ test('stdio-mcp.yml matches its own recorded SHA-256 (written fresh in this PR f
   });
 });
 
+const LINT_WORKFLOW = 'lint.yml';
+
+test('lint.yml runs on the pinned ubuntu-24.04 image, like the other plugin workflows that pin it', () => {
+  const jobs = readWorkflow(LINT_WORKFLOW).split('\n').filter((line) => /^\s+runs-on:/.test(line));
+  assert.deepEqual(jobs, ['    runs-on: ubuntu-24.04']);
+});
+
 const npmDirectories = (text) => stepsOf(text).flatMap((step) => [...step.replaceAll(/^\s*#.*$/gm, '').matchAll(NPM_COMMAND)]
   .map(([line]) => path.posix.normalize(/--prefix[ =](\S+)/.exec(line)?.[1] ?? directoryOf(text, step)).replace(/(?<=.)\/$/, '')));
 
