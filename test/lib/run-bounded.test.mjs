@@ -112,7 +112,34 @@ test('run-bounded kills the process group at the deadline, caps output and keeps
   for (const pid of pids) assert.ok(await exitsSoon(pid, pids[0]), `process ${pid} survived`);
 });
 
-test('the survivor check counts a live process as running and a killed one as stopped', async () => {
+// The leader blocks its event loop forever, so it never reaps the grandchild it spawned.
+const UNREAPING_LEADER = `
+  const { spawn } = require('node:child_process');
+  const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'ignore' });
+  console.log('grandchild ' + grandchild.pid);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+`;
+
+test('the survivor check counts a killed process that nobody reaps as stopped', async () => {
+  const leader = spawn(NODE, ['-e', UNREAPING_LEADER], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  try {
+    let output = '';
+    for await (const chunk of leader.stdout) {
+      output += chunk;
+      if (/^grandchild \d+$/m.test(output)) break;
+    }
+    const grandchildPid = Number(output.match(/^grandchild (\d+)$/m)?.[1]);
+    assert.ok(Number.isInteger(grandchildPid), output);
+    assert.ok(isRunning(grandchildPid, leader.pid), 'a live grandchild was counted as stopped');
+    process.kill(grandchildPid, 'SIGKILL');
+    assert.ok(await exitsSoon(grandchildPid, leader.pid), 'a killed grandchild that stays a zombie was counted as running');
+    assert.doesNotThrow(() => process.kill(grandchildPid, 0), 'the grandchild was reaped, so no zombie was tested');
+  } finally {
+    process.kill(-leader.pid, 'SIGKILL');
+  }
+});
+
+test('the survivor check counts a live process as running and a killed and reaped one as stopped', async () => {
   const child = spawn(NODE, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'ignore' });
   try {
     await once(child, 'spawn');
