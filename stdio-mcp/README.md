@@ -302,6 +302,15 @@ The `DEMOS_APPROVAL_*` and `DEMOS_CODE_FALLBACK` options are environment-only
 for now. They are not plugin settings; set them in the environment Claude Code
 is launched from.
 
+The repository root holds a `server.json` that describes this server for the
+MCP Registry, with the main variables above. It has not been submitted to the
+registry, and it is not ready to submit as it is: the registry's publish step
+requires a `$schema` field, which the file leaves out for now. The submission
+step must add `$schema` (and its host to the public gate config) and drop the
+test that forbids the field. The file says the server finds and checks Listings
+and is read-only by default, and that testnet writes are refused in this
+release, as described above.
+
 ## DACS conformance notes
 
 - Canonical form follows CORE §B.2: RFC 8785 JCS with NFC on string values
