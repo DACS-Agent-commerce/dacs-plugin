@@ -228,7 +228,7 @@ export function createServer(deps: Deps): McpServer {
       return fail(e);
     }
   };
-  /** Whether `ok()` would refuse this value: the same two checks. Used on one part of a result at a time, so one part cannot block the rest. */
+  /** Whether `ok()` would refuse this value: the same two checks. Used on a result as it will be sent, to leave out the parts that would block it. */
   const leaksSecret = (value: unknown): boolean => guard.valueLeaks(value) || guard.leaks(stringify(value));
   function fail(e: unknown): ToolResult {
     let msg: string;
