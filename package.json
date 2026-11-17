@@ -3,16 +3,6 @@
   "private": true,
   "type": "module",
   "description": "Repository-level checks for the DACS plugins: the public-content gate and its tests.",
-  "keywords": [
-    "dacs",
-    "ai-agents",
-    "agent-commerce",
-    "agent-payments",
-    "verified-data",
-    "procurement",
-    "demos",
-    "mcp"
-  ],
   "scripts": {
     "gate:generic": "node scripts/public-gate/gate.mjs --scope generic",
     "gate:complete": "node scripts/public-gate/gate.mjs --scope complete",

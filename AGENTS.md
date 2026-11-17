@@ -4,9 +4,9 @@ Guide for coding agents working in this repository.
 
 ## What this repo is
 
-An open standard and SDK that lets AI agents find, vet, agree terms with and pay sellers of services and data, with signed delivery evidence. Testnet only for now.
+The DACS (Demos Agent Commerce Standards) plugin: MCP servers that let AI assistants find DACS sellers, check their listings and prepare fixed-price purchases that a person approves in their own wallet. It holds an MCP server for stdio clients and a ChatGPT app served over HTTP MCP. The repository root holds no plugin code, only checks and CI helpers.
 
-DACS here means Demos Agent Commerce Standards. This repository holds the plugins that put that flow in front of AI assistants: an MCP server for stdio clients and a ChatGPT app served over HTTP MCP. The repository root holds no plugin code, only checks and CI helpers.
+Testnet is the default network. `http-mcp/` is testnet only. `stdio-mcp/` refuses testnet writes in this release; its only write path is an explicit mainnet opt-in (`DEMOS_ALLOW_MAINNET=1`) that has not been tried.
 
 ## Folder layout
 
@@ -38,7 +38,8 @@ Node versions used in CI: 20.19.0 and 22.23.3 for `stdio-mcp`, 22.23.3 for the r
 
 ```sh
 cd stdio-mcp
-npm ci
+node ../scripts/ci/sdk-input.mjs --prepare stdio
+npm ci --ignore-scripts --no-audit --no-fund
 npm run typecheck
 npm test                  # unit tests, no network
 npm run build             # writes dist/ (not committed)
@@ -83,7 +84,7 @@ npm run lint --prefix tools/lint
 
 ## Rules
 
-- **Testnet only.** Do not point anything at a live-value network and do not add configuration that does.
+- **Tests and examples use testnet.** Tests, examples and docs never point at a live-value network, and never use a real key or a real RPC with value. The only mainnet route is the `stdio-mcp` opt-in described above; do not add another.
 - **Never commit keys.** No private keys, mnemonics, keystores, tokens or `.env` files. Use obvious placeholders in examples. `.env.example` is the only tracked env file.
 - **Run the checks before a PR.** At least the commands above that cover the files you changed, plus the generic gate at the root (the full command is under "Install and run the checks from source").
 - **Keep changes small.** Do what the task asks; no unrelated refactors or new files.
