@@ -166,7 +166,7 @@ test('a failed authority refusal write leaves the started lane closed on restart
   });
 });
 
-test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a late fence grant, nested reuse, a non-owner release, overlapping purchases and reply bounds', async (t) => {
+test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a late fence grant, a refused request carrying the live capability, a non-owner release, overlapping purchases and reply bounds', async (t) => {
   await t.test('K0-B1 an authority reader rejecting with E refuses with E as the cause; signer 0, transport 0', async () => {
     const world = createWorld();
     const failure = new Error('authority node refused');
