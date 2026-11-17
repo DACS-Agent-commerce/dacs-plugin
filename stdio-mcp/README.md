@@ -304,7 +304,8 @@ is launched from.
 
 The repository root holds a `server.json` that describes this server for the
 MCP Registry, with the main variables above. It has not been submitted to the
-registry. The server works on testnet only.
+registry. It says the server finds and checks Listings read-only, and that
+testnet writes are refused in this release, as described above.
 
 ## DACS conformance notes
 

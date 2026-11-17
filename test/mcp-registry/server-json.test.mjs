@@ -12,7 +12,8 @@
 // appear as schema keywords, and nothing else is changed. They do not affect
 // validation, and they carry URLs that the public-repo host check would flag.
 // A property that is itself named `$schema` (under a `properties` map) is a
-// field definition, not a keyword, and stays: server.json uses that field.
+// field definition, not a keyword, and stays. server.json leaves that optional
+// field out, so the file names no URL.
 // To rebuild the fixture, take the registry file at the commit above, delete
 // those keywords, and keep the file's formatting and escapes as they are.
 //
@@ -169,8 +170,32 @@ test('secret-bearing variables are marked secret', () => {
   }
 });
 
-test('description is one testnet sentence without value claims', () => {
+const environmentVariable = (name) => server.packages[0].environmentVariables.find((entry) => entry.name === name);
+
+test('server.json has no $schema line, which would add a host to the public-repo check', () => {
+  assert.equal('$schema' in server, false);
+});
+
+test('description is one read-only sentence without value claims', () => {
   assert.match(server.description, /^[^.!?]+\.$/, 'one sentence ending in a full stop');
-  assert.match(server.description, /testnet/i);
+  assert.match(server.description, /read-only/i);
+  assert.match(server.description, /testnet writes are refused/i);
   assert.doesNotMatch(server.description, /mainnet|production|final(ity|ised|ized)?|guarantee/i);
+});
+
+test('no text in server.json says the server prepares purchases or works only on testnet', () => {
+  const texts = [server.title, server.description, ...server.packages[0].environmentVariables.map((entry) => entry.description)];
+  for (const text of texts) {
+    assert.doesNotMatch(text, /prepar|wallet actions|only on testnet|testnet only|works on testnet/i, text);
+  }
+});
+
+test('the write switch says testnet writes are refused in this release', () => {
+  assert.match(environmentVariable('DEMOS_MCP_ENABLE_WRITES').description, /testnet writes are refused/i);
+});
+
+test('the mnemonic file entry says it is plaintext and discouraged', () => {
+  const { description } = environmentVariable('DEMOS_MNEMONIC_FILE');
+  assert.match(description, /plaintext/i);
+  assert.match(description, /discouraged/i);
 });
