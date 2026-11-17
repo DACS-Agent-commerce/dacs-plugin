@@ -1,8 +1,10 @@
-# DACS plugin
+# DACS (Demos Agent Commerce Standards) plugin
 
 Plugins that let AI assistants find DACS sellers, check their listings, and
 prepare fixed-price purchases on the Demos **testnet**. A person approves every
 payment in their own wallet.
+
+DACS here means Demos Agent Commerce Standards. It is not related to other software or packages called DACS.
 
 | Directory | What it is |
 | --- | --- |
@@ -17,8 +19,10 @@ tests. The repository root holds no plugin code.
 [`PROVENANCE.md`](PROVENANCE.md) lists where every file in the first commit came
 from and which ones were edited before import.
 
-Testnet only. Neither package is a released product. The external security
-review is on hold.
+Testnet is the default network. `http-mcp/` is testnet only. `stdio-mcp/`
+refuses testnet writes in this release; its only write path is an explicit
+mainnet opt-in that has not been tried. Neither package is a released product.
+The external security review is on hold.
 
 ## Gate
 

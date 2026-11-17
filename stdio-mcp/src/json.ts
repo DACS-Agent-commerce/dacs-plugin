@@ -33,7 +33,10 @@ export function toJsonSafe(value: unknown, depth = 0, seen: WeakSet<object> = ne
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
         const s = toJsonSafe(v, depth + 1, seen);
-        if (s !== undefined) out[k] = s;
+        // Every JSON member is data, including an own key named __proto__.
+        if (s !== undefined) Object.defineProperty(out, k, {
+          value: s, enumerable: true, writable: true, configurable: true,
+        });
       }
       return out;
     } finally {
