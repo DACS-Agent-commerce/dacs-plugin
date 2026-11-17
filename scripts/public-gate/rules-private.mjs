@@ -24,15 +24,19 @@ const ROOT_QUERY_MAX_BYTES = 1 << 20;
 /**
  * Every folder that belongs to the repository git finds from `repo`: `repo` itself, the git dir, the common git dir, the
  * worktree and every linked worktree. Git is run as the object read runs it (no GIT_ variable), so both name one repository.
+ * The three git queries share the one `limits.gitDeadlineMs`: each gets the time the earlier ones left.
  * A query git refuses (not a repository, no work tree) adds nothing: git then refuses the run with its own cause. The
  * worktree list is the exception: once git has found the repository, a refused list (git older than 2.36 does not know
  * `-z`) throws GateInputError(git-refused), as the other worktrees cannot be known.
  */
 function repositoryRoots(repo, limits) {
   const roots = new Set([repo]);
+  const deadline = performance.now() + limits.gitDeadlineMs;
   let foundRepository = false;
   for (const { args, paths, requiredInRepository } of ROOT_QUERIES) {
-    const run = spawnSync('git', ['-C', repo, ...args], { env: gitEnvironment(), encoding: 'utf8', timeout: limits.gitDeadlineMs, maxBuffer: ROOT_QUERY_MAX_BYTES });
+    const remainingMs = Math.ceil(deadline - performance.now());
+    if (remainingMs <= 0) throw new GateInputError('timeout', 'git did not finish before its deadline');
+    const run = spawnSync('git', ['-C', repo, ...args], { env: gitEnvironment(), encoding: 'utf8', timeout: remainingMs, maxBuffer: ROOT_QUERY_MAX_BYTES });
     if (run.error?.code === 'ETIMEDOUT') throw new GateInputError('timeout', 'git did not finish before its deadline');
     if (run.error?.code === 'ENOBUFS') throw new GateInputError('output-limit', `git ${args[0]} produced more than ${ROOT_QUERY_MAX_BYTES} bytes`);
     const answered = !run.error && run.status === 0;

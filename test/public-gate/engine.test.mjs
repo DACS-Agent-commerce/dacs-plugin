@@ -188,7 +188,9 @@ test('a git call that outlives its deadline fails with the timeout cause, and an
 
 test('a directory that is not a repository fails as git-refused, not as an unknown commit', async () => {
   const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
-  await assert.rejects(readCommitObjects({ repo: makeTempDir('plain'), commit: repo.commit, limits: LIMITS }), { cause: 'git-refused' });
+  const plain = makeTempDir('plain');
+  writeFileSync(path.join(plain, '.git'), 'gitdir: ./no-such-git-dir\n');
+  await assert.rejects(readCommitObjects({ repo: plain, commit: repo.commit, limits: LIMITS }), { cause: 'git-refused' });
 });
 
 test('git variables in the caller\'s environment cannot redirect the read to another repository', async () => {
