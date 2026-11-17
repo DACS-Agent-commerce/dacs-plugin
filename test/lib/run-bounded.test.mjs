@@ -11,6 +11,7 @@ const NODE = process.execPath;
 const LIMITS = { maxOutputBytes: 4096, deadlineMs: 5000, graceMs: 200 };
 const SURVIVOR_WAIT_MS = 5000;
 const POLL_MS = 20;
+const GROUP_KILL_TEST_TIMEOUT_MS = 30_000;
 
 const runNode = (script, overrides) => runBounded({ command: NODE, args: ['-e', script], ...LIMITS, ...overrides });
 
@@ -69,7 +70,7 @@ const LEADER = `
 `;
 
 test('run-bounded returns the exit status and both output streams without judging the status', async () => {
-  const result = await runNode("process.stdout.write('out'); process.stderr.write('err'); process.exitCode = 3;");
+  const result = await runNode("process.stdout.write('out'); process.stderr.write('err'); process.exitCode = 3;", { env: {} });
   assert.equal(result.status, 3);
   assert.equal(result.stdout.toString(), 'out');
   assert.equal(result.stderr.toString(), 'err');
@@ -99,7 +100,7 @@ test('run-bounded stops a child when the caller aborts and names the interruptio
   assert.equal((await rejection(running)).cause, 'interrupted');
 });
 
-test('run-bounded kills the process group at the deadline, caps output and keeps the cause; a child and its grandchild ignore SIGTERM: escalate their process group to SIGKILL, settle once with the timeout cause, leave no surviving process and append no output received after the deadline', async () => {
+test('run-bounded kills the process group at the deadline, caps output and keeps the cause; a child and its grandchild ignore SIGTERM: escalate their process group to SIGKILL, settle once with the timeout cause, leave no surviving process and append no output received after the deadline', { timeout: GROUP_KILL_TEST_TIMEOUT_MS }, async () => {
   const started = performance.now();
   const error = await rejection(runNode(LEADER, { deadlineMs: 1000, graceMs: 300 }));
   assert.equal(error.cause, 'subprocess-timeout');
