@@ -38,7 +38,7 @@ import { listingHash, listingLogicalAddress, opaqueListingProgramName, sealListi
 import { appendReceipt, buildReceipt, ReceiptSigner } from './receipts.js';
 import { registerOnboardTools, type ProofFetcher, type WalletFactory } from './onboard.js';
 import { registerKeylessPrepareTools } from './keyless.js';
-import { createDirectoryClient, discoverListings, DISCOVER_INPUT, type DiscoverArgs } from './directory.js';
+import { createDirectoryClient, discoverListings, DISCOVER_INPUT, LISTING_ID_INPUT, SELLER_CLAIM_INPUT, type DiscoverArgs } from './directory.js';
 
 export const VERSION = '0.1.0';
 
@@ -482,8 +482,8 @@ export function createServer(deps: Deps): McpServer {
       title: 'Fetch and verify a DACS Listing from the Directory',
       description: 'Fetch one signed Listing from the public DACS Directory by seller claim, listing id and version, then verify it here with the same checks as demos_dacs_listing_verify. Returns where it came from and accept | reject | indeterminate; only accept is success. A Directory error (404, 409, 502, 503) is an error, never a verdict. Testnet. Read-only: it buys, signs and pays nothing.',
       inputSchema: {
-        seller: z.string().min(3).max(300).describe('Seller primary claim, as shown by demos_dacs_discover (sellerClaim)'),
-        listing_id: z.string().min(1).max(128).regex(/^[A-Za-z0-9._~-]+$/),
+        seller: SELLER_CLAIM_INPUT.describe('Seller primary claim, as shown by demos_dacs_discover (sellerClaim)'),
+        listing_id: LISTING_ID_INPUT,
         version: z.number().int().min(1),
         revocation: LISTING_VERIFY_INPUT.revocation,
       },

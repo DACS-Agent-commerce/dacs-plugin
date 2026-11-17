@@ -332,21 +332,76 @@ test('a page missing listings, total or scanProgress, or with a bad scanProgress
   for (const envelope of broken) await searchRefused(() => fakeDirectory((_req, res) => send(res, 200, envelope)), JSON.stringify(envelope));
 });
 
-test('optional or unknown fields never fail a page', async () => {
+test('optional fields the tools do not return, and unknown fields, never fail a page', async () => {
   const odd = {
     ...summary(1),
-    artifactProfile: 7, publicEndpoint: 5, reputationHint: 'none', inspection: [], futureField: null,
-    offering: { ...summary(1).offering, description: 7, rails: 'demos-native:DEM', paymentPhases: 'x', deliverable: 3 },
-    pricing: { kind: 4, priceHint: 5, currency: ['DEM'], unit: 'job', minPct: 'x' },
+    publicEndpoint: 5, reputationHint: 'none', inspection: [], futureField: null,
+    offering: { ...summary(1).offering, description: 7, paymentPhases: 'x', deliverable: 3 },
+    pricing: { kind: 'fixed', unit: 'job', minPct: 'x' },
   };
   const dir = await searchPage([odd], { futureEnvelopeField: 1 });
   try {
     const page = await createDirectoryClient(dir.url).search({});
-    assert.deepEqual(page.listings.map((l) => [l.rails, l.pricing]), [[[], { unit: 'job' }]]);
+    assert.deepEqual(page.listings.map((l) => [l.rails, l.pricing]), [[['demos-native:DEM'], { kind: 'fixed', unit: 'job' }]]);
     assert.deepEqual(page.scanProgress, SCAN);
   } finally {
     await dir.close();
   }
+});
+
+test('a value outside a schema enum is refused whole, and every value the schema lists is accepted', async () => {
+  const good = summary(1);
+  const outside: Array<[string, Summary]> = [
+    ['disposition', { ...good, transactionReadiness: { ...READINESS, disposition: 'ready' } }],
+    ['pricing.kind', { ...good, pricing: { ...good.pricing, kind: 'free' } }],
+    ['artifactProfile', { ...good, artifactProfile: 'other-profile' }],
+  ];
+  for (const [label, entry] of outside) await searchRefused(() => searchPage([good, entry]), label);
+  const listed = [
+    ...['fixed', 'negotiable', 'auction', 'metered'].map((kind) => ({ ...good, pricing: { kind } })),
+    ...['dacs-v0.1', 'legacy-sdk-v0.1', 'fixture-listing'].map((artifactProfile) => ({ ...good, artifactProfile })),
+  ];
+  const dir = await searchPage(listed);
+  try {
+    assert.equal((await createDirectoryClient(dir.url).search({})).listings.length, listed.length);
+  } finally {
+    await dir.close();
+  }
+});
+
+test('an optional list that is not a list of strings, or a pricing member that is not a string, is refused whole', async () => {
+  const good = summary(1);
+  const wrong: Array<[string, Summary]> = [
+    ['rails as a string', { ...good, offering: { ...good.offering, rails: 'demos-native:DEM' as unknown as string[] } }],
+    ['rails with a non-string', { ...good, offering: { ...good.offering, rails: ['demos-native:DEM', 5 as unknown as string] } }],
+    ['priceHint as a number', { ...good, pricing: { ...good.pricing, priceHint: 5 as unknown as string } }],
+    ['currency as a list', { ...good, pricing: { ...good.pricing, currency: ['DEM'] as unknown as string } }],
+  ];
+  for (const [label, entry] of wrong) await searchRefused(() => searchPage([good, entry]), label);
+  const { rails: _rails, ...offeringWithoutRails } = good.offering;
+  const dir = await searchPage([{ ...good, offering: offeringWithoutRails, pricing: {} }]);
+  try {
+    const [hit] = (await createDirectoryClient(dir.url).search({})).listings;
+    assert.deepEqual([hit?.rails, hit?.pricing], [[], {}]);
+  } finally {
+    await dir.close();
+  }
+});
+
+/** A seller claim the Directory accepts: 1024 UTF-8 bytes. */
+const CLAIM_PREFIX = `did:demos:agent:${hashOf(7)}`;
+const claimOfBytes = (bytes: number) => CLAIM_PREFIX + 'x'.repeat(bytes - CLAIM_PREFIX.length);
+
+test('a seller claim in a hit is kept up to 1024 UTF-8 bytes and refused above it, counted in bytes', async () => {
+  const withClaim = (primaryClaim: string): Summary => ({ ...summary(1), seller: { primaryClaim, displayName: 'S' } });
+  const dir = await searchPage([withClaim(claimOfBytes(1024))]);
+  try {
+    assert.equal((await createDirectoryClient(dir.url).search({})).listings[0]?.sellerClaim.length, 1024);
+  } finally {
+    await dir.close();
+  }
+  await searchRefused(() => searchPage([withClaim(claimOfBytes(1025))]), '1025 bytes');
+  await searchRefused(() => searchPage([withClaim(CLAIM_PREFIX + 'é'.repeat(500))]), '1080 bytes in 580 characters');
 });
 
 test('long free text is cut to its bound, never refused', async () => {
@@ -509,6 +564,77 @@ test('an artifact for a different listing than asked is refused', async () => {
       assert.equal(r.isError, true, JSON.stringify(wrong));
       assert.match(r.text, /different listing/);
     }
+  } finally {
+    await dir.close();
+  }
+});
+
+test('an artifact without seller.identity.presentedBy is handed to the verifier, which rejects it', async () => {
+  const withoutPresenter = clone(SIGNED_LISTING);
+  delete withoutPresenter.seller.identity.presentedBy;
+  const oldFormat = { serviceId: SIGNED_LISTING.listingId, version: SIGNED_LISTING.listingVersion, title: 'Older format' };
+  for (const served of [withoutPresenter, oldFormat]) {
+    const dir = await listingDirectory(served);
+    try {
+      const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+      h.setNow(NOW);
+      const r = await h.call('demos_dacs_listing_check', { ...checkArgs, revocation: 'absent' });
+      assert.equal(r.isError, false, r.text);
+      assert.equal(r.json.result.decision, 'reject');
+      assert.ok(r.json.result.checks.some((c: { decision: string; detail?: string }) => c.decision === 'fail' && c.detail), 'the reasons are returned');
+    } finally {
+      await dir.close();
+    }
+  }
+});
+
+test('an artifact without presentedBy but for another id or version is still refused as a different listing', async () => {
+  const dir = await listingDirectory({ serviceId: 'another-listing', version: SIGNED_LISTING.listingVersion });
+  try {
+    const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+    const r = await h.call('demos_dacs_listing_check', { ...checkArgs, revocation: 'absent' });
+    assert.equal(r.isError, true);
+    assert.match(r.text, /different listing/);
+  } finally {
+    await dir.close();
+  }
+});
+
+test('demos_dacs_listing_check takes a 302-character seller claim, and refuses one over 1024 bytes before any request', async () => {
+  const dir = await listingDirectory(SIGNED_LISTING);
+  try {
+    const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+    const canonicalClaim = `${CLAIM_PREFIX}?a=${'x'.repeat(219)}`;
+    assert.equal(canonicalClaim.length, 302);
+    for (const seller of [canonicalClaim, claimOfBytes(1024)]) {
+      const r = await h.call('demos_dacs_listing_check', { ...checkArgs, seller });
+      assert.match(r.text, /different listing/, 'the request was made and its reply compared');
+      assert.equal(new URL(dir.seen.at(-1) ?? '', 'http://fake').searchParams.get('seller'), seller);
+    }
+    const sent = dir.seen.length;
+    for (const seller of [claimOfBytes(1025), CLAIM_PREFIX + 'é'.repeat(500)]) {
+      const r = await h.call('demos_dacs_listing_check', { ...checkArgs, seller });
+      assert.equal(r.isError, true);
+      assert.match(r.text, /1024/);
+    }
+    assert.equal(dir.seen.length, sent, 'no request for an over-long claim');
+  } finally {
+    await dir.close();
+  }
+});
+
+test('demos_dacs_listing_check refuses "." and ".." as listing_id, so no request goes to another path', async () => {
+  const dir = await listingDirectory(SIGNED_LISTING);
+  try {
+    const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+    for (const listing_id of ['.', '..']) {
+      const r = await h.call('demos_dacs_listing_check', { ...checkArgs, listing_id });
+      assert.equal(r.isError, true, listing_id);
+      assert.match(r.text, /listing_id/);
+    }
+    assert.deepEqual(dir.seen, []);
+    await h.call('demos_dacs_listing_check', { ...checkArgs, listing_id: '..a' });
+    assert.equal(new URL(dir.seen[0] ?? '', 'http://fake').pathname, `/api/dacs/listings/..a/${checkArgs.version}`);
   } finally {
     await dir.close();
   }
