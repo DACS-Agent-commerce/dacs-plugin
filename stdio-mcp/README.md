@@ -102,6 +102,8 @@ Onboarding tools:
 | `demos_identity_lookup` | read | CCI identities for an address (web2, xm, ud, pqc and others), plus its DACS `key:` claim |
 | `demos_dacs_receipt_verify` | read | Verifies a DACS artifact or a demos-mcp receipt and returns `accept`, `reject` or `indeterminate` |
 | `demos_storage_read` | read | Reads a public Storage Program, optionally down a key path, and returns provenance and a content hash |
+| `demos_dacs_discover` | read | Searches the public DACS Directory (testnet) for Listings by text, category, tags, rail, identity tier or highest price. Returns one page of unverified summaries, the total, the next cursor and the Directory's scan progress. Buys, signs and pays nothing |
+| `demos_dacs_listing_check` | read | Fetches one signed Listing from the Directory by seller claim, listing id and version, then verifies it locally with the same checks as `demos_dacs_listing_verify`. A Directory error (404, 502, 503) is an error, never a verdict |
 | `demos_tx_prepare` | write, step 1 | Prepares an **unsigned** DEM transfer: checks the cap and allow-list, quotes the fee from the node's fee parameters, and returns an approval card. Nothing is signed or sent |
 | `demos_identity_proof_payload` | write helper | Returns the proof text to publish before an attestation. It moves no funds |
 | `demos_identity_attest_prepare` | write, step 1 | Prepares a github, twitter, discord or domain CCI attestation |
@@ -278,6 +280,7 @@ once one exists.
 |---|---|---|
 | `DEMOS_NETWORK` | `testnet` | `testnet` or `mainnet` |
 | `DEMOS_RPC_URL` | none (a reserved placeholder) | Node RPC for read-only use; must be https, except for localhost |
+| `DACS_DIRECTORY_URL` | `https://directory.v2.agentcommerce.network` | Directory the two discovery tools query; an https origin, or http on `127.0.0.1`, `localhost` or `[::1]` for local tests |
 | `DEMOS_ALLOW_MAINNET` | off | Opt-in for mainnet only; testnet writes are refused in this release |
 | `DEMOS_MCP_ENABLE_WRITES` | off | Registers the write tools (not for a testnet RPC in this release) |
 | `DEMOS_KEYSTORE` | — | Encrypted keystore path (chmod 600) |

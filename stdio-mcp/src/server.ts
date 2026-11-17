@@ -38,6 +38,7 @@ import { listingHash, listingLogicalAddress, opaqueListingProgramName, sealListi
 import { appendReceipt, buildReceipt, ReceiptSigner } from './receipts.js';
 import { registerOnboardTools, type ProofFetcher, type WalletFactory } from './onboard.js';
 import { registerKeylessPrepareTools } from './keyless.js';
+import { createDirectoryClient, discoverListings, DISCOVER_INPUT, type DiscoverArgs } from './directory.js';
 
 export const VERSION = '0.1.0';
 
@@ -443,6 +444,13 @@ export function createServer(deps: Deps): McpServer {
     }),
   );
 
+  type ListingVerifyArgs = { listing: unknown; revocation?: 'absent' | 'revoked' | 'indeterminate'; expect_pin?: { listingId: string; version: number; contentHash: string } };
+  /** The one listing verification path: demos_dacs_listing_verify and demos_dacs_listing_check both end here. */
+  const verifyListingInput = (a: ListingVerifyArgs) => {
+    assertOfferText(a.listing);
+    return verifyListing(maybeParseJson(a.listing), { now: now(), revocation: a.revocation, expectPin: a.expect_pin });
+  };
+
   server.registerTool(
     'demos_dacs_listing_verify',
     {
@@ -451,9 +459,40 @@ export function createServer(deps: Deps): McpServer {
       inputSchema: LISTING_VERIFY_INPUT,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    guarded(async (a: { listing: unknown; revocation?: 'absent' | 'revoked' | 'indeterminate'; expect_pin?: { listingId: string; version: number; contentHash: string } }) => {
-      assertOfferText(a.listing);
-      return verifyListing(maybeParseJson(a.listing), { now: now(), revocation: a.revocation, expectPin: a.expect_pin });
+    guarded(async (a: ListingVerifyArgs) => verifyListingInput(a)),
+  );
+
+  // ---- read-only discovery: find Listings in the public Directory, then verify one locally ----
+  const directory = createDirectoryClient(config.directoryUrl);
+
+  server.registerTool(
+    'demos_dacs_discover',
+    {
+      title: 'Find DACS sellers in the Directory',
+      description: 'Search the public DACS Directory for Listings (sellers offering a service) by text, category, tags, payment rail, identity tier or highest price. Returns one page of summaries (id, version, seller claim, title, category, tags, price and asset, identity tier, rails), the total, a cursor for the next page and the Directory\'s scan progress. Testnet. Read-only: it buys, signs and pays nothing. Results are unverified search hits; check one with demos_dacs_listing_check.',
+      inputSchema: DISCOVER_INPUT,
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    guarded(async (a: DiscoverArgs) => discoverListings(directory, a)),
+  );
+
+  server.registerTool(
+    'demos_dacs_listing_check',
+    {
+      title: 'Fetch and verify a DACS Listing from the Directory',
+      description: 'Fetch one signed Listing from the public DACS Directory by seller claim, listing id and version, then verify it here with the same checks as demos_dacs_listing_verify. Returns where it came from and accept | reject | indeterminate; only accept is success. A Directory error (404, 502, 503) is an error, never a verdict. Testnet. Read-only: it buys, signs and pays nothing.',
+      inputSchema: {
+        seller: z.string().min(3).max(300).describe('Seller primary claim, as shown by demos_dacs_discover (sellerClaim)'),
+        listing_id: z.string().min(1).max(128).regex(/^[A-Za-z0-9._~-]+$/),
+        version: z.number().int().min(1),
+        revocation: LISTING_VERIFY_INPUT.revocation,
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    guarded(async (a: { seller: string; listing_id: string; version: number; revocation?: ListingVerifyArgs['revocation'] }) => {
+      const artifact = await directory.fetchListing({ listingId: a.listing_id, version: a.version, seller: a.seller });
+      const source = { directory: config.directoryUrl, seller: a.seller, listingId: a.listing_id, version: a.version };
+      return { source, result: verifyListingInput({ listing: artifact, revocation: a.revocation }) };
     }),
   );
 

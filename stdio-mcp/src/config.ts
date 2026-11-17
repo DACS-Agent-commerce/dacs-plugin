@@ -35,6 +35,8 @@ export interface Config {
   faucetApiUrl: string;
   faucetPageUrl: string;
   faucetAmountDem: number;
+  /** Origin of the public DACS Directory the read-only discovery tools query. */
+  directoryUrl: string;
   /** Serve a local approval page (approval off the chat channel). */
   approvalPage: boolean;
   approvalBind: string;
@@ -70,6 +72,26 @@ export function normalizeAddress(a: string): string {
   const withPrefix = s.startsWith('0x') ? s : `0x${s}`;
   if (!ADDRESS_RE.test(withPrefix)) throw new Error(`invalid Demos address "${a}": expected 0x + 64 hex chars`);
   return withPrefix;
+}
+
+export const DEFAULT_DIRECTORY_URL = 'https://directory.v2.agentcommerce.network';
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
+
+/** The origin of a Directory base URL: https, or http on loopback only; no credentials, path, query or fragment. Throws otherwise. */
+function directoryOrigin(raw: string): string {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error('DACS_DIRECTORY_URL is not a valid URL');
+  }
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && LOOPBACK_HOSTS.includes(u.hostname))) {
+    throw new Error('DACS_DIRECTORY_URL must be https (http is allowed only for 127.0.0.1, localhost and [::1])');
+  }
+  if (u.username || u.password || u.search || u.hash || u.pathname !== '/') {
+    throw new Error('DACS_DIRECTORY_URL must be an origin only (no credentials, path, query or fragment)');
+  }
+  return u.origin;
 }
 
 export function loadConfig(e: NodeJS.ProcessEnv = process.env): Config {
@@ -167,6 +189,7 @@ export function loadConfig(e: NodeJS.ProcessEnv = process.env): Config {
     faucetApiUrl: env(e, 'DEMOS_FAUCET_API_URL') ?? 'https://faucet-api.invalid/api/request',
     faucetPageUrl: env(e, 'DEMOS_FAUCET_PAGE_URL') ?? 'https://faucet.invalid',
     faucetAmountDem: faucetAmount,
+    directoryUrl: directoryOrigin(env(e, 'DACS_DIRECTORY_URL') ?? DEFAULT_DIRECTORY_URL),
     approvalPage,
     approvalBind,
     approvalPort,
