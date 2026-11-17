@@ -308,6 +308,39 @@ test('an existing v3 file with a reversed partial-index predicate, different ind
   }
 });
 
+// Statements that rewrite the stored CREATE text of the operations table without changing its columns.
+const rewriteOperationsSql = (find, replacement) => [
+  'PRAGMA writable_schema = ON',
+  `UPDATE sqlite_master SET sql = replace(sql, '${find}', '${replacement}') WHERE name = 'operations'`,
+  'PRAGMA writable_schema = OFF',
+];
+
+test('an existing file whose stored version text is not exactly 3 is refused with code unsupported_state_schema_version, whatever number the text parses to', (t) => {
+  for (const stored of ['2', '3.0', ' 3', '3 ', '0x3', '03', '3e0', '']) {
+    const path = alteredFile(t, 'rollback-journal', [`UPDATE meta SET value = '${stored}' WHERE key = 'schema_version'`]);
+    const before = fileState(path);
+    assert.throws(() => openDatabase(path), (error) => error.code === 'unsupported_state_schema_version', JSON.stringify(stored));
+    assert.deepEqual(fileState(path), before, JSON.stringify(stored));
+  }
+});
+
+test('an existing v3 file whose stored schema text differs from the reference only in whitespace is refused purchase_state_schema_mismatch', (t) => {
+  for (const [label, find, replacement] of [
+    ['a doubled space', "DEFAULT ''{}''", "DEFAULT  ''{}''"],
+    ['a newline in place of a space', "NOT NULL DEFAULT", "NOT NULL' || char(10) || 'DEFAULT"],
+  ]) {
+    const path = alteredFile(t, 'rollback-journal', rewriteOperationsSql(find, replacement));
+    assert.throws(() => openDatabase(path), (error) => error.code === 'purchase_state_schema_mismatch', label);
+  }
+});
+
+test('an existing v3 file whose PRAGMA user_version or application_id is not the reference value is refused purchase_state_schema_mismatch', (t) => {
+  for (const pragma of ['user_version', 'application_id']) {
+    const path = alteredFile(t, 'rollback-journal', [`PRAGMA ${pragma} = 7`]);
+    assert.throws(() => openDatabase(path), (error) => error.code === 'purchase_state_schema_mismatch' && error.message.includes(pragma), pragma);
+  }
+});
+
 test('a file that is not a database is refused with its cause and left unchanged', (t) => {
   const path = tempPath(t);
   writeFileSync(path, 'this is not a database file, it is only text'.repeat(100));
