@@ -17,22 +17,28 @@ const LF = 0x0a;
 const ROOT_QUERIES = [
   { args: ['rev-parse', '--git-common-dir'], paths: (out) => [out.replace(/\n$/, '')] },
   { args: ['rev-parse', '--show-toplevel'], paths: (out) => [out.replace(/\n$/, '')] },
-  { args: ['worktree', 'list', '--porcelain', '-z'], paths: (out) => out.split('\0').filter((field) => field.startsWith('worktree ')).map((field) => field.slice('worktree '.length)) },
+  { args: ['worktree', 'list', '--porcelain', '-z'], paths: (out) => out.split('\0').filter((field) => field.startsWith('worktree ')).map((field) => field.slice('worktree '.length)), requiredInRepository: true },
 ];
 const ROOT_QUERY_MAX_BYTES = 1 << 20;
 
 /**
  * Every folder that belongs to the repository git finds from `repo`: `repo` itself, the git dir, the common git dir, the
  * worktree and every linked worktree. Git is run as the object read runs it (no GIT_ variable), so both name one repository.
- * A query git refuses (not a repository, no work tree) adds nothing: git then refuses the run with its own cause.
+ * A query git refuses (not a repository, no work tree) adds nothing: git then refuses the run with its own cause. The
+ * worktree list is the exception: once git has found the repository, a refused list (git older than 2.36 does not know
+ * `-z`) throws GateInputError(git-refused), as the other worktrees cannot be known.
  */
 function repositoryRoots(repo, limits) {
   const roots = new Set([repo]);
-  for (const { args, paths } of ROOT_QUERIES) {
+  let foundRepository = false;
+  for (const { args, paths, requiredInRepository } of ROOT_QUERIES) {
     const run = spawnSync('git', ['-C', repo, ...args], { env: gitEnvironment(), encoding: 'utf8', timeout: limits.gitDeadlineMs, maxBuffer: ROOT_QUERY_MAX_BYTES });
     if (run.error?.code === 'ETIMEDOUT') throw new GateInputError('timeout', 'git did not finish before its deadline');
     if (run.error?.code === 'ENOBUFS') throw new GateInputError('output-limit', `git ${args[0]} produced more than ${ROOT_QUERY_MAX_BYTES} bytes`);
-    if (!run.error && run.status === 0) for (const found of paths(run.stdout)) roots.add(path.resolve(repo, found));
+    const answered = !run.error && run.status === 0;
+    if (!answered && requiredInRepository && foundRepository) throw new GateInputError('git-refused', `git ${args[0]} did not list the worktrees (git 2.36 or later is needed)`);
+    if (answered) for (const found of paths(run.stdout)) roots.add(path.resolve(repo, found));
+    foundRepository ||= answered;
   }
   return [...roots].filter((root) => existsSync(root)).map((root) => realpathSync.native(root));
 }

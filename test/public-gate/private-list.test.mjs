@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { readPrivateList } from '../../scripts/public-gate/rules-private.mjs';
@@ -147,6 +147,38 @@ test('a GIT_DIR in the caller environment does not change which repository --rep
     try { readPrivateList(${JSON.stringify(list)}, { repo: ${JSON.stringify(path.join(dir, 'sub'))}, limits: ${JSON.stringify(LIMITS)} }); } catch (error) { process.stdout.write(error.cause); }`;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, GIT_DIR: bare }, timeout: 20_000 });
   assert.equal(child.stdout, 'private-list-in-repo');
+});
+
+/** The real git, found once, so a wrapper can hand every other call to it. */
+const REAL_GIT = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+
+/** Runs `body` with a `git` ahead of the real one on PATH: a shell script that runs `prelude` first, then the real git. */
+function withWrappedGit(prelude, body) {
+  const bin = makeTempDir('fake-git');
+  const wrapper = path.join(bin, 'git');
+  writeFileSync(wrapper, `#!/bin/sh\n${prelude}\nexec ${REAL_GIT} "$@"\n`);
+  chmodSync(wrapper, 0o755);
+  const original = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${original}`;
+  try {
+    return body();
+  } finally {
+    process.env.PATH = original;
+  }
+}
+
+test('a repository whose worktree list git refuses is refused with git-refused, not read as if it had no other worktree', () => {
+  const { base, dir } = worktreeRepo();
+  const linked = path.join(base, 'linked');
+  git(dir, ['worktree', 'add', '-q', linked, '-b', 'other']);
+  const list = listIn(dir, 'notes');
+  const refuseWorktreeList = 'case "$*" in *"worktree list"*) echo "unknown option: -z" >&2; exit 129;; esac';
+  withWrappedGit(refuseWorktreeList, () => assert.throws(() => read(list, linked), { cause: 'git-refused' }));
+});
+
+test('a folder that is not a repository is still read when worktree list is refused', () => {
+  const refuseWorktreeList = 'case "$*" in *"worktree list"*) exit 129;; esac';
+  withWrappedGit(refuseWorktreeList, () => assert.deepEqual(read(listIn(makeTempDir('beside')), makeTempDir('not-a-repo')), [ENTRY]));
 });
 
 test('a list outside every folder of the repository is read, also when --repo is not a repository or does not exist', () => {
