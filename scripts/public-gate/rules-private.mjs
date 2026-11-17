@@ -144,10 +144,13 @@ let foldTable = null;
  *   a lone LF each end a line, and an entry never holds one, so it starts on the line where it ends.
  * - `eachEntry(text, onEntry)`: calls `onEntry(start, end)` with the UTF-16 bounds of the longest entry ending at each index
  *   where one ends, in order, until it returns true.
- * `checkpoint()` runs every CHECKPOINT_STEPS steps while building and matching; what it throws (the deadline) propagates.
+ * `checkpoint()` runs before and after the case-fold table is built (the table is built once per process, on first use), then every
+ * CHECKPOINT_STEPS steps while building and matching; what it throws (the deadline) propagates.
  */
 export function createPrivateMatcher(entries, checkpoint) {
+  checkpoint();
   foldTable ??= buildFoldTable();
+  checkpoint();
   const fold = (code) => foldTable.get(code) ?? code;
   let steps = 0;
   const step = () => {
