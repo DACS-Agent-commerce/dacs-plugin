@@ -1,8 +1,10 @@
-# DACS plugin
+# DACS (Demos Agent Commerce Standards) plugin
 
 Plugins that let AI assistants find DACS sellers, check their listings, and
 prepare fixed-price purchases on the Demos **testnet**. A person approves every
 payment in their own wallet.
+
+DACS here means Demos Agent Commerce Standards. It is not related to other software or packages called DACS.
 
 | Directory | What it is |
 | --- | --- |
