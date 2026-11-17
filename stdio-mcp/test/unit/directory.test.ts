@@ -527,6 +527,19 @@ test('demos_dacs_discover refuses a limit over 100 before any request, and sends
   }
 });
 
+test('demos_dacs_discover sends a limit of 20 when the caller gives none', async () => {
+  const dir = await pagingDirectory();
+  try {
+    const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+    const r = await h.call('demos_dacs_discover', { q: 'translate' });
+    assert.equal(r.isError, false, r.text);
+    assert.deepEqual([...new Set(queryOf(dir.seen[0] ?? '').keys())].sort(), ['limit', 'q']);
+    assert.equal(queryOf(dir.seen[0] ?? '').get('limit'), '20');
+  } finally {
+    await dir.close();
+  }
+});
+
 // a seller's text that looks like key material, built so no source line holds a key-like value
 const KEY_LIKE_TEXT = `"seed":"${'x'.repeat(20)}"`;
 
@@ -542,6 +555,47 @@ test('one hit whose text trips the secret guard is withheld and the page and its
     assert.equal(r.json.cursor, 'next-page');
     assert.equal(r.json.total, 9);
     assert.doesNotMatch(r.text, /xxxxxxxx|legal winner/);
+  } finally {
+    await dir.close();
+  }
+});
+
+// seller text that ends in a key name: only the text the page adds after it decides whether it looks like a key value
+const ENDS_IN_KEY_NAME = '"seed":';
+const endingInKeyName = (field: string): Summary => {
+  const s = summary(2);
+  if (field === 'tag') return { ...s, offering: { ...s.offering, tags: ['text', ENDS_IN_KEY_NAME] } };
+  if (field === 'rail') return { ...s, offering: { ...s.offering, rails: ['demos-native:DEM', ENDS_IN_KEY_NAME] } };
+  return { ...s, pricing: { ...s.pricing, unit: `job ${ENDS_IN_KEY_NAME}` } };
+};
+
+for (const field of ['tag', 'rail', 'unit']) {
+  test(`a hit whose last ${field} ends in a key name is withheld, and the other hits and the cursor stay`, async () => {
+    const hits = [summary(1), endingInKeyName(field), summary(3)];
+    const dir = await fakeDirectory((_req, res) => send(res, 200, { listings: hits, total: 9, cursor: 'next-page', scanProgress: SCAN }));
+    try {
+      const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+      const r = await h.call('demos_dacs_discover', {});
+      assert.equal(r.isError, false, r.text);
+      assert.deepEqual(r.json.listings, [hits[0], hits[2]].filter((s) => s !== undefined).map(projected));
+      assert.equal(r.json.withheld, 1);
+      assert.equal(r.json.cursor, 'next-page');
+      assert.equal(r.json.total, 9);
+    } finally {
+      await dir.close();
+    }
+  });
+}
+
+test('a page of one hit that ends in a key name returns no hits, withheld 1, and the cursor', async () => {
+  const dir = await fakeDirectory((_req, res) => send(res, 200, { listings: [endingInKeyName('tag')], total: 1, cursor: 'next-page', scanProgress: SCAN }));
+  try {
+    const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+    const r = await h.call('demos_dacs_discover', {});
+    assert.equal(r.isError, false, r.text);
+    assert.deepEqual(r.json.listings, []);
+    assert.equal(r.json.withheld, 1);
+    assert.equal(r.json.cursor, 'next-page');
   } finally {
     await dir.close();
   }
@@ -580,6 +634,25 @@ test('a reject whose echoed seller text trips the secret guard is still a reject
     assert.equal(version.decision, 'fail');
     assert.match(version.detail, /^withheld: /);
     assert.doesNotMatch(r.text, /xxxxxxxx/);
+  } finally {
+    await dir.close();
+  }
+});
+
+test('a reject whose detail ends in a key name is still a reject, with that detail withheld', async () => {
+  const served = clone(SIGNED_LISTING);
+  served.signature.algorithm = `bogus ${ENDS_IN_KEY_NAME}`;
+  const dir = await listingDirectory(served);
+  try {
+    const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+    h.setNow(NOW);
+    const r = await h.call('demos_dacs_listing_check', { ...checkArgs, revocation: 'absent' });
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.json.result.decision, 'reject');
+    const signature = r.json.result.checks.find((c: { check: string }) => c.check === '4-signature');
+    assert.equal(signature.decision, 'fail');
+    assert.match(signature.detail, /^withheld: /);
+    assert.doesNotMatch(r.text, /bogus/);
   } finally {
     await dir.close();
   }

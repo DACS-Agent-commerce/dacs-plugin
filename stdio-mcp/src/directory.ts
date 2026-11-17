@@ -14,6 +14,8 @@ export const DIRECTORY_MAX_BODY_BYTES = 1024 * 1024;
 const MAX_PAGE_SIZE = 200;
 /** Largest `limit` the tool asks for: 200 summaries with long descriptions can pass DIRECTORY_MAX_BODY_BYTES. */
 const MAX_REQUEST_LIMIT = 100;
+/** `limit` sent when the caller gives none, so the Directory's own default page size never applies. */
+const DEFAULT_REQUEST_LIMIT = 20;
 const MAX_CURSOR_CHARS = 512;
 /** Caps on display text and lists in a hit. Ids, claims and hashes are never cut: callers pass them back. */
 const MAX_TEXT_CHARS = 200;
@@ -51,7 +53,7 @@ export const DISCOVER_INPUT = {
   rail: z.string().min(1).max(128).optional().describe('Payment rail id, e.g. "demos-native:DEM"'),
   identity_tier: z.enum(IDENTITY_TIERS).optional().describe('Seller identity tier to filter on'),
   price_max: z.string().regex(DECIMAL_RE).optional().describe('Highest price, as a decimal string'),
-  limit: z.number().int().min(1).max(MAX_REQUEST_LIMIT).optional().describe(`Page size, 1-${MAX_REQUEST_LIMIT}`),
+  limit: z.number().int().min(1).max(MAX_REQUEST_LIMIT).optional().describe(`Page size, 1-${MAX_REQUEST_LIMIT} (default ${DEFAULT_REQUEST_LIMIT})`),
   cursor: z.string().min(1).max(MAX_CURSOR_CHARS).optional().describe('The cursor from the previous page'),
 };
 export type DiscoverArgs = z.infer<z.ZodObject<typeof DISCOVER_INPUT>>;
@@ -130,13 +132,22 @@ export interface DirectoryClient {
 }
 
 /**
- * Search, shaped for the tool output: the page plus the fixed trust note. Each hit is tested with
- * `leaksSecret` on its own; a hit it flags is left out and counted in `withheld`, and the cursor and the other hits stay.
+ * Search, shaped for the tool output: the page plus the fixed trust note. A hit that `leaksSecret` flags,
+ * alone or as part of the assembled page, is left out and counted in `withheld`; the cursor and the other hits stay.
+ * `leaksSecret` must be the check the tool output passes through, since a hit's neighbours change what it matches.
  */
-export async function discoverListings(client: DirectoryClient, a: DiscoverArgs, leaksSecret: (hit: ListingSummary) => boolean): Promise<DirectoryPage & { withheld: number; trust: string }> {
-  const page = await client.search({ q: a.q, category: a.category, tag: a.tags, rail: a.rail, identityTier: a.identity_tier, priceMax: a.price_max, limit: a.limit, cursor: a.cursor });
-  const listings = page.listings.filter((hit) => !leaksSecret(hit));
-  return { ...page, listings, withheld: page.listings.length - listings.length, trust: DISCOVER_TRUST };
+export async function discoverListings(client: DirectoryClient, a: DiscoverArgs, leaksSecret: (value: unknown) => boolean): Promise<DirectoryPage & { withheld: number; trust: string }> {
+  const page = await client.search({ q: a.q, category: a.category, tag: a.tags, rail: a.rail, identityTier: a.identity_tier, priceMax: a.price_max, limit: a.limit ?? DEFAULT_REQUEST_LIMIT, cursor: a.cursor });
+  const assemble = (listings: ListingSummary[]) => ({ ...page, listings, withheld: page.listings.length - listings.length, trust: DISCOVER_TRUST });
+  const clean = page.listings.filter((hit) => !leaksSecret(hit));
+  if (!leaksSecret(assemble(clean))) return assemble(clean);
+  // a hit can pass alone and still trip the page check (seller text ending in a key name reads on into the next field):
+  // add hits one at a time and keep each one only if the page, as it would be sent, still passes
+  const kept: ListingSummary[] = [];
+  for (const hit of clean) {
+    if (!leaksSecret(assemble([...kept, hit]))) kept.push(hit);
+  }
+  return assemble(kept);
 }
 
 const STATUS_MEANING = new Map([[400, 'the Directory refused the query'], [404, 'not found'], [502, 'bad gateway'], [503, 'unavailable']]);

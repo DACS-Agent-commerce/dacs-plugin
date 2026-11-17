@@ -495,9 +495,16 @@ export function createServer(deps: Deps): McpServer {
       const artifact = await directory.fetchListing({ listingId: a.listing_id, version: a.version, seller: a.seller });
       const source = { directory: config.directoryUrl, seller: a.seller, listingId: a.listing_id, version: a.version };
       const report = verifyListingInput({ listing: artifact, revocation: a.revocation });
-      // a check detail can echo seller text; one that looks like secret material is withheld, the verdict is kept
-      const checks = report.checks.map((c) => (leaksSecret(c) ? { ...c, detail: 'withheld: it looked like secret material' } : c));
-      return { source, result: { ...report, checks } };
+      // a check detail can echo seller text; one that looks like secret material is withheld, the verdict is kept.
+      // Each detail is tested as part of the whole result, as `ok()` will see it, with the later details already withheld.
+      const withhold = (c: (typeof report.checks)[number]) => ({ ...c, detail: 'withheld: it looked like secret material' });
+      const assemble = (checks: typeof report.checks) => ({ source, result: { ...report, checks } });
+      const checks: typeof report.checks = report.checks.map(withhold);
+      report.checks.forEach((c, i) => {
+        checks[i] = c;
+        if (leaksSecret(assemble(checks))) checks[i] = withhold(c);
+      });
+      return assemble(checks);
     }),
   );
 
