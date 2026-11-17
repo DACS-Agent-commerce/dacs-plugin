@@ -11,7 +11,8 @@
 // version and approval revision, and the bounded cause of a hold. Never keys or phrases. Local tampering with the
 // browser profile is out of scope. `deriveDispatchHistory` reads the whole lane: an intent is cleared only by its
 // own pass's `-withheld`, and a later held or withheld record never clears an earlier intent, unknown or acknowledged
-// one. No page loads this yet.
+// one. A lane holds at most MAX_LANE_RECORDS records and a full lane is terminal: records are never deleted, so no
+// further pass can run on it. An intent is accepted only while a slot remains for its outcome. No page loads this yet.
 import { createEffectBoundary } from './effect-boundary.mjs';
 import { refuse } from './wallet-fence.mjs';
 
@@ -19,8 +20,10 @@ import { refuse } from './wallet-fence.mjs';
 export const EFFECT_RECORDS_DB_NAME = 'dacs-wallet-effects-v1';
 /** Largest `signed` record, in bytes. */
 export const MAX_SIGNED_BYTES = 1_048_576;
-/** Most records one lane may hold; the next append is refused `eb_lane_full`. */
+/** Most records one lane may hold; the next append is refused `eb_lane_full`. A full lane stays full. */
 export const MAX_LANE_RECORDS = 64;
+/** Slots an intent needs: its own and one for its outcome, so a request is never sent without room to record it. */
+const INTENT_SLOTS = 2;
 
 const DB_VERSION = 1;
 const RECORDS = 'records';
@@ -33,6 +36,7 @@ const IDENTITY_FIELDS = ['operationId', 'lane', 'pinVersion', 'approvalRevision'
 const nonemptyString = (value) => typeof value === 'string' && value !== '';
 const invalidRecord = (detail) => refuse('eb_record_invalid', new TypeError(detail));
 const phaseOf = (record) => record.kind.slice(record.stage.length + 1);
+const isIntent = (record) => STAGE_KINDS.has(record.kind) && phaseOf(record) === 'started';
 
 function assertRecord(lane, record) {
   if (!RECORD_KINDS.has(record?.kind)) throw invalidRecord(`unknown record kind ${record?.kind}`);
@@ -151,7 +155,7 @@ const appendLaneRecord = (database, lane, expectedRevision, record) => transact(
   headRequest.onsuccess = () => {
     const revision = headRequest.result?.revision ?? 0;
     if (revision !== expectedRevision) return abortWith(refuse('eb_revision_conflict', new Error(`lane ${lane} is at revision ${revision}, expected ${expectedRevision}`)));
-    if (revision >= MAX_LANE_RECORDS) return abortWith(refuse('eb_lane_full'));
+    if (revision + (isIntent(record) ? INTENT_SLOTS : 1) > MAX_LANE_RECORDS) return abortWith(refuse('eb_lane_full'));
     if (revision === 0) return write(0, undefined);
     const lastRequest = records.get([lane, revision]);
     lastRequest.onsuccess = () => write(revision, lastRequest.result);
@@ -182,7 +186,7 @@ export function deriveDispatchHistory(laneRecords) {
   let observed = false;
   for (const record of laneRecords) {
     if (record.kind === 'observed') observed = true;
-    else if (STAGE_KINDS.has(record.kind) && phaseOf(record) === 'started') attempts.push({ passId: record.passId, stage: record.stage, phase: 'started' });
+    else if (isIntent(record)) attempts.push({ passId: record.passId, stage: record.stage, phase: 'started' });
     else if (STAGE_KINDS.has(record.kind)) {
       const answered = attempts.findLast((attempt) => attempt.passId === record.passId && attempt.stage === record.stage && attempt.phase === 'started');
       if (answered !== undefined) answered.phase = phaseOf(record);

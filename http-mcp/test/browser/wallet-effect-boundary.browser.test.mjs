@@ -2103,6 +2103,46 @@ test('each durable transition is its own short readwrite transaction that checks
     for (let revision = 1; revision < MAX_LANE_RECORDS; revision += 1) await store.append(LANE, revision, laneRecord('observed', 'pass-a'));
     await assert.rejects(store.append(LANE, MAX_LANE_RECORDS, laneRecord('observed', 'pass-a')), { code: 'eb_lane_full' });
   });
+
+  // A lane of `count` records: the signed bytes for a dispatch, then held records.
+  const fillLane = async (store, count) => {
+    await store.append(LANE, 0, { ...signedRecord(), workflow: 'dispatch' });
+    for (let revision = 1; revision < count; revision += 1) await store.append(LANE, revision, laneRecord('signed-held', 'pass-a', { stage: 'dispatch' }));
+  };
+
+  await t.test('an intent is refused eb_lane_full unless a slot remains for its outcome, so nothing is sent without room to record it', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    await fillLane(store, MAX_LANE_RECORDS - 1);
+    await assert.rejects(store.append(LANE, MAX_LANE_RECORDS - 1, laneRecord('dispatch-started', 'pass-b', { stage: 'dispatch' })), { code: 'eb_lane_full' });
+    assert.equal(idb.committedRecords(LANE).length, MAX_LANE_RECORDS - 1);
+  });
+
+  await t.test('an intent with two slots left is accepted and its outcome takes the last slot', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    await fillLane(store, MAX_LANE_RECORDS - 2);
+    await store.append(LANE, MAX_LANE_RECORDS - 2, laneRecord('dispatch-started', 'pass-b', { stage: 'dispatch' }));
+    await store.append(LANE, MAX_LANE_RECORDS - 1, laneRecord('dispatch-acknowledged', 'pass-b', { stage: 'dispatch' }));
+    assert.equal(idb.committedRecords(LANE).length, MAX_LANE_RECORDS);
+  });
+
+  await t.test('a record that is not an intent still takes the last slot', async () => {
+    const store = storeOver(createFakeIndexedDb());
+    await fillLane(store, MAX_LANE_RECORDS - 1);
+    await store.append(LANE, MAX_LANE_RECORDS - 1, laneRecord('observed', 'pass-b'));
+  });
+
+  await t.test('a pass over a lane with one slot left refuses eb_persist_failed before anything is sent', async () => {
+    const idb = createFakeIndexedDb();
+    await fillLane(storeOver(idb), MAX_LANE_RECORDS - 1);
+    const proc = startProcess(idb);
+    const { error } = await resume(proc, SIGNED, ['dispatch']);
+    assertRefusal(error, 'eb_persist_failed');
+    assert.ok(causeMessages(error).some((message) => /eb_lane_full/.test(message)), `cause: ${causeMessages(error)}`);
+    assert.equal(proc.counts.transport, 0);
+    assert.equal(idb.committedRecords(LANE).length, MAX_LANE_RECORDS - 1);
+  });
 });
 
 test('a record whose request succeeds inside a transaction that then aborts is not counted as persisted: the pass refuses eb_persist_failed with no egress', async (t) => {
