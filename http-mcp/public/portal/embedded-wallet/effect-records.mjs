@@ -171,7 +171,8 @@ const toLaneHead = (laneRecords) => ({
  * and no `observed`), `confirmation` (`none`, `acknowledged`, or `unknown` for any confirm intent without its own
  * `-acknowledged` or `-withheld`, or any `confirm-unknown`) and `mayBroadcast` (signed, confirmation acknowledged,
  * and no possible broadcast yet). Each intent is its own attempt, even under a reused pass id, and an outcome answers
- * only the intent before it. An unknown confirmation is never cleared by a later acknowledgement.
+ * only the intent before it. An outcome with no open intent counts as an unknown attempt of its stage, so the answer
+ * refuses rather than allows. An unknown confirmation is never cleared by a later acknowledgement.
  */
 export function deriveDispatchHistory(laneRecords) {
   // One entry per intent, so a pass id that starts a stage again cannot overwrite what its earlier intent left.
@@ -183,6 +184,7 @@ export function deriveDispatchHistory(laneRecords) {
     else if (STAGE_KINDS.has(record.kind)) {
       const answered = attempts.findLast((attempt) => attempt.passId === record.passId && attempt.stage === record.stage && attempt.phase === 'started');
       if (answered !== undefined) answered.phase = phaseOf(record);
+      else attempts.push({ passId: record.passId, stage: record.stage, phase: 'unknown' });
     }
   }
   const possiblySent = (stage) => attempts.some((attempt) => attempt.stage === stage && attempt.phase !== 'withheld');

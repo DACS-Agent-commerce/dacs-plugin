@@ -1903,6 +1903,27 @@ test('confirmation and broadcast are separate stages, an unknown confirmation in
   }
 });
 
+test('an outcome record with no open intent counts as an unknown attempt, so the history refuses rather than allows', async (t) => {
+  const history = (...kinds) => deriveDispatchHistory([signedRecord(), ...kinds.map((kind) => laneRecord(kind, 'pass-a', { stage: kind.split('-')[0] }))]);
+  await t.test('an orphan confirm-unknown makes the confirmation unknown', () => {
+    assert.deepEqual(history('confirm-unknown'), { signed: true, neverDispatched: true, confirmation: 'unknown', mayBroadcast: false });
+  });
+  await t.test('an orphan confirm-acknowledged does not make the confirmation acknowledged', () => {
+    assert.deepEqual(history('confirm-acknowledged'), { signed: true, neverDispatched: true, confirmation: 'unknown', mayBroadcast: false });
+  });
+  for (const kind of ['dispatch-acknowledged', 'dispatch-unknown', 'dispatch-withheld', 'broadcast-acknowledged', 'broadcast-unknown', 'broadcast-withheld']) {
+    await t.test(`an orphan ${kind} means the lane may have been dispatched`, () => {
+      assert.equal(history(kind).neverDispatched, false);
+    });
+  }
+  await t.test('a second outcome for one intent has no open intent and counts as unknown', () => {
+    assert.equal(history('confirm-started', 'confirm-acknowledged', 'confirm-acknowledged').confirmation, 'unknown');
+  });
+  await t.test('an outcome that answers its own intent is unchanged', () => {
+    assert.deepEqual(history('confirm-started', 'confirm-acknowledged'), { signed: true, neverDispatched: true, confirmation: 'acknowledged', mayBroadcast: true });
+  });
+});
+
 test('with Web Locks or IndexedDB unavailable every effect refuses with a named error before any signer call', async (t) => {
   const erroringIndexedDb = { open() { const request = {}; queueMicrotask(() => { request.error = new Error('storage denied'); request.onerror(); }); return request; } };
   const blockedIndexedDb = { open() { const request = {}; queueMicrotask(() => request.onblocked()); return request; } };
