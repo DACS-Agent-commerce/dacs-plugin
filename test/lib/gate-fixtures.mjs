@@ -44,7 +44,7 @@ export function makeTempDir(label) {
 export function git(dir, args, { input, env } = {}) {
   const result = spawnSync('git', ['-C', dir, ...args], {
     input,
-    env: { ...process.env, ...GIT_IDENTITY, ...env },
+    env: { ...hermeticGitEnvironment(), ...env },
     maxBuffer: 1 << 28,
   });
   if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr}`);

@@ -20,6 +20,22 @@ test('a fixture folder does not belong to the git checkout that holds the temp f
   assert.notEqual(top, realpathSync(checkout), 'the fixture is in the surrounding checkout');
 });
 
+test('createRepo and createHistory leave the repository named by a caller GIT_DIR alone', () => {
+  const other = path.join(makeTempDir('other'), 'other.git');
+  execFileSync('git', ['init', '-q', '--bare', other], { env: hermeticGitEnvironment() });
+  const script = `const { createRepo, createHistory } = await import(${JSON.stringify(FIXTURES_MODULE)});
+    const repo = createRepo([{ path: 'a.txt', content: 'a\\n' }]);
+    const history = createHistory([{}, {}]);
+    process.stdout.write(JSON.stringify({ repo: repo.dir, history: history.dir }));`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, GIT_DIR: other } });
+  assert.equal(child.status, 0, child.stderr);
+  const { repo, history } = JSON.parse(child.stdout);
+  assert.ok(existsSync(path.join(repo, '.git')), 'createRepo did not make its own repository');
+  assert.ok(existsSync(path.join(history, '.git')), 'createHistory did not make its own repository');
+  assert.equal(spawnSync('git', ['--git-dir', other, 'rev-parse', '--verify', '-q', 'refs/heads/main'], { env: hermeticGitEnvironment() }).status, 1, 'the caller repository got a fixture branch');
+  assert.equal(execFileSync('git', ['--git-dir', other, 'count-objects'], { encoding: 'utf8', env: hermeticGitEnvironment() }).trim(), '0 objects, 0 kilobytes');
+});
+
 test('the fixture git environment drops caller GIT_ variables and ignores caller and system git config', () => {
   const [bare, config] = [path.join(makeTempDir('bare'), 'bare.git'), path.join(makeTempDir('config'), 'gitconfig')];
   writeFileSync(config, '[init]\n\tdefaultBranch = caller-branch\n');
