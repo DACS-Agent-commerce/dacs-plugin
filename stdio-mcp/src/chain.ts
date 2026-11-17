@@ -1,6 +1,7 @@
 /**
- * The chain boundary. Everything that touches @kynesyslabs/demosdk lives here,
- * behind two small interfaces so the tool layer can be unit-tested with a mock:
+ * The chain boundary. Every chain read and write goes through @kynesyslabs/demosdk here,
+ * behind two small interfaces so the tool layer can be unit-tested with a mock
+ * (index.ts also imports the SDK, for keystore creation and the wallet factory):
  *
  *   ChainReader — unauthenticated reads (no wallet).
  *   Wallet      — the only object that can sign. It is created lazily on the
