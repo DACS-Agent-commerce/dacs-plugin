@@ -244,7 +244,8 @@ All output leaves through `scripts/public-gate/redact.mjs` on a route listed in 
   `reason` and exempts only that occurrence: the same value at another path, in another blob or on another line still fails.
   An entry naming a path and blob the target does not hold is stale and fails the run (`stale-secret-exception`, exit 2)
   before the scanner starts. Scanner fingerprints are never exception keys.
-- **Identity.** `scannerPolicySha256` is the SHA-256 of `.gitleaks.toml`; `secretExceptionsSha256` is the SHA-256 of
+- **Identity.** `scannerSha256` is the SHA-256 of the checked scanner executable's bytes (see The binary);
+  `scannerPolicySha256` is the SHA-256 of `.gitleaks.toml`; `secretExceptionsSha256` is the SHA-256 of
   `JSON.stringify({ baseline: secretBaseline, exceptions: secretExceptions })` of the config.
 - **History mode** runs the same scan over the whole history, see History mode below.
 
