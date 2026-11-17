@@ -50,8 +50,16 @@ Root checks (public-content gate and CI helper tests):
 node scripts/ci/sdk-input.mjs --prepare root
 npm ci
 npm test                  # needs the pinned gitleaks: set GITLEAKS_BIN or put it on PATH
-npm run gate:generic
 ```
+
+The gate scans a commit, not the working tree, so commit first. `node scripts/ci/install-gitleaks.mjs --dir <folder>` places the pinned binary at `<folder>/gitleaks`. Then run the generic gate on that commit, as CI does (the flags are all required; `npm run gate:generic` alone exits 2 with `bad-arguments`):
+
+```sh
+GITLEAKS_SHA256="$(sha256sum <folder>/gitleaks | cut -d ' ' -f 1)"
+npm run gate:generic -- --repo . --commit "$(git rev-parse HEAD)" --gitleaks <folder>/gitleaks --gitleaks-sha256 "$GITLEAKS_SHA256"
+```
+
+`docs/PUBLIC-GATE.md` lists every flag and the exit codes.
 
 Lint:
 
@@ -68,7 +76,7 @@ npm run lint --prefix tools/lint
 - `stdio-mcp/src/index.ts`: starts the MCP server over stdio (built to `stdio-mcp/dist/index.js`, the `demos-mcp` bin).
 - `stdio-mcp/src/server.ts`: `createServer` registers the tools.
 - `stdio-mcp/src/http_transport.ts`: HTTP transport for the same server.
-- `stdio-mcp/src/chain.ts`: the only file that imports the Demos SDK.
+- `stdio-mcp/src/chain.ts`: the chain boundary; it imports the Demos SDK for every chain call. `stdio-mcp/src/index.ts` is the only other source file that imports the SDK (it uses `Demos` for `keystore create` and for the wallet factory that makes a new mnemonic and derives an address); no other file in `stdio-mcp/src/` does.
 - `http-mcp/bin/dacs-chatgpt-plugin.mjs`: starts the HTTP app (`npm start` in `http-mcp`).
 - `http-mcp/src/app.mjs` and `http-mcp/src/mcp/server.mjs`: the HTTP app and its MCP tool surface.
 - `scripts/public-gate/gate.mjs` and `scripts/public-gate/history.mjs`: the gate on a commit and on history.
@@ -77,7 +85,7 @@ npm run lint --prefix tools/lint
 
 - **Testnet only.** Do not point anything at a live-value network and do not add configuration that does.
 - **Never commit keys.** No private keys, mnemonics, keystores, tokens or `.env` files. Use obvious placeholders in examples. `.env.example` is the only tracked env file.
-- **Run the checks before a PR.** At least the commands above that cover the files you changed, plus `npm run gate:generic` at the root.
+- **Run the checks before a PR.** At least the commands above that cover the files you changed, plus the generic gate at the root (the full command is under "Install and run the checks from source").
 - **Keep changes small.** Do what the task asks; no unrelated refactors or new files.
 - **No internal notes in commits.** Reports and scratch folders (`.stack/`, `.fix-tmp/`, `BUILD-REPORT.md`, `FIX-REPORT.md`) stay out of the repo.
 - **Do not weaken a test** to make a check pass.
