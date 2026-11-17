@@ -77,6 +77,10 @@ const STORAGE_CREATE_FIELDS = ['acl', 'data', 'encoding', 'metadata', 'operation
 // the fixed GCRGeneration gas edit (gasAmount = 1 DEM) on non-identity txs.
 const STORAGE_CHUNK_BYTES = 10240;
 const SDK_GAS_OS = OS_PER_DEM;
+// A network binding call is a small same-origin JSON exchange. It is cut at
+// this deadline, and its reply is read only up to this many bytes.
+const BINDING_DEADLINE_MS = 10_000;
+const BINDING_MAX_BYTES = 262_144;
 // SDK 4.0.16 Identities.formats.web2 prefixes for the two supported contexts.
 const PROOF_PREFIXES = {
   github: ['https://gist.github.com', 'https://raw.githubusercontent.com', 'https://gist.githubusercontent.com'],
@@ -326,6 +330,42 @@ function sourceRefusal(code, fallback) {
     ? 'the operator refused this wallet\'s request time: this device\'s clock is more than 2 minutes off. Correct the clock and try again; nothing was signed or sent.'
     : code === 'payment_cancelled' ? 'the operator refused this transfer: it has the terms of a cancelled payment. This attempt was refused and not sent. An earlier attempt may have been sent; the purchase\'s readback shows it.'
     : fallback);
+}
+
+// Reads a reply body as JSON, refusing it as soon as it passes BINDING_MAX_BYTES.
+async function readCappedJson(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > BINDING_MAX_BYTES) {
+      await reader.cancel().catch(() => {});
+      throw new EmbeddedWalletError('network_binding_unavailable', 'the network binding answered with more data than is allowed; nothing is retried');
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return JSON.parse(text + decoder.decode());
+}
+
+// POSTs to the network binding endpoint. Returns { httpOk, result }: the HTTP
+// success flag and the parsed JSON body. Throws network_binding_unavailable
+// when the call outlasts BINDING_DEADLINE_MS or the reply is over the byte cap.
+async function postToNetworkBinding(url, init) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BINDING_DEADLINE_MS);
+  try {
+    const response = await fetch(url, { ...init, method: 'POST', signal: controller.signal });
+    return { httpOk: response.ok, result: await readCappedJson(response) };
+  } catch (error) {
+    if (controller.signal.aborted) throw new EmbeddedWalletError('network_binding_unavailable', 'the network binding did not answer in time; nothing is retried');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function base64UrlOfText(value) {
@@ -983,9 +1023,8 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
     let networkFence=null, lease=null;
     const bindingCall = async (body) => {
       const auth=['bind','signature'].includes(body.phase) ? await sourceAuthHeaders(demos,address) : null; if(auth) stillCurrent(started);
-      const r=await fetch(transport.bindingUrl,{ method:'POST',headers:{ 'content-type':'application/json',...auth },credentials:'same-origin',body:JSON.stringify({ address,...body }) });
-      const result=await r.json(); stillCurrent(started);
-      if(!r.ok) throw sourceRefusal(result.error ?? 'network_binding_unavailable','the independently supplied network binding is unavailable; nothing is retried');
+      const { httpOk,result }=await postToNetworkBinding(transport.bindingUrl,{ headers:{ 'content-type':'application/json',...auth },credentials:'same-origin',body:JSON.stringify({ address,...body }) }); stillCurrent(started);
+      if(!httpOk) throw sourceRefusal(result.error ?? 'network_binding_unavailable','the independently supplied network binding is unavailable; nothing is retried');
       return result;
     };
     if(transport.devnetNative) {
@@ -1076,7 +1115,7 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
     const plan = await (transport.devnetAgreement ? devnetAgreementAnchorPlan : storageAnchorPlan)(request,address,transport);
     let binding,lease;
     const sourcePhase=async(body)=>{const auth=['bind','signature'].includes(body.phase)?await sourceAuthHeaders(demos,address):null;if(auth)stillCurrent(started);
-      const r=await fetch(transport.bindingUrl,{method:'POST',headers:{'content-type':'application/json',...auth},body:JSON.stringify({...body,address}),credentials:'same-origin',redirect:'error'});const v=await r.json();if(!r.ok || v.error)throw sourceRefusal(v.error ?? 'network_binding_required','fresh source network binding is unavailable');return v;};
+      const {httpOk,result:v}=await postToNetworkBinding(transport.bindingUrl,{headers:{'content-type':'application/json',...auth},body:JSON.stringify({...body,address}),credentials:'same-origin',redirect:'error'});if(!httpOk || v.error)throw sourceRefusal(v.error ?? 'network_binding_required','fresh source network binding is unavailable');return v;};
     if(transport.devnetAgreement){const bound=await sourcePhase({phase:'bind'});if(bound.pending)throw new EmbeddedWalletError('outcome_unknown','an issued source transaction requires readback, never resend');binding=bound.binding;
       if(binding.chainIdentity!==transport.transportBinding.chainIdentity || binding.bindingId!==transport.transportBinding.bindingId)throw new EmbeddedWalletError('network_binding_required','fresh binding differs from signed source terms');}
     const lane = JSON.stringify([transport.network, transport.devnetAgreement ? transport.transportBinding.chainIdentity : DACS_STORAGE_ANCHOR_CHAIN_IDENTITY, address]);
@@ -1367,8 +1406,7 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
         if (!live) throw new EmbeddedWalletError('locked', 'the wallet is locked');
         if(method === 'readNativeTransfer' && transport?.devnetNative) {
           if(!Array.isArray(params) || params.length !== 1 || !HASH.test(params[0]?.hash ?? '')) throw new EmbeddedWalletError('invalid_params','readNativeTransfer expects the retained public native hash');
-          const r=await fetch(transport.bindingUrl,{ method:'POST',headers:{ 'content-type':'application/json' },credentials:'same-origin',body:JSON.stringify({ phase:'readback',address:live.address,hash:params[0].hash }) });
-          const result=await r.json(); if(!r.ok)throw new EmbeddedWalletError(result.error ?? 'readback_unavailable','native readback is unavailable; no resend is allowed');
+          const { httpOk,result }=await postToNetworkBinding(transport.bindingUrl,{ headers:{ 'content-type':'application/json' },credentials:'same-origin',body:JSON.stringify({ phase:'readback',address:live.address,hash:params[0].hash }) }); if(!httpOk)throw new EmbeddedWalletError(result.error ?? 'readback_unavailable','native readback is unavailable; no resend is allowed');
           return ok(result);
         }
         if (writable) return ok(await exclusive(() => write(method, params)));
