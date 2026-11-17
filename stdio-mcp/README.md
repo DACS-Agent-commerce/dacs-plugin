@@ -299,6 +299,10 @@ The `DEMOS_APPROVAL_*` and `DEMOS_CODE_FALLBACK` options are environment-only
 for now. They are not plugin settings; set them in the environment Claude Code
 is launched from.
 
+The repository root holds a `server.json` that describes this server for the
+MCP Registry, with the main variables above. It has not been submitted to the
+registry. The server works on testnet only.
+
 ## DACS conformance notes
 
 - Canonical form follows CORE §B.2: RFC 8785 JCS with NFC on string values

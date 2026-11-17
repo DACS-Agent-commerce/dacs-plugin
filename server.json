@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.DACS-Agent-commerce/demos-mcp",
+  "title": "DACS Listings (testnet)",
+  "description": "Finds and checks DACS seller Listings; prepares testnet purchases approved in the user's own wallet.",
+  "repository": {
+    "url": "https://github.com/DACS-Agent-commerce/dacs-plugin",
+    "source": "github",
+    "subfolder": "stdio-mcp"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "demos-mcp",
+      "version": "0.1.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        { "name": "DEMOS_RPC_URL", "description": "https URL of the Demos testnet RPC node to read from. There is no built-in node.", "isRequired": true },
+        { "name": "DEMOS_NETWORK", "description": "Network to use. Leave unset for testnet.", "default": "testnet" },
+        { "name": "DEMOS_STATE_DIR", "description": "Folder where the server keeps its local state. Defaults to ~/.demos-mcp." },
+        { "name": "DEMOS_MCP_ENABLE_WRITES", "description": "Set to 1 to let the server prepare wallet actions. Each one still needs the user's approval." },
+        { "name": "DEMOS_WALLET_MODE", "description": "Set to purchase-only to stop the older tools from opening the wallet or signing." },
+        { "name": "DEMOS_DAILY_CAP_DEM", "description": "Daily spending cap in DEM for approved actions.", "default": "10" },
+        { "name": "DEMOS_RECIPIENT_ALLOWLIST", "description": "Comma-separated addresses that payments may go to. Unset means no allow-list." },
+        { "name": "DEMOS_KEYSTORE", "description": "Path to the encrypted wallet keystore file.", "isSecret": true },
+        { "name": "DEMOS_KEYSTORE_PASSPHRASE", "description": "Passphrase that unlocks the keystore.", "isSecret": true },
+        { "name": "DEMOS_KEYSTORE_PASSPHRASE_FILE", "description": "Path to a file holding the keystore passphrase.", "isSecret": true },
+        { "name": "DEMOS_MNEMONIC_FILE", "description": "Path to a file holding the wallet mnemonic, as an alternative to the keystore.", "isSecret": true }
+      ]
+    }
+  ]
+}
