@@ -6,6 +6,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { PURCHASE_STATE_SCHEMA, createSqlitePurchaseStore } from '@kynesyslabs/dacs-client';
 
 // Created at import, before this module prepares any statement: the client's statement guard only
@@ -153,6 +154,15 @@ function schemaDifference(actual, expected) {
   return null;
 }
 
+// A plain read-only connection to a WAL file with no -wal creates the -wal and -shm files. With neither a
+// -wal nor a rollback -journal the database file holds the whole state, so the file is read as immutable and
+// no file is created. With either one present the read-only connection reads through it, as the file's state
+// requires.
+function openForReading(path) {
+  if (existsSync(`${path}-wal`) || existsSync(`${path}-journal`)) return new DatabaseSync(path, { readOnly: true });
+  return new DatabaseSync(`${pathToFileURL(path).href}?mode=ro&immutable=1`, { readOnly: true });
+}
+
 // Reads an existing file through a read-only connection: closing a read-write one checkpoints a crashed
 // WAL file into the database, so a refused file's bytes must never meet one. Returns the number of schema
 // objects, the stored version (null when there is no version row) and, for a stored current version,
@@ -160,7 +170,7 @@ function schemaDifference(actual, expected) {
 function readState(path) {
   let db;
   try {
-    db = new DatabaseSync(path, { readOnly: true });
+    db = openForReading(path);
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     const objects = db.prepare('SELECT COUNT(*) AS n FROM sqlite_master').get().n;
     const hasMeta = db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
@@ -205,7 +215,7 @@ const isAbsentOrEmpty = (path) => !existsSync(path) || statSync(path).size === 0
  * An absent, empty or schema-less file is created from the client's schema and the plugin's tables. Any other
  * file is read through a read-only connection first and opened only if its stored version text is exactly "3" and
  * its schema (SQL text, columns, indexes, PRAGMA user_version and application_id) equals the one a new file gets;
- * nothing is written, repaired or checkpointed before that.
+ * nothing is written, repaired or checkpointed before that, and no -wal or -shm file is created for a file that has none.
  * Throws an error with code `unsupported_state_schema_version` for another version (no migration), an error with
  * code `purchase_state_schema_mismatch` for a schema that differs, and an error carrying the cause when the
  * file cannot be read.

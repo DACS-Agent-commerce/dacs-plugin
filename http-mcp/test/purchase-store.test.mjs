@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -339,6 +339,45 @@ test('an existing v3 file whose PRAGMA user_version or application_id is not the
     const path = alteredFile(t, 'rollback-journal', [`PRAGMA ${pragma} = 7`]);
     assert.throws(() => openDatabase(path), (error) => error.code === 'purchase_state_schema_mismatch' && error.message.includes(pragma), pragma);
   }
+});
+
+// A valid file altered and then closed by its last connection, which removes the -wal and -shm files.
+function cleanlyClosedWalFile(t, statements) {
+  const path = alteredFile(t, 'rollback-journal', ['PRAGMA journal_mode = WAL', ...statements]);
+  const raw = new DatabaseSync(path);
+  assert.equal(pragmaValue(raw, 'journal_mode'), 'wal');
+  raw.close();
+  assert.deepEqual(readdirSync(dirname(path)), ['state.db'], 'a cleanly closed WAL file has no -wal or -shm');
+  return path;
+}
+
+test('refusing a cleanly closed WAL-mode file for its version or its schema creates no -wal or -shm file and leaves the database file unchanged', (t) => {
+  const refusals = {
+    'a different version': [["UPDATE meta SET value = '2' WHERE key = 'schema_version'"], 'unsupported_state_schema_version'],
+    'a different schema': [['CREATE TABLE stray (id TEXT)'], 'purchase_state_schema_mismatch'],
+    'a different user_version': [['PRAGMA user_version = 7'], 'purchase_state_schema_mismatch'],
+  };
+  for (const [label, [statements, code]] of Object.entries(refusals)) {
+    const path = cleanlyClosedWalFile(t, statements);
+    const before = fileState(path);
+    assert.throws(() => openDatabase(path), (error) => error.code === code, label);
+    assert.deepEqual(readdirSync(dirname(path)), ['state.db'], label);
+    assert.deepEqual(fileState(path), before, label);
+  }
+});
+
+test('a cleanly closed WAL-mode file at a path with spaces, a question mark and a hash is read and refused without creating a -wal or -shm file', (t) => {
+  const path = cleanlyClosedWalFile(t, ['CREATE TABLE stray (id TEXT)']);
+  const odd = join(dirname(path), 'odd name?x#y.db');
+  renameSync(path, odd);
+  assert.throws(() => openDatabase(odd), (error) => error.code === 'purchase_state_schema_mismatch');
+  assert.deepEqual(readdirSync(dirname(path)), ['odd name?x#y.db']);
+});
+
+test('a cleanly closed WAL-mode file with the current schema still opens read-write and keeps WAL mode', (t) => {
+  const path = cleanlyClosedWalFile(t, []);
+  const { db } = open(t, path);
+  assert.equal(pragmaValue(db, 'journal_mode'), 'wal');
 });
 
 test('a file that is not a database is refused with its cause and left unchanged', (t) => {
