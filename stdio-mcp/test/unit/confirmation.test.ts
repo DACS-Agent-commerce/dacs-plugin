@@ -128,7 +128,7 @@ test('cancel invalidates the code', async () => {
 test('write tools are not even registered when writes are disabled', async () => {
   const h = await harness({ DEMOS_MCP_ENABLE_WRITES: '0' });
   const names = (await h.client.listTools()).tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ['demos_alignment_heartbeat', 'demos_alignment_resume', 'demos_alignment_status', 'demos_alignment_verify', 'demos_balance', 'demos_dacs_listing_verify', 'demos_dacs_receipt_verify', 'demos_identity_lookup', 'demos_network_info', 'demos_onboard_status', 'demos_storage_read', 'demos_tx_get']);
+  assert.deepEqual(names, ['demos_alignment_heartbeat', 'demos_alignment_resume', 'demos_alignment_status', 'demos_alignment_verify', 'demos_balance', 'demos_dacs_discover', 'demos_dacs_listing_check', 'demos_dacs_listing_verify', 'demos_dacs_receipt_verify', 'demos_identity_lookup', 'demos_network_info', 'demos_onboard_status', 'demos_storage_read', 'demos_tx_get']);
 });
 
 test('write tools are not registered against an unlisted RPC without the mainnet opt-in', async () => {

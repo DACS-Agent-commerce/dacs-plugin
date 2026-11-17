@@ -38,6 +38,7 @@ import { listingHash, listingLogicalAddress, opaqueListingProgramName, sealListi
 import { appendReceipt, buildReceipt, ReceiptSigner } from './receipts.js';
 import { registerOnboardTools, type ProofFetcher, type WalletFactory } from './onboard.js';
 import { registerKeylessPrepareTools } from './keyless.js';
+import { createDirectoryClient, discoverListings, DISCOVER_INPUT, LISTING_ID_INPUT, SELLER_CLAIM_INPUT, type DiscoverArgs } from './directory.js';
 
 export const VERSION = '0.1.0';
 
@@ -227,6 +228,8 @@ export function createServer(deps: Deps): McpServer {
       return fail(e);
     }
   };
+  /** Whether `ok()` would refuse this value: the same two checks. Used on a result as it will be sent, to leave out the parts that would block it. */
+  const leaksSecret = (value: unknown): boolean => guard.valueLeaks(value) || guard.leaks(stringify(value));
   function fail(e: unknown): ToolResult {
     let msg: string;
     if (e instanceof SecretLeakError) msg = e.message;
@@ -443,6 +446,13 @@ export function createServer(deps: Deps): McpServer {
     }),
   );
 
+  type ListingVerifyArgs = { listing: unknown; revocation?: 'absent' | 'revoked' | 'indeterminate'; expect_pin?: { listingId: string; version: number; contentHash: string } };
+  /** The one listing verification path: demos_dacs_listing_verify and demos_dacs_listing_check both end here. */
+  const verifyListingInput = (a: ListingVerifyArgs) => {
+    assertOfferText(a.listing);
+    return verifyListing(maybeParseJson(a.listing), { now: now(), revocation: a.revocation, expectPin: a.expect_pin });
+  };
+
   server.registerTool(
     'demos_dacs_listing_verify',
     {
@@ -451,9 +461,50 @@ export function createServer(deps: Deps): McpServer {
       inputSchema: LISTING_VERIFY_INPUT,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    guarded(async (a: { listing: unknown; revocation?: 'absent' | 'revoked' | 'indeterminate'; expect_pin?: { listingId: string; version: number; contentHash: string } }) => {
-      assertOfferText(a.listing);
-      return verifyListing(maybeParseJson(a.listing), { now: now(), revocation: a.revocation, expectPin: a.expect_pin });
+    guarded(async (a: ListingVerifyArgs) => verifyListingInput(a)),
+  );
+
+  // ---- read-only discovery: find Listings in the public Directory, then verify one locally ----
+  const directory = createDirectoryClient(config.directoryUrl);
+
+  server.registerTool(
+    'demos_dacs_discover',
+    {
+      title: 'Find DACS sellers in the Directory',
+      description: 'Search the public DACS Directory for Listings (sellers offering a service) by text, category, tags, payment rail, identity tier or highest price. Returns one page of summaries (id, version, status, seller claim, title, category, tags, rails, pricing, transaction readiness), the total, a cursor for the next page and the Directory\'s scan progress. Withdrawn Listings are included, marked revoked: true. A hit whose text looks like secret material is left out and counted in withheld. Testnet. Read-only: it buys, signs and pays nothing. Results are unverified search hits: titles and prices are the Directory\'s text, and demos_dacs_listing_check does not confirm them (it verifies the signed Listing only).',
+      inputSchema: DISCOVER_INPUT,
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    guarded(async (a: DiscoverArgs) => discoverListings(directory, a, leaksSecret)),
+  );
+
+  server.registerTool(
+    'demos_dacs_listing_check',
+    {
+      title: 'Fetch and verify a DACS Listing from the Directory',
+      description: 'Fetch one signed Listing from the public DACS Directory by seller claim, listing id and version, then verify it here with the same checks as demos_dacs_listing_verify. Returns where it came from and accept | reject | indeterminate; only accept is success. It verifies the signed Listing only: the title and price in a demos_dacs_discover hit are the Directory\'s text, and accept does not confirm them. A Directory error (404, 409, 502, 503) is an error, never a verdict. Seller text in a check detail that looks like secret material is withheld; the verdict stays. Testnet. Read-only: it buys, signs and pays nothing.',
+      inputSchema: {
+        seller: SELLER_CLAIM_INPUT.describe('Seller primary claim, as shown by demos_dacs_discover (sellerClaim)'),
+        listing_id: LISTING_ID_INPUT,
+        version: z.number().int().min(1),
+        revocation: LISTING_VERIFY_INPUT.revocation,
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    guarded(async (a: { seller: string; listing_id: string; version: number; revocation?: ListingVerifyArgs['revocation'] }) => {
+      const artifact = await directory.fetchListing({ listingId: a.listing_id, version: a.version, seller: a.seller });
+      const source = { directory: config.directoryUrl, seller: a.seller, listingId: a.listing_id, version: a.version };
+      const report = verifyListingInput({ listing: artifact, revocation: a.revocation });
+      // a check detail can echo seller text; one that looks like secret material is withheld, the verdict is kept.
+      // Each detail is tested as part of the whole result, as `ok()` will see it, with the later details already withheld.
+      const withhold = (c: (typeof report.checks)[number]) => ({ ...c, detail: 'withheld: it looked like secret material' });
+      const assemble = (checks: typeof report.checks) => ({ source, result: { ...report, checks } });
+      const checks: typeof report.checks = report.checks.map(withhold);
+      report.checks.forEach((c, i) => {
+        checks[i] = c;
+        if (leaksSecret(assemble(checks))) checks[i] = withhold(c);
+      });
+      return assemble(checks);
     }),
   );
 
