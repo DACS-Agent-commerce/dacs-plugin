@@ -1,6 +1,7 @@
 {
   "name": "demos-mcp",
   "version": "0.1.0",
+  "mcpName": "io.github.DACS-Agent-commerce/demos-mcp",
   "description": "MCP server + Claude Code plugin for the Demos Network: read chain state, verify DACS receipts, and run human-confirmed wallet writes (pay, identity attest, DACS offer/accept).",
   "type": "module",
   "license": "MIT",
