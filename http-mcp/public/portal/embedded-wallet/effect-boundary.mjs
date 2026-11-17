@@ -103,7 +103,11 @@ function createPass({ fence, checks, clock, stoppedCode }, { operationId, approv
   // The digest is the connection binding: only a nonempty string can name one, so any other answer fails closed.
   const readDigest = () => {
     const value = runCheck(checks, 'connectionDigest');
-    if (!nonemptyString(value)) throw refuse('tp1_local_binding_invalid', value);
+    if (!nonemptyString(value)) {
+      // The refusal is the answer; a promise that rejects later must not also surface as an unhandled rejection.
+      try { if (typeof value?.then === 'function') value.then(undefined, () => {}); } catch {}
+      throw refuse('tp1_local_binding_invalid', value);
+    }
     return value;
   };
   const binding = { digest: readDigest(), generation: fence.connectionGeneration };
@@ -134,7 +138,8 @@ function createPass({ fence, checks, clock, stoppedCode }, { operationId, approv
         if (error instanceof EffectBoundaryRefusal) throw error;
         let code;
         try { code = error?.code; } catch {}
-        throw refuse(typeof code === 'string' ? code : 'tp1_authority_failed', error);
+        const usable = typeof code === 'string' && code.length <= MAX_CAUSE_MESSAGE_LENGTH;
+        throw refuse(usable ? code : 'tp1_authority_failed', error);
       }
     },
     async verify(names) { for (const name of names) await pass[name](); },
@@ -280,7 +285,9 @@ function snapshotRequest(request) {
 
 /**
  * Creates an unwired wallet pass runner with injected fence, checks and record store. admission and approval return
- * true or a refusal code; stopped returns boolean, readAuthority resolves for a current binding. connectionDigest
+ * true or a refusal code; stopped returns boolean, readAuthority resolves for a current binding; when it rejects with
+ * an error that is not a refusal, a string error code of at most 200 characters becomes the refusal code, otherwise
+ * tp1_authority_failed; a refusal it throws is passed on as it is. connectionDigest
  * synchronously returns a nonempty string; any other answer refuses tp1_local_binding_invalid. Approval receives the
  * captured revision. runPass requires nonempty string operationId/pinVersion/approvalRevision/lane and either
  * sign or retained.bytes plus closed stages; resolves {operationId, passId, outcomes}. Invalid requests throw

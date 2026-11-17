@@ -1305,6 +1305,27 @@ test('authority failures retain readable codes and the original cause when prope
   }
 });
 
+test('an authority reader error code is used as the refusal code only when it fits the cause length limit', async (t) => {
+  const MAX_CODE_LENGTH = 200;
+  const cases = [
+    ['a code of exactly the limit is kept', 'a'.repeat(MAX_CODE_LENGTH), 'a'.repeat(MAX_CODE_LENGTH)],
+    ['a code one character over the limit refuses tp1_authority_failed', 'a'.repeat(MAX_CODE_LENGTH + 1), 'tp1_authority_failed'],
+    ['a very long code refuses tp1_authority_failed', 'a'.repeat(100_000), 'tp1_authority_failed'],
+  ];
+  for (const [name, code, expected] of cases) {
+    await t.test(name, async () => {
+      const w = createWorld();
+      const failure = Object.assign(new Error('authority refused'), { code });
+      w.on('authority', 1, () => { throw failure; });
+      const { error } = await w.settled(w.runPass());
+      assertRefusal(error, expected);
+      assert.ok(error.message.length < 2 * MAX_CODE_LENGTH, 'the refusal message stays short');
+      assert.equal(error.cause, failure, 'the original error is kept as the cause');
+      assert.deepEqual([w.counts.signer, w.counts.transport], [0, 0]);
+    });
+  }
+});
+
 test('the pass holds the wallet fence until every inner signer and send it let start has settled', async (t) => {
   // After `release()` the pass may finish; before it, a second tab must neither sign nor send.
   const assertHeldUntil = async (first, second, release) => {
@@ -1531,6 +1552,66 @@ const invalidDigests = [
   ['a Promise', Promise.resolve('digest-1')], ['a boxed string', Object('digest-1')], ['a symbol', Symbol('digest')],
 ];
 const noEffects = (world) => [world.counts.lockRequests, world.counts.authority, world.counts.stop, world.counts.signer, world.counts.transport];
+
+// Runs `work`, gives the runtime one macrotask to report a rejection nobody handled, and returns those reasons.
+async function unhandledRejectionsDuring(work) {
+  const reasons = [];
+  const record = (reason) => reasons.push(reason);
+  process.on('unhandledRejection', record);
+  try {
+    await work();
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off('unhandledRejection', record);
+  }
+  return reasons;
+}
+
+test('a connection digest that is a rejecting promise refuses tp1_local_binding_invalid and leaves no unhandled rejection', async (t) => {
+  const rejecting = () => Promise.reject(new Error('digest unavailable'));
+  await t.test('on the first read', async () => {
+    const world = createWorld();
+    world.state.digest = rejecting();
+    let error;
+    const reasons = await unhandledRejectionsDuring(async () => { ({ error } = await world.settled(world.runPass())); });
+    assertRefusal(error, 'tp1_local_binding_invalid');
+    assert.deepEqual(reasons, []);
+    assert.deepEqual(noEffects(world), [0, 0, 0, 0, 0]);
+  });
+  await t.test('on a later read inside the pass', async () => {
+    const world = createWorld();
+    world.on('authority', 2, () => { world.state.digest = rejecting(); });
+    let error;
+    const reasons = await unhandledRejectionsDuring(async () => { ({ error } = await world.settled(world.runPass())); });
+    assertRefusal(error, 'tp1_local_binding_invalid');
+    assert.deepEqual(reasons, []);
+    assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
+  });
+});
+
+test('a connection digest whose then cannot be read or called still refuses tp1_local_binding_invalid', async (t) => {
+  const hostile = [
+    ['a throwing then getter', () => ({ get then() { throw new Error('then getter'); } })],
+    ['a proxy that throws on read', () => new Proxy({}, { get() { throw new Error('proxy get'); } })],
+    ['a then method that throws', () => ({ then() { throw new Error('then call'); } })],
+  ];
+  for (const [name, make] of hostile) {
+    await t.test(`${name} on the first read`, async () => {
+      const world = createWorld();
+      world.state.digest = make();
+      const { error } = await world.settled(world.runPass());
+      assertRefusal(error, 'tp1_local_binding_invalid');
+      assert.deepEqual(noEffects(world), [0, 0, 0, 0, 0]);
+    });
+    await t.test(`${name} on a later read inside the pass`, async () => {
+      const world = createWorld();
+      world.on('authority', 2, () => { world.state.digest = make(); });
+      const { error } = await world.settled(world.runPass());
+      assertRefusal(error, 'tp1_local_binding_invalid');
+      assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
+    });
+  }
+});
 
 test('a connection digest that is not a nonempty string refuses tp1_local_binding_invalid before any lock, read, record or effect', async (t) => {
   for (const [name, digest] of invalidDigests) {
