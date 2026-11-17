@@ -2063,6 +2063,20 @@ test('each durable transition is its own short readwrite transaction that checks
     assert.equal(stored.bytes.buffer.byteLength, SIGNED.length);
   });
 
+  await t.test('a connection the browser closed is opened again by the next read and the next append', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    await store.append(LANE, 0, signedRecord());
+    assert.equal(idb.opens, 1);
+    idb.closeConnectionsAsBrowser();
+    assert.equal((await store.head(LANE)).revision, 1);
+    assert.equal(idb.opens, 2);
+    idb.closeConnectionsAsBrowser();
+    await store.append(LANE, 1, laneRecord('observed', 'pass-a'));
+    assert.deepEqual(idb.committedRecords(LANE).map((record) => record.kind), ['signed', 'observed']);
+    assert.equal(idb.opens, 3);
+  });
+
   await t.test('a lane head that counts a record the lane lacks is refused eb_lane_corrupt', async () => {
     const idb = createFakeIndexedDb();
     const store = storeOver(idb);

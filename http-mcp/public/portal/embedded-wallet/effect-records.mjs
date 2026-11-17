@@ -218,6 +218,8 @@ export function createDurableRecordStore({ indexedDB = globalThis.indexedDB, loc
   const database = () => {
     opening ??= openDatabase(indexedDB).then((opened) => {
       opened.onversionchange = () => { opened.close(); opening = undefined; };
+      // The browser closed the connection on its own: the next call opens a new one.
+      opened.onclose = () => { opening = undefined; };
       return opened;
     }, (error) => { opening = undefined; throw error; });
     return opening;
