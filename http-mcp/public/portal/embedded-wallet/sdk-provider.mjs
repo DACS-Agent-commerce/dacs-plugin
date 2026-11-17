@@ -81,6 +81,8 @@ const SDK_GAS_OS = OS_PER_DEM;
 // this deadline, and its reply is read only up to this many bytes.
 const BINDING_DEADLINE_MS = 10_000;
 const BINDING_MAX_BYTES = 262_144;
+// How much of the node's refusal text a confirm_rejected message carries.
+const CONFIRM_REASON_MAX_CHARS = 200;
 // SDK 4.0.16 Identities.formats.web2 prefixes for the two supported contexts.
 const PROOF_PREFIXES = {
   github: ['https://gist.github.com', 'https://raw.githubusercontent.com', 'https://gist.githubusercontent.com'],
@@ -330,6 +332,14 @@ function sourceRefusal(code, fallback) {
     ? 'the operator refused this wallet\'s request time: this device\'s clock is more than 2 minutes off. Correct the clock and try again; nothing was signed or sent.'
     : code === 'payment_cancelled' ? 'the operator refused this transfer: it has the terms of a cancelled payment. This attempt was refused and not sent. An earlier attempt may have been sent; the purchase\'s readback shows it.'
     : fallback);
+}
+
+// The node's reason from a "[Confirm] ..." refusal, for the confirm_rejected
+// message: control and format characters removed, cut to
+// CONFIRM_REASON_MAX_CHARS. Returns ": <reason>", or '' when no text is left.
+function confirmRefusalSuffix(message) {
+  const reason = message.replace(/^\[Confirm\]/, '').replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim().slice(0, CONFIRM_REASON_MAX_CHARS).trim();
+  return reason ? `: ${reason}` : '';
 }
 
 // Reads a reply body as JSON, refusing it as soon as it passes BINDING_MAX_BYTES.
@@ -973,13 +983,14 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
   }
 
   // SDK confirm (node validation; nothing is executed). A thrown "[Confirm]"
-  // error is the node's refusal; anything else means it could not be asked.
+  // error is the node's refusal, and its reason is kept in the message;
+  // anything else means it could not be asked and is not echoed.
   async function confirmed(run, started) {
     let validity;
     try {
       validity = await run();
     } catch (error) {
-      if (/^\[Confirm\]/.test(String(error?.message))) throw new EmbeddedWalletError('confirm_rejected', 'the node refused to validate this transaction; it was not broadcast');
+      if (/^\[Confirm\]/.test(String(error?.message))) throw new EmbeddedWalletError('confirm_rejected', `the node refused to validate this transaction; it was not broadcast${confirmRefusalSuffix(error.message)}`);
       stillCurrent(started);
       throw new EmbeddedWalletError('upstream_unavailable', 'the transaction could not be validated by the configured node; it was not broadcast');
     }
