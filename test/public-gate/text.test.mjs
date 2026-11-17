@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { createWordingMatcher, hasValidTextConfig, scanIssues, scanReports, scanWording, wordingEntryLines } from '../../scripts/public-gate/rules-text.mjs';
+import { LEGACY_REFERENCE_NAMES, createWordingMatcher, hasValidTextConfig, scanIssues, scanReports, scanWording, wordingEntryLines } from '../../scripts/public-gate/rules-text.mjs';
 import {
   CONFIG_FILE, REPO_ROOT, completeArgs, createAnnotatedTag, createHistory, createRepo, gateArgs, git, historyArgs, makeTempDir, runCheckReport, runGate, runHistory, sha256, walkFiles, writeList,
 } from '../lib/gate-fixtures.mjs';
@@ -324,15 +324,16 @@ test('wording: the legacy name list holds the 106 names HTML5 decodes without a 
     'uuml', 'yacute', 'yen', 'yuml'];
   assert.equal(names.length, 106);
   assert.equal(new Set(names).size, 106);
+  assert.deepEqual([...LEGACY_REFERENCE_NAMES].sort(), [...names].sort());
   for (const name of names) assert.deepEqual(findingLines('a.md', `x &${name}q y\n`, ['unlisted-entry']), [1], name);
 });
 
-test('wording: JSON query strings keep literal ampersands in keys and nested values', () => {
+test('wording: JSON query strings that do not start with a legacy name keep literal ampersands in keys and nested values', () => {
   const text = JSON.stringify({ '?x=1&company=2': { urls: ['?x=1&company=2', '?q=R&D&company=AT&T'] } }, null, 2);
   assert.deepEqual(findingLines('.claude-plugin/plugin.json', text, ['unlisted-entry']), []);
 });
 
-test('wording: YAML anchors and aliases keep literal ampersands', () => {
+test('wording: YAML anchors and aliases that do not start with a legacy name keep literal ampersands', () => {
   const text = 'defaults: &defaults\n  team: R&D\n  company: AT&T\nbase: &base\n  <<: *defaults\n';
   for (const name of ['manifest.yml', 'manifest.yaml']) assert.deepEqual(findingLines(name, text, ['unlisted-entry']), [], name);
 });
