@@ -1,11 +1,20 @@
 // Checks the MCP Registry entry (server.json) for the stdio server.
 //
-// fixtures/server.schema.2025-12-11.json is a byte-for-byte copy of
+// fixtures/server.schema.2025-12-11.json is a copy of
 //   repo:   modelcontextprotocol/registry
 //   path:   internal/validators/schemas/2025-12-11.json
 //   commit: 115f85225c9fac5281d8a2dc8551cf49b004d2f9
 // which is the schema version the registry names as current
 // (pkg/model/constants.go, CurrentSchemaVersion).
+//
+// The copy differs from the registry file in one way: the annotation-only
+// keywords `$id`, `$schema`, `example` and `examples` are removed wherever they
+// appear as schema keywords, and nothing else is changed. They do not affect
+// validation, and they carry URLs that the public-repo host check would flag.
+// A property that is itself named `$schema` (under a `properties` map) is a
+// field definition, not a keyword, and stays: server.json uses that field.
+// To rebuild the fixture, take the registry file at the commit above, delete
+// those keywords, and keep the file's formatting and escapes as they are.
 //
 // No JSON Schema library is declared in this repo, so `validate` below
 // implements the keywords that schema uses. It also refuses keys the schema
@@ -76,6 +85,28 @@ function validate(node, value, path = 'server.json', { lenient = false } = {}) {
   }
   return problems;
 }
+
+const REMOVED_ANNOTATION_KEYWORDS = ['$id', '$schema', 'example', 'examples'];
+
+/** Lists the paths of removed annotation keywords; keys of `properties` and `definitions` maps are names, not keywords. */
+function findAnnotationKeywords(node, path = '#', isNameMap = false) {
+  if (node === null || typeof node !== 'object') return [];
+  if (Array.isArray(node)) return node.flatMap((item, index) => findAnnotationKeywords(item, `${path}[${index}]`));
+  return Object.entries(node).flatMap(([key, child]) => {
+    const found = !isNameMap && REMOVED_ANNOTATION_KEYWORDS.includes(key) ? [`${path}/${key}`] : [];
+    const childIsNameMap = !isNameMap && (key === 'properties' || key === 'definitions');
+    return [...found, ...findAnnotationKeywords(child, `${path}/${key}`, childIsNameMap)];
+  });
+}
+
+test('the schema fixture has none of the removed annotation keywords', () => {
+  assert.deepEqual(findAnnotationKeywords(schema), []);
+});
+
+test('annotation keyword check finds a keyword but not a property of that name', () => {
+  const sample = { $id: 'x', properties: { $schema: { example: 1, type: 'string' }, example: { type: 'string' } } };
+  assert.deepEqual(findAnnotationKeywords(sample), ['#/$id', '#/properties/$schema/example']);
+});
 
 test('validator refuses a misspelled key and a missing required field', () => {
   const broken = { ...server, descripton: 'typo' };
