@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, constants, existsSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { decodeUtf8Strict, GateInputError, gitEnvironment } from './objects.mjs';
+import { decodeUtf8Strict, findingEntry, GateInputError, gitEnvironment } from './objects.mjs';
 
 /** Id of the private-list rule in reports. */
 export const PRIVATE_RULE_ID = 'R-PRIVATE';
@@ -11,28 +11,40 @@ export const PRIVATE_RULE_ID = 'R-PRIVATE';
 const CHECKPOINT_STEPS = 65_536;
 /** Every code point with a case mapping lies below this one, so higher code points fold to themselves. */
 const CASED_CODE_POINTS_END = 0x20000;
+/** The largest code point that fits in one UTF-16 unit; a higher one takes two. */
+const MAX_BMP_CODE_POINT = 0xffff;
 const CR = 0x0d;
 const LF = 0x0a;
 
 const ROOT_QUERIES = [
   { args: ['rev-parse', '--git-common-dir'], paths: (out) => [out.replace(/\n$/, '')] },
   { args: ['rev-parse', '--show-toplevel'], paths: (out) => [out.replace(/\n$/, '')] },
-  { args: ['worktree', 'list', '--porcelain', '-z'], paths: (out) => out.split('\0').filter((field) => field.startsWith('worktree ')).map((field) => field.slice('worktree '.length)) },
+  { args: ['worktree', 'list', '--porcelain', '-z'], paths: (out) => out.split('\0').filter((field) => field.startsWith('worktree ')).map((field) => field.slice('worktree '.length)), requiredInRepository: true },
 ];
 const ROOT_QUERY_MAX_BYTES = 1 << 20;
 
 /**
  * Every folder that belongs to the repository git finds from `repo`: `repo` itself, the git dir, the common git dir, the
  * worktree and every linked worktree. Git is run as the object read runs it (no GIT_ variable), so both name one repository.
- * A query git refuses (not a repository, no work tree) adds nothing: git then refuses the run with its own cause.
+ * The three git queries share the one `limits.gitDeadlineMs`: each gets the time the earlier ones left.
+ * A query git refuses (not a repository, no work tree) adds nothing: git then refuses the run with its own cause. The
+ * worktree list is the exception: once git has found the repository, a refused list (git older than 2.36 does not know
+ * `-z`) throws GateInputError(git-refused), as the other worktrees cannot be known.
  */
 function repositoryRoots(repo, limits) {
   const roots = new Set([repo]);
-  for (const { args, paths } of ROOT_QUERIES) {
-    const run = spawnSync('git', ['-C', repo, ...args], { env: gitEnvironment(), encoding: 'utf8', timeout: limits.gitDeadlineMs, maxBuffer: ROOT_QUERY_MAX_BYTES });
+  const deadline = performance.now() + limits.gitDeadlineMs;
+  let foundRepository = false;
+  for (const { args, paths, requiredInRepository } of ROOT_QUERIES) {
+    const remainingMs = Math.ceil(deadline - performance.now());
+    if (remainingMs <= 0) throw new GateInputError('timeout', 'git did not finish before its deadline');
+    const run = spawnSync('git', ['-C', repo, ...args], { env: gitEnvironment(), encoding: 'utf8', timeout: remainingMs, maxBuffer: ROOT_QUERY_MAX_BYTES });
     if (run.error?.code === 'ETIMEDOUT') throw new GateInputError('timeout', 'git did not finish before its deadline');
     if (run.error?.code === 'ENOBUFS') throw new GateInputError('output-limit', `git ${args[0]} produced more than ${ROOT_QUERY_MAX_BYTES} bytes`);
-    if (!run.error && run.status === 0) for (const found of paths(run.stdout)) roots.add(path.resolve(repo, found));
+    const answered = !run.error && run.status === 0;
+    if (!answered && requiredInRepository && foundRepository) throw new GateInputError('git-refused', `git ${args[0]} did not list the worktrees (git 2.36 or later is needed)`);
+    if (answered) for (const found of paths(run.stdout)) roots.add(path.resolve(repo, found));
+    foundRepository ||= answered;
   }
   return [...roots].filter((root) => existsSync(root)).map((root) => realpathSync.native(root));
 }
@@ -98,7 +110,7 @@ export const readPrivateList = (file, { repo, limits }) => readList(file, { repo
  */
 export const readWordingList = (file, { repo, limits }) => readList(file, { repo, limits, subject: 'wording-list' });
 
-const isOneCodePoint = (text) => text.length === (text.codePointAt(0) > 0xffff ? 2 : 1);
+const isOneCodePoint = (text) => text.length === (text.codePointAt(0) > MAX_BMP_CODE_POINT ? 2 : 1);
 const equalIgnoringCase = (first, second) => new RegExp(`^\\u{${first.toString(16)}}$`, 'iu').test(String.fromCodePoint(second));
 
 /**
@@ -134,10 +146,13 @@ let foldTable = null;
  *   a lone LF each end a line, and an entry never holds one, so it starts on the line where it ends.
  * - `eachEntry(text, onEntry)`: calls `onEntry(start, end)` with the UTF-16 bounds of the longest entry ending at each index
  *   where one ends, in order, until it returns true.
- * `checkpoint()` runs every CHECKPOINT_STEPS steps while building and matching; what it throws (the deadline) propagates.
+ * `checkpoint()` runs before and after the case-fold table is built (the table is built once per process, on first use), then every
+ * CHECKPOINT_STEPS steps while building and matching; what it throws (the deadline) propagates.
  */
 export function createPrivateMatcher(entries, checkpoint) {
+  checkpoint();
   foldTable ??= buildFoldTable();
+  checkpoint();
   const fold = (code) => foldTable.get(code) ?? code;
   let steps = 0;
   const step = () => {
@@ -162,7 +177,7 @@ export function createPrivateMatcher(entries, checkpoint) {
       let link = failure[state];
       for (; link !== 0 && !next[link].has(code); link = failure[link]) step();
       failure[child] = state === 0 ? 0 : next[link].get(code) ?? 0;
-      widths[child] = widths[state] + (code > 0xffff ? 2 : 1);
+      widths[child] = widths[state] + (code > MAX_BMP_CODE_POINT ? 2 : 1);
       longest[child] = ends[child] ? widths[child] : longest[failure[child]];
       queue.push(child);
     }
@@ -172,7 +187,7 @@ export function createPrivateMatcher(entries, checkpoint) {
     let [state, line] = [0, 1];
     for (let index = 0; index < text.length; index += 1) {
       const code = text.codePointAt(index);
-      if (code > 0xffff) index += 1;
+      if (code > MAX_BMP_CODE_POINT) index += 1;
       if (code === CR || (code === LF && text.charCodeAt(index - 1) !== CR)) line += 1;
       const folded = fold(code);
       let target = next[state].get(folded);
@@ -198,13 +213,13 @@ export function createPrivateMatcher(entries, checkpoint) {
  * R-PRIVATE: finds list entries in every path and in every blob that was read, binary blobs included (decoded as UTF-8,
  * U+FFFD for invalid bytes). A text blob (valid UTF-8, no NUL byte) is also read with every backslash removed, so an entry
  * written with regex or string escapes is found; the removal keeps every line break, so the lines are the blob's own.
- * Returns findings { rule, kind: 'path' | 'content', entry, line? }, `entry` being the object reader's entry. Throws
+ * Returns findings { rule, kind: 'path' | 'content', entry, line? }, `entry` being the object reader's entry without its bytes. Throws
  * GateInputError(limit:maxReportEntries) past that many findings.
  */
 export function scanPrivate({ entries, matcher, limits }) {
   const findings = [];
   const add = (finding) => {
-    findings.push({ rule: PRIVATE_RULE_ID, ...finding });
+    findings.push({ rule: PRIVATE_RULE_ID, ...finding, entry: findingEntry(finding.entry) });
     if (findings.length > limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${limits.maxReportEntries} findings`);
   };
   for (const entry of entries.filter((candidate) => candidate.path !== null)) {

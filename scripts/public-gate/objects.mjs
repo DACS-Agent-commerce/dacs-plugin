@@ -252,6 +252,9 @@ export function requireExpectedRoot(commits, expectedRoot) {
   if (roots.length !== 1 || (expectedRoot && roots[0] !== expectedRoot)) throw new GateInputError('unexpected-root', 'the history does not have the expected single root commit');
 }
 
+/** The part of an object-reader `entry` that a finding keeps: where the path is and which blob it holds, never the blob's bytes. */
+export const findingEntry = ({ position, path, pathBytes, oid }) => ({ position, path, pathBytes, oid });
+
 /**
  * Reads one commit from Git objects only. Returns { commit, tree, entries }; an entry is { position, pathBytes, path, mode,
  * kind, oid, size, problem, bytes } where `path` is null for a name that is not valid UTF-8, `problem` names why the blob
