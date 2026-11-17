@@ -1305,6 +1305,27 @@ test('authority failures retain readable codes and the original cause when prope
   }
 });
 
+test('an authority reader error code is used as the refusal code only when it fits the cause length limit', async (t) => {
+  const MAX_CODE_LENGTH = 200;
+  const cases = [
+    ['a code of exactly the limit is kept', 'a'.repeat(MAX_CODE_LENGTH), 'a'.repeat(MAX_CODE_LENGTH)],
+    ['a code one character over the limit refuses tp1_authority_failed', 'a'.repeat(MAX_CODE_LENGTH + 1), 'tp1_authority_failed'],
+    ['a very long code refuses tp1_authority_failed', 'a'.repeat(100_000), 'tp1_authority_failed'],
+  ];
+  for (const [name, code, expected] of cases) {
+    await t.test(name, async () => {
+      const w = createWorld();
+      const failure = Object.assign(new Error('authority refused'), { code });
+      w.on('authority', 1, () => { throw failure; });
+      const { error } = await w.settled(w.runPass());
+      assertRefusal(error, expected);
+      assert.ok(error.message.length < 2 * MAX_CODE_LENGTH, 'the refusal message stays short');
+      assert.equal(error.cause, failure, 'the original error is kept as the cause');
+      assert.deepEqual([w.counts.signer, w.counts.transport], [0, 0]);
+    });
+  }
+});
+
 test('the pass holds the wallet fence until every inner signer and send it let start has settled', async (t) => {
   // After `release()` the pass may finish; before it, a second tab must neither sign nor send.
   const assertHeldUntil = async (first, second, release) => {
