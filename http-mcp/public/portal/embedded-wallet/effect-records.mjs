@@ -11,7 +11,8 @@
 // version and approval revision, and the bounded cause of a hold. Never keys or phrases. Local tampering with the
 // browser profile is out of scope. `deriveDispatchHistory` reads the whole lane: an intent is cleared only by its
 // own pass's `-withheld`, and a later held or withheld record never clears an earlier intent, unknown or acknowledged
-// one. No page loads this yet.
+// one. A lane holds at most MAX_LANE_RECORDS records and a full lane is terminal: records are never deleted, so no
+// further pass can run on it. An intent is accepted only while a slot remains for its outcome. No page loads this yet.
 import { createEffectBoundary } from './effect-boundary.mjs';
 import { refuse } from './wallet-fence.mjs';
 
@@ -19,8 +20,10 @@ import { refuse } from './wallet-fence.mjs';
 export const EFFECT_RECORDS_DB_NAME = 'dacs-wallet-effects-v1';
 /** Largest `signed` record, in bytes. */
 export const MAX_SIGNED_BYTES = 1_048_576;
-/** Most records one lane may hold; the next append is refused `eb_lane_full`. */
+/** Most records one lane may hold; the next append is refused `eb_lane_full`. A full lane stays full. */
 export const MAX_LANE_RECORDS = 64;
+/** Slots an intent needs: its own and one for its outcome, so a request is never sent without room to record it. */
+const INTENT_SLOTS = 2;
 
 const DB_VERSION = 1;
 const RECORDS = 'records';
@@ -33,6 +36,7 @@ const IDENTITY_FIELDS = ['operationId', 'lane', 'pinVersion', 'approvalRevision'
 const nonemptyString = (value) => typeof value === 'string' && value !== '';
 const invalidRecord = (detail) => refuse('eb_record_invalid', new TypeError(detail));
 const phaseOf = (record) => record.kind.slice(record.stage.length + 1);
+const isIntent = (record) => STAGE_KINDS.has(record.kind) && phaseOf(record) === 'started';
 
 function assertRecord(lane, record) {
   if (!RECORD_KINDS.has(record?.kind)) throw invalidRecord(`unknown record kind ${record?.kind}`);
@@ -50,10 +54,12 @@ function assertRecord(lane, record) {
   if (!(record.bytes instanceof Uint8Array) || record.bytes.length === 0 || record.bytes.length > MAX_SIGNED_BYTES) throw invalidRecord(`signed bytes must be 1 to ${MAX_SIGNED_BYTES} bytes`);
 }
 
-// Validates a private copy of the caller's record, so what is checked is what is stored.
+// Validates a private copy of the caller's record, so what is checked is what is stored. The clone of a view copies
+// the whole buffer behind it, so signed bytes are copied again to just the view's bytes.
 function snapshotRecord(lane, record) {
   let snapshot;
   try { snapshot = structuredClone(record); } catch (cause) { throw refuse('eb_record_invalid', cause); }
+  if (snapshot?.bytes instanceof Uint8Array) snapshot.bytes = Uint8Array.from(snapshot.bytes);
   assertRecord(lane, snapshot);
   return snapshot;
 }
@@ -149,7 +155,7 @@ const appendLaneRecord = (database, lane, expectedRevision, record) => transact(
   headRequest.onsuccess = () => {
     const revision = headRequest.result?.revision ?? 0;
     if (revision !== expectedRevision) return abortWith(refuse('eb_revision_conflict', new Error(`lane ${lane} is at revision ${revision}, expected ${expectedRevision}`)));
-    if (revision >= MAX_LANE_RECORDS) return abortWith(refuse('eb_lane_full'));
+    if (revision + (isIntent(record) ? INTENT_SLOTS : 1) > MAX_LANE_RECORDS) return abortWith(refuse('eb_lane_full'));
     if (revision === 0) return write(0, undefined);
     const lastRequest = records.get([lane, revision]);
     lastRequest.onsuccess = () => write(revision, lastRequest.result);
@@ -171,7 +177,8 @@ const toLaneHead = (laneRecords) => ({
  * and no `observed`), `confirmation` (`none`, `acknowledged`, or `unknown` for any confirm intent without its own
  * `-acknowledged` or `-withheld`, or any `confirm-unknown`) and `mayBroadcast` (signed, confirmation acknowledged,
  * and no possible broadcast yet). Each intent is its own attempt, even under a reused pass id, and an outcome answers
- * only the intent before it. An unknown confirmation is never cleared by a later acknowledgement.
+ * only the intent before it. An outcome with no open intent counts as an unknown attempt of its stage, so the answer
+ * refuses rather than allows. An unknown confirmation is never cleared by a later acknowledgement.
  */
 export function deriveDispatchHistory(laneRecords) {
   // One entry per intent, so a pass id that starts a stage again cannot overwrite what its earlier intent left.
@@ -179,10 +186,11 @@ export function deriveDispatchHistory(laneRecords) {
   let observed = false;
   for (const record of laneRecords) {
     if (record.kind === 'observed') observed = true;
-    else if (STAGE_KINDS.has(record.kind) && phaseOf(record) === 'started') attempts.push({ passId: record.passId, stage: record.stage, phase: 'started' });
+    else if (isIntent(record)) attempts.push({ passId: record.passId, stage: record.stage, phase: 'started' });
     else if (STAGE_KINDS.has(record.kind)) {
       const answered = attempts.findLast((attempt) => attempt.passId === record.passId && attempt.stage === record.stage && attempt.phase === 'started');
       if (answered !== undefined) answered.phase = phaseOf(record);
+      else attempts.push({ passId: record.passId, stage: record.stage, phase: 'unknown' });
     }
   }
   const possiblySent = (stage) => attempts.some((attempt) => attempt.stage === stage && attempt.phase !== 'withheld');
@@ -210,6 +218,8 @@ export function createDurableRecordStore({ indexedDB = globalThis.indexedDB, loc
   const database = () => {
     opening ??= openDatabase(indexedDB).then((opened) => {
       opened.onversionchange = () => { opened.close(); opening = undefined; };
+      // The browser closed the connection on its own: the next call opens a new one.
+      opened.onclose = () => { opening = undefined; };
       return opened;
     }, (error) => { opening = undefined; throw error; });
     return opening;
@@ -238,10 +248,22 @@ export function createDurableRecordStore({ indexedDB = globalThis.indexedDB, loc
   };
 }
 
+// A copy of what the boundary reads from a request, taken before any await so a later change to the caller's object
+// changes nothing. Values that are not the expected shape are passed on as they are, for the boundary to refuse.
+function copyRequest(request) {
+  const { operationId, lane, pinVersion, approvalRevision, capability, sign, retained, stages } = request ?? {};
+  return {
+    operationId, lane, pinVersion, approvalRevision, capability, sign,
+    retained: retained?.bytes instanceof Uint8Array ? { bytes: Uint8Array.from(retained.bytes) } : retained,
+    stages: Array.isArray(stages) ? stages.map((stage) => ({ name: stage?.name, send: stage?.send })) : stages,
+  };
+}
+
 /**
- * The effect boundary over the durable records: `createEffectBoundary` with a durable store, whose `runPass` first
- * awaits `records.ready()`, so a missing primitive or non-strict durability refuses before the pass signs. Takes the
- * boundary's options (except `records`) plus `indexedDB` and `locks` (the same Web Locks manager the fence uses).
+ * The effect boundary over the durable records: `createEffectBoundary` with a durable store, whose `runPass` copies
+ * its request, then awaits `records.ready()`, so a missing primitive or non-strict durability refuses before the pass
+ * signs. Takes the boundary's options (except `records`) plus `indexedDB` and `locks`; `ready()` only checks that
+ * `locks.request` is a function, and the fence's own Web Locks manager is not compared with it.
  * Returns `{ runPass, records }`.
  */
 export function createDurableEffectBoundary({ indexedDB, locks, ...boundaryOptions }) {
@@ -250,8 +272,9 @@ export function createDurableEffectBoundary({ indexedDB, locks, ...boundaryOptio
   return {
     records,
     async runPass(request) {
+      const own = copyRequest(request);
       await records.ready();
-      return boundary.runPass(request);
+      return boundary.runPass(own);
     },
   };
 }
