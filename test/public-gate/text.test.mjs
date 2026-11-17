@@ -359,7 +359,7 @@ test('wording: a line of a million character references is checked within a smal
     const read = (text) => [scanWording({ entries: [{ path: 'a.md', bytes: Buffer.from(text), oid: 'a'.repeat(40), position: 1 }], wordingMatcher: matcher, limits }).length,
       wordingEntryLines(text, matcher, 100, { readMarkup: true }).length];
     console.log(JSON.stringify([read('&a'.repeat(1 << 20)), read('&a;'.repeat(1 << 20)), read('&amp;'.repeat(1 << 20))]));`;
-  const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000 });
   assert.equal(output.trim(), '[[0,0],[1,1],[0,0]]');
 });
 
