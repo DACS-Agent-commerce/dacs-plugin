@@ -228,6 +228,8 @@ export function createServer(deps: Deps): McpServer {
       return fail(e);
     }
   };
+  /** Whether `ok()` would refuse this value: the same two checks. Used on one part of a result at a time, so one part cannot block the rest. */
+  const leaksSecret = (value: unknown): boolean => guard.valueLeaks(value) || guard.leaks(stringify(value));
   function fail(e: unknown): ToolResult {
     let msg: string;
     if (e instanceof SecretLeakError) msg = e.message;
@@ -469,18 +471,18 @@ export function createServer(deps: Deps): McpServer {
     'demos_dacs_discover',
     {
       title: 'Find DACS sellers in the Directory',
-      description: 'Search the public DACS Directory for Listings (sellers offering a service) by text, category, tags, payment rail, identity tier or highest price. Returns one page of summaries (id, version, status, seller claim, title, category, tags, rails, pricing, transaction readiness), the total, a cursor for the next page and the Directory\'s scan progress. Withdrawn Listings are included, marked revoked: true. Testnet. Read-only: it buys, signs and pays nothing. Results are unverified search hits; check one with demos_dacs_listing_check.',
+      description: 'Search the public DACS Directory for Listings (sellers offering a service) by text, category, tags, payment rail, identity tier or highest price. Returns one page of summaries (id, version, status, seller claim, title, category, tags, rails, pricing, transaction readiness), the total, a cursor for the next page and the Directory\'s scan progress. Withdrawn Listings are included, marked revoked: true. A hit whose text looks like secret material is left out and counted in withheld. Testnet. Read-only: it buys, signs and pays nothing. Results are unverified search hits: titles and prices are the Directory\'s text, and demos_dacs_listing_check does not confirm them (it verifies the signed Listing only).',
       inputSchema: DISCOVER_INPUT,
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    guarded(async (a: DiscoverArgs) => discoverListings(directory, a)),
+    guarded(async (a: DiscoverArgs) => discoverListings(directory, a, leaksSecret)),
   );
 
   server.registerTool(
     'demos_dacs_listing_check',
     {
       title: 'Fetch and verify a DACS Listing from the Directory',
-      description: 'Fetch one signed Listing from the public DACS Directory by seller claim, listing id and version, then verify it here with the same checks as demos_dacs_listing_verify. Returns where it came from and accept | reject | indeterminate; only accept is success. A Directory error (404, 409, 502, 503) is an error, never a verdict. Testnet. Read-only: it buys, signs and pays nothing.',
+      description: 'Fetch one signed Listing from the public DACS Directory by seller claim, listing id and version, then verify it here with the same checks as demos_dacs_listing_verify. Returns where it came from and accept | reject | indeterminate; only accept is success. It verifies the signed Listing only: the title and price in a demos_dacs_discover hit are the Directory\'s text, and accept does not confirm them. A Directory error (404, 409, 502, 503) is an error, never a verdict. Seller text in a check detail that looks like secret material is withheld; the verdict stays. Testnet. Read-only: it buys, signs and pays nothing.',
       inputSchema: {
         seller: SELLER_CLAIM_INPUT.describe('Seller primary claim, as shown by demos_dacs_discover (sellerClaim)'),
         listing_id: LISTING_ID_INPUT,
@@ -492,7 +494,10 @@ export function createServer(deps: Deps): McpServer {
     guarded(async (a: { seller: string; listing_id: string; version: number; revocation?: ListingVerifyArgs['revocation'] }) => {
       const artifact = await directory.fetchListing({ listingId: a.listing_id, version: a.version, seller: a.seller });
       const source = { directory: config.directoryUrl, seller: a.seller, listingId: a.listing_id, version: a.version };
-      return { source, result: verifyListingInput({ listing: artifact, revocation: a.revocation }) };
+      const report = verifyListingInput({ listing: artifact, revocation: a.revocation });
+      // a check detail can echo seller text; one that looks like secret material is withheld, the verdict is kept
+      const checks = report.checks.map((c) => (leaksSecret(c) ? { ...c, detail: 'withheld: it looked like secret material' } : c));
+      return { source, result: { ...report, checks } };
     }),
   );
 

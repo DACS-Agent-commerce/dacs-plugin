@@ -8,8 +8,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { harness } from '../helpers.js';
-import { loadConfig } from '../../src/config.js';
+import { harness, MNEMONIC } from '../helpers.js';
+import { DEFAULT_DIRECTORY_URL, loadConfig } from '../../src/config.js';
 import { createDirectoryClient, DirectoryError, type DirectoryQuery } from '../../src/directory.js';
 // ajv comes with @modelcontextprotocol/sdk; the schemas are the Directory's own (see the fixture's header)
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -120,6 +120,12 @@ const queryOf = (seen: string) => new URL(seen, 'http://fake').searchParams;
 // ---- config ----
 test('DACS_DIRECTORY_URL defaults to the public Directory', () => {
   assert.equal(loadConfig({}).directoryUrl, 'https://directory.v2.agentcommerce.network');
+});
+
+test('the unit-test harness never defaults to the public Directory', async () => {
+  const h = await harness();
+  assert.notEqual(h.config.directoryUrl, DEFAULT_DIRECTORY_URL);
+  assert.equal(new URL(h.config.directoryUrl).hostname, '127.0.0.1');
 });
 
 test('a non-https, non-loopback DACS_DIRECTORY_URL is refused at config load', () => {
@@ -428,6 +434,7 @@ test('demos_dacs_discover returns the Directory reply field for field', async ()
     assert.deepEqual(r.json.listings, ALL.map(projected));
     assert.equal(r.json.total, ALL.length);
     assert.equal(r.json.cursor, null);
+    assert.equal(r.json.withheld, 0);
     assert.deepEqual(r.json.scanProgress, SCAN);
     // text from the Directory is carried as data, next to the fixed note that says so
     assert.equal(r.json.listings[1].title, INJECTION);
@@ -505,6 +512,41 @@ test('paging with cursor walks all pages', async () => {
   }
 });
 
+test('demos_dacs_discover refuses a limit over 100 before any request, and sends 100', async () => {
+  const dir = await pagingDirectory();
+  try {
+    const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+    const refused = await h.call('demos_dacs_discover', { limit: 101 });
+    assert.equal(refused.isError, true);
+    assert.deepEqual(dir.seen, []);
+    const accepted = await h.call('demos_dacs_discover', { limit: 100 });
+    assert.equal(accepted.isError, false, accepted.text);
+    assert.equal(queryOf(dir.seen[0] ?? '').get('limit'), '100');
+  } finally {
+    await dir.close();
+  }
+});
+
+// a seller's text that looks like key material, built so no source line holds a key-like value
+const KEY_LIKE_TEXT = `"seed":"${'x'.repeat(20)}"`;
+
+test('one hit whose text trips the secret guard is withheld and the page and its cursor stay', async () => {
+  const hits = [summary(1), summary(2, `before ${KEY_LIKE_TEXT} after`), summary(3, MNEMONIC), summary(4)];
+  const dir = await fakeDirectory((_req, res) => send(res, 200, { listings: hits, total: 9, cursor: 'next-page', scanProgress: SCAN }));
+  try {
+    const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+    const r = await h.call('demos_dacs_discover', {});
+    assert.equal(r.isError, false, r.text);
+    assert.deepEqual(r.json.listings, [hits[0], hits[3]].filter((s) => s !== undefined).map(projected));
+    assert.equal(r.json.withheld, 2);
+    assert.equal(r.json.cursor, 'next-page');
+    assert.equal(r.json.total, 9);
+    assert.doesNotMatch(r.text, /xxxxxxxx|legal winner/);
+  } finally {
+    await dir.close();
+  }
+});
+
 // ---- demos_dacs_listing_check ----
 const checkArgs = { listing_id: SIGNED_LISTING.listingId, version: SIGNED_LISTING.listingVersion, seller: SELLER };
 const listingDirectory = (served: unknown) => fakeDirectory((_req, res) => send(res, 200, served));
@@ -521,6 +563,23 @@ test('demos_dacs_listing_check verifies a good artifact', async () => {
     assert.equal(r.json.source.directory, dir.url);
     assert.equal(r.json.source.listingId, SIGNED_LISTING.listingId);
     assert.equal(r.json.source.seller, SELLER);
+  } finally {
+    await dir.close();
+  }
+});
+
+test('a reject whose echoed seller text trips the secret guard is still a reject, with that text withheld', async () => {
+  const dir = await listingDirectory({ ...clone(SIGNED_LISTING), dacsVersion: `2.0 ${KEY_LIKE_TEXT}` });
+  try {
+    const h = await harness({ DACS_DIRECTORY_URL: dir.url });
+    h.setNow(NOW);
+    const r = await h.call('demos_dacs_listing_check', { ...checkArgs, revocation: 'absent' });
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.json.result.decision, 'reject');
+    const version = r.json.result.checks.find((c: { check: string }) => c.check === '2-dacsVersion');
+    assert.equal(version.decision, 'fail');
+    assert.match(version.detail, /^withheld: /);
+    assert.doesNotMatch(r.text, /xxxxxxxx/);
   } finally {
     await dir.close();
   }
