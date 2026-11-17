@@ -469,7 +469,7 @@ export function createServer(deps: Deps): McpServer {
     'demos_dacs_discover',
     {
       title: 'Find DACS sellers in the Directory',
-      description: 'Search the public DACS Directory for Listings (sellers offering a service) by text, category, tags, payment rail, identity tier or highest price. Returns one page of summaries (id, version, seller claim, title, category, tags, price and asset, identity tier, rails), the total, a cursor for the next page and the Directory\'s scan progress. Testnet. Read-only: it buys, signs and pays nothing. Results are unverified search hits; check one with demos_dacs_listing_check.',
+      description: 'Search the public DACS Directory for Listings (sellers offering a service) by text, category, tags, payment rail, identity tier or highest price. Returns one page of summaries (id, version, status, seller claim, title, category, tags, rails, pricing, transaction readiness), the total, a cursor for the next page and the Directory\'s scan progress. Withdrawn Listings are included, marked revoked: true. Testnet. Read-only: it buys, signs and pays nothing. Results are unverified search hits; check one with demos_dacs_listing_check.',
       inputSchema: DISCOVER_INPUT,
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
@@ -480,7 +480,7 @@ export function createServer(deps: Deps): McpServer {
     'demos_dacs_listing_check',
     {
       title: 'Fetch and verify a DACS Listing from the Directory',
-      description: 'Fetch one signed Listing from the public DACS Directory by seller claim, listing id and version, then verify it here with the same checks as demos_dacs_listing_verify. Returns where it came from and accept | reject | indeterminate; only accept is success. A Directory error (404, 502, 503) is an error, never a verdict. Testnet. Read-only: it buys, signs and pays nothing.',
+      description: 'Fetch one signed Listing from the public DACS Directory by seller claim, listing id and version, then verify it here with the same checks as demos_dacs_listing_verify. Returns where it came from and accept | reject | indeterminate; only accept is success. A Directory error (404, 409, 502, 503) is an error, never a verdict. Testnet. Read-only: it buys, signs and pays nothing.',
       inputSchema: {
         seller: z.string().min(3).max(300).describe('Seller primary claim, as shown by demos_dacs_discover (sellerClaim)'),
         listing_id: z.string().min(1).max(128).regex(/^[A-Za-z0-9._~-]+$/),
