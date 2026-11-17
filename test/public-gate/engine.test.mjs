@@ -225,6 +225,20 @@ test('a git binary that cannot be started still fails with the git-unavailable c
   }
 });
 
+test('a commit id that names a blob or a tree fails as not-a-commit, not as an unknown commit', async () => {
+  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
+  const [{ oid: blob }] = (await readTarget(repo)).entries;
+  await assert.rejects(readCommitObjects({ repo: repo.dir, commit: blob, limits: LIMITS }), { cause: 'not-a-commit' });
+  await assert.rejects(readCommitObjects({ repo: repo.dir, commit: repo.tree, limits: LIMITS }), { cause: 'not-a-commit' });
+});
+
+test('a commit argument that is not a full object id fails as not-a-commit before git is asked', async () => {
+  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
+  for (const malformed of ['', 'HEAD', repo.commit.slice(0, 12), repo.commit.toUpperCase(), '--all', `${repo.commit}^{tree}`]) {
+    await assert.rejects(readCommitObjects({ repo: repo.dir, commit: malformed, limits: LIMITS }), { cause: 'not-a-commit' }, malformed);
+  }
+});
+
 test('git variables in the caller\'s environment cannot redirect the read to another repository', async () => {
   const wanted = createRepo([{ path: 'wanted.txt', content: 'wanted\n' }]);
   const other = createRepo([{ path: 'other.txt', content: 'other\n' }]);
