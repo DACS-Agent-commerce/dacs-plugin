@@ -11,6 +11,8 @@ export const PRIVATE_RULE_ID = 'R-PRIVATE';
 const CHECKPOINT_STEPS = 65_536;
 /** Every code point with a case mapping lies below this one, so higher code points fold to themselves. */
 const CASED_CODE_POINTS_END = 0x20000;
+/** The largest code point that fits in one UTF-16 unit; a higher one takes two. */
+const MAX_BMP_CODE_POINT = 0xffff;
 const CR = 0x0d;
 const LF = 0x0a;
 
@@ -108,7 +110,7 @@ export const readPrivateList = (file, { repo, limits }) => readList(file, { repo
  */
 export const readWordingList = (file, { repo, limits }) => readList(file, { repo, limits, subject: 'wording-list' });
 
-const isOneCodePoint = (text) => text.length === (text.codePointAt(0) > 0xffff ? 2 : 1);
+const isOneCodePoint = (text) => text.length === (text.codePointAt(0) > MAX_BMP_CODE_POINT ? 2 : 1);
 const equalIgnoringCase = (first, second) => new RegExp(`^\\u{${first.toString(16)}}$`, 'iu').test(String.fromCodePoint(second));
 
 /**
@@ -175,7 +177,7 @@ export function createPrivateMatcher(entries, checkpoint) {
       let link = failure[state];
       for (; link !== 0 && !next[link].has(code); link = failure[link]) step();
       failure[child] = state === 0 ? 0 : next[link].get(code) ?? 0;
-      widths[child] = widths[state] + (code > 0xffff ? 2 : 1);
+      widths[child] = widths[state] + (code > MAX_BMP_CODE_POINT ? 2 : 1);
       longest[child] = ends[child] ? widths[child] : longest[failure[child]];
       queue.push(child);
     }
@@ -185,7 +187,7 @@ export function createPrivateMatcher(entries, checkpoint) {
     let [state, line] = [0, 1];
     for (let index = 0; index < text.length; index += 1) {
       const code = text.codePointAt(index);
-      if (code > 0xffff) index += 1;
+      if (code > MAX_BMP_CODE_POINT) index += 1;
       if (code === CR || (code === LF && text.charCodeAt(index - 1) !== CR)) line += 1;
       const folded = fold(code);
       let target = next[state].get(folded);
