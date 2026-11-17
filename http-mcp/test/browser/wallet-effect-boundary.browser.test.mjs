@@ -1553,6 +1553,42 @@ const invalidDigests = [
 ];
 const noEffects = (world) => [world.counts.lockRequests, world.counts.authority, world.counts.stop, world.counts.signer, world.counts.transport];
 
+// Runs `work`, gives the runtime one macrotask to report a rejection nobody handled, and returns those reasons.
+async function unhandledRejectionsDuring(work) {
+  const reasons = [];
+  const record = (reason) => reasons.push(reason);
+  process.on('unhandledRejection', record);
+  try {
+    await work();
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off('unhandledRejection', record);
+  }
+  return reasons;
+}
+
+test('a connection digest that is a rejecting promise refuses tp1_local_binding_invalid and leaves no unhandled rejection', async (t) => {
+  const rejecting = () => Promise.reject(new Error('digest unavailable'));
+  await t.test('on the first read', async () => {
+    const world = createWorld();
+    world.state.digest = rejecting();
+    let error;
+    const reasons = await unhandledRejectionsDuring(async () => { ({ error } = await world.settled(world.runPass())); });
+    assertRefusal(error, 'tp1_local_binding_invalid');
+    assert.deepEqual(reasons, []);
+    assert.deepEqual(noEffects(world), [0, 0, 0, 0, 0]);
+  });
+  await t.test('on a later read inside the pass', async () => {
+    const world = createWorld();
+    world.on('authority', 2, () => { world.state.digest = rejecting(); });
+    let error;
+    const reasons = await unhandledRejectionsDuring(async () => { ({ error } = await world.settled(world.runPass())); });
+    assertRefusal(error, 'tp1_local_binding_invalid');
+    assert.deepEqual(reasons, []);
+    assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
+  });
+});
+
 test('a connection digest that is not a nonempty string refuses tp1_local_binding_invalid before any lock, read, record or effect', async (t) => {
   for (const [name, digest] of invalidDigests) {
     await t.test(`${name} on the first read`, async () => {

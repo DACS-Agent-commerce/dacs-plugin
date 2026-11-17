@@ -103,7 +103,11 @@ function createPass({ fence, checks, clock, stoppedCode }, { operationId, approv
   // The digest is the connection binding: only a nonempty string can name one, so any other answer fails closed.
   const readDigest = () => {
     const value = runCheck(checks, 'connectionDigest');
-    if (!nonemptyString(value)) throw refuse('tp1_local_binding_invalid', value);
+    if (!nonemptyString(value)) {
+      // The refusal is the answer; a promise that rejects later must not also surface as an unhandled rejection.
+      if (typeof value?.then === 'function') value.then(undefined, () => {});
+      throw refuse('tp1_local_binding_invalid', value);
+    }
     return value;
   };
   const binding = { digest: readDigest(), generation: fence.connectionGeneration };
