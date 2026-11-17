@@ -118,8 +118,9 @@ first and no final JSON is written.
       --package-root <checkout>/chatgpt [--restart-cycle] [--startup-timeout-ms N] \
       [--overall-timeout-ms N]
 
-This is an HTTP client only and makes no Docker calls. The operator, or the supplied
-test helper, builds the image from `deploy/Dockerfile` and runs it. The container
+This is an HTTP client only and makes no Docker calls. The operator builds the image
+from the package-root `Dockerfile` and runs it; the test helper that did this in the
+original source tree is not carried in this repository. The container
 should run read-only, as the image's non-root `node` user, with a fresh data volume,
 on an internal network, with no restart policy and with only a `127.0.0.1` port
 published. It must have no directory, RPC or external issuer configured. The script:
@@ -139,17 +140,18 @@ network actions.
 
 ## Image file permissions
 
-The image copies the staged runtime as `root:root` and runs it as the non-root `node`
-user. `deploy/scripts/stage-runtime.mjs` therefore sets the staged tree's modes
-itself instead of keeping the build context's modes. A private checkout (0600 files,
-0700 directories) previously produced an image whose container exited with `EACCES`
-opening `/app/bin/dacs-chatgpt-plugin.mjs`. Every staged directory is now 0755, and every
-regular file is 0644, or 0755 if the input had an exec bit. Nothing is group- or
-world-writable, so `node` can read the app code but cannot change it. Symlinks are kept
-as they are and are still checked to stay inside `node_modules`. Special files are
-refused. The inputs are not changed, and `STAGE-MANIFEST.json` content hashes do not
-depend on input modes. `deploy/test/stage-runtime.test.mjs` covers this with a private-mode
-fixture. The Dockerfile is unchanged.
+The package-root `Dockerfile` copies `bin/`, `src/`, `public/`, `skills/`, `plugin.json`
+and `mcp.json` straight from the build context and runs them as the non-root `node`
+user. It sets no file modes, so whether `node` can read the app code, and whether it
+can change it, depends on the modes in the build context. No image has been built
+from it here.
+
+Historical, not part of this build: the original source tree's deploy bundle, which is
+not carried in this repository, copied a staged runtime as `root:root`. Its
+`stage-runtime.mjs` reset every staged directory to 0755 and every regular file to 0644
+(0755 with an exec bit), after a private checkout (0600 files, 0700 directories) had
+produced a container that exited with `EACCES` opening `/app/bin/dacs-chatgpt-plugin.mjs`.
+Neither that script nor its private-mode test is carried here.
 
 ## Unit tests
 

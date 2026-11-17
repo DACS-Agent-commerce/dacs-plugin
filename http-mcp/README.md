@@ -139,11 +139,11 @@ DACS_OAUTH_COOKIE_KEYS=<32+ random chars> DACS_DATA_DIR=./.data npm start
 
 The install flag `--omit=optional` is required because optional native packages are outside the locked closure.
 
-The tested packaging contract uses `deploy/Dockerfile` (source checkout), not
-the legacy root Dockerfile. It runs as a non-root user, keeps task data in
-`/var/lib/dacs-chatgpt`, has a `HEALTHCHECK`, and stops on SIGTERM. See
-`docs/DEPLOYMENT-CHECKLIST.md` and `docs/CHATGPT-DEVELOPER-MODE.md`. No deployment
-has been performed.
+The container recipe is the `Dockerfile` in this directory (the original source tree's
+deploy bundle is not carried here); build it with `docker build -t dacs-chatgpt-plugin:1.0.0 .`.
+It runs as the non-root `node` user, keeps task data in `/data`, has a `HEALTHCHECK`, and
+stops on SIGTERM. `npm run check:package` replays its install and run steps without Docker;
+an image build and container run remain unverified. See `docs/DEPLOYMENT-CHECKLIST.md` and `docs/CHATGPT-DEVELOPER-MODE.md`. No deployment has been performed.
 
 ## Tests
 
