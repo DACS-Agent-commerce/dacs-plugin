@@ -194,9 +194,10 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   writes are not atomic together: a crash between them leaves a report without evidence.
 - **Diagnostics.** stderr holds one line: a cause and its fixed text, never a path, a list entry or git's own output.
 - **Scan limit.** The matcher reads each text once whatever the number of entries, with at most one state per code point
-  of the list (so at most `maxPrivateListBytes`); at the shipped limits it scans about 25 MiB/s, so `maxTotalBlobBytes`
-  takes about 10 s. `scanDeadlineMs` is a backstop: past it the run stops with `limit:scanDeadlineMs` (exit 2, no report).
-  The private-list scan and the wording-list scan each get the full deadline, counted from when that rule starts.
+  of the list (so at most `maxPrivateListBytes`). On one runner, a full-size tree (`maxTotalBlobBytes`) took about 12 s for
+  `R-PRIVATE` and about 20 s for `R-WORDING`. The private-list scan and the wording-list scan each get the full
+  `scanDeadlineMs` (30 s), counted from when that rule starts, so the slower rule has about 1.5x headroom. A slower
+  runner stops with `limit:scanDeadlineMs` (exit 2, no report) instead of finishing.
   The scan does not return to the event loop, so SIGINT and SIGTERM stop the run only while git runs (exit 2, no report).
 - **Exit codes.** 0 pass, 1 findings, 2 missing or malformed input, interrupt during a git call, limit or unscannable
   target.
