@@ -8,6 +8,8 @@
 /** Time allowed to acquire the wallet fence before `tp1_fence_timeout`. */
 export const FENCE_TIMEOUT_MS = 10_000;
 
+// The largest delay `setTimeout` keeps; a longer one fires after 1 ms.
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 const FENCE_LOCK_PREFIX = 'dacs-wallet-effects:';
 const CONNECTION_REPLACEMENT_OPERATION = 'connection-replacement';
 
@@ -55,6 +57,11 @@ function requestLock(locks, name, clock, timeoutMs) {
     const cancelTimer = clock.setTimer(() => {
       if (phase === 'waiting') expire();
     }, timeoutMs);
+    if (typeof cancelTimer !== 'function') {
+      phase = 'failed';
+      reject(refuse('eb_fence_failed', new TypeError('clock.setTimer must return a function that cancels the timer')));
+      return;
+    }
     const fail = (cause) => {
       if (phase !== 'waiting') return;
       phase = 'failed';
@@ -87,11 +94,16 @@ function requestLock(locks, name, clock, timeoutMs) {
  * whether it did; only the owner's own capability can. `owns(capability, operationId)` says whether the capability
  * is the live one. `replaceConnection(replace)` runs `replace` under the fence and bumps `connectionGeneration`,
  * which nothing else changes. `run` and `replaceConnection` throw `tp1_fence_timeout` (cause kept) after `timeoutMs`
- * and `eb_fence_failed` (cause kept) when the lock request itself fails. `createWalletFence` throws a `TypeError`
- * for a `locks` without `request` or a `walletId` that is not a non-empty string.
+ * and `eb_fence_failed` (cause kept) when the lock request itself fails or `clock.setTimer` does not return a
+ * function. `createWalletFence` throws a `TypeError` for a `locks` without `request`, a `clock` without `now` and
+ * `setTimer`, a `timeoutMs` that is not an integer from 1 to 2^31-1, or a `walletId` that is not a non-empty string.
  */
 export function createWalletFence({ locks, walletId, clock = SYSTEM_CLOCK, timeoutMs = FENCE_TIMEOUT_MS }) {
   requireFunctions('locks', locks, ['request']);
+  requireFunctions('clock', clock, ['now', 'setTimer']);
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
+    throw new TypeError(`timeoutMs must be an integer from 1 to ${MAX_TIMEOUT_MS}`);
+  }
   if (typeof walletId !== 'string' || walletId === '') throw new TypeError('walletId must be a non-empty string');
   const lockName = `${FENCE_LOCK_PREFIX}${walletId}`;
   let holder = null;

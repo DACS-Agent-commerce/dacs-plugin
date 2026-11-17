@@ -22,6 +22,14 @@ function assertRefusal(error, code) {
 const settled = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
 const isPending = async (promise) => (await Promise.race([promise.then(() => 'settled', () => 'settled'), Promise.resolve('pending')])) === 'pending';
 
+// True once `promise` has settled after the microtask queue has drained; unlike `isPending` it sees through a wrapper.
+async function hasSettled(promise) {
+  let done = false;
+  promise.then(() => { done = true; }, () => { done = true; });
+  await settle();
+  return done;
+}
+
 function createTab({ clock = createFakeClock(), locks = createFakeLocks(), walletId = 'wallet-1', ...options } = {}) {
   const fence = createWalletFence({ locks, walletId, clock, ...options });
   const background = [];
@@ -303,6 +311,34 @@ test('createWalletFence refuses a missing Web Locks manager or a wallet id that 
   assert.throws(() => createWalletFence({ locks: {}, walletId: 'wallet-1' }), { name: 'TypeError', message: 'locks.request must be a function' });
   assert.throws(() => createWalletFence({ locks: undefined, walletId: 'wallet-1' }), TypeError);
   for (const walletId of ['', undefined, 7]) assert.throws(() => createWalletFence({ locks, walletId }), { name: 'TypeError', message: 'walletId must be a non-empty string' });
+});
+
+test('createWalletFence refuses a clock without now or setTimer with a TypeError', () => {
+  const locks = createFakeLocks();
+  const { now, setTimer } = createFakeClock();
+  assert.throws(() => createWalletFence({ locks, walletId: 'wallet-1', clock: { setTimer } }), { name: 'TypeError', message: 'clock.now must be a function' });
+  assert.throws(() => createWalletFence({ locks, walletId: 'wallet-1', clock: { now } }), { name: 'TypeError', message: 'clock.setTimer must be a function' });
+  assert.throws(() => createWalletFence({ locks, walletId: 'wallet-1', clock: null }), TypeError);
+});
+
+test('createWalletFence refuses a timeoutMs that is not an integer from 1 to 2147483647 with a TypeError', () => {
+  const locks = createFakeLocks();
+  const clock = createFakeClock();
+  for (const timeoutMs of [0, -1, 1.5, NaN, Infinity, 2 ** 31, '10000', null]) {
+    assert.throws(() => createWalletFence({ locks, walletId: 'wallet-1', clock, timeoutMs }), { name: 'TypeError', message: 'timeoutMs must be an integer from 1 to 2147483647' }, String(timeoutMs));
+  }
+  for (const timeoutMs of [1, 2 ** 31 - 1]) assert.doesNotThrow(() => createWalletFence({ locks, walletId: 'wallet-1', clock, timeoutMs }));
+});
+
+test('a clock whose setTimer returns a non-function refuses eb_fence_failed with a TypeError cause and does not ask for the lock', async () => {
+  const clock = { now: () => 0, setTimer: () => undefined };
+  const tab = createTab({ clock });
+  const run = settled(tab.fence.run('op-1', async () => 'ran'));
+  assert.equal(await hasSettled(run), true, 'the run does not hang');
+  const { error } = await run;
+  assertRefusal(error, 'eb_fence_failed');
+  assert.ok(error.cause instanceof TypeError);
+  assert.equal(tab.locks.requests, 0);
 });
 
 test('refuse builds a refusal that keeps its code and its cause, and no cause when none is given', () => {
