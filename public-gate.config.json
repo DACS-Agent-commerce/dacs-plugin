@@ -43,7 +43,8 @@
     { "value": "chatgpt.com", "reason": "AI-client origin in http-mcp/.env.example (redirect and CIMD origins)" },
     { "value": "developers.openai.com", "reason": "AI-client documentation the connect guides cite" },
     { "value": "agent-plugins.org", "reason": "plugin specification site that the manifests cite" },
-    { "value": "snapshot.ubuntu.com", "reason": "package snapshot service that docs/CI.md cites" }
+    { "value": "snapshot.ubuntu.com", "reason": "package snapshot service that docs/CI.md cites" },
+    { "value": "directory.v2.agentcommerce.network", "reason": "public DACS Directory that the stdio discovery tools read by default" }
   ],
   "scopedAllowances": [
     { "path": "http-mcp/package-lock.json", "rule": "R-HOST", "value": "opencollective.com", "context": "url", "reason": "funding link in a dependency's metadata" },

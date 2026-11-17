@@ -23,7 +23,6 @@ const CANONICAL_STRING_PATTERN =
   `^[^${PATTERN_SPACE}\\u0000-\\u001f\\u007f](?:[^\\u0000-\\u001f\\u007f]*[^${PATTERN_SPACE}\\u0000-\\u001f\\u007f])?$`;
 
 export const listingSummarySchema = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "/schemas/listing-summary.v2.schema.json",
   title: "DACS Directory ListingSummary",
   description: "Discovery projection with unassessed transaction readiness. Pay-bearing Listings use concrete pay phases; pay-alternative and procurement Listings are outside this Directory profile.",
