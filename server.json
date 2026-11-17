@@ -1,7 +1,7 @@
 {
   "name": "io.github.DACS-Agent-commerce/demos-mcp",
   "title": "DACS Listings (testnet)",
-  "description": "Finds and checks DACS seller Listings, read-only; testnet writes are refused in this release.",
+  "description": "Finds and checks DACS seller Listings, read-only by default; testnet writes are refused for now.",
   "repository": {
     "url": "https://github.com/DACS-Agent-commerce/dacs-plugin",
     "source": "github",
@@ -16,7 +16,7 @@
       "version": "0.1.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [
-        { "name": "DEMOS_RPC_URL", "description": "https URL of the Demos testnet RPC node to read from. There is no built-in node.", "isRequired": true },
+        { "name": "DEMOS_RPC_URL", "description": "https URL of the Demos RPC node. Chain reads and mainnet need it; finding and checking Listings does not. There is no built-in node." },
         { "name": "DEMOS_NETWORK", "description": "Network to use. Leave unset for testnet.", "default": "testnet" },
         { "name": "DEMOS_STATE_DIR", "description": "Folder where the server keeps its local state. Defaults to ~/.demos-mcp." },
         { "name": "DEMOS_MCP_ENABLE_WRITES", "description": "Set to 1 to register the write tools. Not for a testnet RPC in this release: testnet writes are refused." },

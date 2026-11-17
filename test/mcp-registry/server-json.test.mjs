@@ -12,8 +12,12 @@
 // appear as schema keywords, and nothing else is changed. They do not affect
 // validation, and they carry URLs that the public-repo host check would flag.
 // A property that is itself named `$schema` (under a `properties` map) is a
-// field definition, not a keyword, and stays. server.json leaves that optional
-// field out, so the file names no URL.
+// field definition, not a keyword, and stays. The schema lists it as optional,
+// but the registry's publish step requires it. server.json leaves it out for
+// now so that the file names no URL the public-repo host check would flag. The
+// submission step must add `$schema` (and its host to the public gate config)
+// and drop the no-`$schema` test below. Until then this file is not ready to
+// submit as it is.
 // To rebuild the fixture, take the registry file at the commit above, delete
 // those keywords, and keep the file's formatting and escapes as they are.
 //
@@ -176,9 +180,10 @@ test('server.json has no $schema line, which would add a host to the public-repo
   assert.equal('$schema' in server, false);
 });
 
-test('description is one read-only sentence without value claims', () => {
+test('description is one sentence that says read-only by default, without value claims', () => {
   assert.match(server.description, /^[^.!?]+\.$/, 'one sentence ending in a full stop');
-  assert.match(server.description, /read-only/i);
+  assert.match(server.description, /read-only by default/i);
+  assert.ok(server.description.length <= 100, 'registry limit is 100 characters');
   assert.match(server.description, /testnet writes are refused/i);
   assert.doesNotMatch(server.description, /mainnet|production|final(ity|ised|ized)?|guarantee/i);
 });
@@ -188,6 +193,13 @@ test('no text in server.json says the server prepares purchases or works only on
   for (const text of texts) {
     assert.doesNotMatch(text, /prepar|wallet actions|only on testnet|testnet only|works on testnet/i, text);
   }
+});
+
+test('no variable is marked required, because the server starts on testnet without any', () => {
+  for (const entry of server.packages[0].environmentVariables) {
+    assert.notEqual(entry.isRequired, true, `${entry.name} must not be required`);
+  }
+  assert.match(configSource, /DEMOS_RPC_URL'\) \?\? \(network === 'testnet' \? DEFAULT_TESTNET_RPC/);
 });
 
 test('the write switch says testnet writes are refused in this release', () => {
