@@ -31,9 +31,10 @@ export function decodeUtf8Strict(bytes) {
   }
 }
 
-function abortCause(error, { reason }) {
+function abortCause(error, { reason }, callerSignal) {
   if (reason instanceof GateInputError) return reason;
   if (reason?.name === 'TimeoutError') return new GateInputError('timeout', 'git did not finish before its deadline');
+  if (callerSignal.aborted) return new GateInputError('interrupted', 'the read was cancelled before git finished');
   return new GateInputError('git-unavailable', `git could not run (${error.code ?? error.name})`);
 }
 
@@ -59,7 +60,7 @@ function runGit({ repo, args, input, maxBytes, limits, signal }) {
     });
     child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(0, STDERR_CAPTURE_CHARS); });
     child.stdin.on('error', () => {});
-    child.on('error', (error) => reject(abortCause(error, bounded)));
+    child.on('error', (error) => reject(abortCause(error, bounded, signal)));
     child.on('close', (status) => resolve({ status, stdout: Buffer.concat(chunks), stderr }));
     child.stdin.end(input);
   });

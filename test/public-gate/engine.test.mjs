@@ -191,6 +191,40 @@ test('a directory that is not a repository fails as git-refused, not as an unkno
   await assert.rejects(readCommitObjects({ repo: makeTempDir('plain'), commit: repo.commit, limits: LIMITS }), { cause: 'git-refused' });
 });
 
+test('a read cancelled through the caller\'s signal before it starts fails with the interrupted cause', async () => {
+  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
+  const cancelled = new AbortController();
+  cancelled.abort();
+  await assert.rejects(readCommitObjects({ repo: repo.dir, commit: repo.commit, limits: LIMITS, signal: cancelled.signal }), { cause: 'interrupted' });
+});
+
+test('a read cancelled through the caller\'s signal while git runs fails with the interrupted cause', async () => {
+  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
+  const binDir = makeTempDir('slow-git');
+  writeFileSync(path.join(binDir, 'git'), '#!/bin/sh\nexec sleep 60\n', { mode: 0o755 });
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}:${originalPath}`;
+  const cancelled = new AbortController();
+  try {
+    const reading = readCommitObjects({ repo: repo.dir, commit: repo.commit, limits: LIMITS, signal: cancelled.signal });
+    cancelled.abort();
+    await assert.rejects(reading, { cause: 'interrupted' });
+  } finally {
+    process.env.PATH = originalPath;
+  }
+});
+
+test('a git binary that cannot be started still fails with the git-unavailable cause', async () => {
+  const repo = createRepo([{ path: 'a.txt', content: 'a\n' }]);
+  const originalPath = process.env.PATH;
+  process.env.PATH = makeTempDir('no-git');
+  try {
+    await assert.rejects(readTarget(repo), { cause: 'git-unavailable' });
+  } finally {
+    process.env.PATH = originalPath;
+  }
+});
+
 test('git variables in the caller\'s environment cannot redirect the read to another repository', async () => {
   const wanted = createRepo([{ path: 'wanted.txt', content: 'wanted\n' }]);
   const other = createRepo([{ path: 'other.txt', content: 'other\n' }]);
