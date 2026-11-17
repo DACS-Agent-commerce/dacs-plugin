@@ -50,10 +50,12 @@ function assertRecord(lane, record) {
   if (!(record.bytes instanceof Uint8Array) || record.bytes.length === 0 || record.bytes.length > MAX_SIGNED_BYTES) throw invalidRecord(`signed bytes must be 1 to ${MAX_SIGNED_BYTES} bytes`);
 }
 
-// Validates a private copy of the caller's record, so what is checked is what is stored.
+// Validates a private copy of the caller's record, so what is checked is what is stored. The clone of a view copies
+// the whole buffer behind it, so signed bytes are copied again to just the view's bytes.
 function snapshotRecord(lane, record) {
   let snapshot;
   try { snapshot = structuredClone(record); } catch (cause) { throw refuse('eb_record_invalid', cause); }
+  if (snapshot?.bytes instanceof Uint8Array) snapshot.bytes = Uint8Array.from(snapshot.bytes);
   assertRecord(lane, snapshot);
   return snapshot;
 }

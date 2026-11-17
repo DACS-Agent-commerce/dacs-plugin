@@ -2052,6 +2052,17 @@ test('each durable transition is its own short readwrite transaction that checks
     assert.deepEqual(await store.head('lane-empty'), { revision: 0, signed: undefined, last: undefined });
   });
 
+  await t.test('signed bytes that are a view of a larger buffer are stored without the rest of the buffer', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    const large = new Uint8Array(MAX_SIGNED_BYTES * 8);
+    large.set(SIGNED, 100);
+    await store.append(LANE, 0, { ...signedRecord(), bytes: large.subarray(100, 100 + SIGNED.length) });
+    const [stored] = idb.committedRecords(LANE);
+    assert.deepEqual([...stored.bytes], SIGNED);
+    assert.equal(stored.bytes.buffer.byteLength, SIGNED.length);
+  });
+
   await t.test('a lane head that counts a record the lane lacks is refused eb_lane_corrupt', async () => {
     const idb = createFakeIndexedDb();
     const store = storeOver(idb);
