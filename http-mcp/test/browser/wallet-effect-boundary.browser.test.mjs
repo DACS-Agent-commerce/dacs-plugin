@@ -1589,6 +1589,30 @@ test('a connection digest that is a rejecting promise refuses tp1_local_binding_
   });
 });
 
+test('a connection digest whose then cannot be read or called still refuses tp1_local_binding_invalid', async (t) => {
+  const hostile = [
+    ['a throwing then getter', () => ({ get then() { throw new Error('then getter'); } })],
+    ['a proxy that throws on read', () => new Proxy({}, { get() { throw new Error('proxy get'); } })],
+    ['a then method that throws', () => ({ then() { throw new Error('then call'); } })],
+  ];
+  for (const [name, make] of hostile) {
+    await t.test(`${name} on the first read`, async () => {
+      const world = createWorld();
+      world.state.digest = make();
+      const { error } = await world.settled(world.runPass());
+      assertRefusal(error, 'tp1_local_binding_invalid');
+      assert.deepEqual(noEffects(world), [0, 0, 0, 0, 0]);
+    });
+    await t.test(`${name} on a later read inside the pass`, async () => {
+      const world = createWorld();
+      world.on('authority', 2, () => { world.state.digest = make(); });
+      const { error } = await world.settled(world.runPass());
+      assertRefusal(error, 'tp1_local_binding_invalid');
+      assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
+    });
+  }
+});
+
 test('a connection digest that is not a nonempty string refuses tp1_local_binding_invalid before any lock, read, record or effect', async (t) => {
   for (const [name, digest] of invalidDigests) {
     await t.test(`${name} on the first read`, async () => {

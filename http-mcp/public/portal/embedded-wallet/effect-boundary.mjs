@@ -105,7 +105,7 @@ function createPass({ fence, checks, clock, stoppedCode }, { operationId, approv
     const value = runCheck(checks, 'connectionDigest');
     if (!nonemptyString(value)) {
       // The refusal is the answer; a promise that rejects later must not also surface as an unhandled rejection.
-      if (typeof value?.then === 'function') value.then(undefined, () => {});
+      try { if (typeof value?.then === 'function') value.then(undefined, () => {}); } catch {}
       throw refuse('tp1_local_binding_invalid', value);
     }
     return value;
@@ -285,8 +285,9 @@ function snapshotRequest(request) {
 
 /**
  * Creates an unwired wallet pass runner with injected fence, checks and record store. admission and approval return
- * true or a refusal code; stopped returns boolean, readAuthority resolves for a current binding; when it rejects, a
- * string error code of at most 200 characters becomes the refusal code, otherwise tp1_authority_failed. connectionDigest
+ * true or a refusal code; stopped returns boolean, readAuthority resolves for a current binding; when it rejects with
+ * an error that is not a refusal, a string error code of at most 200 characters becomes the refusal code, otherwise
+ * tp1_authority_failed; a refusal it throws is passed on as it is. connectionDigest
  * synchronously returns a nonempty string; any other answer refuses tp1_local_binding_invalid. Approval receives the
  * captured revision. runPass requires nonempty string operationId/pinVersion/approvalRevision/lane and either
  * sign or retained.bytes plus closed stages; resolves {operationId, passId, outcomes}. Invalid requests throw
