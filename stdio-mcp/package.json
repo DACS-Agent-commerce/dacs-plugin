@@ -43,7 +43,12 @@
     "claude-code",
     "plugin",
     "dacs",
-    "wallet"
+    "wallet",
+    "ai-agents",
+    "agent-commerce",
+    "agent-payments",
+    "verified-data",
+    "procurement"
   ],
   "dependencies": {
     "@kynesyslabs/demosdk": "4.0.17",
