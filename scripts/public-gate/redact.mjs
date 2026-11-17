@@ -42,7 +42,7 @@ const DIAGNOSTICS = {
   'report-unreadable': 'the --report file cannot be read as a regular file', 'report-malformed': 'the --report file is not a gate report',
   'context-unreadable': 'the --context file cannot be read as a regular file', 'context-malformed': 'the --context file is not a review context',
   'report-not-complete': 'the report is not a complete-scope report', 'report-other-head': 'the report is for another commit than --head',
-  'report-rules-differ': 'the report lists other rules than this gate registers', 'report-policy-differs': 'the report was made under another gate revision, configuration or root than the review context names',
+  'report-rules-differ': 'the report lists other rules than this gate registers', 'report-policy-differs': 'the report was made under another scanner identity (gate revision, configuration, root, scanner version or executable, scanner policy, exception entries or wording list) than the review context names',
   'report-refs-differ': 'the history report names other refs, or other objects for them, than the run being checked selects',
   'report-not-passing': 'the report has a finding, an unscannable entry or a rule that did not pass',
   'download-too-large': 'a download is larger than allowed', 'download-timeout': 'a download did not finish before its deadline',
