@@ -92,8 +92,11 @@ function requestLock(locks, name, clock, timeoutMs) {
  * with a capability it is a nested step: the capability must be the live one for the same operation (else
  * `tp1_fence_not_owned`) and nothing is acquired. `release(capability, operationId)` ends the hold and returns
  * whether it did; only the owner's own capability can. `owns(capability, operationId)` says whether the capability
- * is the live one. `replaceConnection(replace)` runs `replace` under the fence and bumps `connectionGeneration`,
- * which nothing else changes. `run` and `replaceConnection` throw `tp1_fence_timeout` (cause kept) after `timeoutMs`
+ * is the live one. `replaceConnection(replace, capability?)` runs `replace` under the fence and bumps
+ * `connectionGeneration`, which nothing else changes; it throws a `TypeError` at once when `replace` is not a
+ * function. Code already inside a fenced section must pass the section's capability to `replaceConnection` and to
+ * any nested `run`: without it they ask for the lock the section holds and wait until `tp1_fence_timeout`. A
+ * capability that is not the live one is refused `tp1_fence_not_owned`. `run` and `replaceConnection` throw `tp1_fence_timeout` (cause kept) after `timeoutMs`
  * and `eb_fence_failed` (cause kept) when the lock request itself fails or `clock.setTimer` does not return a
  * function. `createWalletFence` throws a `TypeError` for a `locks` without `request`, a `clock` without `now` and
  * `setTimer`, a `timeoutMs` that is not an integer from 1 to 2^31-1, or a `walletId` that is not a non-empty string.
@@ -135,13 +138,18 @@ export function createWalletFence({ locks, walletId, clock = SYSTEM_CLOCK, timeo
     }
   }
 
-  const replaceConnection = (replace) => run(CONNECTION_REPLACEMENT_OPERATION, async () => {
-    try {
-      return await replace();
-    } finally {
-      connectionGeneration += 1;
-    }
-  });
+  function replaceConnection(replace, capability) {
+    if (typeof replace !== 'function') throw new TypeError('replace must be a function');
+    // Nested under a capability, the step belongs to the operation that holds it; otherwise it is its own operation.
+    const operationId = capability === undefined ? CONNECTION_REPLACEMENT_OPERATION : capability?.operationId;
+    return run(operationId, async () => {
+      try {
+        return await replace();
+      } finally {
+        connectionGeneration += 1;
+      }
+    }, capability);
+  }
 
   return { run, release, owns, replaceConnection, get connectionGeneration() { return connectionGeneration; } };
 }

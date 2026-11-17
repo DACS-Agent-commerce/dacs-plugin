@@ -341,6 +341,42 @@ test('a clock whose setTimer returns a non-function refuses eb_fence_failed with
   assert.equal(tab.locks.requests, 0);
 });
 
+test('replaceConnection throws a TypeError for a non-function at once, before taking the fence or changing the generation', () => {
+  const tab = createTab();
+  for (const replace of [undefined, 'reconnect', {}]) assert.throws(() => tab.fence.replaceConnection(replace), { name: 'TypeError', message: 'replace must be a function' });
+  assert.equal(tab.fence.connectionGeneration, 0);
+  assert.equal(tab.locks.requests, 0);
+});
+
+test('a replacement inside a running section with its capability runs without a second acquisition and bumps the generation', async () => {
+  const tab = createTab();
+  await tab.fence.run('op-1', async (capability) => {
+    const nested = settled(tab.fence.replaceConnection(async () => 'replaced', capability));
+    assert.equal(await hasSettled(nested), true, 'the replacement does not wait for the lock its own section holds');
+    assert.equal((await nested).value, 'replaced');
+  });
+  assert.equal(tab.locks.requests, 1);
+  assert.equal(tab.fence.connectionGeneration, 1);
+  assert.ok(await tab.isFree());
+});
+
+test('a replacement with a forged or ended capability is refused tp1_fence_not_owned, replaces nothing and keeps the generation', async () => {
+  const tab = createTab();
+  let replacements = 0;
+  const replace = async () => { replacements += 1; };
+  const kept = await tab.fence.run('op-1', async (capability) => capability);
+  await tab.fence.run('op-2', async () => {
+    const forged = settled(tab.fence.replaceConnection(replace, { operationId: 'op-2' }));
+    assert.equal(await hasSettled(forged), true, 'a forged capability is refused, not queued');
+    assertRefusal((await forged).error, 'tp1_fence_not_owned');
+    const ended = settled(tab.fence.replaceConnection(replace, kept));
+    assert.equal(await hasSettled(ended), true, 'an ended capability is refused, not queued');
+    assertRefusal((await ended).error, 'tp1_fence_not_owned');
+  });
+  assert.equal(replacements, 0);
+  assert.equal(tab.fence.connectionGeneration, 0);
+});
+
 test('refuse builds a refusal that keeps its code and its cause, and no cause when none is given', () => {
   const cause = new Error('underlying');
   const withCause = refuse('tp1_example', cause);
