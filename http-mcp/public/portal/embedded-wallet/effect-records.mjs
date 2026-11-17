@@ -240,10 +240,22 @@ export function createDurableRecordStore({ indexedDB = globalThis.indexedDB, loc
   };
 }
 
+// A copy of what the boundary reads from a request, taken before any await so a later change to the caller's object
+// changes nothing. Values that are not the expected shape are passed on as they are, for the boundary to refuse.
+function copyRequest(request) {
+  const { operationId, lane, pinVersion, approvalRevision, capability, sign, retained, stages } = request ?? {};
+  return {
+    operationId, lane, pinVersion, approvalRevision, capability, sign,
+    retained: retained?.bytes instanceof Uint8Array ? { bytes: Uint8Array.from(retained.bytes) } : retained,
+    stages: Array.isArray(stages) ? stages.map((stage) => ({ name: stage?.name, send: stage?.send })) : stages,
+  };
+}
+
 /**
- * The effect boundary over the durable records: `createEffectBoundary` with a durable store, whose `runPass` first
- * awaits `records.ready()`, so a missing primitive or non-strict durability refuses before the pass signs. Takes the
- * boundary's options (except `records`) plus `indexedDB` and `locks` (the same Web Locks manager the fence uses).
+ * The effect boundary over the durable records: `createEffectBoundary` with a durable store, whose `runPass` copies
+ * its request, then awaits `records.ready()`, so a missing primitive or non-strict durability refuses before the pass
+ * signs. Takes the boundary's options (except `records`) plus `indexedDB` and `locks`; `ready()` only checks that
+ * `locks.request` is a function, and the fence's own Web Locks manager is not compared with it.
  * Returns `{ runPass, records }`.
  */
 export function createDurableEffectBoundary({ indexedDB, locks, ...boundaryOptions }) {
@@ -252,8 +264,9 @@ export function createDurableEffectBoundary({ indexedDB, locks, ...boundaryOptio
   return {
     records,
     async runPass(request) {
+      const own = copyRequest(request);
       await records.ready();
-      return boundary.runPass(request);
+      return boundary.runPass(own);
     },
   };
 }

@@ -1947,6 +1947,49 @@ test('with Web Locks or IndexedDB unavailable every effect refuses with a named 
   }
 });
 
+test('the durable pass copies its request before it waits for the record store: a change made while the store is getting ready changes nothing', async (t) => {
+  await t.test('identity, lane, signer and stage sends are the ones the caller passed', async () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    const request = proc.request();
+    const changed = [];
+    const running = proc.settled(proc.durable.runPass(request));
+    request.operationId = 'op-changed';
+    request.lane = 'lane-changed';
+    request.sign = async () => { changed.push('sign'); return new Uint8Array(SIGNED); };
+    request.stages[0].send = async () => { changed.push('send'); };
+    request.stages.length = 0;
+    const { error, value } = await running;
+    assert.equal(error, undefined);
+    assert.equal(value.operationId, 'op-1');
+    assert.deepEqual(changed, []);
+    assert.deepEqual([proc.counts.signer, proc.counts.transport], [1, 1]);
+    assert.deepEqual(kindsOf(idb), ['signed', 'dispatch-started', 'dispatch-acknowledged']);
+    assert.equal(idb.committedRecords('lane-changed').length, 0);
+  });
+
+  await t.test('the retained bytes are the ones the caller passed', async () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    await proc.store.append(LANE, 0, signedRecord());
+    const retained = { bytes: Uint8Array.from(SIGNED) };
+    const running = proc.settled(proc.durable.runPass(proc.request({ sign: undefined, retained, stages: stagesOf(proc, ['confirm']) })));
+    retained.bytes.fill(0);
+    const { error } = await running;
+    assert.equal(error, undefined);
+    assert.deepEqual(proc.sent.map((bytes) => [...bytes]), [SIGNED]);
+  });
+
+  await t.test('a request that carries a capability or has no lane is still refused before any record or effect', async () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    assertRefusal((await proc.settled(proc.durable.runPass(proc.request({ capability: {} })))).error, 'tp1_fence_not_owned');
+    const { error } = await proc.settled(proc.durable.runPass(proc.request({ lane: undefined })));
+    assert.ok(error instanceof TypeError, `${error}`);
+    assert.deepEqual([proc.counts.signer, proc.counts.transport, kindsOf(idb).length], [0, 0, 0]);
+  });
+});
+
 test('each durable transition is its own short readwrite transaction that checks and advances the lane revision across real task-boundary awaits, no transaction is held across an authority, stop, signer or network await, and a revision conflict from another tab refuses with nothing transmitted', async (t) => {
   await t.test('every transition of a full pass is one strict transaction that adds one record and advances the head', async () => {
     const idb = createFakeIndexedDb();
