@@ -143,6 +143,8 @@ export async function harness(env: Record<string, string> = {}, opts: { beforeSe
     DEMOS_MNEMONIC_FILE: '/nonexistent/mock',
     DEMOS_STATE_DIR: stateDir,
     DEMOS_CONFIRM_CHANNELS: 'stderr',
+    // a closed loopback port: a test that does not start its own Directory never reaches the public one
+    DACS_DIRECTORY_URL: 'http://127.0.0.1:9',
     ...env,
   } as NodeJS.ProcessEnv);
   // Test double: the harness's own mock RPC counts as the known testnet. A test
