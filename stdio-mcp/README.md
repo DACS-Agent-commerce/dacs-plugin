@@ -191,7 +191,7 @@ npm run test:integration    # read-only test; needs DEMOS_RPC_URL; not run for t
 
 ### Install in Claude Code
 
-Testnet only, installed from source. The repository root has a marketplace file,
+Testnet by default, installed from source. The repository root has a marketplace file,
 so Claude Code can add the repository directly:
 
 ```text
@@ -204,9 +204,10 @@ start of the server prints the build command (`npm ci && npm run build` in the
 plugin's folder); run it, then restart Claude Code or run `/mcp`.
 
 Then run `/demos-find <what you want>`. It calls `demos_dacs_discover` on the
-public DACS Directory, then `demos_dacs_listing_check` on the hit you pick.
-Search results are public and are not verified until checked. `/demos-find`
-buys nothing. The plugin option **DACS Directory URL** sets `DACS_DIRECTORY_URL`;
+public DACS Directory, then `demos_dacs_listing_check` on the hit you pick. It
+passes no revocation result, so a sound Listing comes back `indeterminate`:
+revocation is not established. The title and price hint in the search summary
+are the Directory's text; the check does not verify them. The plugin option **DACS Directory URL** sets `DACS_DIRECTORY_URL`;
 leave it empty to use the built-in Directory.
 
 ### Claude Code (plugin, local path)

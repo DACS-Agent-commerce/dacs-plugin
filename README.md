@@ -26,21 +26,20 @@ The external security review is on hold.
 
 ## Install in Claude Code
 
-Testnet only, installed from source. In Claude Code:
-
-```text
-/plugin marketplace add DACS-Agent-commerce/dacs-plugin
-/plugin install demos@demos-mcp
-```
+Testnet by default, installed from source. In Claude Code, add this repository
+as a marketplace, then install the `demos` plugin from it. The exact commands
+are in [`stdio-mcp/README.md`](stdio-mcp/README.md), which also describes the
+plugin's settings.
 
 The installed copy is not built. The first start of the server prints the build
 command (`npm ci && npm run build` in the plugin's folder); run it, then restart
 Claude Code or run `/mcp`.
 
 Then run `/demos-find <what you want>`. It searches the public DACS Directory
-and checks the listing you pick. Search results are public and are not verified
-until checked. `/demos-find` buys nothing. The plugin's settings are described in
-[`stdio-mcp/README.md`](stdio-mcp/README.md).
+and checks the signed Listing you pick. It passes no revocation result, so a
+sound Listing comes back `indeterminate`: revocation is not established. The
+title and price hint in the search summary are the Directory's text; the check
+does not verify them.
 
 ## Gate
 

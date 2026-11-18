@@ -52,15 +52,16 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
+Files: 762 (verbatim 487, edited 215, changed here 16, added 44).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
+| `.claude-plugin/marketplace.json` | `962a6540cf0180218a2889d2cac035b4c7b4f638` | added: a marketplace at the repository root that lists the stdio plugin |
 | `.github/workflows/stdio-mcp.yml` | `ca22aadab7ce48e3185b934abe5d5d6eaa320e8a` | added: written fresh from stdio's workflow tests; no carried source |
 | `.gitignore` | `d82b03e30be4d89a5be65cbc8506d7236ba57cf1` | added: ignore rules for dependencies, build output, logs and local environment files |
 | `.gitleaksignore` | `9b718d6f403ed4776ff4c9df40a00ab63a608a6c` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
-| `README.md` | `a4c2d67ecb95d67b52b05a6d70fe6f1a353132e0` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections |
+| `README.md` | `c5c477f789aba902af8e749b995d41a6335a6349` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections, and an "Install in Claude Code" section |
 | `docs/PUBLIC-GATE.md` | `1678668758708b1f5030c78c329067d61202ba85` | added: documentation of the public-content gate |
 | `http-mcp/.dockerignore` | `aae035eb68f5747b0bda683606503b97ca99afdf` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/.env.example` | `61149650b005fca4655a1ba4d338e3b2a5f52f7d` | verbatim |
@@ -734,11 +735,11 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `scripts/public-gate/redact.mjs` | `8a04da888122e00a828f5818cd11ccbab8443c91` | added: public-content gate source |
 | `scripts/public-gate/rules-private.mjs` | `b57b5753c6809159554f4c82b205c31b0baafda9` | added: public-content gate source |
 | `stdio-mcp/.claude-plugin/marketplace.json` | `d84732871f473d7f9e0bc6a1144bae8b0646af0f` | verbatim |
-| `stdio-mcp/.claude-plugin/plugin.json` | `c977a78af1a20e73a71e8fb05ac88dfc15f6b66a` | edited: RPC and opt-in descriptions name no host and do not direct testnet writes to the mainnet opt-in |
+| `stdio-mcp/.claude-plugin/plugin.json` | `460ebfd4175cffd9faf5e11327d6b43f4b0a4451` | edited: RPC and opt-in descriptions name no host and do not direct testnet writes to the mainnet opt-in; then changed here: the DACS Directory URL option |
 | `stdio-mcp/.gitignore` | `db95153686d0c7bbbc1ffe2b84468bf9a5f979af` | verbatim |
-| `stdio-mcp/.mcp.json` | `d645db37dc6bab55f3582af16b663e5cf6978fcb` | verbatim |
+| `stdio-mcp/.mcp.json` | `8d95666d475cae1188a491e6992c2690d13fc309` | changed here after a verbatim import: passes the DACS Directory URL option to the server as `DACS_DIRECTORY_URL` |
 | `stdio-mcp/LICENSE` | `7d73a34f494ae4d87e549308c2b4559497dc7ffb` | verbatim |
-| `stdio-mcp/README.md` | `e32b909ffb8289c3718e9061a1109c8143cc590a` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked; then changed here: the note on the CI workflow names the workflow file |
+| `stdio-mcp/README.md` | `18fbf1a99ae7f623f33f455667e53ac3254c991f` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked; then changed here: the note on the CI workflow names the workflow file; an "Install in Claude Code" section and `/demos-find` in the command lists |
 | `stdio-mcp/SECURITY.md` | `3d58f87836ffea22e1a00d970d9c9f2f9fcd9253` | edited: testnet writes and faucet requests are refused in this release; vulnerability reports point to GitHub's private vulnerability reporting; live-run claim marked as made in the source repository; the CI description corrected to this tree; then changed here: the CI description names the workflow file |
 | `stdio-mcp/adapters/HOSTS.md` | `bb8adfc1574c71436b8ce455afb09a03af360b70` | verbatim |
 | `stdio-mcp/adapters/claude/README.md` | `a83699c03384cb7e060e0a4444babad1042e19c2` | verbatim |
@@ -750,6 +751,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `stdio-mcp/commands/demos-attest.md` | `02bdbc279d52aaac7171e83bb508dacfc3e3227b` | verbatim |
 | `stdio-mcp/commands/demos-balance.md` | `826440407f8fc34e3838fcc56fd98abd217a70a4` | verbatim |
 | `stdio-mcp/commands/demos-buy.md` | `88ae81ae7d279a3ba2c1b4634b4e75648cc09d74` | verbatim |
+| `stdio-mcp/commands/demos-find.md` | `5992b4f755a755e412cb1c78e9a4b09d7e97e7d6` | added: searches the public Directory and checks the signed Listing the user picks |
 | `stdio-mcp/commands/demos-onboard.md` | `7c2f187772845f801d0cced18a967a0c52442a2c` | verbatim |
 | `stdio-mcp/commands/demos-verify-receipt.md` | `3859eb3b0c8375a3e08cff9d0d733e87b0a3c47e` | verbatim |
 | `stdio-mcp/docs/MANDATES.md` | `ddfa22924388adcc07fc785ab870aebc1e3b6631` | verbatim |
@@ -801,6 +803,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `stdio-mcp/test/unit/workflow-settings.test.ts` | `eb1574cba478076e8f10b9e1ae79ceb578da73b0` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the shared-input path filters and the SDK input validation step are expected, with two refusal cases |
 | `stdio-mcp/tsconfig.json` | `3cf94395ce469d74d6c8ba7abcb763df04e51863` | verbatim |
 | `test/ci/carry-state.test.mjs` | `ad09f5acfeaac7b1623e4400bc8e984326a0817d` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/ci/claude-install.test.mjs` | `beae889edc2a3426d946f7929442f24bd25e7b3a` | added: tests of the root marketplace, the plugin manifest and the `/demos-find` command |
 | `test/ci/root-script.test.mjs` | `1113534311581054298466b4a169d518b8afc40b` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/lib/choice.test.mjs` | `654dead8e6a23f82bf27272959eb827a1d5db717` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/lib/gate-fixtures.mjs` | `53197b06b98db5fe0ab46759853e7bbbdc59d7d8` | added: tests of the public-content gate and of the carried-file inventory |
