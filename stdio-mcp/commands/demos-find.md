@@ -10,7 +10,11 @@ This command is written to search and check, using the two read-only tools named
 
 1. If the request above is empty, ask the user what they want to find, in one question.
 2. Call `demos_dacs_discover` with that request. Search results are public Directory entries. Say so when you show them.
-3. List the hits in a short numbered list (seller name, title, price hint as the seller wrote it, listing id and version; mark any `revoked` hit), and ask the user which one to check. Stop if there are no hits, and say that nothing was found.
+3. List the hits in `listings` in a short numbered list (seller name, title, price hint as the seller wrote it, listing id and version; mark any `revoked` hit), and ask the user which one to check. When `listings` is empty, read `total`, `withheld` and `cursor` before you answer:
+   - If `withheld` is above 0, say that hits were found but none can be shown here, and give the `withheld` count.
+   - If `cursor` is not null, offer the next page: call `demos_dacs_discover` again with the same request and that `cursor` value, exactly as returned, if the user wants it.
+   - If `listings` is empty, `withheld` is 0 and `cursor` is null, but `total` is above 0, say that the Directory reports `total` matches and this page shows none. Do not say that nothing was found.
+   - Say that nothing was found only when `total` is 0, `withheld` is 0 and `cursor` is null. Then stop.
 4. Call `demos_dacs_listing_check` for the hit the user picks, with the seller claim, listing id and version exactly as `demos_dacs_discover` returned them. Never pass a `revocation` value, and never take one from the Directory hit.
 5. Report the `decision` first, in plain words:
    - `accept` — every check passed. This is a check of the listing only; it is not a purchase and not an endorsement of the seller.

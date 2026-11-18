@@ -751,7 +751,7 @@ Files: 762 (verbatim 487, edited 215, changed here 16, added 44).
 | `stdio-mcp/commands/demos-attest.md` | `02bdbc279d52aaac7171e83bb508dacfc3e3227b` | verbatim |
 | `stdio-mcp/commands/demos-balance.md` | `826440407f8fc34e3838fcc56fd98abd217a70a4` | verbatim |
 | `stdio-mcp/commands/demos-buy.md` | `88ae81ae7d279a3ba2c1b4634b4e75648cc09d74` | verbatim |
-| `stdio-mcp/commands/demos-find.md` | `b9c850f27afbfd878f007c1fd665eb42a888083f` | added: searches the public Directory and checks the signed Listing the user picks |
+| `stdio-mcp/commands/demos-find.md` | `1fd9e18f994420842b07f19652c02a49273a89f0` | added: searches the public Directory and checks the signed Listing the user picks; an empty page is reported from its `withheld`, `cursor` and `total` |
 | `stdio-mcp/commands/demos-onboard.md` | `7c2f187772845f801d0cced18a967a0c52442a2c` | verbatim |
 | `stdio-mcp/commands/demos-verify-receipt.md` | `3859eb3b0c8375a3e08cff9d0d733e87b0a3c47e` | verbatim |
 | `stdio-mcp/docs/MANDATES.md` | `ddfa22924388adcc07fc785ab870aebc1e3b6631` | verbatim |
