@@ -200,15 +200,22 @@ so Claude Code can add the repository directly:
 ```
 
 Claude Code copies the plugin without `dist/` or `node_modules/`. The first
-start of the server prints the build command (`npm ci && npm run build` in the
-plugin's folder); run it, then restart Claude Code or run `/mcp`.
+start of the server writes the build command to Claude Code's MCP log. Run
+`npm ci && npm run build` in the installed plugin's folder (Claude Code's
+`${CLAUDE_PLUGIN_ROOT}`); `/mcp` shows the server's status. Then restart Claude
+Code or run `/mcp`.
 
-Then run `/demos-find <what you want>`. It calls `demos_dacs_discover` on the
-public DACS Directory, then `demos_dacs_listing_check` on the hit you pick. It
-passes no revocation result, so a sound Listing comes back `indeterminate`:
-revocation is not established. The title and price hint in the search summary
-are the Directory's text; the check does not verify them. The plugin option **DACS Directory URL** sets `DACS_DIRECTORY_URL`;
-leave it empty to use the built-in Directory.
+Then run `/demos-find <what you want>`. It is written to search and check, using
+two read-only tools: `demos_dacs_discover` on the public DACS Directory, then
+`demos_dacs_listing_check` on the hit you pick. It passes no revocation result,
+so a Listing whose other checks pass comes back `indeterminate`: revocation is
+not established. Any other check that is not `pass` is named, and a hit the
+Directory marked withdrawn is reported as withdrawn. The title and price hint in
+the search summary are the Directory's text; the check does not verify them.
+
+The plugin option **DACS Directory URL** sets `DACS_DIRECTORY_URL`; leave it
+empty to use the built-in Directory. The option, even when empty, takes the
+place of a `DACS_DIRECTORY_URL` set in your shell.
 
 ### Claude Code (plugin, local path)
 

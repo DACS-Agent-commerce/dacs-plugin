@@ -31,15 +31,18 @@ as a marketplace, then install the `demos` plugin from it. The exact commands
 are in [`stdio-mcp/README.md`](stdio-mcp/README.md), which also describes the
 plugin's settings.
 
-The installed copy is not built. The first start of the server prints the build
-command (`npm ci && npm run build` in the plugin's folder); run it, then restart
-Claude Code or run `/mcp`.
+The installed copy is not built. Run `npm ci && npm run build` in the installed
+plugin's folder (Claude Code's `${CLAUDE_PLUGIN_ROOT}`); the first start writes
+this command to Claude Code's MCP log, and `/mcp` shows the server's status. Then
+restart Claude Code or run `/mcp`.
 
-Then run `/demos-find <what you want>`. It searches the public DACS Directory
-and checks the signed Listing you pick. It passes no revocation result, so a
-sound Listing comes back `indeterminate`: revocation is not established. The
-title and price hint in the search summary are the Directory's text; the check
-does not verify them.
+Then run `/demos-find <what you want>`. It is written to search the public DACS
+Directory and check the signed Listing you pick, using two read-only tools. It
+passes no revocation result, so a Listing whose other checks pass comes back
+`indeterminate`: revocation is not established. Any other check that is not
+`pass` is named, and a hit the Directory marked withdrawn is reported as
+withdrawn. The title and price hint in the search summary are the Directory's
+text; the check does not verify them.
 
 ## Gate
 

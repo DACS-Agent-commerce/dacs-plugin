@@ -32,7 +32,7 @@
     "directory_url": {
       "type": "string",
       "title": "DACS Directory URL",
-      "description": "Where /demos-find searches for sellers: an https origin (http only on localhost, for tests). Leave empty to use the built-in public Directory.",
+      "description": "Where /demos-find searches for sellers: an https origin only, with no path (http only on localhost, for tests). Leave empty to use the built-in public Directory. An invalid value stops this plugin's server.",
       "default": ""
     },
     "allow_mainnet": {
