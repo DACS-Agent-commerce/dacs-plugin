@@ -10,6 +10,7 @@ DACS here means Demos Agent Commerce Standards. It is not related to other softw
 | --- | --- |
 | [`http-mcp/`](http-mcp/) | ChatGPT app, served over HTTP MCP |
 | [`stdio-mcp/`](stdio-mcp/) | MCP server and Claude Code plugin, over stdio |
+| `.claude-plugin/` | Claude Code marketplace file at the repository root; it lists the `demos` plugin from `stdio-mcp/` |
 | `scripts/`, `test/`, [`docs/`](docs/) | Repository tooling: the public-content gate, the CI helpers and their tests |
 | `.github/workflows/` | CI: `public-gate`, `http-mcp tests`, `stdio-mcp` and `lint` |
 
@@ -36,7 +37,7 @@ plugin's folder (Claude Code's `${CLAUDE_PLUGIN_ROOT}`); the first start writes
 this command to Claude Code's MCP log, and `/mcp` shows the server's status. Then
 restart Claude Code or run `/mcp`.
 
-Then run `/demos-find <what you want>`. It is written to search the public DACS
+Then run `/demos:demos-find <what you want>`. It is written to search the public DACS
 Directory and check the signed Listing you pick, using two read-only tools. It
 passes no revocation result, so a Listing whose other checks pass comes back
 `indeterminate`: revocation is not established. Any other check that is not
