@@ -210,17 +210,27 @@ clone of the repository root (not its `stdio-mcp/` folder) instead:
 
 If you already added `stdio-mcp/` as a marketplace, Claude Code refuses the
 repository root, because both marketplaces are named `demos-mcp`. Remove the old
-one first, then add the root and install as above:
+one first, then add the root and install as above.
+
+Removing a marketplace uninstalls its plugins and deletes their saved options and
+secrets. Before you remove it, note your non-secret settings (for example a custom
+RPC URL or DACS Directory URL). After you install from the root, set the options
+again in `/config`, and enter any secrets again.
 
 ```text
 /plugin marketplace remove demos-mcp
 ```
 
-Claude Code copies the plugin without `dist/` or `node_modules/`. The first
-start of the server writes the build command to Claude Code's MCP log. Run
-`npm ci && npm run build` in the installed plugin's folder (Claude Code's
-`${CLAUDE_PLUGIN_ROOT}`); `/mcp` shows the server's status. Then restart Claude
-Code or run `/mcp`.
+**GitHub route.** Claude Code copies the plugin without `dist/` or
+`node_modules/`. The first start of the server writes the build command to Claude
+Code's MCP log. Run `npm ci && npm run build` in the installed plugin's folder
+(Claude Code's `${CLAUDE_PLUGIN_ROOT}`); `/mcp` shows the server's status. Then
+restart Claude Code or run `/mcp`.
+
+**Local-clone route.** Claude Code loads the plugin from the clone, in place, so
+nothing is copied. If `stdio-mcp/dist/` is not built yet, build it once in the
+clone's `stdio-mcp/` folder with the same command, `npm ci && npm run build`.
+Then restart Claude Code or run `/mcp`.
 
 Then run `/demos:demos-find <what you want>`. It is written to search and check, using
 two read-only tools: `demos_dacs_discover` on the public DACS Directory, then

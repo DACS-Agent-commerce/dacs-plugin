@@ -32,10 +32,13 @@ as a marketplace, then install the `demos` plugin from it. The exact commands
 are in [`stdio-mcp/README.md`](stdio-mcp/README.md), which also describes the
 plugin's settings.
 
-The installed copy is not built. Run `npm ci && npm run build` in the installed
-plugin's folder (Claude Code's `${CLAUDE_PLUGIN_ROOT}`); the first start writes
-this command to Claude Code's MCP log, and `/mcp` shows the server's status. Then
-restart Claude Code or run `/mcp`.
+When you add the repository from GitHub, the installed copy is not built. Run
+`npm ci && npm run build` in the installed plugin's folder (Claude Code's
+`${CLAUDE_PLUGIN_ROOT}`); the first start writes this command to Claude Code's MCP
+log, and `/mcp` shows the server's status. Then restart Claude Code or run `/mcp`.
+When you add a local clone, Claude Code loads the plugin from the clone, so build
+it there once with the same command if it is not built yet. Then restart Claude
+Code or run `/mcp`.
 
 Then run `/demos:demos-find <what you want>`. It is written to search the public DACS
 Directory and check the signed Listing you pick, using two read-only tools. It
