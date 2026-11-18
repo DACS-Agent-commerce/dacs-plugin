@@ -2,7 +2,7 @@
   "name": "demos",
   "displayName": "Demos Network",
   "version": "0.1.0",
-  "description": "Bring your AI agent to Demos in about five minutes (/demos-onboard), then read chain state, verify DACS receipts, and run human-approved writes (pay, attest identity, accept and pay for offers). Testnet by default; every write is approved by you on a local page.",
+  "description": "Bring your AI agent to Demos in about five minutes (/demos-onboard), then read chain state, find and check DACS sellers (/demos-find), verify DACS receipts, and run human-approved writes (pay, attest identity, accept and pay for offers). Testnet by default; every write is approved by you on a local page.",
   "author": {
     "name": "demos-mcp contributors"
   },
@@ -27,6 +27,12 @@
       "type": "string",
       "title": "RPC URL",
       "description": "Demos node RPC for read-only use. There is no built-in default.",
+      "default": ""
+    },
+    "directory_url": {
+      "type": "string",
+      "title": "DACS Directory URL",
+      "description": "Where /demos-find searches for sellers: an https origin (http only on localhost, for tests). Leave empty to use the built-in public Directory.",
       "default": ""
     },
     "allow_mainnet": {

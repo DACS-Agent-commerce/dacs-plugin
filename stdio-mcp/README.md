@@ -189,7 +189,27 @@ npm test                    # unit tests (mocked SDK, no network)
 npm run test:integration    # read-only test; needs DEMOS_RPC_URL; not run for this import
 ```
 
-### Claude Code (plugin)
+### Install in Claude Code
+
+Testnet only, installed from source. The repository root has a marketplace file,
+so Claude Code can add the repository directly:
+
+```text
+/plugin marketplace add DACS-Agent-commerce/dacs-plugin
+/plugin install demos@demos-mcp
+```
+
+Claude Code copies the plugin without `dist/` or `node_modules/`. The first
+start of the server prints the build command (`npm ci && npm run build` in the
+plugin's folder); run it, then restart Claude Code or run `/mcp`.
+
+Then run `/demos-find <what you want>`. It calls `demos_dacs_discover` on the
+public DACS Directory, then `demos_dacs_listing_check` on the hit you pick.
+Search results are public and are not verified until checked. `/demos-find`
+buys nothing. The plugin option **DACS Directory URL** sets `DACS_DIRECTORY_URL`;
+leave it empty to use the built-in Directory.
+
+### Claude Code (plugin, local path)
 
 Claude Code loads a plugin from a marketplace added from a local path in place,
 so the built `dist/` and `node_modules/` are used directly:
@@ -200,7 +220,7 @@ so the built `dist/` and `node_modules/` are used directly:
 ```
 
 Then fill in the plugin options in `/config`, or accept the prompt that appears
-when the plugin is enabled. The options are: network, RPC URL, enable writes,
+when the plugin is enabled. The options are: network, RPC URL, DACS Directory URL, enable writes,
 keystore path, keystore passphrase (kept in the OS credential store), daily cap,
 allow-list, confirmation channels and webhook. Restart Claude Code or run
 `/mcp`.
@@ -209,8 +229,8 @@ For a one-off session: `claude --plugin-dir /absolute/path/to/<repo>/stdio-mcp`.
 
 The plugin provides:
 - the `demos` MCP server, whose tools appear as `mcp__plugin_demos_demos__*`;
-- slash commands `/demos-balance`, `/demos-verify-receipt`, `/demos-attest` and
-  `/demos-buy`;
+- slash commands `/demos-find`, `/demos-balance`, `/demos-verify-receipt`,
+  `/demos-attest` and `/demos-buy`;
 - the `demos-safe-flow` skill, which teaches Claude the
   prepare → card → human approves off-chat → submit flow.
 
@@ -357,7 +377,7 @@ test/unit/      mocked-SDK tests: confirmation gate, spend cap, leak fuzzing, DA
 test/integration/  read-only testnet test through the real stdio server
 .claude-plugin/ plugin.json + marketplace.json
 .mcp.json       plugin MCP server definition
-commands/       /demos-balance /demos-verify-receipt /demos-attest /demos-buy
+commands/       /demos-find /demos-balance /demos-verify-receipt /demos-attest /demos-buy
 skills/         demos-safe-flow
 ```
 

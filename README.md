@@ -24,6 +24,24 @@ refuses testnet writes in this release; its only write path is an explicit
 mainnet opt-in that has not been tried. Neither package is a released product.
 The external security review is on hold.
 
+## Install in Claude Code
+
+Testnet only, installed from source. In Claude Code:
+
+```text
+/plugin marketplace add DACS-Agent-commerce/dacs-plugin
+/plugin install demos@demos-mcp
+```
+
+The installed copy is not built. The first start of the server prints the build
+command (`npm ci && npm run build` in the plugin's folder); run it, then restart
+Claude Code or run `/mcp`.
+
+Then run `/demos-find <what you want>`. It searches the public DACS Directory
+and checks the listing you pick. Search results are public and are not verified
+until checked. `/demos-find` buys nothing. The plugin's settings are described in
+[`stdio-mcp/README.md`](stdio-mcp/README.md).
+
 ## Gate
 
 `npm run gate:generic` and `npm run gate:complete` check a commit for content
