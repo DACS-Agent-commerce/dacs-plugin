@@ -24,6 +24,26 @@ refuses testnet writes in this release; its only write path is an explicit
 mainnet opt-in that has not been tried. Neither package is a released product.
 The external security review is on hold.
 
+## Install in Claude Code
+
+Testnet by default, installed from source. In Claude Code, add this repository
+as a marketplace, then install the `demos` plugin from it. The exact commands
+are in [`stdio-mcp/README.md`](stdio-mcp/README.md), which also describes the
+plugin's settings.
+
+The installed copy is not built. Run `npm ci && npm run build` in the installed
+plugin's folder (Claude Code's `${CLAUDE_PLUGIN_ROOT}`); the first start writes
+this command to Claude Code's MCP log, and `/mcp` shows the server's status. Then
+restart Claude Code or run `/mcp`.
+
+Then run `/demos-find <what you want>`. It is written to search the public DACS
+Directory and check the signed Listing you pick, using two read-only tools. It
+passes no revocation result, so a Listing whose other checks pass comes back
+`indeterminate`: revocation is not established. Any other check that is not
+`pass` is named, and a hit the Directory marked withdrawn is reported as
+withdrawn. The title and price hint in the search summary are the Directory's
+text; the check does not verify them.
+
 ## Gate
 
 `npm run gate:generic` and `npm run gate:complete` check a commit for content
