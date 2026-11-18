@@ -38,6 +38,7 @@ const LOCAL_RESOLUTION = refused('lock-local-resolution');
 const IDENTITY_MISMATCH = refused('lock-identity-mismatch');
 const COMMITTED_ARCHIVE = refused('committed-archive');
 const UNCLASSIFIABLE = unverifiable('unclassifiable-spec');
+const OPTIONAL_SDK = unverifiable('optional-sdk-dependency');
 const LEGACY = { state: 'legacy-unavailable', cause: 'recorded-legacy-file-vendor' };
 
 const isPlainObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -138,6 +139,17 @@ function lockDisagrees(manifest, lock, manifestFindings) {
   return rootDiffers || manifestFindings.some(({ state, name, spec }) => state === 'published' && lock.packages[`node_modules/${name}`]?.version !== spec);
 }
 
+/**
+ * True when npm installs an SDK package as optional, so `npm ci --omit=optional` leaves it out and a failed download still exits 0:
+ * the manifest lists it under optionalDependencies and not under devDependencies (npm lets optionalDependencies override
+ * dependencies, and devDependencies override both), or its lock record is flagged optional, which npm ci follows. npm reads
+ * the flag as true for any truthy value, so `"true"`, `1` and `"false"` count too.
+ */
+function installsSdkAsOptional(manifest, lock) {
+  const inManifest = sdkEntries(manifest.optionalDependencies, 'manifest').some(([name]) => !Object.hasOwn(manifest.devDependencies ?? {}, name));
+  return inManifest || Object.entries(lock.packages).some(([key, record]) => SDK_PATH_KEY.test(key) && Boolean(record.optional));
+}
+
 /** A committed SDK archive: any archive file at the root's top level or in its `vendor` folder. */
 async function findCommittedArchive(dir) {
   for (const folder of [dir, path.join(dir, 'vendor')]) {
@@ -163,7 +175,8 @@ async function checkRootPolicy(repo, { path: rootPath, optional }) {
     const missing = manifestFindings.some(({ name }) => name !== undefined && !isPlainObject(lock.packages?.[`node_modules/${name}`]));
     const lockFindings = classifyLock(rootPath, lock);
     findings.push(...manifestFindings, ...lockFindings, ...(missing ? [unverifiable('lock-record-missing')] : []),
-      ...(lockDisagrees(manifest, lock, manifestFindings) ? [unverifiable('lock-version-mismatch')] : []));
+      ...(lockDisagrees(manifest, lock, manifestFindings) ? [unverifiable('lock-version-mismatch')] : []),
+      ...(installsSdkAsOptional(manifest, lock) ? [OPTIONAL_SDK] : []));
   } catch (error) {
     if (!(error instanceof GateInputError)) throw error;
     findings.push(unverifiable(error.cause));

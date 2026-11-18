@@ -364,12 +364,12 @@ function plantSdkInBothSections(checkout, root, lockVersion = '4.0.16') {
 }
 
 test('an SDK listed in both dependencies and optionalDependencies matches a lock root that keeps it only under optionalDependencies', async (t) => {
-  await t.test('the same exact version in both manifest sections is published and available', () => {
+  await t.test('the same exact version in both manifest sections is no lock-version-mismatch, but npm installs it as optional, so it is unverifiable', () => {
     const checkout = makeCheckout();
     plantSdkInBothSections(checkout, 'stdio-mcp');
     const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'published', cause: 'registry-exact-version-with-integrity' });
+    assert.equal(result.status, 2, result.stderr);
+    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'unverifiable', cause: 'optional-sdk-dependency' });
   });
 
   await t.test('a lock root optionalDependencies version that differs from the manifest is still unverifiable', () => {
@@ -387,6 +387,132 @@ test('an SDK listed in both dependencies and optionalDependencies matches a lock
     const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
     assert.equal(result.status, 2, result.stderr);
     assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'unverifiable', cause: 'lock-version-mismatch' });
+  });
+});
+
+/** Lists the SDK only under optionalDependencies in the manifest and the lock root, with its lock record flagged optional, as npm writes it. */
+function plantOptionalOnly(checkout, root, spec = '4.0.16') {
+  addPublished(checkout, root);
+  delete manifestOf(checkout, root).dependencies[DEMOSDK];
+  manifestOf(checkout, root).optionalDependencies = { [DEMOSDK]: spec };
+  delete lockRootOf(checkout, root).dependencies[DEMOSDK];
+  lockRootOf(checkout, root).optionalDependencies = { [DEMOSDK]: spec };
+  sdkRecord(checkout, root).optional = true;
+}
+
+const OPTIONAL_DECLARATIONS = [
+  ['an SDK only under optionalDependencies in the manifest and the lock', (c, root) => plantOptionalOnly(c, root)],
+  ['an SDK only under optionalDependencies in the manifest, its lock record not flagged optional', (c, root) => {
+    plantOptionalOnly(c, root);
+    delete sdkRecord(c, root).optional;
+  }],
+  ['an SDK under dependencies whose lock record is flagged optional', (c, root) => { addPublished(c, root); sdkRecord(c, root).optional = true; }],
+  ['an SDK in both dependencies and optionalDependencies, its lock record flagged optional', (c, root) => {
+    plantSdkInBothSections(c, root);
+    sdkRecord(c, root).optional = true;
+  }],
+];
+
+test('an SDK that npm installs as optional cannot establish availability: an optionalDependencies entry that devDependencies does not override, or a lock record flagged optional, is unverifiable', async (t) => {
+  for (const root of ROOTS) {
+    for (const [label, plant] of OPTIONAL_DECLARATIONS) {
+      await t.test(`${label} in ${root} is unverifiable with optional-sdk-dependency before any npm call`, () => {
+        const checkout = makeCheckout();
+        plant(checkout, root);
+        const result = runSdkInput(['--prepare', 'root'], writeCheckout(checkout));
+        assert.equal(result.status, 2, result.stderr);
+        assert.deepEqual(stateOf(result, root), { root, state: 'unverifiable', cause: 'optional-sdk-dependency' });
+        assert.equal(result.report.available, false);
+        assert.equal(result.npmCalls, '');
+      });
+    }
+  }
+
+  await t.test('a nested SDK lock record flagged optional is unverifiable', () => {
+    const checkout = makeCheckout();
+    const nested = `node_modules/canonicalize/${lockKey(DEMOSDK)}`;
+    checkout.files['stdio-mcp']['package-lock.json'].packages[nested] = { version: '4.0.16', resolved: registryUrl(DEMOSDK, '4.0.16'), integrity: integrityOf('nested'), optional: true };
+    const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+    assert.equal(result.status, 2, result.stderr);
+    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'unverifiable', cause: 'optional-sdk-dependency' });
+  });
+
+  for (const value of ['true', 1, 'false']) {
+    await t.test(`a lock record flagged optional with ${JSON.stringify(value)}, which npm reads as true, is unverifiable`, () => {
+      const checkout = makeCheckout();
+      addPublished(checkout, 'stdio-mcp');
+      sdkRecord(checkout, 'stdio-mcp').optional = value;
+      const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+      assert.equal(result.status, 2, result.stderr);
+      assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'unverifiable', cause: 'optional-sdk-dependency' });
+      assert.equal(result.report.available, false);
+    });
+  }
+
+  for (const value of [false, 0, null, '']) {
+    await t.test(`control: a lock record flagged optional with ${JSON.stringify(value)}, which npm reads as false, stays published`, () => {
+      const checkout = makeCheckout();
+      addPublished(checkout, 'stdio-mcp');
+      sdkRecord(checkout, 'stdio-mcp').optional = value;
+      const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'published', cause: 'registry-exact-version-with-integrity' });
+    });
+  }
+
+  await t.test('control: the same SDK under dependencies only is published and available', () => {
+    const checkout = makeCheckout();
+    addPublished(checkout, 'stdio-mcp');
+    const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'published', cause: 'registry-exact-version-with-integrity' });
+  });
+
+  await t.test('control: an SDK in both devDependencies and optionalDependencies is a dev dependency to npm and stays published', () => {
+    const checkout = makeCheckout();
+    addPublished(checkout, 'stdio-mcp');
+    delete manifestOf(checkout, 'stdio-mcp').dependencies[DEMOSDK];
+    delete lockRootOf(checkout, 'stdio-mcp').dependencies[DEMOSDK];
+    for (const table of [manifestOf(checkout, 'stdio-mcp'), lockRootOf(checkout, 'stdio-mcp')]) {
+      table.devDependencies = { ...table.devDependencies, [DEMOSDK]: '4.0.16' };
+      table.optionalDependencies = { [DEMOSDK]: '4.0.16' };
+    }
+    sdkRecord(checkout, 'stdio-mcp').dev = true;
+    const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'published', cause: 'registry-exact-version-with-integrity' });
+  });
+
+  await t.test('control: a lock record flagged devOptional is not optional on its own and stays published', () => {
+    const checkout = makeCheckout();
+    addPublished(checkout, 'stdio-mcp');
+    sdkRecord(checkout, 'stdio-mcp').devOptional = true;
+    const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(stateOf(result, 'stdio-mcp').state, 'published');
+  });
+
+  await t.test('a refusal still outranks an optional declaration: an optional path spec and an optional local lock resolution are refused', () => {
+    const spec = makeCheckout();
+    plantOptionalOnly(spec, 'stdio-mcp', 'file:../sdk.tgz');
+    const bySpec = runSdkInput(['--prepare', 'stdio'], writeCheckout(spec));
+    assert.equal(bySpec.status, 1, bySpec.stderr);
+    assert.deepEqual(stateOf(bySpec, 'stdio-mcp'), { root: 'stdio-mcp', state: 'refused', cause: 'local-path-spec' });
+    const resolution = makeCheckout();
+    plantOptionalOnly(resolution, 'stdio-mcp');
+    sdkRecord(resolution, 'stdio-mcp').resolved = 'file:vendor/sdk.tgz';
+    const byResolution = runSdkInput(['--prepare', 'stdio'], writeCheckout(resolution));
+    assert.equal(byResolution.status, 1, byResolution.stderr);
+    assert.deepEqual(stateOf(byResolution, 'stdio-mcp'), { root: 'stdio-mcp', state: 'refused', cause: 'lock-local-resolution' });
+  });
+
+  await t.test('an earlier unverifiable cause keeps its place: an optional SDK without a lock record is lock-record-missing', () => {
+    const checkout = makeCheckout();
+    plantOptionalOnly(checkout, 'stdio-mcp');
+    delete checkout.files['stdio-mcp']['package-lock.json'].packages[lockKey(DEMOSDK)];
+    const result = runSdkInput(['--prepare', 'stdio'], writeCheckout(checkout));
+    assert.equal(result.status, 2, result.stderr);
+    assert.deepEqual(stateOf(result, 'stdio-mcp'), { root: 'stdio-mcp', state: 'unverifiable', cause: 'lock-record-missing' });
   });
 });
 
