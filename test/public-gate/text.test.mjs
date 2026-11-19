@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { createWordingMatcher, hasValidTextConfig, scanIssues, scanReports, scanWording, wordingEntryLines } from '../../scripts/public-gate/rules-text.mjs';
+import { LEGACY_REFERENCE_NAMES, createWordingMatcher, hasValidTextConfig, scanIssues, scanReports, scanWording, wordingEntryLines } from '../../scripts/public-gate/rules-text.mjs';
 import {
   CONFIG_FILE, REPO_ROOT, completeArgs, createAnnotatedTag, createHistory, createRepo, gateArgs, git, historyArgs, makeTempDir, runCheckReport, runGate, runHistory, sha256, walkFiles, writeList,
 } from '../lib/gate-fixtures.mjs';
@@ -130,9 +130,9 @@ const LOCKFILE_DISPOSITIONS = [
   lockfileRow(LOCKFILE_PATHS[0], '90f51aa8b82ef87f9da73e903194cf75fa3ff2c6', '@confio/ics23', 1222, 'ics23'),
   lockfileRow(LOCKFILE_PATHS[0], '90f51aa8b82ef87f9da73e903194cf75fa3ff2c6', '@cosmjs/crypto', 1350, 'crypto'),
   lockfileRow(LOCKFILE_PATHS[0], '90f51aa8b82ef87f9da73e903194cf75fa3ff2c6', 'request', 16416, 'request'),
-  lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@confio/ics23', 1167, 'ics23'),
-  lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', '@cosmjs/crypto', 1295, 'crypto'),
-  lockfileRow(LOCKFILE_PATHS[1], '2d064ce7cbe3858df1f04b34157864c444aa6ae9', 'request', 15700, 'request'),
+  lockfileRow(LOCKFILE_PATHS[1], '0214468e7e282c0249daa85cf6c73881539dd534', '@confio/ics23', 1168, 'ics23'),
+  lockfileRow(LOCKFILE_PATHS[1], '0214468e7e282c0249daa85cf6c73881539dd534', '@cosmjs/crypto', 1296, 'crypto'),
+  lockfileRow(LOCKFILE_PATHS[1], '0214468e7e282c0249daa85cf6c73881539dd534', 'request', 15701, 'request'),
   lockfileRow(LOCKFILE_PATHS[2], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', '@confio/ics23', 1139, 'ics23'),
   lockfileRow(LOCKFILE_PATHS[2], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', '@cosmjs/crypto', 1267, 'crypto'),
   lockfileRow(LOCKFILE_PATHS[2], '942d2562fe409ad3ab0afe872e49cc9ad22e3392', 'request', 15722, 'request'),
@@ -324,15 +324,16 @@ test('wording: the legacy name list holds the 106 names HTML5 decodes without a 
     'uuml', 'yacute', 'yen', 'yuml'];
   assert.equal(names.length, 106);
   assert.equal(new Set(names).size, 106);
+  assert.deepEqual([...LEGACY_REFERENCE_NAMES].sort(), [...names].sort());
   for (const name of names) assert.deepEqual(findingLines('a.md', `x &${name}q y\n`, ['unlisted-entry']), [1], name);
 });
 
-test('wording: JSON query strings keep literal ampersands in keys and nested values', () => {
+test('wording: JSON query strings that do not start with a legacy name keep literal ampersands in keys and nested values', () => {
   const text = JSON.stringify({ '?x=1&company=2': { urls: ['?x=1&company=2', '?q=R&D&company=AT&T'] } }, null, 2);
   assert.deepEqual(findingLines('.claude-plugin/plugin.json', text, ['unlisted-entry']), []);
 });
 
-test('wording: YAML anchors and aliases keep literal ampersands', () => {
+test('wording: YAML anchors and aliases that do not start with a legacy name keep literal ampersands', () => {
   const text = 'defaults: &defaults\n  team: R&D\n  company: AT&T\nbase: &base\n  <<: *defaults\n';
   for (const name of ['manifest.yml', 'manifest.yaml']) assert.deepEqual(findingLines(name, text, ['unlisted-entry']), [], name);
 });
@@ -359,7 +360,7 @@ test('wording: a line of a million character references is checked within a smal
     const read = (text) => [scanWording({ entries: [{ path: 'a.md', bytes: Buffer.from(text), oid: 'a'.repeat(40), position: 1 }], wordingMatcher: matcher, limits }).length,
       wordingEntryLines(text, matcher, 100, { readMarkup: true }).length];
     console.log(JSON.stringify([read('&a'.repeat(1 << 20)), read('&a;'.repeat(1 << 20)), read('&amp;'.repeat(1 << 20))]));`;
-  const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000 });
   assert.equal(output.trim(), '[[0,0],[1,1],[0,0]]');
 });
 

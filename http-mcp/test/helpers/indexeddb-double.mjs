@@ -14,7 +14,11 @@ function keyOf(keyPath, value) {
 
 export function createFakeIndexedDb({ strictDurability = true, data = new Map() } = {}) {
   const idb = {
-    data, dead: false, transactions: [], cut: null, abortRule: null, opens: 0,
+    data, dead: false, transactions: [], connections: [], cut: null, abortRule: null, opens: 0,
+    // The browser closes every open connection on its own: each stops taking transactions and gets a `close` event.
+    closeConnectionsAsBrowser() {
+      for (const opened of idb.connections.filter((candidate) => !candidate.closed)) { opened.closed = true; opened.onclose?.(); }
+    },
     // Kill the process at the next commit whose `records` writes satisfy `match`.
     cutAt(match, when) { idb.cut = { match, when }; },
     // Abort the next commits whose `records` writes satisfy `match`, after their requests have succeeded.
@@ -100,9 +104,12 @@ export function createFakeIndexedDb({ strictDurability = true, data = new Map() 
   }
 
   function connection(dbName) {
-    return {
-      close() {},
+    const opened = {
+      closed: false,
+      onclose: null,
+      close() { opened.closed = true; },
       transaction(storeNames, mode, options) {
+        if (opened.closed) throw new DOMException('the connection is closed', 'InvalidStateError');
         const tx = {
           dbName, mode, state: 'active', pending: 0, creationWindow: true, inCallback: false, working: new Map(), writes: [], error: null,
           durability: strictDurability ? (options?.durability ?? 'default') : 'default',
@@ -116,6 +123,8 @@ export function createFakeIndexedDb({ strictDurability = true, data = new Map() 
         return tx;
       },
     };
+    idb.connections.push(opened);
+    return opened;
   }
 
   function open(dbName) {

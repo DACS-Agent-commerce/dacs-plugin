@@ -78,6 +78,13 @@ test('check-report refuses a generic report, a report for another head, a comple
     refused(check({ report: { ...report, scanner: { ...report.scanner, expectedRoot: OTHER_COMMIT } }, head, context }), 1, 'report-policy-differs');
   });
 
+  await t.test('the policy refusal names the scanner identity and the wording list, not only the revision, configuration and root', () => {
+    const refusal = check({ report, head, context: { ...context, wordingListSha256: OTHER_DIGEST } });
+    refused(refusal, 1, 'report-policy-differs');
+    assert.match(refusal.stderr, /scanner identity/);
+    assert.match(refusal.stderr, /wording list/);
+  });
+
   await t.test('the report names the scanner executable, and a context pinning another executable refuses it', () => {
     assert.equal(report.scanner.scannerSha256, expectedScanIdentity().scannerSha256);
     refused(check({ report, head, context: { ...context, scannerSha256: OTHER_DIGEST } }), 1, 'report-policy-differs');
