@@ -4,7 +4,7 @@
 // transaction, and the client's PURCHASE_STATE_SCHEMA is the only DDL for the purchase tables: a new
 // file is created from it, and an existing file must match it exactly before anything is written.
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PURCHASE_STATE_SCHEMA, createSqlitePurchaseStore } from '@kynesyslabs/dacs-client';
@@ -113,9 +113,9 @@ function connect(path) {
 }
 
 // One entry per schema object: its type, table and exact SQL text, plus the columns, foreign keys and
-// indexes SQLite reports for it; then one entry per header pragma. The SQL comparison is needed because a
-// reversed partial-index predicate leaves the index's columns unchanged, and it is exact because the
-// reference is built from the same statements as a new file.
+// indexes SQLite reports for it, and, in a separate map, one entry per header pragma. The SQL comparison is
+// needed because a reversed partial-index predicate leaves the index's columns unchanged, and it is exact
+// because the reference is built from the same statements as a new file.
 function describeSchema(db) {
   const columns = db.prepare('SELECT * FROM pragma_table_xinfo(?)');
   const foreignKeys = db.prepare('SELECT * FROM pragma_foreign_key_list(?)');
@@ -128,8 +128,8 @@ function describeSchema(db) {
     if (type === 'index') entry.indexColumns = indexColumns.all(name);
     described.set(name, JSON.stringify(entry));
   }
-  for (const pragma of HEADER_PRAGMAS) described.set(`PRAGMA ${pragma}`, JSON.stringify(db.prepare(`PRAGMA ${pragma}`).get()));
-  return described;
+  const header = new Map(HEADER_PRAGMAS.map((pragma) => [`PRAGMA ${pragma}`, JSON.stringify(db.prepare(`PRAGMA ${pragma}`).get())]));
+  return { objects: described, header };
 }
 
 function referenceSchema() {
@@ -144,7 +144,7 @@ function referenceSchema() {
 }
 
 // The first object that differs from the reference, or null when the two schemas are equal.
-function schemaDifference(actual, expected) {
+function mapDifference(actual, expected) {
   for (const [name, description] of expected) {
     if (actual.get(name) !== description) return actual.has(name) ? `${name} differs` : `${name} is missing`;
   }
@@ -154,13 +154,18 @@ function schemaDifference(actual, expected) {
   return null;
 }
 
+function schemaDifference(actual, expected) {
+  return mapDifference(actual.header, expected.header) ?? mapDifference(actual.objects, expected.objects);
+}
+
 // A plain read-only connection to a WAL file with no -wal creates the -wal and -shm files. With neither a
 // -wal nor a rollback -journal the database file holds the whole state, so the file is read as immutable and
 // no file is created. With either one present the read-only connection reads through it, as the file's state
 // requires.
 function openForReading(path) {
-  if (existsSync(`${path}-wal`) || existsSync(`${path}-journal`)) return new DatabaseSync(path, { readOnly: true });
-  return new DatabaseSync(`${pathToFileURL(path).href}?mode=ro&immutable=1`, { readOnly: true });
+  const file = realpathSync(path);
+  if (existsSync(`${file}-wal`) || existsSync(`${file}-journal`)) return new DatabaseSync(file, { readOnly: true });
+  return new DatabaseSync(`${pathToFileURL(file).href}?mode=ro&immutable=1`, { readOnly: true });
 }
 
 // Reads an existing file through a read-only connection: closing a read-write one checkpoints a crashed

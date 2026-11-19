@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -378,6 +378,35 @@ test('a cleanly closed WAL-mode file with the current schema still opens read-wr
   const path = cleanlyClosedWalFile(t, []);
   const { db } = open(t, path);
   assert.equal(pragmaValue(db, 'journal_mode'), 'wal');
+});
+
+function linkTo(t, path) {
+  const dir = mkdtempSync(join(tmpdir(), 'dacs-purchase-link-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const link = join(dir, 'link.db');
+  symlinkSync(path, link);
+  return link;
+}
+
+test('a symlinked database path is read through the -wal next to the file it points to: a crash-left -wal with an extra table is refused and a file another run holds open is opened', (t) => {
+  const altered = alteredFile(t, 'wal', ['CREATE TABLE stray (id TEXT)']);
+  const before = fileState(altered);
+  assert.notEqual(before[1], null, 'the file has frames in its -wal');
+  assert.throws(() => openDatabase(linkTo(t, altered)), (error) => error.code === 'purchase_state_schema_mismatch');
+  assert.deepEqual(fileState(altered), before);
+
+  const held = open(t);
+  const { db } = open(t, linkTo(t, held.path));
+  assert.equal(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value, '3');
+});
+
+test('an existing v3 file with a trigger named like a header pragma is refused purchase_state_schema_mismatch', (t) => {
+  for (const pragma of ['user_version', 'application_id']) {
+    const path = alteredFile(t, 'rollback-journal', [
+      `CREATE TRIGGER "PRAGMA ${pragma}" BEFORE INSERT ON used_link_nonces BEGIN SELECT RAISE(IGNORE); END`,
+    ]);
+    assert.throws(() => openDatabase(path), (error) => error.code === 'purchase_state_schema_mismatch', pragma);
+  }
 });
 
 test('a file that is not a database is refused with its cause and left unchanged', (t) => {
