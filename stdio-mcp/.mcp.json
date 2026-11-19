@@ -6,6 +6,7 @@
       "env": {
         "DEMOS_NETWORK": "${user_config.network}",
         "DEMOS_RPC_URL": "${user_config.rpc_url}",
+        "DACS_DIRECTORY_URL": "${user_config.directory_url}",
         "DEMOS_ALLOW_MAINNET": "${user_config.allow_mainnet}",
         "DEMOS_MCP_ENABLE_WRITES": "${user_config.enable_writes}",
         "DEMOS_KEYSTORE": "${user_config.keystore_path}",

@@ -15,6 +15,7 @@ Testnet is the default network. `http-mcp/` is testnet only. `stdio-mcp/` refuse
 | `stdio-mcp/` | The `demos-mcp` package: MCP server and Claude Code plugin over stdio. Its own `package.json`, tests and README. |
 | `stdio-mcp/src/` | Server source (TypeScript). `src/dacs/` holds the DACS signing, verifier and fixed-price offer code. |
 | `stdio-mcp/test/` | `unit/` (mocked SDK, no network), `integration/` (read-only testnet), `live/`, and the `thin-plugin*` tests. |
+| `.claude-plugin/` | Claude Code marketplace file at the repository root; it lists the `demos` plugin from `stdio-mcp/`. |
 | `stdio-mcp/.claude-plugin/`, `commands/`, `skills/`, `adapters/` | Plugin manifest, slash commands, skills and host adapters. |
 | `http-mcp/` | The ChatGPT app: Streamable HTTP MCP server, account linking and wallet signing portal. Its own `package.json`, tests and README. |
 | `http-mcp/src/`, `bin/`, `public/`, `docs/` | Server modules, launch scripts, browser portal files, and operator and tester notes. |

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { domainToASCII } from 'node:url';
-import { decodeUtf8Strict, FULL_OBJECT_ID, GateInputError } from './objects.mjs';
+import { decodeUtf8Strict, findingEntry, FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 
 /** Id of the host rule in reports. */
 export const HOST_RULE_ID = 'R-HOST';
@@ -372,7 +372,7 @@ function createAddressRule(ruleId, occurrencesIn, allowanceCheck = scopedAllowan
     const refusedLines = (lines, entry, code, lineOf = (index) => index + 1) => lines.flatMap((text, index) => (addressViewsOf(text, code)
       .some((view) => occurrencesIn(view, { code, listedHosts }).some((occurrence) => !isAllowed(entry, occurrence, lineOf(index)))) ? [index + 1] : []));
     const add = (finding) => {
-      findings.push({ rule: ruleId, ...finding });
+      findings.push({ rule: ruleId, ...finding, entry: findingEntry(finding.entry) });
       if (findings.length > limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${limits.maxReportEntries} findings`);
     };
     for (const entry of entries.filter((candidate) => candidate.path !== null)) {
