@@ -517,6 +517,8 @@ export function createServer(deps: Deps): McpServer {
     return server;
   }
 
+  const stopRequested = () => killSwitchEngaged(config.stateDir) || markerPresent(path.join(config.stateDir, 'STOP'));
+
   // Onboarding ("bring your agent to Demos"): status always; the page-based steps only when writes are allowed.
   registerOnboardTools(server, {
     config,
@@ -537,6 +539,7 @@ export function createServer(deps: Deps): McpServer {
     fetchImpl: deps.fetchImpl ?? fetch,
     prepareSelfPayment: (address: string) => preparePayment({ to: address, amount_dem: '1', memo: 'onboarding self-test' }, true),
     guarded,
+    stopRequested,
     writesBlocked: blocker,
     writesBlockedNow: blockerNow,
     now,
@@ -546,7 +549,7 @@ export function createServer(deps: Deps): McpServer {
 
   const checkRecipient = (to: string) => assertAllowlisted(config.recipientAllowlist, to);
   const checkKill = () => {
-    if (killSwitchEngaged(config.stateDir) || markerPresent(path.join(config.stateDir, 'STOP'))) throw new Error(`kill switch engaged (${config.stateDir}/KILL exists): all writes are refused`);
+    if (stopRequested()) throw new Error(`kill switch engaged (${config.stateDir}/KILL exists): all writes are refused`);
   };
   const feeQuoteOs = () => quoteFeeOs(chain);
 
