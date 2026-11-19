@@ -102,11 +102,27 @@ test('scan work does not grow with the list: 2,000 shared-prefix entries cost at
   assert.ok(checkpointsFor(many) <= 4 * few);
 });
 
+/** A deadline checkpoint that lets `allowedCalls` calls pass and throws the scan deadline on every later one. */
+function expiresAfter(allowedCalls) {
+  let calls = 0;
+  return () => {
+    calls += 1;
+    if (calls > allowedCalls) throw new GateInputError('limit:scanDeadlineMs', 'the scan took too long');
+  };
+}
+
+/** The checkpoint calls createPrivateMatcher makes before it reads any entry: one before and one after the case-fold table. */
+const TABLE_CHECKPOINTS = 2;
+
 test('the deadline checkpoint stops the matcher while it is built and while it scans', () => {
-  const expired = () => { throw new GateInputError('limit:scanDeadlineMs', 'the scan took too long'); };
   const longList = Array.from({ length: 3000 }, (_, index) => `${String(index).padStart(6, '0')}-${'e'.repeat(30)}`);
-  assert.throws(() => matcherFor(longList, expired), { cause: 'limit:scanDeadlineMs' });
-  const matcher = matcherFor([ENTRY], expired);
+  assert.throws(() => matcherFor(longList, expiresAfter(TABLE_CHECKPOINTS)), { cause: 'limit:scanDeadlineMs' });
+  const matcher = matcherFor([ENTRY], expiresAfter(TABLE_CHECKPOINTS));
   assert.throws(() => matcher.entryLines('d'.repeat(2 * CHECKPOINT_STEPS), 10), { cause: 'limit:scanDeadlineMs' });
   assert.throws(() => matcher.hasEntry('d/'.repeat(CHECKPOINT_STEPS)), { cause: 'limit:scanDeadlineMs' });
+});
+
+test('an expired deadline stops a fresh matcher around its case-fold table, whether or not the table is already built', () => {
+  assert.throws(() => matcherFor([ENTRY], expiresAfter(0)), { cause: 'limit:scanDeadlineMs' }, 'before the table');
+  assert.throws(() => matcherFor([ENTRY], expiresAfter(1)), { cause: 'limit:scanDeadlineMs' }, 'after the table');
 });

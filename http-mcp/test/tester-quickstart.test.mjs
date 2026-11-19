@@ -69,7 +69,6 @@ test('documentation links resolve inside the packed package (or say "source chec
     'README.md:190 -> PROVENANCE.md',
     'docs/CHATGPT-DEVELOPER-MODE.md:73 -> ../deploy/dacs-chatgpt.env.example',
     'docs/CI.md:5 -> PROVENANCE.md',
-    'docs/DEPLOYMENT-CHECKLIST.md:9 -> ../deploy/RUNBOOK.md',
     'docs/EMBEDDED-WALLET-PACKAGING.md:52 -> AGENTS.md',
     'docs/EMBEDDED-WALLET-PACKAGING.md:52 -> STATUS.md',
     'docs/EMBEDDED-WALLET-PACKAGING.md:52 -> ACCEPTANCE.md',

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -305,6 +305,107 @@ test('an existing v3 file with a reversed partial-index predicate, different ind
       assert.throws(() => openDatabase(path), (error) => error.code === 'purchase_state_schema_mismatch', `${journalMode}: ${alteration}`);
       assert.deepEqual(fileState(path), before, `${journalMode}: ${alteration}`);
     }
+  }
+});
+
+// Statements that rewrite the stored CREATE text of the operations table without changing its columns.
+const rewriteOperationsSql = (find, replacement) => [
+  'PRAGMA writable_schema = ON',
+  `UPDATE sqlite_master SET sql = replace(sql, '${find}', '${replacement}') WHERE name = 'operations'`,
+  'PRAGMA writable_schema = OFF',
+];
+
+test('an existing file whose stored version text is not exactly 3 is refused with code unsupported_state_schema_version, whatever number the text parses to', (t) => {
+  for (const stored of ['2', '3.0', ' 3', '3 ', '0x3', '03', '3e0', '']) {
+    const path = alteredFile(t, 'rollback-journal', [`UPDATE meta SET value = '${stored}' WHERE key = 'schema_version'`]);
+    const before = fileState(path);
+    assert.throws(() => openDatabase(path), (error) => error.code === 'unsupported_state_schema_version', JSON.stringify(stored));
+    assert.deepEqual(fileState(path), before, JSON.stringify(stored));
+  }
+});
+
+test('an existing v3 file whose stored schema text differs from the reference only in whitespace is refused purchase_state_schema_mismatch', (t) => {
+  for (const [label, find, replacement] of [
+    ['a doubled space', "DEFAULT ''{}''", "DEFAULT  ''{}''"],
+    ['a newline in place of a space', "NOT NULL DEFAULT", "NOT NULL' || char(10) || 'DEFAULT"],
+  ]) {
+    const path = alteredFile(t, 'rollback-journal', rewriteOperationsSql(find, replacement));
+    assert.throws(() => openDatabase(path), (error) => error.code === 'purchase_state_schema_mismatch', label);
+  }
+});
+
+test('an existing v3 file whose PRAGMA user_version or application_id is not the reference value is refused purchase_state_schema_mismatch', (t) => {
+  for (const pragma of ['user_version', 'application_id']) {
+    const path = alteredFile(t, 'rollback-journal', [`PRAGMA ${pragma} = 7`]);
+    assert.throws(() => openDatabase(path), (error) => error.code === 'purchase_state_schema_mismatch' && error.message.includes(pragma), pragma);
+  }
+});
+
+// A valid file altered and then closed by its last connection, which removes the -wal and -shm files.
+function cleanlyClosedWalFile(t, statements) {
+  const path = alteredFile(t, 'rollback-journal', ['PRAGMA journal_mode = WAL', ...statements]);
+  const raw = new DatabaseSync(path);
+  assert.equal(pragmaValue(raw, 'journal_mode'), 'wal');
+  raw.close();
+  assert.deepEqual(readdirSync(dirname(path)), ['state.db'], 'a cleanly closed WAL file has no -wal or -shm');
+  return path;
+}
+
+test('refusing a cleanly closed WAL-mode file for its version or its schema creates no -wal or -shm file and leaves the database file unchanged', (t) => {
+  const refusals = {
+    'a different version': [["UPDATE meta SET value = '2' WHERE key = 'schema_version'"], 'unsupported_state_schema_version'],
+    'a different schema': [['CREATE TABLE stray (id TEXT)'], 'purchase_state_schema_mismatch'],
+    'a different user_version': [['PRAGMA user_version = 7'], 'purchase_state_schema_mismatch'],
+  };
+  for (const [label, [statements, code]] of Object.entries(refusals)) {
+    const path = cleanlyClosedWalFile(t, statements);
+    const before = fileState(path);
+    assert.throws(() => openDatabase(path), (error) => error.code === code, label);
+    assert.deepEqual(readdirSync(dirname(path)), ['state.db'], label);
+    assert.deepEqual(fileState(path), before, label);
+  }
+});
+
+test('a cleanly closed WAL-mode file at a path with spaces, a question mark and a hash is read and refused without creating a -wal or -shm file', (t) => {
+  const path = cleanlyClosedWalFile(t, ['CREATE TABLE stray (id TEXT)']);
+  const odd = join(dirname(path), 'odd name?x#y.db');
+  renameSync(path, odd);
+  assert.throws(() => openDatabase(odd), (error) => error.code === 'purchase_state_schema_mismatch');
+  assert.deepEqual(readdirSync(dirname(path)), ['odd name?x#y.db']);
+});
+
+test('a cleanly closed WAL-mode file with the current schema still opens read-write and keeps WAL mode', (t) => {
+  const path = cleanlyClosedWalFile(t, []);
+  const { db } = open(t, path);
+  assert.equal(pragmaValue(db, 'journal_mode'), 'wal');
+});
+
+function linkTo(t, path) {
+  const dir = mkdtempSync(join(tmpdir(), 'dacs-purchase-link-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const link = join(dir, 'link.db');
+  symlinkSync(path, link);
+  return link;
+}
+
+test('a symlinked database path is read through the -wal next to the file it points to: a crash-left -wal with an extra table is refused and a file another run holds open is opened', (t) => {
+  const altered = alteredFile(t, 'wal', ['CREATE TABLE stray (id TEXT)']);
+  const before = fileState(altered);
+  assert.notEqual(before[1], null, 'the file has frames in its -wal');
+  assert.throws(() => openDatabase(linkTo(t, altered)), (error) => error.code === 'purchase_state_schema_mismatch');
+  assert.deepEqual(fileState(altered), before);
+
+  const held = open(t);
+  const { db } = open(t, linkTo(t, held.path));
+  assert.equal(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value, '3');
+});
+
+test('an existing v3 file with a trigger named like a header pragma is refused purchase_state_schema_mismatch', (t) => {
+  for (const pragma of ['user_version', 'application_id']) {
+    const path = alteredFile(t, 'rollback-journal', [
+      `CREATE TRIGGER "PRAGMA ${pragma}" BEFORE INSERT ON used_link_nonces BEGIN SELECT RAISE(IGNORE); END`,
+    ]);
+    assert.throws(() => openDatabase(path), (error) => error.code === 'purchase_state_schema_mismatch', pragma);
   }
 });
 

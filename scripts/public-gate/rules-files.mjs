@@ -1,4 +1,4 @@
-import { GateInputError } from './objects.mjs';
+import { findingEntry, GateInputError } from './objects.mjs';
 import { textOf } from './rules-address.mjs';
 
 /** Id of the env-template rule in reports. */
@@ -109,7 +109,7 @@ function createFileRule(ruleId, scanEntry) {
   return function scan({ entries, limits }) {
     const findings = [];
     const add = (finding) => {
-      findings.push({ rule: ruleId, ...finding });
+      findings.push({ rule: ruleId, ...finding, entry: findingEntry(finding.entry) });
       if (findings.length > limits.maxReportEntries) throw new GateInputError('limit:maxReportEntries', `more than ${limits.maxReportEntries} findings`);
     };
     for (const entry of entries.filter((candidate) => candidate.path !== null)) scanEntry(entry, add);
