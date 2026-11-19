@@ -210,6 +210,24 @@ test('the private evidence is the only output holding the exact path, is owner-o
   assert.equal(runGate(['--repo', repo.dir, '--commit', repo.commit, '--scope', 'generic', ...cleanScannerArgs(), '--private-evidence', evidence]).status, 2);
 });
 
+test('an existing evidence file is refused before any report is written, to a file or to stdout', () => {
+  const repo = leakRepo();
+  const list = writeList([PRIVATE_VALUE]);
+  const dir = makeTempDir('existing-evidence');
+  const evidence = path.join(dir, 'mapping.json');
+  writeFileSync(evidence, 'kept\n');
+  const report = path.join(dir, 'report.json');
+  const toFile = runGate(completeArgs(repo, list, ['--out', report, '--private-evidence', evidence]));
+  assert.equal(toFile.status, 2);
+  assert.match(toFile.stderr, /^evidence-exists: /m);
+  assert.ok(!existsSync(report), 'a refused run left a report file');
+  const toStdout = runGate(completeArgs(repo, list, ['--private-evidence', evidence]));
+  assert.equal(toStdout.status, 2);
+  assert.match(toStdout.stderr, /^evidence-exists: /m);
+  assert.equal(toStdout.stdout, '');
+  assert.equal(readFileSync(evidence, 'utf8'), 'kept\n');
+});
+
 test('the evidence is written only after the report: a refused report destination leaves no evidence, and a failed evidence write exits 2', () => {
   const repo = leakRepo();
   const list = writeList([PRIVATE_VALUE]);
