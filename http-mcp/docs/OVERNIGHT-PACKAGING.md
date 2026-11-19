@@ -87,12 +87,16 @@ SQLite at startup; it is harmless.
 
 ## Container
 
-The documented image is `deploy/Dockerfile` with its allowlist
-`deploy/Dockerfile.dockerignore`, described in the deploy README of a source checkout. Its build stage runs
-`validate-package --profile source` and `stage-runtime`, so a source that fails
-validation does not build. The root `Dockerfile` is an older single-stage recipe.
-It does not run that validation and uses `/data` instead of
-`/var/lib/dacs-chatgpt`. A test of one image says nothing about the other.
+The image recipe is the single-stage `Dockerfile` at the package root, with
+`.dockerignore` limiting its build context. It installs from the lockfile with
+`npm ci --omit=dev --omit=optional --ignore-scripts`, runs as `node`, keeps data in
+`/data`, and declares `HEALTHCHECK` and `STOPSIGNAL SIGTERM`. The deploy bundle of
+the original source tree, whose build ran `validate-package --profile source` and
+`stage-runtime`, is not carried in this repository. This Dockerfile invokes neither
+`validate-package` nor `stage-runtime`, so those validation steps are not enforced by
+this build; an image build and container run remain unverified. `npm run check:package`
+replays the install and run steps without Docker; that replay says nothing about a
+built image.
 
 Run container checks only on a task-owned, resource-limited, loopback-only
 disposable container: non-root, read-only root filesystem, all capabilities
