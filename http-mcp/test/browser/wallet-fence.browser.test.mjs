@@ -360,6 +360,34 @@ test('a replacement inside a running section with its capability runs without a 
   assert.ok(await tab.isFree());
 });
 
+test('a nested replacement the section does not await finishes before the next section starts, which sees the new generation', async () => {
+  const tab = createTab();
+  const gate = createGate();
+  const order = [];
+  const section = tab.fence.run('op-1', async (capability) => {
+    tab.fence.replaceConnection(async () => { order.push('replace:start'); await gate.promise; order.push('replace:end'); }, capability);
+  });
+  const next = tab.fence.run('op-2', async () => { order.push(`next:start gen=${tab.fence.connectionGeneration}`); });
+  await settle();
+  assert.deepEqual(order, ['replace:start'], 'the next section waits for the running replacement');
+  assert.equal(await hasSettled(section), false, 'the section does not end while its replacement runs');
+  gate.open();
+  await Promise.all([section, next]);
+  assert.deepEqual(order, ['replace:start', 'replace:end', 'next:start gen=1']);
+  assert.ok(await tab.isFree());
+});
+
+test('a nested replacement the section does not await and that fails still releases the fence and bumps the generation', async () => {
+  const tab = createTab();
+  let nested;
+  await tab.fence.run('op-1', async (capability) => {
+    nested = settled(tab.fence.replaceConnection(async () => { throw new Error('reconnect failed'); }, capability));
+  });
+  assert.equal((await nested).error.message, 'reconnect failed');
+  assert.equal(tab.fence.connectionGeneration, 1);
+  assert.ok(await tab.isFree());
+});
+
 test('a replacement with a forged or ended capability is refused tp1_fence_not_owned, replaces nothing and keeps the generation', async () => {
   const tab = createTab();
   let replacements = 0;

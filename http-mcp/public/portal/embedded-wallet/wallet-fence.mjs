@@ -2,8 +2,8 @@
 // Locks lock, so two signing or sending sections never interleave. Acquiring it is bounded (`tp1_fence_timeout`, the
 // abort reason kept as the cause), a grant that arrives after the timeout is released at once and grants nothing, and
 // only the owner's capability can release it or run a nested step under it. `connectionGeneration` changes only
-// when a `replaceConnection` finishes; a nested one runs under its section's hold, so the section must await it
-// before it ends. The Web Locks manager and the clock are injected; nothing here touches `navigator`, a network or
+// when a `replaceConnection` finishes; a nested one runs under its section's hold, and the section's release waits
+// for it. The Web Locks manager and the clock are injected; nothing here touches `navigator`, a network or
 // storage. No page loads this yet.
 
 /** Time allowed to acquire the wallet fence before `tp1_fence_timeout`. */
@@ -97,8 +97,9 @@ function requestLock(locks, name, clock, timeoutMs) {
  * `connectionGeneration` when `replace` finishes, which nothing else changes; it throws a `TypeError` at once when
  * `replace` is not a function. Code already inside a fenced section must pass the section's capability to
  * `replaceConnection` and to any nested `run`: without it they ask for the lock the section holds and wait until
- * `tp1_fence_timeout`. A nested `run` or `replaceConnection` holds nothing of its own, so the section must await it
- * before the section ends; one still running then overlaps the next section, which sees the old generation. A
+ * `tp1_fence_timeout`. A nested `replaceConnection` that the section has not awaited is waited for before the lock is
+ * released, so the next section sees the new generation. A nested `run` holds nothing of its own, so the section must
+ * await it before the section ends; one still running then overlaps the next section. A
  * capability that is not the live one is refused `tp1_fence_not_owned`. `run` and `replaceConnection` throw
  * `tp1_fence_timeout` (cause kept) after `timeoutMs`
  * and `eb_fence_failed` (cause kept) when the lock request itself fails or `clock.setTimer` does not return a
@@ -134,10 +135,12 @@ export function createWalletFence({ locks, walletId, clock = SYSTEM_CLOCK, timeo
     }
     const releaseLock = await requestLock(locks, lockName, clock, timeoutMs);
     const own = Object.freeze({ operationId });
-    holder = { capability: own, releaseLock };
+    const mine = { capability: own, releaseLock, replacements: new Set() };
+    holder = mine;
     try {
       return await work(own);
     } finally {
+      while (mine.replacements.size > 0) await Promise.allSettled([...mine.replacements]);
       release(own, operationId);
     }
   }
@@ -146,13 +149,20 @@ export function createWalletFence({ locks, walletId, clock = SYSTEM_CLOCK, timeo
     if (typeof replace !== 'function') throw new TypeError('replace must be a function');
     // Nested under a capability, the step belongs to the operation that holds it; otherwise it is its own operation.
     const operationId = capability === undefined ? CONNECTION_REPLACEMENT_OPERATION : capability?.operationId;
-    return run(operationId, async () => {
+    const step = run(operationId, async () => {
       try {
         return await replace();
       } finally {
         connectionGeneration += 1;
       }
     }, capability);
+    if (capability !== undefined && holder?.capability === capability) {
+      const { replacements } = holder;
+      replacements.add(step);
+      const done = () => replacements.delete(step);
+      step.then(done, done);
+    }
+    return step;
   }
 
   return { run, release, owns, replaceConnection, get connectionGeneration() { return connectionGeneration; } };
