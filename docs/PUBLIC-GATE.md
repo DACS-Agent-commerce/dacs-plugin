@@ -26,6 +26,8 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
 - **Private list.** A regular file outside `--repo` (symlinks resolved; a FIFO or device is refused), at most
   `maxPrivateListBytes` bytes and `maxPrivateEntries` entries, one exact entry per line. Blank and `#` lines and one leading
   byte-order mark are ignored; a line with leading or trailing whitespace is refused. A bare label fails only when listed.
+  The list must also be outside the git dirs and every linked worktree of the repository git finds from `--repo`. Listing
+  the worktrees needs git 2.36 or later; when git finds the repository but refuses that listing, the run is refused as `git-refused`.
 - **Wording list.** `--wording-list` (complete scope only; refused in generic scope, required in complete scope) names a second list, read
   exactly as the private list is, with its own limits (`maxWordingListBytes`, `maxWordingEntries`) and causes (`wording-list-in-repo`,
   `-unreadable`, `-malformed`, `-empty`). Its vocabulary is never in the repository: it holds the prohibited terms and the internal

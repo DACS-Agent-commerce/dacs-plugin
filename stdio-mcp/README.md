@@ -64,7 +64,7 @@ of this release"). The build in step 1 has not been run for this import.
    ```
    In `/config` → demos, turn on **Enable wallet writes**. Leave the keystore empty and
    restart Claude Code.
-2. **Run `/demos-onboard`.** As designed, Claude walks you through these steps one at a time:
+2. **Run `/demos:demos-onboard`.** As designed, Claude walks you through these steps one at a time:
    - **Wallet.** A link opens a local page. Choose a passphrase there. The wallet is
      generated on your computer and the 12-word recovery phrase is shown **once, on that
      page**. Write it down. The phrase never appears in the chat.
@@ -189,7 +189,62 @@ npm test                    # unit tests (mocked SDK, no network)
 npm run test:integration    # read-only test; needs DEMOS_RPC_URL; not run for this import
 ```
 
-### Claude Code (plugin)
+### Install in Claude Code
+
+Testnet by default, installed from source. The repository root has a marketplace file,
+so Claude Code can add the repository directly:
+
+```text
+/plugin marketplace add DACS-Agent-commerce/dacs-plugin
+/plugin install demos@demos-mcp
+```
+
+The GitHub form reads the repository's default branch, so it works only once that
+branch has `.claude-plugin/marketplace.json` at its root. Until then, add a local
+clone of the repository root (not its `stdio-mcp/` folder) instead:
+
+```text
+/plugin marketplace add /absolute/path/to/<repo>
+/plugin install demos@demos-mcp
+```
+
+If you already added `stdio-mcp/` as a marketplace, Claude Code refuses the
+repository root, because both marketplaces are named `demos-mcp`. Remove the old
+one first, then add the root and install as above.
+
+Removing a marketplace uninstalls its plugins and deletes their saved options and
+secrets. Before you remove it, note your non-secret settings (for example a custom
+RPC URL or DACS Directory URL). After you install from the root, set the options
+again in `/config`, and enter any secrets again.
+
+```text
+/plugin marketplace remove demos-mcp
+```
+
+**GitHub route.** Claude Code copies the plugin without `dist/` or
+`node_modules/`. The first start of the server writes the build command to Claude
+Code's MCP log. Run `npm ci && npm run build` in the installed plugin's folder
+(Claude Code's `${CLAUDE_PLUGIN_ROOT}`); `/mcp` shows the server's status. Then
+restart Claude Code or run `/mcp`.
+
+**Local-clone route.** Claude Code loads the plugin from the clone, in place, so
+nothing is copied. If `stdio-mcp/dist/` is not built yet, build it once in the
+clone's `stdio-mcp/` folder with the same command, `npm ci && npm run build`.
+Then restart Claude Code or run `/mcp`.
+
+Then run `/demos:demos-find <what you want>`. It is written to search and check, using
+two read-only tools: `demos_dacs_discover` on the public DACS Directory, then
+`demos_dacs_listing_check` on the hit you pick. It passes no revocation result,
+so a Listing whose other checks pass comes back `indeterminate`: revocation is
+not established. Any other check that is not `pass` is named, and a hit the
+Directory marked withdrawn is reported as withdrawn. The title and price hint in
+the search summary are the Directory's text; the check does not verify them.
+
+The plugin option **DACS Directory URL** sets `DACS_DIRECTORY_URL`; leave it
+empty to use the built-in Directory. The option, even when empty, takes the
+place of a `DACS_DIRECTORY_URL` set in your shell.
+
+### Claude Code (plugin, local path)
 
 Claude Code loads a plugin from a marketplace added from a local path in place,
 so the built `dist/` and `node_modules/` are used directly:
@@ -200,7 +255,7 @@ so the built `dist/` and `node_modules/` are used directly:
 ```
 
 Then fill in the plugin options in `/config`, or accept the prompt that appears
-when the plugin is enabled. The options are: network, RPC URL, enable writes,
+when the plugin is enabled. The options are: network, RPC URL, DACS Directory URL, enable writes,
 keystore path, keystore passphrase (kept in the OS credential store), daily cap,
 allow-list, confirmation channels and webhook. Restart Claude Code or run
 `/mcp`.
@@ -209,8 +264,8 @@ For a one-off session: `claude --plugin-dir /absolute/path/to/<repo>/stdio-mcp`.
 
 The plugin provides:
 - the `demos` MCP server, whose tools appear as `mcp__plugin_demos_demos__*`;
-- slash commands `/demos-balance`, `/demos-verify-receipt`, `/demos-attest` and
-  `/demos-buy`;
+- slash commands `/demos-find`, `/demos-balance`, `/demos-verify-receipt`,
+  `/demos-attest` and `/demos-buy`;
 - the `demos-safe-flow` skill, which teaches Claude the
   prepare → card → human approves off-chat → submit flow.
 
@@ -357,7 +412,7 @@ test/unit/      mocked-SDK tests: confirmation gate, spend cap, leak fuzzing, DA
 test/integration/  read-only testnet test through the real stdio server
 .claude-plugin/ plugin.json + marketplace.json
 .mcp.json       plugin MCP server definition
-commands/       /demos-balance /demos-verify-receipt /demos-attest /demos-buy
+commands/       /demos-find /demos-balance /demos-verify-receipt /demos-attest /demos-buy
 skills/         demos-safe-flow
 ```
 

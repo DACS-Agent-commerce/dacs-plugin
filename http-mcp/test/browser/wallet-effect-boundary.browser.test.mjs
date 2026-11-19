@@ -1305,6 +1305,27 @@ test('authority failures retain readable codes and the original cause when prope
   }
 });
 
+test('an authority reader error code is used as the refusal code only when it fits the cause length limit', async (t) => {
+  const MAX_CODE_LENGTH = 200;
+  const cases = [
+    ['a code of exactly the limit is kept', 'a'.repeat(MAX_CODE_LENGTH), 'a'.repeat(MAX_CODE_LENGTH)],
+    ['a code one character over the limit refuses tp1_authority_failed', 'a'.repeat(MAX_CODE_LENGTH + 1), 'tp1_authority_failed'],
+    ['a very long code refuses tp1_authority_failed', 'a'.repeat(100_000), 'tp1_authority_failed'],
+  ];
+  for (const [name, code, expected] of cases) {
+    await t.test(name, async () => {
+      const w = createWorld();
+      const failure = Object.assign(new Error('authority refused'), { code });
+      w.on('authority', 1, () => { throw failure; });
+      const { error } = await w.settled(w.runPass());
+      assertRefusal(error, expected);
+      assert.ok(error.message.length < 2 * MAX_CODE_LENGTH, 'the refusal message stays short');
+      assert.equal(error.cause, failure, 'the original error is kept as the cause');
+      assert.deepEqual([w.counts.signer, w.counts.transport], [0, 0]);
+    });
+  }
+});
+
 test('the pass holds the wallet fence until every inner signer and send it let start has settled', async (t) => {
   // After `release()` the pass may finish; before it, a second tab must neither sign nor send.
   const assertHeldUntil = async (first, second, release) => {
@@ -1531,6 +1552,66 @@ const invalidDigests = [
   ['a Promise', Promise.resolve('digest-1')], ['a boxed string', Object('digest-1')], ['a symbol', Symbol('digest')],
 ];
 const noEffects = (world) => [world.counts.lockRequests, world.counts.authority, world.counts.stop, world.counts.signer, world.counts.transport];
+
+// Runs `work`, gives the runtime one macrotask to report a rejection nobody handled, and returns those reasons.
+async function unhandledRejectionsDuring(work) {
+  const reasons = [];
+  const record = (reason) => reasons.push(reason);
+  process.on('unhandledRejection', record);
+  try {
+    await work();
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off('unhandledRejection', record);
+  }
+  return reasons;
+}
+
+test('a connection digest that is a rejecting promise refuses tp1_local_binding_invalid and leaves no unhandled rejection', async (t) => {
+  const rejecting = () => Promise.reject(new Error('digest unavailable'));
+  await t.test('on the first read', async () => {
+    const world = createWorld();
+    world.state.digest = rejecting();
+    let error;
+    const reasons = await unhandledRejectionsDuring(async () => { ({ error } = await world.settled(world.runPass())); });
+    assertRefusal(error, 'tp1_local_binding_invalid');
+    assert.deepEqual(reasons, []);
+    assert.deepEqual(noEffects(world), [0, 0, 0, 0, 0]);
+  });
+  await t.test('on a later read inside the pass', async () => {
+    const world = createWorld();
+    world.on('authority', 2, () => { world.state.digest = rejecting(); });
+    let error;
+    const reasons = await unhandledRejectionsDuring(async () => { ({ error } = await world.settled(world.runPass())); });
+    assertRefusal(error, 'tp1_local_binding_invalid');
+    assert.deepEqual(reasons, []);
+    assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
+  });
+});
+
+test('a connection digest whose then cannot be read or called still refuses tp1_local_binding_invalid', async (t) => {
+  const hostile = [
+    ['a throwing then getter', () => ({ get then() { throw new Error('then getter'); } })],
+    ['a proxy that throws on read', () => new Proxy({}, { get() { throw new Error('proxy get'); } })],
+    ['a then method that throws', () => ({ then() { throw new Error('then call'); } })],
+  ];
+  for (const [name, make] of hostile) {
+    await t.test(`${name} on the first read`, async () => {
+      const world = createWorld();
+      world.state.digest = make();
+      const { error } = await world.settled(world.runPass());
+      assertRefusal(error, 'tp1_local_binding_invalid');
+      assert.deepEqual(noEffects(world), [0, 0, 0, 0, 0]);
+    });
+    await t.test(`${name} on a later read inside the pass`, async () => {
+      const world = createWorld();
+      world.on('authority', 2, () => { world.state.digest = make(); });
+      const { error } = await world.settled(world.runPass());
+      assertRefusal(error, 'tp1_local_binding_invalid');
+      assert.deepEqual([world.counts.signer, world.counts.transport], [0, 0]);
+    });
+  }
+});
 
 test('a connection digest that is not a nonempty string refuses tp1_local_binding_invalid before any lock, read, record or effect', async (t) => {
   for (const [name, digest] of invalidDigests) {
@@ -1903,6 +1984,27 @@ test('confirmation and broadcast are separate stages, an unknown confirmation in
   }
 });
 
+test('an outcome record with no open intent counts as an unknown attempt, so the history refuses rather than allows', async (t) => {
+  const history = (...kinds) => deriveDispatchHistory([signedRecord(), ...kinds.map((kind) => laneRecord(kind, 'pass-a', { stage: kind.split('-')[0] }))]);
+  await t.test('an orphan confirm-unknown makes the confirmation unknown', () => {
+    assert.deepEqual(history('confirm-unknown'), { signed: true, neverDispatched: true, confirmation: 'unknown', mayBroadcast: false });
+  });
+  await t.test('an orphan confirm-acknowledged does not make the confirmation acknowledged', () => {
+    assert.deepEqual(history('confirm-acknowledged'), { signed: true, neverDispatched: true, confirmation: 'unknown', mayBroadcast: false });
+  });
+  for (const kind of ['dispatch-acknowledged', 'dispatch-unknown', 'dispatch-withheld', 'broadcast-acknowledged', 'broadcast-unknown', 'broadcast-withheld']) {
+    await t.test(`an orphan ${kind} means the lane may have been dispatched`, () => {
+      assert.equal(history(kind).neverDispatched, false);
+    });
+  }
+  await t.test('a second outcome for one intent has no open intent and counts as unknown', () => {
+    assert.equal(history('confirm-started', 'confirm-acknowledged', 'confirm-acknowledged').confirmation, 'unknown');
+  });
+  await t.test('an outcome that answers its own intent is unchanged', () => {
+    assert.deepEqual(history('confirm-started', 'confirm-acknowledged'), { signed: true, neverDispatched: true, confirmation: 'acknowledged', mayBroadcast: true });
+  });
+});
+
 test('with Web Locks or IndexedDB unavailable every effect refuses with a named error before any signer call', async (t) => {
   const erroringIndexedDb = { open() { const request = {}; queueMicrotask(() => { request.error = new Error('storage denied'); request.onerror(); }); return request; } };
   const blockedIndexedDb = { open() { const request = {}; queueMicrotask(() => request.onblocked()); return request; } };
@@ -1924,6 +2026,49 @@ test('with Web Locks or IndexedDB unavailable every effect refuses with a named 
       assert.deepEqual([world.counts.signer, world.counts.transport, world.counts.lockRequests], [0, 0, 0]);
     });
   }
+});
+
+test('the durable pass copies its request before it waits for the record store: a change made while the store is getting ready changes nothing', async (t) => {
+  await t.test('identity, lane, signer and stage sends are the ones the caller passed', async () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    const request = proc.request();
+    const changed = [];
+    const running = proc.settled(proc.durable.runPass(request));
+    request.operationId = 'op-changed';
+    request.lane = 'lane-changed';
+    request.sign = async () => { changed.push('sign'); return new Uint8Array(SIGNED); };
+    request.stages[0].send = async () => { changed.push('send'); };
+    request.stages.length = 0;
+    const { error, value } = await running;
+    assert.equal(error, undefined);
+    assert.equal(value.operationId, 'op-1');
+    assert.deepEqual(changed, []);
+    assert.deepEqual([proc.counts.signer, proc.counts.transport], [1, 1]);
+    assert.deepEqual(kindsOf(idb), ['signed', 'dispatch-started', 'dispatch-acknowledged']);
+    assert.equal(idb.committedRecords('lane-changed').length, 0);
+  });
+
+  await t.test('the retained bytes are the ones the caller passed', async () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    await proc.store.append(LANE, 0, signedRecord());
+    const retained = { bytes: Uint8Array.from(SIGNED) };
+    const running = proc.settled(proc.durable.runPass(proc.request({ sign: undefined, retained, stages: stagesOf(proc, ['confirm']) })));
+    retained.bytes.fill(0);
+    const { error } = await running;
+    assert.equal(error, undefined);
+    assert.deepEqual(proc.sent.map((bytes) => [...bytes]), [SIGNED]);
+  });
+
+  await t.test('a request that carries a capability or has no lane is still refused before any record or effect', async () => {
+    const idb = createFakeIndexedDb();
+    const proc = startProcess(idb);
+    assertRefusal((await proc.settled(proc.durable.runPass(proc.request({ capability: {} })))).error, 'tp1_fence_not_owned');
+    const { error } = await proc.settled(proc.durable.runPass(proc.request({ lane: undefined })));
+    assert.ok(error instanceof TypeError, `${error}`);
+    assert.deepEqual([proc.counts.signer, proc.counts.transport, kindsOf(idb).length], [0, 0, 0]);
+  });
 });
 
 test('each durable transition is its own short readwrite transaction that checks and advances the lane revision across real task-boundary awaits, no transaction is held across an authority, stop, signer or network await, and a revision conflict from another tab refuses with nothing transmitted', async (t) => {
@@ -1988,6 +2133,31 @@ test('each durable transition is its own short readwrite transaction that checks
     assert.deepEqual(await store.head('lane-empty'), { revision: 0, signed: undefined, last: undefined });
   });
 
+  await t.test('signed bytes that are a view of a larger buffer are stored without the rest of the buffer', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    const large = new Uint8Array(MAX_SIGNED_BYTES * 8);
+    large.set(SIGNED, 100);
+    await store.append(LANE, 0, { ...signedRecord(), bytes: large.subarray(100, 100 + SIGNED.length) });
+    const [stored] = idb.committedRecords(LANE);
+    assert.deepEqual([...stored.bytes], SIGNED);
+    assert.equal(stored.bytes.buffer.byteLength, SIGNED.length);
+  });
+
+  await t.test('a connection the browser closed is opened again by the next read and the next append', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    await store.append(LANE, 0, signedRecord());
+    assert.equal(idb.opens, 1);
+    idb.closeConnectionsAsBrowser();
+    assert.equal((await store.head(LANE)).revision, 1);
+    assert.equal(idb.opens, 2);
+    idb.closeConnectionsAsBrowser();
+    await store.append(LANE, 1, laneRecord('observed', 'pass-a'));
+    assert.deepEqual(idb.committedRecords(LANE).map((record) => record.kind), ['signed', 'observed']);
+    assert.equal(idb.opens, 3);
+  });
+
   await t.test('a lane head that counts a record the lane lacks is refused eb_lane_corrupt', async () => {
     const idb = createFakeIndexedDb();
     const store = storeOver(idb);
@@ -2027,6 +2197,46 @@ test('each durable transition is its own short readwrite transaction that checks
     await store.append(LANE, 0, signedRecord());
     for (let revision = 1; revision < MAX_LANE_RECORDS; revision += 1) await store.append(LANE, revision, laneRecord('observed', 'pass-a'));
     await assert.rejects(store.append(LANE, MAX_LANE_RECORDS, laneRecord('observed', 'pass-a')), { code: 'eb_lane_full' });
+  });
+
+  // A lane of `count` records: the signed bytes for a dispatch, then held records.
+  const fillLane = async (store, count) => {
+    await store.append(LANE, 0, { ...signedRecord(), workflow: 'dispatch' });
+    for (let revision = 1; revision < count; revision += 1) await store.append(LANE, revision, laneRecord('signed-held', 'pass-a', { stage: 'dispatch' }));
+  };
+
+  await t.test('an intent is refused eb_lane_full unless a slot remains for its outcome, so nothing is sent without room to record it', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    await fillLane(store, MAX_LANE_RECORDS - 1);
+    await assert.rejects(store.append(LANE, MAX_LANE_RECORDS - 1, laneRecord('dispatch-started', 'pass-b', { stage: 'dispatch' })), { code: 'eb_lane_full' });
+    assert.equal(idb.committedRecords(LANE).length, MAX_LANE_RECORDS - 1);
+  });
+
+  await t.test('an intent with two slots left is accepted and its outcome takes the last slot', async () => {
+    const idb = createFakeIndexedDb();
+    const store = storeOver(idb);
+    await fillLane(store, MAX_LANE_RECORDS - 2);
+    await store.append(LANE, MAX_LANE_RECORDS - 2, laneRecord('dispatch-started', 'pass-b', { stage: 'dispatch' }));
+    await store.append(LANE, MAX_LANE_RECORDS - 1, laneRecord('dispatch-acknowledged', 'pass-b', { stage: 'dispatch' }));
+    assert.equal(idb.committedRecords(LANE).length, MAX_LANE_RECORDS);
+  });
+
+  await t.test('a record that is not an intent still takes the last slot', async () => {
+    const store = storeOver(createFakeIndexedDb());
+    await fillLane(store, MAX_LANE_RECORDS - 1);
+    await store.append(LANE, MAX_LANE_RECORDS - 1, laneRecord('observed', 'pass-b'));
+  });
+
+  await t.test('a pass over a lane with one slot left refuses eb_persist_failed before anything is sent', async () => {
+    const idb = createFakeIndexedDb();
+    await fillLane(storeOver(idb), MAX_LANE_RECORDS - 1);
+    const proc = startProcess(idb);
+    const { error } = await resume(proc, SIGNED, ['dispatch']);
+    assertRefusal(error, 'eb_persist_failed');
+    assert.ok(causeMessages(error).some((message) => /eb_lane_full/.test(message)), `cause: ${causeMessages(error)}`);
+    assert.equal(proc.counts.transport, 0);
+    assert.equal(idb.committedRecords(LANE).length, MAX_LANE_RECORDS - 1);
   });
 });
 
