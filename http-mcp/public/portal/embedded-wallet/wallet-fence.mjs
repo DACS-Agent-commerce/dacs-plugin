@@ -2,8 +2,9 @@
 // Locks lock, so two signing or sending sections never interleave. Acquiring it is bounded (`tp1_fence_timeout`, the
 // abort reason kept as the cause), a grant that arrives after the timeout is released at once and grants nothing, and
 // only the owner's capability can release it or run a nested step under it. `connectionGeneration` changes only
-// inside a fenced `replaceConnection`. The Web Locks manager and the clock are injected; nothing here touches
-// `navigator`, a network or storage. No page loads this yet.
+// when a `replaceConnection` finishes; a nested one runs under its section's hold, so the section must await it
+// before it ends. The Web Locks manager and the clock are injected; nothing here touches `navigator`, a network or
+// storage. No page loads this yet.
 
 /** Time allowed to acquire the wallet fence before `tp1_fence_timeout`. */
 export const FENCE_TIMEOUT_MS = 10_000;
@@ -93,10 +94,13 @@ function requestLock(locks, name, clock, timeoutMs) {
  * `tp1_fence_not_owned`) and nothing is acquired. `release(capability, operationId)` ends the hold and returns
  * whether it did; only the owner's own capability can. `owns(capability, operationId)` says whether the capability
  * is the live one. `replaceConnection(replace, capability?)` runs `replace` under the fence and bumps
- * `connectionGeneration`, which nothing else changes; it throws a `TypeError` at once when `replace` is not a
- * function. Code already inside a fenced section must pass the section's capability to `replaceConnection` and to
- * any nested `run`: without it they ask for the lock the section holds and wait until `tp1_fence_timeout`. A
- * capability that is not the live one is refused `tp1_fence_not_owned`. `run` and `replaceConnection` throw `tp1_fence_timeout` (cause kept) after `timeoutMs`
+ * `connectionGeneration` when `replace` finishes, which nothing else changes; it throws a `TypeError` at once when
+ * `replace` is not a function. Code already inside a fenced section must pass the section's capability to
+ * `replaceConnection` and to any nested `run`: without it they ask for the lock the section holds and wait until
+ * `tp1_fence_timeout`. A nested `run` or `replaceConnection` holds nothing of its own, so the section must await it
+ * before the section ends; one still running then overlaps the next section, which sees the old generation. A
+ * capability that is not the live one is refused `tp1_fence_not_owned`. `run` and `replaceConnection` throw
+ * `tp1_fence_timeout` (cause kept) after `timeoutMs`
  * and `eb_fence_failed` (cause kept) when the lock request itself fails or `clock.setTimer` does not return a
  * function. `createWalletFence` throws a `TypeError` for a `locks` without `request`, a `clock` without `now` and
  * `setTimer`, a `timeoutMs` that is not an integer from 1 to 2^31-1, or a `walletId` that is not a non-empty string.
