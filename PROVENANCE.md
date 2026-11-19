@@ -52,7 +52,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
+Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -757,7 +757,7 @@ Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
 | `stdio-mcp/docs/MANDATES.md` | `ddfa22924388adcc07fc785ab870aebc1e3b6631` | verbatim |
 | `stdio-mcp/package-lock.json` | `0214468e7e282c0249daa85cf6c73881539dd534` | changed here after a verbatim import: declares ajv, which a Directory unit test imports, as a devDependency |
 | `stdio-mcp/package.json` | `9435223d112f21b034f3ad1a51f580f6a4b0b2f2` | verbatim |
-| `stdio-mcp/scripts/launch.mjs` | `98afd69e8345e1b0249d64ae6fb6f218746140d5` | verbatim |
+| `stdio-mcp/scripts/launch.mjs` | `dce5b8037684221b23a52eabcd7928d8bef33ef6` | changed here after a verbatim import: quotes the plugin folder for a POSIX shell in the missing-build command |
 | `stdio-mcp/skills/demos-onboard/SKILL.md` | `913f8094cbb7852c1b9f73acf4a6f27bfc311e6d` | verbatim |
 | `stdio-mcp/skills/demos-safe-flow/SKILL.md` | `0f73a1740f64355ed641c0713465207c2279599c` | verbatim |
 | `stdio-mcp/src/amount.ts` | `85820ceb4cd07d5908d3f19ea3174cd1dbbe42c5` | verbatim |
@@ -794,6 +794,7 @@ Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
 | `stdio-mcp/test/unit/guard.test.ts` | `21da5541cc58f8fce07313f3c4b821d411134a33` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `stdio-mcp/test/unit/keyless-http.test.ts` | `9574b7eaceef3f45a1f00da924317a4532234dbf` | verbatim |
 | `stdio-mcp/test/unit/keystore-and-reads.test.ts` | `d8e40a28f796868c2cd55a0b34f4eb8cb60f67d2` | verbatim |
+| `stdio-mcp/test/unit/launch.test.ts` | `b1d5d0aceb8ed6f6884baf987e14af14c6d816a3` | added: checks the missing-build command from paths containing spaces, quotes and shell metacharacters |
 | `stdio-mcp/test/unit/listing.test.ts` | `1776f63ba9bf3b96de13b8303a879d53511c27e9` | changed here after a verbatim import: tests added for ordinary and small-order keys on listing and presentation signatures |
 | `stdio-mcp/test/unit/no-key-leak.test.ts` | `7d28d7c24e969954ae11bb97ab45facb77cdeb3c` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `stdio-mcp/test/unit/onboard.test.ts` | `fc20a5f78039bbbc1b4c1f56ebcdcbc0c10d6cbf` | edited: expects the reserved faucet placeholder; the faucet refusal case uses an explicit mainnet setup, since unlisted testnet RPCs no longer take writes |
