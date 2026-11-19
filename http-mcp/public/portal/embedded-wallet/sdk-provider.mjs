@@ -1202,7 +1202,7 @@ export function createSdkWalletSession({ DemosCtor, IdentitiesCtor, approve, tra
         throw Object.assign(new EmbeddedWalletError('outcome_unknown', 'the sent anchor outcome was not durably recorded; the nonce lane remains fenced'), { data: { hash: signed.hash, nonce: plan.nonce } });
       }
       return result;
-    }); } finally {if(lease)await sourcePhase({phase:'release',leaseId:lease.leaseId});}
+    }); } finally {if(lease) { try { await sourcePhase({ phase:'release',leaseId:lease.leaseId }); } catch { /* no retry: a failed release never replaces the anchor's own result */ } }}
   }
 
   // Publication of the seller's already signed DACS listing: the server's
