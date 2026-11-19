@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { lstatSync, writeFileSync } from 'node:fs';
 import { FULL_OBJECT_ID, GateInputError } from './objects.mjs';
 import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID } from './rules-address.mjs';
 import { EVAL_RULE_ID } from './rules-eval.mjs';
@@ -42,7 +42,7 @@ const DIAGNOSTICS = {
   'report-unreadable': 'the --report file cannot be read as a regular file', 'report-malformed': 'the --report file is not a gate report',
   'context-unreadable': 'the --context file cannot be read as a regular file', 'context-malformed': 'the --context file is not a review context',
   'report-not-complete': 'the report is not a complete-scope report', 'report-other-head': 'the report is for another commit than --head',
-  'report-rules-differ': 'the report lists other rules than this gate registers', 'report-policy-differs': 'the report was made under another gate revision, configuration or root than the review context names',
+  'report-rules-differ': 'the report lists other rules than this gate registers', 'report-policy-differs': 'the report was made under another scanner identity (gate revision, configuration, root, scanner version or executable, scanner policy, exception entries or wording list) than the review context names',
   'report-refs-differ': 'the history report names other refs, or other objects for them, than the run being checked selects',
   'report-not-passing': 'the report has a finding, an unscannable entry or a rule that did not pass',
   'download-too-large': 'a download is larger than allowed', 'download-timeout': 'a download did not finish before its deadline',
@@ -127,12 +127,25 @@ export function buildOutputs({ scope, target, scanner, rules, unscannable, findi
   return { report: `${JSON.stringify(report, null, 2)}\n`, evidence: `${JSON.stringify(Object.fromEntries(mapping), null, 2)}\n` };
 }
 
+function refuseExisting(file, subject) {
+  try {
+    lstatSync(file);
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw new GateInputError(`${subject}-unwritable`, `the ${subject} file cannot be checked (${error.code ?? error.name})`);
+  }
+  throw new GateInputError(`${subject}-exists`, `the ${subject} file cannot be created (EEXIST)`);
+}
+
 /**
  * Writes `report` to stdout or to the new file `out`; only once that succeeded, writes `evidence` to the new owner-only
- * (0600) file `evidenceFile` when one is given. The two writes are not atomic together: a crash between them leaves a
+ * (0600) file `evidenceFile` when one is given. Both destination files are checked to be free before anything is written,
+ * so a refused run leaves no report behind. The two writes are not atomic together: a crash between them leaves a
  * report without evidence. Throws GateInputError(output-exists, output-unwritable, evidence-exists or evidence-unwritable).
  */
 export async function publish({ report, evidence }, { out, evidenceFile }) {
+  if (out) refuseExisting(out, 'output');
+  if (evidenceFile) refuseExisting(evidenceFile, 'evidence');
   await deliver(out ? 'gate.report-file' : 'gate.stdout', report, out);
   if (evidenceFile) writeNew(evidenceFile, evidence, 'evidence', 0o600);
 }
