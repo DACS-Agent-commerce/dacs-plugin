@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
@@ -59,15 +59,20 @@ async function exitsSoon(pid, pgrp) {
   return false;
 }
 
-// The leader and its grandchild both ignore SIGTERM; the leader prints LATE-OUTPUT if it ever receives one.
-const GRANDCHILD = "process.on('SIGTERM', () => {}); console.log('grandchild ' + process.pid); setInterval(() => {}, 1000);";
-const LEADER = `
+// The leader and its grandchild both ignore SIGTERM; the leader prints LATE-OUTPUT if it ever receives one. Each kills itself
+// with SIGKILL after `lifetimeMs`, so a group that run-bounded fails to stop cannot outlive the test or keep its process open.
+const selfDestruct = (lifetimeMs) => `setTimeout(() => process.kill(process.pid, 'SIGKILL'), ${lifetimeMs});`;
+const grandchildScript = (lifetimeMs) => `process.on('SIGTERM', () => {}); console.log('grandchild ' + process.pid); ${selfDestruct(lifetimeMs)} setInterval(() => {}, 1000);`;
+const leaderScript = (lifetimeMs) => `
   const { spawn } = require('node:child_process');
   process.on('SIGTERM', () => process.stdout.write('LATE-OUTPUT\\n'));
   console.log('leader ' + process.pid);
-  spawn(process.execPath, ['-e', ${JSON.stringify(GRANDCHILD)}], { stdio: ['ignore', 'inherit', 'inherit'] });
+  spawn(process.execPath, ['-e', ${JSON.stringify(grandchildScript(lifetimeMs))}], { stdio: ['ignore', 'inherit', 'inherit'] });
+  ${selfDestruct(lifetimeMs)}
   setInterval(() => {}, 1000);
 `;
+const CHILD_LIFETIME_MS = GROUP_KILL_TEST_TIMEOUT_MS - 10_000;
+const HAS_PROC = existsSync('/proc/self/stat');
 
 test('run-bounded returns the exit status and both output streams without judging the status', async () => {
   const result = await runNode("process.stdout.write('out'); process.stderr.write('err'); process.exitCode = 3;", { env: {} });
@@ -102,7 +107,7 @@ test('run-bounded stops a child when the caller aborts and names the interruptio
 
 test('run-bounded kills the process group at the deadline, caps output and keeps the cause; a child and its grandchild ignore SIGTERM: escalate their process group to SIGKILL, settle once with the timeout cause, leave no surviving process and append no output received after the deadline', { timeout: GROUP_KILL_TEST_TIMEOUT_MS }, async () => {
   const started = performance.now();
-  const error = await rejection(runNode(LEADER, { deadlineMs: 1000, graceMs: 300 }));
+  const error = await rejection(runNode(leaderScript(CHILD_LIFETIME_MS), { deadlineMs: 1000, graceMs: 300 }));
   assert.equal(error.cause, 'subprocess-timeout');
   assert.ok(performance.now() - started >= 1300, 'settled before the grace limit let the group escape SIGTERM');
   const output = error.stdout.toString();
@@ -120,7 +125,25 @@ const UNREAPING_LEADER = `
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 `;
 
-test('the survivor check counts a killed process that nobody reaps as stopped', async () => {
+test('the test children kill themselves after their lifetime, so a group that is not stopped cannot outlive the test', async () => {
+  const leader = spawn(NODE, ['-e', leaderScript(1500)], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  try {
+    let output = '';
+    for await (const chunk of leader.stdout) {
+      output += chunk;
+      if (/^leader \d+$/m.test(output) && /^grandchild \d+$/m.test(output)) break;
+    }
+    const pids = [...output.matchAll(/^(?:leader|grandchild) (\d+)$/gm)].map(([, pid]) => Number(pid));
+    assert.equal(pids.length, 2, output);
+    for (const pid of pids) assert.ok(await exitsSoon(pid, pids[0]), `process ${pid} outlived its lifetime`);
+  } finally {
+    try {
+      process.kill(-leader.pid, 'SIGKILL');
+    } catch { /* the group is already gone */ }
+  }
+});
+
+test('the survivor check counts a killed process that nobody reaps as stopped', { skip: !HAS_PROC && 'needs /proc to recognise an unreaped zombie' }, async () => {
   const leader = spawn(NODE, ['-e', UNREAPING_LEADER], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
   try {
     let output = '';
