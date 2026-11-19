@@ -4,8 +4,9 @@
 // transaction, and the client's PURCHASE_STATE_SCHEMA is the only DDL for the purchase tables: a new
 // file is created from it, and an existing file must match it exactly before anything is written.
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { PURCHASE_STATE_SCHEMA, createSqlitePurchaseStore } from '@kynesyslabs/dacs-client';
 
 // Created at import, before this module prepares any statement: the client's statement guard only
@@ -87,6 +88,19 @@ class PurchaseStateSchemaError extends Error {
   }
 }
 
+// Thrown when an existing app database stores a schema version other than this build's.
+class UnsupportedStateSchemaVersionError extends Error {
+  constructor(version) {
+    super(`unsupported state schema version ${version}; expected ${SCHEMA_VERSION}`);
+    this.code = 'unsupported_state_schema_version';
+  }
+}
+
+// The stored version is the exact text this build writes; "3.0", " 3" or "0x3" are other versions.
+const isCurrentVersion = (stored) => stored === String(SCHEMA_VERSION);
+// Settings stored in the file header that a new file leaves at SQLite's defaults.
+const HEADER_PRAGMAS = ['user_version', 'application_id'];
+
 function connect(path) {
   const db = new DatabaseSync(path);
   try {
@@ -98,9 +112,10 @@ function connect(path) {
   return db;
 }
 
-// One entry per schema object: its type, table and normalized SQL, plus the columns, foreign keys and
-// indexes SQLite reports for it. The SQL comparison is needed because a reversed partial-index
-// predicate leaves the index's columns unchanged.
+// One entry per schema object: its type, table and exact SQL text, plus the columns, foreign keys and
+// indexes SQLite reports for it, and, in a separate map, one entry per header pragma. The SQL comparison is
+// needed because a reversed partial-index predicate leaves the index's columns unchanged, and it is exact
+// because the reference is built from the same statements as a new file.
 function describeSchema(db) {
   const columns = db.prepare('SELECT * FROM pragma_table_xinfo(?)');
   const foreignKeys = db.prepare('SELECT * FROM pragma_foreign_key_list(?)');
@@ -108,12 +123,13 @@ function describeSchema(db) {
   const indexColumns = db.prepare('SELECT * FROM pragma_index_xinfo(?)');
   const described = new Map();
   for (const { type, name, tbl_name: table, sql } of db.prepare('SELECT type, name, tbl_name, sql FROM sqlite_master').all()) {
-    const entry = { type, table, sql: sql?.replace(/\s+/g, ' ').trim() ?? null };
+    const entry = { type, table, sql: sql ?? null };
     if (type === 'table') Object.assign(entry, { columns: columns.all(name), foreignKeys: foreignKeys.all(name), indexes: indexes.all(name) });
     if (type === 'index') entry.indexColumns = indexColumns.all(name);
     described.set(name, JSON.stringify(entry));
   }
-  return described;
+  const header = new Map(HEADER_PRAGMAS.map((pragma) => [`PRAGMA ${pragma}`, JSON.stringify(db.prepare(`PRAGMA ${pragma}`).get())]));
+  return { objects: described, header };
 }
 
 function referenceSchema() {
@@ -128,7 +144,7 @@ function referenceSchema() {
 }
 
 // The first object that differs from the reference, or null when the two schemas are equal.
-function schemaDifference(actual, expected) {
+function mapDifference(actual, expected) {
   for (const [name, description] of expected) {
     if (actual.get(name) !== description) return actual.has(name) ? `${name} differs` : `${name} is missing`;
   }
@@ -138,6 +154,20 @@ function schemaDifference(actual, expected) {
   return null;
 }
 
+function schemaDifference(actual, expected) {
+  return mapDifference(actual.header, expected.header) ?? mapDifference(actual.objects, expected.objects);
+}
+
+// A plain read-only connection to a WAL file with no -wal creates the -wal and -shm files. With neither a
+// -wal nor a rollback -journal the database file holds the whole state, so the file is read as immutable and
+// no file is created. With either one present the read-only connection reads through it, as the file's state
+// requires.
+function openForReading(path) {
+  const file = realpathSync(path);
+  if (existsSync(`${file}-wal`) || existsSync(`${file}-journal`)) return new DatabaseSync(file, { readOnly: true });
+  return new DatabaseSync(`${pathToFileURL(file).href}?mode=ro&immutable=1`, { readOnly: true });
+}
+
 // Reads an existing file through a read-only connection: closing a read-write one checkpoints a crashed
 // WAL file into the database, so a refused file's bytes must never meet one. Returns the number of schema
 // objects, the stored version (null when there is no version row) and, for a stored current version,
@@ -145,13 +175,13 @@ function schemaDifference(actual, expected) {
 function readState(path) {
   let db;
   try {
-    db = new DatabaseSync(path, { readOnly: true });
+    db = openForReading(path);
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     const objects = db.prepare('SELECT COUNT(*) AS n FROM sqlite_master').get().n;
     const hasMeta = db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
     const versionRow = hasMeta ? db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() : undefined;
     const version = versionRow?.value ?? null;
-    const difference = version !== null && Number(version) === SCHEMA_VERSION ? schemaDifference(describeSchema(db), referenceSchema()) : null;
+    const difference = version !== null && isCurrentVersion(version) ? schemaDifference(describeSchema(db), referenceSchema()) : null;
     return { objects, version, difference };
   } catch (error) {
     throw new Error(`cannot read the state database ${path}: ${error.message}`, { cause: error });
@@ -188,10 +218,11 @@ const isAbsentOrEmpty = (path) => !existsSync(path) || statSync(path).size === 0
 /**
  * Opens the app database at `path` (or ':memory:') for read and write: WAL, synchronous FULL, foreign keys on.
  * An absent, empty or schema-less file is created from the client's schema and the plugin's tables. Any other
- * file is read through a read-only connection first and opened only if its version is 3 and its schema equals
- * the one a new file gets; nothing is written, repaired or checkpointed before that.
- * Throws `unsupported state schema version <v>` for another version (no migration), an error with code
- * `purchase_state_schema_mismatch` for a schema that differs, and an error carrying the cause when the
+ * file is read through a read-only connection first and opened only if its stored version text is exactly "3" and
+ * its schema (SQL text, columns, indexes, PRAGMA user_version and application_id) equals the one a new file gets;
+ * nothing is written, repaired or checkpointed before that, and no -wal or -shm file is created for a file that has none.
+ * Throws an error with code `unsupported_state_schema_version` for another version (no migration), an error with
+ * code `purchase_state_schema_mismatch` for a schema that differs, and an error carrying the cause when the
  * file cannot be read.
  */
 export function openDatabase(path) {
@@ -203,7 +234,7 @@ export function openDatabase(path) {
     state = readState(path);
   }
   if (state.version === null) throw new PurchaseStateSchemaError('the schema has no version row');
-  if (Number(state.version) !== SCHEMA_VERSION) throw new Error(`unsupported state schema version ${state.version}; expected ${SCHEMA_VERSION}`);
+  if (!isCurrentVersion(state.version)) throw new UnsupportedStateSchemaVersionError(state.version);
   if (state.difference) throw new PurchaseStateSchemaError(state.difference);
   return connect(path);
 }

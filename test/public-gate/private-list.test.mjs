@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { readPrivateList } from '../../scripts/public-gate/rules-private.mjs';
-import { makeTempDir } from '../lib/gate-fixtures.mjs';
+import { hermeticGitEnvironment, makeTempDir } from '../lib/gate-fixtures.mjs';
 
 const ENTRY = ['quartz', 'lantern'].join('-');
 const LIMITS = { maxPrivateListBytes: 65_536, maxPrivateEntries: 2000, gitDeadlineMs: 20_000 };
@@ -71,14 +71,8 @@ test('a missing file, a folder or a FIFO is unreadable, and a FIFO with no write
   assert.equal(child.stdout, 'private-list-unreadable');
 });
 
-const GIT_ENV = {
-  ...process.env,
-  GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
-  GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
-};
-
 function git(dir, args) {
-  const result = spawnSync('git', ['-C', dir, ...args], { env: GIT_ENV, encoding: 'utf8' });
+  const result = spawnSync('git', ['-C', dir, ...args], { env: hermeticGitEnvironment(), encoding: 'utf8' });
   assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
 }
 
@@ -149,11 +143,65 @@ test('a GIT_DIR in the caller environment does not change which repository --rep
   assert.equal(child.stdout, 'private-list-in-repo');
 });
 
-test('a list outside every folder of the repository is read, also when --repo is not a repository or does not exist', () => {
+/** The real git, found once, so a wrapper can hand every other call to it. */
+const REAL_GIT = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+
+/** Runs `body` with a `git` ahead of the real one on PATH: a shell script that runs `prelude` first, then the real git. */
+function withWrappedGit(prelude, body) {
+  const bin = makeTempDir('fake-git');
+  const wrapper = path.join(bin, 'git');
+  writeFileSync(wrapper, `#!/bin/sh\n${prelude}\nexec ${REAL_GIT} "$@"\n`);
+  chmodSync(wrapper, 0o755);
+  const original = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${original}`;
+  try {
+    return body();
+  } finally {
+    process.env.PATH = original;
+  }
+}
+
+test('a repository whose worktree list git refuses is refused with git-refused, not read as if it had no other worktree', () => {
+  const { base, dir } = worktreeRepo();
+  const linked = path.join(base, 'linked');
+  git(dir, ['worktree', 'add', '-q', linked, '-b', 'other']);
+  const list = listIn(dir, 'notes');
+  const refuseWorktreeList = 'case "$*" in *"worktree list"*) echo "unknown option: -z" >&2; exit 129;; esac';
+  withWrappedGit(refuseWorktreeList, () => assert.throws(() => read(list, linked), { cause: 'git-refused' }));
+});
+
+const withDeadline = (gitDeadlineMs) => ({ ...LIMITS, gitDeadlineMs });
+
+test('a git query that does not finish within the deadline is refused with timeout, also the last one', () => {
+  const { dir } = worktreeRepo();
+  const list = listIn(makeTempDir('beside'));
+  withWrappedGit('case "$*" in *"worktree list"*) exec sleep 30;; esac', () => assert.throws(() => readPrivateList(list, { repo: dir, limits: withDeadline(200) }), { cause: 'timeout' }));
+});
+
+test('the three git queries share one deadline: slow queries that each fit it but not together are refused with timeout', () => {
+  const { dir } = worktreeRepo();
+  const list = listIn(makeTempDir('beside'));
+  withWrappedGit('sleep 0.5', () => assert.throws(() => readPrivateList(list, { repo: dir, limits: withDeadline(800) }), { cause: 'timeout' }));
+});
+
+test('a git query that prints more than the byte cap is refused with output-limit', () => {
+  const { dir } = worktreeRepo();
+  const list = listIn(makeTempDir('beside'));
+  const printTooMuch = 'case "$*" in *"git-common-dir"*) head -c 2097152 /dev/zero; exit 0;; esac';
+  withWrappedGit(printTooMuch, () => assert.throws(() => readPrivateList(list, { repo: dir, limits: LIMITS }), { cause: 'output-limit' }));
+});
+
+test('a --repo that does not exist is still read when worktree list is refused', () => {
+  const refuseWorktreeList = 'case "$*" in *"worktree list"*) exit 129;; esac';
+  const missing = path.join(makeTempDir('missing'), 'none');
+  withWrappedGit(refuseWorktreeList, () => assert.deepEqual(read(listIn(makeTempDir('beside')), missing), [ENTRY]));
+});
+
+test('a list outside every folder of the repository is read, also when --repo is a plain folder of another repository or does not exist', () => {
   const { base, dir } = worktreeRepo();
   assert.deepEqual(read(listIn(makeTempDir('beside')), dir), [ENTRY]);
   assert.deepEqual(read(listIn(base, 'main-notes'), dir), [ENTRY], 'a folder sharing only a name prefix');
   assert.deepEqual(read(listIn(base, 'main-notes'), path.join(dir, 'sub')), [ENTRY]);
-  assert.deepEqual(read(listIn(makeTempDir('beside')), makeTempDir('not-a-repo')), [ENTRY]);
+  assert.deepEqual(read(listIn(makeTempDir('beside')), makeTempDir('plain-folder')), [ENTRY]);
   assert.deepEqual(read(listIn(makeTempDir('beside')), path.join(base, 'missing')), [ENTRY]);
 });
