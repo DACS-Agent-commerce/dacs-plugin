@@ -22,14 +22,29 @@ const GIT_IDENTITY = {
 
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
+/**
+ * The environment for git commands in fixtures: the caller's, without any GIT_ variable, with the caller's and the system's
+ * git config switched off, and with a fixed identity, so what the host has set cannot change a fixture's result.
+ */
+export function hermeticGitEnvironment() {
+  const inherited = Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'));
+  return { ...Object.fromEntries(inherited), ...GIT_IDENTITY, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+}
+
+/**
+ * A new folder named for `label`, inside a fresh root that is its own empty git repository. Git finds that root, never a
+ * checkout around the temp folder, from any fixture folder that is not itself a repository.
+ */
 export function makeTempDir(label) {
-  return mkdtempSync(path.join(tmpdir(), `gate-${label}-`));
+  const root = mkdtempSync(path.join(tmpdir(), 'gate-root-'));
+  execFileSync('git', ['init', '-q', root], { env: hermeticGitEnvironment() });
+  return mkdtempSync(path.join(root, `${label}-`));
 }
 
 export function git(dir, args, { input, env } = {}) {
   const result = spawnSync('git', ['-C', dir, ...args], {
     input,
-    env: { ...process.env, ...GIT_IDENTITY, ...env },
+    env: { ...hermeticGitEnvironment(), ...env },
     maxBuffer: 1 << 28,
   });
   if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr}`);

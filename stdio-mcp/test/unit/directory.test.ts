@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net';
 import { harness, MNEMONIC } from '../helpers.js';
 import { DEFAULT_DIRECTORY_URL, loadConfig } from '../../src/config.js';
 import { createDirectoryClient, DirectoryError, type DirectoryQuery } from '../../src/directory.js';
-// ajv comes with @modelcontextprotocol/sdk; the schemas are the Directory's own (see the fixture's header)
+// ajv is a devDependency; the schemas are the Directory's own (see the fixture's header)
 import Ajv2020 from 'ajv/dist/2020.js';
 import { listingSummarySchema, scanProgressSchema } from '../fixtures/directory-contract.js';
 
@@ -120,6 +120,12 @@ const queryOf = (seen: string) => new URL(seen, 'http://fake').searchParams;
 // ---- config ----
 test('DACS_DIRECTORY_URL defaults to the public Directory', () => {
   assert.equal(loadConfig({}).directoryUrl, 'https://directory.v2.agentcommerce.network');
+});
+
+test('an empty or unsubstituted DACS_DIRECTORY_URL uses the public Directory', () => {
+  for (const unset of ['', '   ', '${user_config.directory_url}']) {
+    assert.equal(loadConfig({ DACS_DIRECTORY_URL: unset }).directoryUrl, DEFAULT_DIRECTORY_URL, JSON.stringify(unset));
+  }
 });
 
 test('the unit-test harness never defaults to the public Directory', async () => {

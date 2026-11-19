@@ -250,6 +250,31 @@ test('stdio-mcp.yml matches its own recorded SHA-256 (written fresh in this PR f
   });
 });
 
+const LINT_WORKFLOW = 'lint.yml';
+const LINT_VALIDATION = 'node scripts/ci/sdk-input.mjs --prepare stdio';
+
+test('lint.yml runs on the pinned ubuntu-24.04 image, like the other plugin workflows that pin it', () => {
+  const jobs = readWorkflow(LINT_WORKFLOW).split('\n').filter((line) => /^\s+runs-on:/.test(line));
+  assert.deepEqual(jobs, ['    runs-on: ubuntu-24.04']);
+});
+
+test('lint.yml validates the stdio SDK input after setup-node and directly before the install that reads it; an unavailable input stops the job before any npm call', () => {
+  const text = readWorkflow(LINT_WORKFLOW);
+  const steps = stepsOf(text);
+  const validation = steps.findIndex((step) => commandOf(step) === LINT_VALIDATION);
+  assert.equal(steps.filter((step) => commandOf(step) === LINT_VALIDATION).length, 1);
+  assert.equal(validation, stepIndex(steps, 'actions/setup-node@') + 1);
+  assert.equal(validation + 1, stepIndex(steps, 'npm ci --prefix stdio-mcp'));
+  assert.doesNotMatch(steps[validation], /^\s*(?:if|continue-on-error):|\|\||set \+e/m, 'the validation is neither skipped nor tolerated');
+
+  const checkout = makeJobCheckout(({ editJson }) => editJson('stdio-mcp', 'package.json', (manifest) => { manifest.dependencies = { ...manifest.dependencies, '@kynesyslabs/demosdk': '^4.0.16' }; }));
+  const { runs, npmCalls } = runSteps(checkout, text, steps.slice(validation));
+  assert.equal(runs.length, 1, 'nothing runs after the validation');
+  assert.equal(runs[0].status, 2, 'unverifiable is exit 2');
+  assert.match(runs[0].stderr, /^sdk-input-unavailable: /);
+  assert.equal(npmCalls, '');
+});
+
 const npmDirectories = (text) => stepsOf(text).flatMap((step) => [...step.replaceAll(/^\s*#.*$/gm, '').matchAll(NPM_COMMAND)]
   .map(([line]) => path.posix.normalize(/--prefix[ =](\S+)/.exec(line)?.[1] ?? directoryOf(text, step)).replace(/(?<=.)\/$/, '')));
 

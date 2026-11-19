@@ -22,6 +22,14 @@ function assertRefusal(error, code) {
 const settled = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
 const isPending = async (promise) => (await Promise.race([promise.then(() => 'settled', () => 'settled'), Promise.resolve('pending')])) === 'pending';
 
+// True once `promise` has settled after the microtask queue has drained; unlike `isPending` it sees through a wrapper.
+async function hasSettled(promise) {
+  let done = false;
+  promise.then(() => { done = true; }, () => { done = true; });
+  await settle();
+  return done;
+}
+
 function createTab({ clock = createFakeClock(), locks = createFakeLocks(), walletId = 'wallet-1', ...options } = {}) {
   const fence = createWalletFence({ locks, walletId, clock, ...options });
   const background = [];
@@ -303,6 +311,98 @@ test('createWalletFence refuses a missing Web Locks manager or a wallet id that 
   assert.throws(() => createWalletFence({ locks: {}, walletId: 'wallet-1' }), { name: 'TypeError', message: 'locks.request must be a function' });
   assert.throws(() => createWalletFence({ locks: undefined, walletId: 'wallet-1' }), TypeError);
   for (const walletId of ['', undefined, 7]) assert.throws(() => createWalletFence({ locks, walletId }), { name: 'TypeError', message: 'walletId must be a non-empty string' });
+});
+
+test('createWalletFence refuses a clock without now or setTimer with a TypeError', () => {
+  const locks = createFakeLocks();
+  const { now, setTimer } = createFakeClock();
+  assert.throws(() => createWalletFence({ locks, walletId: 'wallet-1', clock: { setTimer } }), { name: 'TypeError', message: 'clock.now must be a function' });
+  assert.throws(() => createWalletFence({ locks, walletId: 'wallet-1', clock: { now } }), { name: 'TypeError', message: 'clock.setTimer must be a function' });
+  assert.throws(() => createWalletFence({ locks, walletId: 'wallet-1', clock: null }), TypeError);
+});
+
+test('createWalletFence refuses a timeoutMs that is not an integer from 1 to 2147483647 with a TypeError', () => {
+  const locks = createFakeLocks();
+  const clock = createFakeClock();
+  for (const timeoutMs of [0, -1, 1.5, NaN, Infinity, 2 ** 31, '10000', null]) {
+    assert.throws(() => createWalletFence({ locks, walletId: 'wallet-1', clock, timeoutMs }), { name: 'TypeError', message: 'timeoutMs must be an integer from 1 to 2147483647' }, String(timeoutMs));
+  }
+  for (const timeoutMs of [1, 2 ** 31 - 1]) assert.doesNotThrow(() => createWalletFence({ locks, walletId: 'wallet-1', clock, timeoutMs }));
+});
+
+test('a clock whose setTimer returns a non-function refuses eb_fence_failed with a TypeError cause and does not ask for the lock', async () => {
+  const clock = { now: () => 0, setTimer: () => undefined };
+  const tab = createTab({ clock });
+  const run = settled(tab.fence.run('op-1', async () => 'ran'));
+  assert.equal(await hasSettled(run), true, 'the run does not hang');
+  const { error } = await run;
+  assertRefusal(error, 'eb_fence_failed');
+  assert.ok(error.cause instanceof TypeError);
+  assert.equal(tab.locks.requests, 0);
+});
+
+test('replaceConnection throws a TypeError for a non-function at once, before taking the fence or changing the generation', () => {
+  const tab = createTab();
+  for (const replace of [undefined, 'reconnect', {}]) assert.throws(() => tab.fence.replaceConnection(replace), { name: 'TypeError', message: 'replace must be a function' });
+  assert.equal(tab.fence.connectionGeneration, 0);
+  assert.equal(tab.locks.requests, 0);
+});
+
+test('a replacement inside a running section with its capability runs without a second acquisition and bumps the generation', async () => {
+  const tab = createTab();
+  await tab.fence.run('op-1', async (capability) => {
+    const nested = settled(tab.fence.replaceConnection(async () => 'replaced', capability));
+    assert.equal(await hasSettled(nested), true, 'the replacement does not wait for the lock its own section holds');
+    assert.equal((await nested).value, 'replaced');
+  });
+  assert.equal(tab.locks.requests, 1);
+  assert.equal(tab.fence.connectionGeneration, 1);
+  assert.ok(await tab.isFree());
+});
+
+test('a nested replacement the section does not await finishes before the next section starts, which sees the new generation', async () => {
+  const tab = createTab();
+  const gate = createGate();
+  const order = [];
+  const section = tab.fence.run('op-1', async (capability) => {
+    tab.fence.replaceConnection(async () => { order.push('replace:start'); await gate.promise; order.push('replace:end'); }, capability);
+  });
+  const next = tab.fence.run('op-2', async () => { order.push(`next:start gen=${tab.fence.connectionGeneration}`); });
+  await settle();
+  assert.deepEqual(order, ['replace:start'], 'the next section waits for the running replacement');
+  assert.equal(await hasSettled(section), false, 'the section does not end while its replacement runs');
+  gate.open();
+  await Promise.all([section, next]);
+  assert.deepEqual(order, ['replace:start', 'replace:end', 'next:start gen=1']);
+  assert.ok(await tab.isFree());
+});
+
+test('a nested replacement the section does not await and that fails still releases the fence and bumps the generation', async () => {
+  const tab = createTab();
+  let nested;
+  await tab.fence.run('op-1', async (capability) => {
+    nested = settled(tab.fence.replaceConnection(async () => { throw new Error('reconnect failed'); }, capability));
+  });
+  assert.equal((await nested).error.message, 'reconnect failed');
+  assert.equal(tab.fence.connectionGeneration, 1);
+  assert.ok(await tab.isFree());
+});
+
+test('a replacement with a forged or ended capability is refused tp1_fence_not_owned, replaces nothing and keeps the generation', async () => {
+  const tab = createTab();
+  let replacements = 0;
+  const replace = async () => { replacements += 1; };
+  const kept = await tab.fence.run('op-1', async (capability) => capability);
+  await tab.fence.run('op-2', async () => {
+    const forged = settled(tab.fence.replaceConnection(replace, { operationId: 'op-2' }));
+    assert.equal(await hasSettled(forged), true, 'a forged capability is refused, not queued');
+    assertRefusal((await forged).error, 'tp1_fence_not_owned');
+    const ended = settled(tab.fence.replaceConnection(replace, kept));
+    assert.equal(await hasSettled(ended), true, 'an ended capability is refused, not queued');
+    assertRefusal((await ended).error, 'tp1_fence_not_owned');
+  });
+  assert.equal(replacements, 0);
+  assert.equal(tab.fence.connectionGeneration, 0);
 });
 
 test('refuse builds a refusal that keeps its code and its cause, and no cause when none is given', () => {
