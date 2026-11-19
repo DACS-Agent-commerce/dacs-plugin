@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net';
 import { harness, MNEMONIC } from '../helpers.js';
 import { DEFAULT_DIRECTORY_URL, loadConfig } from '../../src/config.js';
 import { createDirectoryClient, DirectoryError, type DirectoryQuery } from '../../src/directory.js';
-// ajv comes with @modelcontextprotocol/sdk; the schemas are the Directory's own (see the fixture's header)
+// ajv is a devDependency; the schemas are the Directory's own (see the fixture's header)
 import Ajv2020 from 'ajv/dist/2020.js';
 import { listingSummarySchema, scanProgressSchema } from '../fixtures/directory-contract.js';
 
