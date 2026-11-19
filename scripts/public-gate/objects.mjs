@@ -31,9 +31,10 @@ export function decodeUtf8Strict(bytes) {
   }
 }
 
-function abortCause(error, { reason }) {
+function abortCause(error, { reason }, callerSignal) {
   if (reason instanceof GateInputError) return reason;
   if (reason?.name === 'TimeoutError') return new GateInputError('timeout', 'git did not finish before its deadline');
+  if (callerSignal.aborted) return new GateInputError('interrupted', 'the read was cancelled before git finished');
   return new GateInputError('git-unavailable', `git could not run (${error.code ?? error.name})`);
 }
 
@@ -59,7 +60,7 @@ function runGit({ repo, args, input, maxBytes, limits, signal }) {
     });
     child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(0, STDERR_CAPTURE_CHARS); });
     child.stdin.on('error', () => {});
-    child.on('error', (error) => reject(abortCause(error, bounded)));
+    child.on('error', (error) => reject(abortCause(error, bounded, signal)));
     child.on('close', (status) => resolve({ status, stdout: Buffer.concat(chunks), stderr }));
     child.stdin.end(input);
   });
@@ -73,11 +74,20 @@ async function git(options) {
   return result.stdout;
 }
 
+/** The error for an id that does not peel to a commit: not-a-commit when the object exists (a blob or a tree), unknown-commit when it does not. */
+async function missingCommitCause(small, commit) {
+  const type = await runGit({ ...small, args: ['cat-file', '-t', commit] });
+  return type.status === 0
+    ? new GateInputError('not-a-commit', `--commit names a ${type.stdout.toString().trim()}, not a commit`)
+    : new GateInputError('unknown-commit', 'the repository has no such commit');
+}
+
 async function resolveTree(base, commit) {
+  if (!FULL_OBJECT_ID.test(commit)) throw new GateInputError('not-a-commit', '--commit must be a full 40- or 64-hex object id');
   const small = { ...base, maxBytes: SMALL_REPLY_BYTES };
   const commitOptions = { ...small, args: ['rev-parse', '--verify', '--quiet', `${commit}^{commit}`] };
   const found = await runGit(commitOptions);
-  if (found.status === 1) throw new GateInputError('unknown-commit', 'the repository has no such commit');
+  if (found.status === 1) throw await missingCommitCause(small, commit);
   if (found.status !== 0) throw refused(commitOptions, found);
   if (found.stdout.toString().trim() !== commit) throw new GateInputError('not-a-commit', '--commit names an object that is not itself a commit');
   return (await git({ ...small, args: ['rev-parse', `${commit}^{tree}`] })).toString().trim();
