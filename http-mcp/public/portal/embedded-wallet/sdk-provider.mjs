@@ -78,7 +78,10 @@ const STORAGE_CREATE_FIELDS = ['acl', 'data', 'encoding', 'metadata', 'operation
 const STORAGE_CHUNK_BYTES = 10240;
 const SDK_GAS_OS = OS_PER_DEM;
 // A network binding call is a small same-origin JSON exchange. It is cut at
-// this deadline, and its reply is read only up to this many bytes.
+// this deadline, and its reply is read only up to this many bytes. The cut
+// ends the wait only: the server may still have acted on a call that was cut,
+// and a lease granted by a cut `signature` call is never learned by the wallet,
+// so the wallet does not release it.
 const BINDING_DEADLINE_MS = 10_000;
 const BINDING_MAX_BYTES = 262_144;
 // How much of the node's refusal text a confirm_rejected message carries.
@@ -363,7 +366,8 @@ async function readCappedJson(response) {
 
 // POSTs to the network binding endpoint. Returns { httpOk, result }: the HTTP
 // success flag and the parsed JSON body. Throws network_binding_unavailable
-// when the call outlasts BINDING_DEADLINE_MS or the reply is over the byte cap.
+// when the call outlasts BINDING_DEADLINE_MS or the reply is over the byte cap;
+// that error says the answer was not received, not that the call had no effect.
 async function postToNetworkBinding(url, init) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BINDING_DEADLINE_MS);
