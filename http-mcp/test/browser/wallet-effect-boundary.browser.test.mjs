@@ -166,7 +166,7 @@ test('a failed authority refusal write leaves the started lane closed on restart
   });
 });
 
-test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a late fence grant, nested reuse, a non-owner release, overlapping purchases and reply bounds', async (t) => {
+test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a late fence grant, a refused request carrying the live capability, a non-owner release, overlapping purchases and reply bounds', async (t) => {
   await t.test('K0-B1 an authority reader rejecting with E refuses with E as the cause; signer 0, transport 0', async () => {
     const world = createWorld();
     const failure = new Error('authority node refused');
@@ -1958,28 +1958,28 @@ test('confirmation and broadcast are separate stages, an unknown confirmation in
   });
 
   // A pass id that starts a second intent for a stage must not let that attempt's withheld outcome erase the first.
-  for (const [first, stage] of [['acknowledged', 'dispatch'], ['unknown', 'dispatch'], ['acknowledged', 'broadcast'], ['unknown', 'broadcast']]) {
+  // `unanswered` is a first intent that never got an outcome, as after a kill and restart.
+  // Records are appended in order; the first intent's outcome is left out when it is `unanswered`.
+  const appendReusedPassHistory = async (store, stage, first) => {
+    const kinds = [`${stage}-started`, ...(first === 'unanswered' ? [] : [`${stage}-${first}`]), `${stage}-started`, `${stage}-withheld`];
+    await store.append(LANE, 0, signedRecord('pass-a'));
+    for (const [index, kind] of kinds.entries()) await store.append(LANE, index + 1, laneRecord(kind, 'pass-a', { stage }));
+  };
+
+  for (const [first, stage] of [['acknowledged', 'dispatch'], ['unknown', 'dispatch'], ['unanswered', 'dispatch'], ['acknowledged', 'broadcast'], ['unknown', 'broadcast'], ['unanswered', 'broadcast']]) {
     await t.test(`a reused pass id's ${stage}-withheld does not erase its earlier ${stage}-${first}`, async () => {
       const store = storeOver(createFakeIndexedDb());
-      await store.append(LANE, 0, signedRecord('pass-a'));
-      await store.append(LANE, 1, laneRecord(`${stage}-started`, 'pass-a', { stage }));
-      await store.append(LANE, 2, laneRecord(`${stage}-${first}`, 'pass-a', { stage }));
-      await store.append(LANE, 3, laneRecord(`${stage}-started`, 'pass-a', { stage }));
-      await store.append(LANE, 4, laneRecord(`${stage}-withheld`, 'pass-a', { stage }));
+      await appendReusedPassHistory(store, stage, first);
       const history = deriveDispatchHistory(await store.history(LANE));
       assert.deepEqual([history.neverDispatched, history.mayBroadcast], [false, false]);
     });
   }
 
-  for (const first of ['acknowledged', 'unknown']) {
+  for (const first of ['acknowledged', 'unknown', 'unanswered']) {
     await t.test(`a reused pass id's confirm-withheld does not erase its earlier confirm-${first}`, async () => {
       const store = storeOver(createFakeIndexedDb());
-      await store.append(LANE, 0, signedRecord('pass-a'));
-      await store.append(LANE, 1, laneRecord('confirm-started', 'pass-a', { stage: 'confirm' }));
-      await store.append(LANE, 2, laneRecord(`confirm-${first}`, 'pass-a', { stage: 'confirm' }));
-      await store.append(LANE, 3, laneRecord('confirm-started', 'pass-a', { stage: 'confirm' }));
-      await store.append(LANE, 4, laneRecord('confirm-withheld', 'pass-a', { stage: 'confirm' }));
-      assert.equal(deriveDispatchHistory(await store.history(LANE)).confirmation, first);
+      await appendReusedPassHistory(store, 'confirm', first);
+      assert.equal(deriveDispatchHistory(await store.history(LANE)).confirmation, first === 'unanswered' ? 'unknown' : first);
     });
   }
 });
