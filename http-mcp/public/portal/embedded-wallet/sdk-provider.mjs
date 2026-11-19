@@ -78,11 +78,13 @@ const STORAGE_CREATE_FIELDS = ['acl', 'data', 'encoding', 'metadata', 'operation
 const STORAGE_CHUNK_BYTES = 10240;
 const SDK_GAS_OS = OS_PER_DEM;
 // A network binding call is a small same-origin JSON exchange. It is cut at
-// this deadline, and its reply is read only up to this many bytes. The cut
-// ends the wait only: the server may still have acted on a call that was cut,
-// and a lease granted by a cut `signature` call is never learned by the wallet,
-// so the wallet does not release it.
-const BINDING_DEADLINE_MS = 10_000;
+// this deadline, and its reply is read only up to this many bytes. The deadline
+// is longer than the longest single chain read the server allows (60 s), so a
+// slow but working server is not cut. The cut ends the wait only: the server
+// may still have acted on a call that was cut, and a lease granted by a cut
+// `signature` call is never learned by the wallet, so the wallet does not
+// release it.
+const BINDING_DEADLINE_MS = 70_000;
 const BINDING_MAX_BYTES = 262_144;
 // How much of the node's refusal text a confirm_rejected message carries.
 const CONFIRM_REASON_MAX_CHARS = 200;

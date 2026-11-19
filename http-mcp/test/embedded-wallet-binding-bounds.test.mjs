@@ -14,7 +14,8 @@ const PAYEE = `0x${'71'.repeat(32)}`;
 const AMOUNT_OS = '2000000000';
 const NATIVE_RPC_URL = 'http://127.0.0.1/portal/api/devnet-native-wallet-rpc';
 const BINDING_URL = 'http://127.0.0.1/portal/api/devnet-native-wallet-binding';
-const BINDING_DEADLINE_MS = 10_000;
+const BINDING_DEADLINE_MS = 70_000;
+const SLOW_BUT_WORKING_MS = 10_500;
 const BINDING_MAX_BYTES = 262_144;
 const CHUNK_BYTES = 65_536;
 
@@ -113,6 +114,27 @@ test('a binding reply that stalls after its headers is cut at the deadline as ne
   const res = await settleOrPending(pending);
   assert.notEqual(res, 'pending');
   assert.equal(res.error.code, 'network_binding_unavailable');
+});
+
+test('a binding reply that arrives after 10.5 s is still returned', async (t) => {
+  const wallet = await unlockedNativeWallet(t);
+  let answer;
+  let called;
+  const fetchCalled = new Promise((resolve) => { called = resolve; });
+  replaceFetch(t, (url, init) => new Promise((resolve, reject) => {
+    init.signal?.addEventListener('abort', () => reject(init.signal.reason));
+    answer = () => resolve(jsonReply({ disposition: 'pending' }));
+    called();
+  }));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const pending = readback(wallet);
+  await fetchCalled;
+  t.mock.timers.tick(SLOW_BUT_WORKING_MS);
+  answer();
+  const res = await settleOrPending(pending);
+  assert.notEqual(res, 'pending');
+  assert.equal(res.success, true, JSON.stringify(res));
+  assert.deepEqual(res.data, { disposition: 'pending' });
 });
 
 test('the bind call of a native send is bounded by the same byte cap', async (t) => {
