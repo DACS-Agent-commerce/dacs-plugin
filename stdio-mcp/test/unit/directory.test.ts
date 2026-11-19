@@ -122,6 +122,12 @@ test('DACS_DIRECTORY_URL defaults to the public Directory', () => {
   assert.equal(loadConfig({}).directoryUrl, 'https://directory.v2.agentcommerce.network');
 });
 
+test('an empty or unsubstituted DACS_DIRECTORY_URL uses the public Directory', () => {
+  for (const unset of ['', '   ', '${user_config.directory_url}']) {
+    assert.equal(loadConfig({ DACS_DIRECTORY_URL: unset }).directoryUrl, DEFAULT_DIRECTORY_URL, JSON.stringify(unset));
+  }
+});
+
 test('the unit-test harness never defaults to the public Directory', async () => {
   const h = await harness();
   assert.notEqual(h.config.directoryUrl, DEFAULT_DIRECTORY_URL);

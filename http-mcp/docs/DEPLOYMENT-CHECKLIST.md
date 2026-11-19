@@ -6,7 +6,7 @@ Tick each item on the target host before connecting ChatGPT. Nothing here has be
 
 - [ ] `npm ci --ignore-scripts --omit=optional` from `package-lock.json`. The SDK packages are pinned by exact version and sha512 integrity.
 - [ ] `npm test`, `npm run test:browser` and `npm run check:package` all pass on the release commit.
-- [ ] Canonical deployment bundle: from the `http-mcp/` package root, use `docker build -f deploy/Dockerfile -t dacs-chatgpt-plugin:1.0.0 .` (see `../deploy/RUNBOOK.md` in the plugin source checkout; the `deploy/` bundle is not part of the installed package). It runs as `node`, uses `/var/lib/dacs-chatgpt` for persistent data, includes `HEALTHCHECK`, and declares `STOPSIGNAL SIGTERM`. An actual image build and container run remain unverified; the simpler root `Dockerfile` is a separate alternative and its `/data` layout is not interchangeable with this bundle.
+- [ ] Container image: from the `http-mcp/` package root, `docker build -t dacs-chatgpt-plugin:1.0.0 .` builds the root `Dockerfile` (the deploy bundle of the original source tree is not carried in this repository). It runs as `node`, uses `/data` for persistent data (`DACS_DATA_DIR=/data`, a declared volume), includes `HEALTHCHECK`, and declares `STOPSIGNAL SIGTERM`. `npm run check:package` replays its install and run steps without Docker; an actual image build and container run remain unverified.
 
 ## Configuration (host secret manager; never commit)
 
