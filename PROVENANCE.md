@@ -52,21 +52,22 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
+Files: 762 (verbatim 487, edited 215, changed here 16, added 44).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
+| `.claude-plugin/marketplace.json` | `962a6540cf0180218a2889d2cac035b4c7b4f638` | added: a marketplace at the repository root that lists the stdio plugin |
 | `.github/workflows/stdio-mcp.yml` | `ca22aadab7ce48e3185b934abe5d5d6eaa320e8a` | added: written fresh from stdio's workflow tests; no carried source |
 | `.gitignore` | `d82b03e30be4d89a5be65cbc8506d7236ba57cf1` | added: ignore rules for dependencies, build output, logs and local environment files |
 | `.gitleaksignore` | `9b718d6f403ed4776ff4c9df40a00ab63a608a6c` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
-| `README.md` | `a4c2d67ecb95d67b52b05a6d70fe6f1a353132e0` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections |
+| `README.md` | `9a7c75b13636c288a85ff82dbd7313a52e5b23dc` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections, and an "Install in Claude Code" section; then changed here: the layout table lists the root `.claude-plugin/`, and the install section uses the full command name `/demos:demos-find`; then changed here: the build step is scoped to the GitHub route, and a local clone is built in place |
 | `docs/PUBLIC-GATE.md` | `1678668758708b1f5030c78c329067d61202ba85` | added: documentation of the public-content gate |
 | `http-mcp/.dockerignore` | `aae035eb68f5747b0bda683606503b97ca99afdf` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/.env.example` | `61149650b005fca4655a1ba4d338e3b2a5f52f7d` | verbatim |
 | `http-mcp/.gitignore` | `1a8d076aff4a0fae67103239e52b41dd82b25daf` | verbatim |
 | `http-mcp/Dockerfile` | `e5082b20497f0157febbd5df404bd0c3daeba052` | changed here: no vendored SDK copy; optional packages are not installed |
-| `http-mcp/README.md` | `5e6379298817040a1d8b4da1b537e621ba07e1a0` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a "state of this repository" section; install directory corrected; no private commit id or planned tag; Community source license and re-implementation stated; then changed here: two mentions of the provenance file say "source checkout" |
+| `http-mcp/README.md` | `712e133717ac8cd5fefb130937a2d736315beb42` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a "state of this repository" section; install directory corrected; no private commit id or planned tag; Community source license and re-implementation stated; then changed here: two mentions of the provenance file say "source checkout"; then changed here: the container paragraph names the root `Dockerfile` and its `/data` layout instead of the deploy bundle, which is not carried |
 | `http-mcp/bin/dacs-chatgpt-offline-test.mjs` | `a7d035520a1632b822cb03c05fd589f19a9052ea` | verbatim |
 | `http-mcp/bin/dacs-chatgpt-plugin.mjs` | `7352d9ac1f5c9aa79a7591a4f52a6bb27b2744e1` | verbatim |
 | `http-mcp/bin/dacs-ops-health.mjs` | `2438240b572b4152d7c53aa53758f2b3e761a127` | changed here after a verbatim import: reads the configured node's network answer (size and deadline bounded) and adds exit code 3 |
@@ -84,7 +85,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/docs/CI.md` | `ddd9f9c7d1b8374828a6ebb29d69eae7f9558d56` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; a "state of this repository" note; baseline and discovery-count text corrected to this tree; a private commit id removed; then changed here: the baseline entry count; a list of the tests owned by the P303 cards and a list of failing tests the baseline does not cover; one mention of the provenance file says "source checkout" |
 | `http-mcp/docs/CONNECT-OTHER-CLIENTS.md` | `b9baac786e7c40bb2453aabd2088ea63a3f8ef9a` | verbatim |
 | `http-mcp/docs/CURRENT-TESTER-PACKAGE.md` | `eb83facc209e15cbac39d5b6a33dfc2799a9c525` | edited: public wording: internal review, process, PR and private-path references removed or reworded; the tarball and original-artifact lookup described as the test now does it |
-| `http-mcp/docs/DEPLOYMENT-CHECKLIST.md` | `1dc60328b6f1b6d12616b9ff9cb25fb25c0639f7` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
+| `http-mcp/docs/DEPLOYMENT-CHECKLIST.md` | `b37f6a7471a9c24f4c20d265c3a796498e0cbd86` | edited: public wording: internal review, process, PR and private-path references removed or reworded; then changed here: the container item names the root `Dockerfile` and its `/data` layout instead of the deploy bundle, which is not carried |
 | `http-mcp/docs/DEVNET-CHATGPT-OPERATOR.md` | `2d86e855cb1eee82646a88359090dfacc9b85ba4` | verbatim |
 | `http-mcp/docs/DEVNET-FIXED-PRICE-DEMO.md` | `cfc6f52348dcf403adec5a25d01f357239953c64` | edited: host replaced by a reserved .invalid host; link to a document that is not carried removed |
 | `http-mcp/docs/DEVNET-NATIVE-BLOCK-ZERO-FALLBACK.md` | `367fdde3412f58192d959642171b4acbfbde4555` | verbatim |
@@ -101,7 +102,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/docs/DURABLE-WALLET-JOURNAL.md` | `4a48ffad0a2593dc55d3322adf517924cd12ad88` | edited: fixture path renamed |
 | `http-mcp/docs/EMBEDDED-WALLET-FLOW-COVERAGE.md` | `27798c78872f503dba182cbad06176634e764381` | edited: public wording: internal review, process, PR and private-path references removed or reworded; directory name in a column header corrected; digests of internal run logs and a source manifest removed |
 | `http-mcp/docs/EMBEDDED-WALLET-INTEGRATION.md` | `d5894a9ff7498d9e86e98500bdd5f6fb1220bfb5` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
-| `http-mcp/docs/EMBEDDED-WALLET-PACKAGING.md` | `12f71aa3cee926623d8291392f5dee870efe0598` | edited: exclusion wording follows the renamed label; then changed here: the working-notes file names are marked as a source checkout's, and a SDK version change must run the message-signing bytes test; the served-file table adds `tx-signature.mjs` and the runtime label and file counts follow the rebuilt bundle of SDK 4.0.20
+| `http-mcp/docs/EMBEDDED-WALLET-PACKAGING.md` | `ccaabc13856fd6ca96e4ed7065d11eb9f74b55f7` | edited: exclusion wording follows the renamed label; then changed here: the working-notes file names are marked as a source checkout's, and a SDK version change must run the message-signing bytes test; the served-file table adds `tx-signature.mjs` and the runtime label and file counts follow the rebuilt bundle of SDK 4.0.20; then changed here: the container check and image-permission sections describe the root `Dockerfile`, and the deploy bundle's staging is marked historical
 | `http-mcp/docs/EMBEDDED-WALLET-SDK.md` | `76e2938472a48528dbc691d39a47a8b3bf09367b` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; build and test commands written as plain npm and node commands; then changed here: the not-claimed list uses disclaimer forms, as the public-gate wording rule requires; the `sign` row names the transaction-form refusal and the `transaction_preimage_refused` code |; the file table adds `tx-signature.mjs` and names SDK 4.0.20; the `sign` row states that the refusal reads the text the SDK signs (a leading U+FEFF is dropped first)
 | `http-mcp/docs/EMBEDDED-WALLET-TESTER.md` | `8c9fa22eb95a036b42bde35227d8d2004d77ba6d` | edited: public wording: internal review, process, PR and private-path references removed or reworded; status given in the exact public sentence; directory name in a command corrected; public wording: internal process and layout references reworded; then changed here: the last prohibition no longer names the review, as the public-gate wording rule requires |
 | `http-mcp/docs/EMBEDDED-WALLET-UI.md` | `ef559cc6f95a207be660285391a0451d2b1ec348` | edited: public wording: internal review, process, PR and private-path references removed or reworded; public wording: internal process and layout references reworded |
@@ -116,7 +117,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/docs/OPS-HEALTH.md` | `1be9e1ad5f35196a0d3a9c4d70db200b373813bb` | edited: public wording: internal review, process, PR and private-path references removed or reworded; a private commit id removed |
 | `http-mcp/docs/OVERNIGHT-CORE.md` | `42cc2c63e09a139373593cea786f42ccd2c523e4` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/OVERNIGHT-FUNCTIONAL-TESTS.md` | `7d116a6efc859d82fb212eb47b7687c5c9de25b9` | edited: test-run result logs removed; public wording |
-| `http-mcp/docs/OVERNIGHT-PACKAGING.md` | `bdacedbcb12741f55de173c81671d6898685a635` | edited: directory name in a column header corrected; exclusion wording follows the renamed label |
+| `http-mcp/docs/OVERNIGHT-PACKAGING.md` | `90880e0c0b7c717d15520beba429a1531ec9b6e8` | edited: directory name in a column header corrected; exclusion wording follows the renamed label; then changed here: the container section describes the root `Dockerfile` instead of the deploy bundle, which is not carried |
 | `http-mcp/docs/OVERNIGHT-UI.md` | `f93b4a1ea1dec840feae013dbda1f6127ba37ebe` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/PUBLIC-SR2-PROJECTION.md` | `9b44e06734ab928d41c7ac517e5ac161f4701cca` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
 | `http-mcp/docs/PURCHASE-READBACK-CACHE.md` | `77db1bf32cf47ae94d3cf7a12998bf0acf205270` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -701,7 +702,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `http-mcp/test/switch-registry-mutants.test.mjs` | `e274cb82de1c2493586bdebd13f23bdf20b5e8fa` | verbatim |
 | `http-mcp/test/switch-registry.test.mjs` | `8d90091a2fd18f6927a6759a81f65f0f32a62a6e` | verbatim |
 | `http-mcp/test/tester-dashboard.test.mjs` | `e925abe14db23674ccf48680f79a4d89b9312814` | verbatim |
-| `http-mcp/test/tester-quickstart.test.mjs` | `7e45ea1d9a81b275138529b054c06fbf621489e2` | changed here after a verbatim import: the link check's list names the references in packed docs that are marked source-checkout-only |
+| `http-mcp/test/tester-quickstart.test.mjs` | `56f8a307f4bdd84189cfd14a186a3c48dae83a5c` | changed here after a verbatim import: the link check's list names the references in packed docs that are marked source-checkout-only; then changed here: the list drops the deployment checklist's removed runbook reference |
 | `http-mcp/test/ui-status.test.mjs` | `82084a766e7d3f668ece00ccf54ffcac005907d5` | edited: comments and test names: internal review and process references removed; then changed here: the list of fields known to reach the model raw is removed and the test expects none |
 | `http-mcp/test/unit.test.mjs` | `b00c9262980fcdb5721e1a01a3c7b4524ac83de9` | edited: client address replaced by a documentation address |
 | `http-mcp/test/unsupported-node-fee.test.mjs` | `f5559258e76df9cc5852e9d13825dcd552c1a19e` | verbatim |
@@ -734,11 +735,11 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `scripts/public-gate/redact.mjs` | `8a04da888122e00a828f5818cd11ccbab8443c91` | added: public-content gate source |
 | `scripts/public-gate/rules-private.mjs` | `b57b5753c6809159554f4c82b205c31b0baafda9` | added: public-content gate source |
 | `stdio-mcp/.claude-plugin/marketplace.json` | `d84732871f473d7f9e0bc6a1144bae8b0646af0f` | verbatim |
-| `stdio-mcp/.claude-plugin/plugin.json` | `c977a78af1a20e73a71e8fb05ac88dfc15f6b66a` | edited: RPC and opt-in descriptions name no host and do not direct testnet writes to the mainnet opt-in |
+| `stdio-mcp/.claude-plugin/plugin.json` | `2484d1ba9ba45887611ab6607fb08d6ac88a3466` | edited: RPC and opt-in descriptions name no host and do not direct testnet writes to the mainnet opt-in; then changed here: the DACS Directory URL option |
 | `stdio-mcp/.gitignore` | `db95153686d0c7bbbc1ffe2b84468bf9a5f979af` | verbatim |
-| `stdio-mcp/.mcp.json` | `d645db37dc6bab55f3582af16b663e5cf6978fcb` | verbatim |
+| `stdio-mcp/.mcp.json` | `8d95666d475cae1188a491e6992c2690d13fc309` | changed here after a verbatim import: passes the DACS Directory URL option to the server as `DACS_DIRECTORY_URL` |
 | `stdio-mcp/LICENSE` | `7d73a34f494ae4d87e549308c2b4559497dc7ffb` | verbatim |
-| `stdio-mcp/README.md` | `e32b909ffb8289c3718e9061a1109c8143cc590a` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked; then changed here: the note on the CI workflow names the workflow file |
+| `stdio-mcp/README.md` | `5ca4f1ada00e024c4487cd988047b661d4200b8a` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked; then changed here: the note on the CI workflow names the workflow file; an "Install in Claude Code" section and `/demos-find` in the command lists; then changed here: the install section says the GitHub form needs the root marketplace on the default branch and gives the local-clone form, says to remove an added `stdio-mcp` marketplace first, and the install and onboarding steps use the full command names `/demos:demos-find` and `/demos:demos-onboard`; then changed here: the remove step warns that saved settings and secrets are deleted, and the copy-and-build text is scoped to the GitHub route, with the local clone built in place |
 | `stdio-mcp/SECURITY.md` | `3d58f87836ffea22e1a00d970d9c9f2f9fcd9253` | edited: testnet writes and faucet requests are refused in this release; vulnerability reports point to GitHub's private vulnerability reporting; live-run claim marked as made in the source repository; the CI description corrected to this tree; then changed here: the CI description names the workflow file |
 | `stdio-mcp/adapters/HOSTS.md` | `bb8adfc1574c71436b8ce455afb09a03af360b70` | verbatim |
 | `stdio-mcp/adapters/claude/README.md` | `a83699c03384cb7e060e0a4444babad1042e19c2` | verbatim |
@@ -750,6 +751,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `stdio-mcp/commands/demos-attest.md` | `02bdbc279d52aaac7171e83bb508dacfc3e3227b` | verbatim |
 | `stdio-mcp/commands/demos-balance.md` | `826440407f8fc34e3838fcc56fd98abd217a70a4` | verbatim |
 | `stdio-mcp/commands/demos-buy.md` | `88ae81ae7d279a3ba2c1b4634b4e75648cc09d74` | verbatim |
+| `stdio-mcp/commands/demos-find.md` | `7693ecd0fa133e90d0cfa3a161ec3bfff6054930` | added: searches the public Directory and checks the signed Listing the user picks; an empty page is reported from its `withheld`, `cursor` and `total`; then changed here: `withheld` and `cursor` are also reported when hits are shown, an error from the listing check is reported as not checked, and the rules for a hit marked `revoked` agree |
 | `stdio-mcp/commands/demos-onboard.md` | `7c2f187772845f801d0cced18a967a0c52442a2c` | verbatim |
 | `stdio-mcp/commands/demos-verify-receipt.md` | `3859eb3b0c8375a3e08cff9d0d733e87b0a3c47e` | verbatim |
 | `stdio-mcp/docs/MANDATES.md` | `ddfa22924388adcc07fc785ab870aebc1e3b6631` | verbatim |
@@ -801,6 +803,7 @@ Files: 759 (verbatim 490, edited 215, changed here 13, added 41).
 | `stdio-mcp/test/unit/workflow-settings.test.ts` | `eb1574cba478076e8f10b9e1ae79ceb578da73b0` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the shared-input path filters and the SDK input validation step are expected, with two refusal cases |
 | `stdio-mcp/tsconfig.json` | `3cf94395ce469d74d6c8ba7abcb763df04e51863` | verbatim |
 | `test/ci/carry-state.test.mjs` | `ad09f5acfeaac7b1623e4400bc8e984326a0817d` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/ci/claude-install.test.mjs` | `beae889edc2a3426d946f7929442f24bd25e7b3a` | added: tests of the root marketplace, the plugin manifest and the `/demos-find` command |
 | `test/ci/root-script.test.mjs` | `1113534311581054298466b4a169d518b8afc40b` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/lib/choice.test.mjs` | `654dead8e6a23f82bf27272959eb827a1d5db717` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/lib/gate-fixtures.mjs` | `53197b06b98db5fe0ab46759853e7bbbdc59d7d8` | added: tests of the public-content gate and of the carried-file inventory |

@@ -10,6 +10,7 @@ DACS here means Demos Agent Commerce Standards. It is not related to other softw
 | --- | --- |
 | [`http-mcp/`](http-mcp/) | ChatGPT app, served over HTTP MCP |
 | [`stdio-mcp/`](stdio-mcp/) | MCP server and Claude Code plugin, over stdio |
+| `.claude-plugin/` | Claude Code marketplace file at the repository root; it lists the `demos` plugin from `stdio-mcp/` |
 | `scripts/`, `test/`, [`docs/`](docs/) | Repository tooling: the public-content gate, the CI helpers and their tests |
 | `.github/workflows/` | CI: `public-gate`, `http-mcp tests`, `stdio-mcp` and `lint` |
 
@@ -23,6 +24,29 @@ Testnet is the default network. `http-mcp/` is testnet only. `stdio-mcp/`
 refuses testnet writes in this release; its only write path is an explicit
 mainnet opt-in that has not been tried. Neither package is a released product.
 The external security review is on hold.
+
+## Install in Claude Code
+
+Testnet by default, installed from source. In Claude Code, add this repository
+as a marketplace, then install the `demos` plugin from it. The exact commands
+are in [`stdio-mcp/README.md`](stdio-mcp/README.md), which also describes the
+plugin's settings.
+
+When you add the repository from GitHub, the installed copy is not built. Run
+`npm ci && npm run build` in the installed plugin's folder (Claude Code's
+`${CLAUDE_PLUGIN_ROOT}`); the first start writes this command to Claude Code's MCP
+log, and `/mcp` shows the server's status. Then restart Claude Code or run `/mcp`.
+When you add a local clone, Claude Code loads the plugin from the clone, so build
+it there once with the same command if it is not built yet. Then restart Claude
+Code or run `/mcp`.
+
+Then run `/demos:demos-find <what you want>`. It is written to search the public DACS
+Directory and check the signed Listing you pick, using two read-only tools. It
+passes no revocation result, so a Listing whose other checks pass comes back
+`indeterminate`: revocation is not established. Any other check that is not
+`pass` is named, and a hit the Directory marked withdrawn is reported as
+withdrawn. The title and price hint in the search summary are the Directory's
+text; the check does not verify them.
 
 ## Gate
 
