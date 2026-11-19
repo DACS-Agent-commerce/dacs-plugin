@@ -52,7 +52,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 762 (verbatim 487, edited 215, changed here 16, added 44).
+Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -755,7 +755,7 @@ Files: 762 (verbatim 487, edited 215, changed here 16, added 44).
 | `stdio-mcp/commands/demos-onboard.md` | `7c2f187772845f801d0cced18a967a0c52442a2c` | verbatim |
 | `stdio-mcp/commands/demos-verify-receipt.md` | `3859eb3b0c8375a3e08cff9d0d733e87b0a3c47e` | verbatim |
 | `stdio-mcp/docs/MANDATES.md` | `ddfa22924388adcc07fc785ab870aebc1e3b6631` | verbatim |
-| `stdio-mcp/package-lock.json` | `2d064ce7cbe3858df1f04b34157864c444aa6ae9` | verbatim |
+| `stdio-mcp/package-lock.json` | `0214468e7e282c0249daa85cf6c73881539dd534` | changed here after a verbatim import: declares ajv, which a Directory unit test imports, as a devDependency |
 | `stdio-mcp/package.json` | `9435223d112f21b034f3ad1a51f580f6a4b0b2f2` | verbatim |
 | `stdio-mcp/scripts/launch.mjs` | `98afd69e8345e1b0249d64ae6fb6f218746140d5` | verbatim |
 | `stdio-mcp/skills/demos-onboard/SKILL.md` | `913f8094cbb7852c1b9f73acf4a6f27bfc311e6d` | verbatim |
@@ -817,4 +817,4 @@ Files: 762 (verbatim 487, edited 215, changed here 16, added 44).
 | `test/public-gate/private.test.mjs` | `a90437a91d66394fd6700f7266b6e790d3045508` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/redact.test.mjs` | `23a902dbf88f50cd9f617e83864f0a4ac45c0be3` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/report.test.mjs` | `85aa337784bb9b1747f7b9eb5ccebe60a580c1f9` | added: tests of the public-content gate and of the carried-file inventory |
-| `test/public-gate/text.test.mjs` | `72fe4a71bf1d02eb21a7ff20b268aefa8e28e04c` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/text.test.mjs` | `db617fccd7e72d0c4b8d7268745a83e28d9eb89f` | added: tests of the public-content gate and of the carried-file inventory; then changed here: the stdio lockfile disposition rows follow its new blob and lines |
