@@ -109,7 +109,9 @@ test('run-bounded kills the process group at the deadline, caps output and keeps
   const started = performance.now();
   const error = await rejection(runNode(leaderScript(CHILD_LIFETIME_MS), { deadlineMs: 1000, graceMs: 300 }));
   assert.equal(error.cause, 'subprocess-timeout');
-  assert.ok(performance.now() - started >= 1300, 'settled before the grace limit let the group escape SIGTERM');
+  const settledAfterMs = performance.now() - started;
+  assert.ok(settledAfterMs >= 1300, 'settled before the grace limit let the group escape SIGTERM');
+  assert.ok(settledAfterMs < CHILD_LIFETIME_MS / 2, `settled only after ${Math.round(settledAfterMs)} ms, so the group may have ended by itself instead of being sent SIGKILL`);
   const output = error.stdout.toString();
   const pids = [...output.matchAll(/^(?:leader|grandchild) (\d+)$/gm)].map(([, pid]) => Number(pid));
   assert.equal(pids.length, 2, output);
