@@ -52,7 +52,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
+Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -765,7 +765,7 @@ Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
 | `stdio-mcp/src/chain.ts` | `92350147045521dcd898b5879104530ff8c61d03` | edited: comment no longer points to a document that is not carried |
 | `stdio-mcp/src/config.ts` | `19daa6098ca649b93edc6c48a0507285ffcf7b49` | edited: no built-in RPC or faucet host (reserved .invalid placeholders); testnet host list empty (testnet writes are refused); refusal message names no opt-in; behaviour change: testnet writes off a known testnet RPC are refused even with the mainnet opt-in |
 | `stdio-mcp/src/confirm-text.ts` | `2455d73648c54fb36a56b1f062cada9d21d051db` | verbatim |
-| `stdio-mcp/src/confirm.ts` | `7c44f6252cb80892e651b12530f21114436a4e5f` | verbatim |
+| `stdio-mcp/src/confirm.ts` | `2cc7250d5db3a2542d798366c89e1f00a13edb2c` | changed here after a verbatim import: revoke and delete the pending confirmation when approval registration or URL guarding throws, then rethrow |
 | `stdio-mcp/src/dacs/agreement.ts` | `8f5c8a477da24ba09e2baac20f02d67b76aaee0e` | verbatim |
 | `stdio-mcp/src/dacs/jcs.ts` | `7bf1b3801113ed690d7c3797e8b6ff2054d95db0` | verbatim |
 | `stdio-mcp/src/dacs/listing.ts` | `52f6be56eddeeca84a0040845b93684218f7036a` | changed here after a verbatim import: a presentation signature is checked only for a canonical key that is not of small order |
@@ -789,7 +789,7 @@ Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
 | `stdio-mcp/test/integration/testnet-read.test.ts` | `c98ead67551b8f5e1f2233eae41e26cb973f5abd` | edited: RPC comes from DEMOS_RPC_URL; the test skips without it |
 | `stdio-mcp/test/live/testnet-write-cycle.ts` | `4a99ee144a5127dc8d1affdcba71c68f0d73a3eb` | edited: RPC comes from DEMOS_RPC_URL; the driver skips without it |
 | `stdio-mcp/test/unit/alignment.test.ts` | `f62adb8006b99354890e944d356b2a5cbd98b742` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `stdio-mcp/test/unit/confirmation.test.ts` | `3596e7646f5cc20a7cd08d3c98b43ce3a5d71d0b` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `stdio-mcp/test/unit/confirmation.test.ts` | `ff4e4250a3f42536e1732caf01eb508d47bc9756` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: tests cover registration and URL-guard failures, cleanup, recovery and a decision during registration |
 | `stdio-mcp/test/unit/dacs.test.ts` | `f715e0f401dae8394945cfcc0aeef516aa46d25f` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a test added for ordinary, wrong-message and small-order keys on a domain signature |
 | `stdio-mcp/test/unit/guard.test.ts` | `21da5541cc58f8fce07313f3c4b821d411134a33` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `stdio-mcp/test/unit/keyless-http.test.ts` | `9574b7eaceef3f45a1f00da924317a4532234dbf` | verbatim |

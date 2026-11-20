@@ -4,9 +4,67 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { ApprovalServer } from '../../src/approval.js';
+import { ConfirmationGate } from '../../src/confirm.js';
+import { SecretGuard } from '../../src/secrets.js';
 import { harness, ADDR_B, ADDR_C } from '../helpers.js';
 
 const prepPay = (h: Awaited<ReturnType<typeof harness>>, amount = '1', to = ADDR_B) => h.call('demos_tx_prepare', { to, amount_dem: amount });
+
+test('approval registration failure revokes and removes the pending entry; a later action works', async (t) => {
+  const approval = new ApprovalServer();
+  const failure = new Error('registration failed');
+  const register = t.mock.method(approval, 'register', async () => { throw failure; });
+  const revoke = t.mock.method(approval, 'revoke');
+  const channel = { name: 'test', deliver: t.mock.fn(async () => true) };
+  const gate = new ConfirmationGate([channel], 60_000, new SecretGuard(), Date.now, approval);
+
+  await assert.rejects(gate.issue('failed', 'digest', 'Confirm', []), (error: unknown) => error === failure);
+  assert.equal(gate.has('failed'), false);
+  assert.equal(revoke.mock.callCount(), 1);
+  assert.deepEqual(revoke.mock.calls[0]!.arguments, ['failed']);
+  assert.equal(channel.deliver.mock.callCount(), 0);
+  assert.throws(() => gate.verify('failed', undefined, 'digest'), /unknown, denied or already-used/);
+
+  register.mock.mockImplementation(async () => 'http://127.0.0.1/a/test-placeholder');
+  const issued = await gate.issue('later', 'later-digest', 'Confirm', []);
+  assert.deepEqual(issued.deliveredVia, ['test']);
+  assert.equal(issued.approvalPage, true);
+  assert.equal(gate.has('later'), true);
+  assert.equal(gate.has('failed'), false);
+});
+
+test('approval URL guard failure revokes and removes the pending entry', async (t) => {
+  const approval = new ApprovalServer();
+  const guard = new SecretGuard();
+  const failure = new Error('URL guard failed');
+  t.mock.method(approval, 'register', async () => 'http://127.0.0.1/a/test-placeholder');
+  const revoke = t.mock.method(approval, 'revoke');
+  t.mock.method(guard, 'register', (value) => {
+    if (value === 'test-placeholder') throw failure;
+  });
+  const channel = { name: 'test', deliver: t.mock.fn(async () => true) };
+  const gate = new ConfirmationGate([channel], 60_000, guard, Date.now, approval);
+
+  await assert.rejects(gate.issue('failed', 'digest', 'Confirm', []), (error: unknown) => error === failure);
+  assert.equal(gate.has('failed'), false);
+  assert.equal(revoke.mock.callCount(), 1);
+  assert.deepEqual(revoke.mock.calls[0]!.arguments, ['failed']);
+  assert.equal(channel.deliver.mock.callCount(), 0);
+});
+
+test('approval during registration sees the pending entry', async (t) => {
+  const approval = new ApprovalServer();
+  const decision = t.mock.method(approval, 'setDecisionHandler');
+  t.mock.method(approval, 'register', async (id) => {
+    decision.mock.calls[0]!.arguments[0](id, true);
+    return 'http://127.0.0.1/a/test-placeholder';
+  });
+  const gate = new ConfirmationGate([{ name: 'test', deliver: async () => true }], 60_000, new SecretGuard(), Date.now, approval);
+
+  await gate.issue('approved', 'digest', 'Confirm', []);
+  assert.equal(gate.verify('approved', undefined, 'digest'), 'local-approval-page');
+});
 
 test('prepare returns a summary and prepared_id but never the code', async () => {
   const h = await harness();

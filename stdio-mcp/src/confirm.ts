@@ -116,8 +116,14 @@ export class ConfirmationGate {
     // still delivering is never lost
     this.entries.set(preparedId, { mac: this.mac(preparedId, digest, code), digest, expiresAt, attempts: 0, approved: false });
     if (this.approval) {
-      msg.approveUrl = await this.approval.register(preparedId, card ?? { headline: title, rows: lines.map((l, i) => [String(i + 1), l]), digest }, expiresAt);
-      this.guard.register(msg.approveUrl.split('/a/')[1]);
+      try {
+        msg.approveUrl = await this.approval.register(preparedId, card ?? { headline: title, rows: lines.map((l, i) => [String(i + 1), l]), digest }, expiresAt);
+        this.guard.register(msg.approveUrl.split('/a/')[1]);
+      } catch (error) {
+        this.approval.revoke(preparedId);
+        this.entries.delete(preparedId);
+        throw error;
+      }
     }
     const deliveredVia: string[] = [];
     for (const ch of this.channels) {
