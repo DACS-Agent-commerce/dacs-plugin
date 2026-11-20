@@ -341,6 +341,51 @@ test('a clock whose setTimer returns a non-function refuses eb_fence_failed with
   assert.equal(tab.locks.requests, 0);
 });
 
+test('run rejects non-function work before requesting a lock or starting a timer', async () => {
+  const tab = createTab();
+  for (const work of [undefined, null, false, 0, 'work', {}, [], Symbol('work')]) {
+    await assert.rejects(tab.fence.run('invalid', work), TypeError);
+    assert.equal(tab.locks.requests, 0);
+    assert.equal(tab.clock.pendingTimers(), 0);
+    assert.equal(tab.fence.connectionGeneration, 0);
+  }
+  assert.equal(await tab.fence.run('valid', () => 'ran'), 'ran');
+  assert.equal(tab.locks.requests, 1);
+});
+
+test('run rejects non-function work while the wallet lock is already held', async () => {
+  const tab = createTab();
+  const holder = tab.hold();
+  await settle();
+  const invalid = settled(tab.fence.run('invalid', null));
+  try {
+    assert.ok(await hasSettled(invalid), 'invalid work must not wait for the held lock');
+    assert.ok((await invalid).error instanceof TypeError);
+    assert.equal(tab.locks.requests, 1, 'only the existing holder requested the lock');
+    assert.equal(tab.clock.pendingTimers(), 0);
+  } finally {
+    holder.release();
+    await Promise.all(tab.background);
+    await invalid;
+  }
+});
+
+test('nested run rejects non-function work and preserves its owner capability', async () => {
+  const tab = createTab();
+  await tab.fence.run('owner', async (capability) => {
+    for (const work of [undefined, null, 'work', {}]) {
+      await assert.rejects(tab.fence.run('owner', work, capability), {
+        name: 'TypeError', message: 'work must be a function',
+      });
+      assert.ok(tab.fence.owns(capability, 'owner'));
+    }
+    assert.equal(await tab.fence.run('owner', () => 'nested', capability), 'nested');
+    assert.equal(tab.locks.requests, 1);
+    assert.equal(tab.clock.pendingTimers(), 0);
+  });
+  assert.ok(await tab.isFree());
+});
+
 test('replaceConnection throws a TypeError for a non-function at once, before taking the fence or changing the generation', () => {
   const tab = createTab();
   for (const replace of [undefined, 'reconnect', {}]) assert.throws(() => tab.fence.replaceConnection(replace), { name: 'TypeError', message: 'replace must be a function' });

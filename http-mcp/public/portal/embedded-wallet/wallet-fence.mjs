@@ -90,6 +90,7 @@ function requestLock(locks, name, clock, timeoutMs) {
 /**
  * The actor fence for one wallet, shared by every tab through Web Locks.
  * `run(operationId, work, capability?)` runs `work(capability)` holding the fence and releases it on every path;
+ * it rejects with a `TypeError` before requesting the lock when `work` is not a function;
  * with a capability it is a nested step: the capability must be the live one for the same operation (else
  * `tp1_fence_not_owned`) and nothing is acquired. `release(capability, operationId)` ends the hold and returns
  * whether it did; only the owner's own capability can. `owns(capability, operationId)` says whether the capability
@@ -129,6 +130,7 @@ export function createWalletFence({ locks, walletId, clock = SYSTEM_CLOCK, timeo
   }
 
   async function run(operationId, work, capability) {
+    if (typeof work !== 'function') throw new TypeError('work must be a function');
     if (capability !== undefined) {
       if (!owns(capability, operationId)) throw refuse('tp1_fence_not_owned');
       return work(capability);
