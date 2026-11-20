@@ -751,7 +751,7 @@ Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
 | `stdio-mcp/commands/demos-attest.md` | `02bdbc279d52aaac7171e83bb508dacfc3e3227b` | verbatim |
 | `stdio-mcp/commands/demos-balance.md` | `826440407f8fc34e3838fcc56fd98abd217a70a4` | verbatim |
 | `stdio-mcp/commands/demos-buy.md` | `88ae81ae7d279a3ba2c1b4634b4e75648cc09d74` | verbatim |
-| `stdio-mcp/commands/demos-find.md` | `7693ecd0fa133e90d0cfa3a161ec3bfff6054930` | added: searches the public Directory and checks the signed Listing the user picks; an empty page is reported from its `withheld`, `cursor` and `total`; then changed here: `withheld` and `cursor` are also reported when hits are shown, an error from the listing check is reported as not checked, and the rules for a hit marked `revoked` agree |
+| `stdio-mcp/commands/demos-find.md` | `fb0d337f056e7c252306b6a28963876422435027` | added: searches the public Directory and checks the signed Listing the user picks; an empty page is reported from its `withheld`, `cursor` and `total`; then changed here: `withheld` and `cursor` are also reported when hits are shown, an error from the listing check is reported as not checked, and the rules for a hit marked `revoked` agree; then changed here: a withdrawn hit is reported before its decision, and other hits start with their decision |
 | `stdio-mcp/commands/demos-onboard.md` | `7c2f187772845f801d0cced18a967a0c52442a2c` | verbatim |
 | `stdio-mcp/commands/demos-verify-receipt.md` | `3859eb3b0c8375a3e08cff9d0d733e87b0a3c47e` | verbatim |
 | `stdio-mcp/docs/MANDATES.md` | `ddfa22924388adcc07fc785ab870aebc1e3b6631` | verbatim |
