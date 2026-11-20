@@ -778,11 +778,11 @@ Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
 | `stdio-mcp/src/keystore.ts` | `791b33b25fe8e29e92857b346965533228813d65` | verbatim |
 | `stdio-mcp/src/log.ts` | `9164ef9bd5557aaa34ca0983806f12ed019a8728` | verbatim |
 | `stdio-mcp/src/mandates.ts` | `7bda4646563dc14091f9e1d3508408ebe766f780` | verbatim |
-| `stdio-mcp/src/onboard.ts` | `9a40e08036e4883eebaa4f00e478607437920381` | verbatim |
+| `stdio-mcp/src/onboard.ts` | `ff7d53a9b31587e2cebd0cd90cb00544f5cec0a3` | verbatim; changed here: re-check STOP/KILL before wallet creation and after address lookup |
 | `stdio-mcp/src/prepare_core.ts` | `70d5ac863b27c7103f8a230ab3db8cc65d472a57` | verbatim |
 | `stdio-mcp/src/receipts.ts` | `3fb97e6ebe93a840a1df422d5ba6917b1c9d3578` | verbatim |
 | `stdio-mcp/src/secrets.ts` | `ca0c3736baf1961a77fab94f9db8844749de64f5` | verbatim |
-| `stdio-mcp/src/server.ts` | `1e409a5b02c571f83d28bed990f203ab5b5db847` | verbatim |
+| `stdio-mcp/src/server.ts` | `7c8b12f3932a46d9d702236cd010913963e105ff` | verbatim; changed here: share the existing STOP/KILL marker predicate with onboarding |
 | `stdio-mcp/src/spend.ts` | `dd1827a0826ac41bcd91562779ffcfeffa696e93` | verbatim |
 | `stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json` | `6e64f1110858e005b52b2fe8559810bd41514943` | verbatim |
 | `stdio-mcp/test/helpers.ts` | `9bd6aeb48172ea1f463bd65da96acdcca4b6bc13` | edited: mock RPC uses a reserved .invalid host and counts as the known testnet as a test double |
@@ -796,7 +796,7 @@ Files: 762 (verbatim 486, edited 215, changed here 17, added 44).
 | `stdio-mcp/test/unit/keystore-and-reads.test.ts` | `d8e40a28f796868c2cd55a0b34f4eb8cb60f67d2` | verbatim |
 | `stdio-mcp/test/unit/listing.test.ts` | `1776f63ba9bf3b96de13b8303a879d53511c27e9` | changed here after a verbatim import: tests added for ordinary and small-order keys on listing and presentation signatures |
 | `stdio-mcp/test/unit/no-key-leak.test.ts` | `7d28d7c24e969954ae11bb97ab45facb77cdeb3c` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `stdio-mcp/test/unit/onboard.test.ts` | `fc20a5f78039bbbc1b4c1f56ebcdcbc0c10d6cbf` | edited: expects the reserved faucet placeholder; the faucet refusal case uses an explicit mainnet setup, since unlisted testnet RPCs no longer take writes |
+| `stdio-mcp/test/unit/onboard.test.ts` | `faf961b7f1289967005118d4eafaca86c4f52cc1` | edited: expects the reserved faucet placeholder; the faucet refusal case uses an explicit mainnet setup, since unlisted testnet RPCs no longer take writes; changed here: add STOP and KILL races during address lookup |
 | `stdio-mcp/test/unit/prism.test.ts` | `ac59a60af9c7a9cbda4c63a29f9488b8b231c667` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a header comment reworded to neutral text; no behaviour change |
 | `stdio-mcp/test/unit/spend-and-policy.test.ts` | `9534816425ca70e4e6735189201237ac082c1c20` | edited: testnet RPC example replaced by a reserved .invalid host; adds the sanitized-defaults guard test; adds a regression check that the mainnet opt-in does not open testnet writes |
 | `stdio-mcp/test/unit/workflow-pins.test.ts` | `3c95e96a4644ac45ee572216ba7947fb3e3eab5d` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the skip wording says "without the workflow file" |

@@ -414,3 +414,38 @@ test('a crash before onboard.json is written still leads to backup recovery; key
   await h.approval!.stop();
 });
 
+
+for (const marker of ['STOP', 'KILL']) {
+  test(`onboard: ${marker} during address lookup refuses wallet creation without files`, async () => {
+    const wf = factory();
+    const derive = wf.addressOf;
+    let entered!: () => void;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { entered = resolve; });
+    const resume = new Promise<void>((resolve) => { release = resolve; });
+    wf.addressOf = async (mnemonic) => {
+      entered();
+      await resume;
+      return derive(mnemonic);
+    };
+    const h = await harness(NO_KEY, { approval: true, walletFactory: wf });
+    try {
+      const prepared = await h.call('demos_onboard_create_wallet');
+      assert.equal(prepared.isError, false, prepared.text);
+      const url = h.channel.last().approveUrl!;
+      const approval = http(url + '/approve', 'POST', { passphrase: PASS, confirm: PASS, remember: 'on' });
+      await pending;
+      writeFileSync(join(h.config.stateDir, marker), 'stop');
+      release();
+      const refused = await approval;
+      assert.match(refused.body, /no wallet is created/i);
+      assert.equal(existsSync(join(h.config.stateDir, 'wallet.keystore.json')), false);
+      assert.equal(existsSync(join(h.config.stateDir, 'wallet.passphrase')), false);
+      assert.equal(existsSync(join(h.config.stateDir, 'onboard.json')), false);
+      assert.ok(!refused.body.includes('<li>'), 'recovery words must not be displayed');
+    } finally {
+      release();
+      await h.approval!.stop();
+    }
+  });
+}
