@@ -186,3 +186,65 @@ test('reserve and release retain yesterday after settlement and keep reloaded da
   day2.release(c);
   reloadsCleanly('2026-10-06');
 });
+
+test('reservation authority binds remainder, original day, maximum and lowered cap', () => {
+  // Remainder: after part of a reservation settles, a release frees only what is left of it.
+  const remainderDir = stateDir();
+  const remainderLedger = ledgerAt(remainderDir);
+  const settling = remainderLedger.reserve(parts(500n, 100n, 20n), 'settling');
+  const neighbour = remainderLedger.reserve(parts(300n, 50n), 'neighbour');
+  remainderLedger.release(settling, { priceOs: 200n, networkFeeOs: 100n });
+  const afterRemainder = readLedgerFile(remainderDir);
+  assert.equal(afterRemainder.days[TODAY], '650', 'the 320 OS that was not settled is freed and nothing else');
+  assert.deepEqual(afterRemainder.reservations, [row(neighbour, TODAY, '300', '50', '0')]);
+  remainderLedger.release(settling);
+  assert.equal(readLedgerFile(remainderDir).days[TODAY], '650', 'a repeated release frees nothing more');
+  const overReleaseDir = stateDir();
+  const overReleaseLedger = ledgerAt(overReleaseDir);
+  const overReleased = overReleaseLedger.reserve(parts(500n, 100n, 20n), 'over-released');
+  overReleaseLedger.reserve(parts(300n, 50n), 'neighbour');
+  overReleaseLedger.release(overReleased, { priceOs: -50n, networkFeeOs: -1n, storageFeeOs: -1n });
+  assert.equal(readLedgerFile(overReleaseDir).days[TODAY], '350', 'a negative kept amount frees the reservation, never more than it held');
+
+  // Original day: a release after midnight credits the day the reservation was made on.
+  const dayDir = stateDir();
+  const madeYesterday = ledgerAt(dayDir, '2026-10-05').reserve(parts(500n, 100n), 'made yesterday');
+  const today = ledgerAt(dayDir, '2026-10-06');
+  today.reserve(parts(70n, 10n), 'made today');
+  today.release(madeYesterday, { priceOs: 450n });
+  const afterMidnight = readLedgerFile(dayDir);
+  assert.equal(afterMidnight.days['2026-10-05'], '450', 'the kept debit stays on the original day, the rest of it is freed there');
+  assert.equal(afterMidnight.days['2026-10-06'], '80', "today's total is not credited");
+  assert.equal(today.spentToday(), 80n);
+  assertDayTotalsHold(dayDir);
+
+  // Maximum: a reservation never commits more than its recorded maximum, whatever it is told to keep.
+  const maximumDir = stateDir();
+  const maximumLedger = ledgerAt(maximumDir);
+  const bounded = maximumLedger.reserve(parts(500n, 100n, 20n), 'bounded');
+  maximumLedger.release(bounded, { priceOs: 10n ** 12n, networkFeeOs: 10n ** 12n, storageFeeOs: 10n ** 12n });
+  assert.equal(readLedgerFile(maximumDir).days[TODAY], '620', 'the debit kept is at most the recorded maximum');
+  const partDir = stateDir();
+  const partLedger = ledgerAt(partDir);
+  const perPart = partLedger.reserve(parts(500n, 100n, 20n), 'per part');
+  partLedger.release(perPart, { priceOs: 10n ** 12n });
+  assert.equal(readLedgerFile(partDir).days[TODAY], '500', 'an excess in one part does not keep another part charged');
+
+  // Lowered cap: a new reservation meets the lowered limit; an existing one keeps its recorded maximum.
+  const capDir = stateDir();
+  const capLedger = ledgerAt(capDir);
+  const held = capLedger.reserve(parts(500n, 100n), 'held before the limit was lowered');
+  capLedger.setUserLimit(700n);
+  assert.equal(capLedger.capOs, 700n);
+  assert.throws(() => capLedger.reserve(parts(101n, 0n), 'one OS over the lowered cap'), SpendCapError);
+  capLedger.reserve(parts(100n, 0n), 'exactly the lowered cap');
+  capLedger.setUserLimit(300n);
+  assert.equal(capLedger.remainingToday(), 0n);
+  assert.throws(() => capLedger.reserve(parts(1n, 0n), 'above the cap that is now below the debit'), SpendCapError);
+  const recorded = readLedgerFile(capDir).reservations?.find((r) => r.id === held);
+  assert.deepEqual(recorded, row(held, TODAY, '500', '100', '0'), 'the reservation still records its own maximum');
+  capLedger.release(held, { priceOs: 500n, networkFeeOs: 100n });
+  assert.equal(readLedgerFile(capDir).days[TODAY], '700', 'the lowered cap does not shrink what the reservation keeps');
+  capLedger.setUserLimit(10n ** 9n);
+  assert.equal(capLedger.capOs, CAP_OS, 'a limit never raises the cap above the configured one');
+});
