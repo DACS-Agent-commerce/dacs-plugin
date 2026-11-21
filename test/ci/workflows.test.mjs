@@ -258,6 +258,11 @@ test('lint.yml runs on the pinned ubuntu-24.04 image, like the other plugin work
   assert.deepEqual(jobs, ['    runs-on: ubuntu-24.04']);
 });
 
+test('public-gate.yml runs on the pinned ubuntu-24.04 image, like the other plugin workflows that pin it', () => {
+  const jobs = readWorkflow(GATE_WORKFLOW).split('\n').filter((line) => /^\s+runs-on:/.test(line));
+  assert.deepEqual(jobs, ['    runs-on: ubuntu-24.04']);
+});
+
 test('lint.yml validates the stdio SDK input after setup-node and directly before the install that reads it; an unavailable input stops the job before any npm call', () => {
   const text = readWorkflow(LINT_WORKFLOW);
   const steps = stepsOf(text);
