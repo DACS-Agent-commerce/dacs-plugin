@@ -14,9 +14,14 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { PURPOSES, ChallengeError } from '../wallet/challenges.mjs';
 import { normalizeDemosAddress, WalletFormatError } from '../wallet/demos-signature.mjs';
+import { SellerRefusedError, SellerUnavailableError } from '@kynesyslabs/dacs-client';
 import { OperationError } from '../operations.mjs';
 import { AccountError } from '../accounts.mjs';
 import { OutboundError } from '../util/http.mjs';
+import { allowlistedCause } from '../util/allowlisted-cause.mjs';
+import { RELAY_PHASES, RelayAccessError } from '../wallet/relay-access.mjs';
+import { savedStateView } from './saved-state-view.mjs';
+import { handoffRefusal } from './handoff-refusal.mjs';
 import { SCOPE_DESCRIPTIONS, RESOURCE_SCOPES } from '../auth/scopes.mjs';
 import { transaction } from '../store/database.mjs';
 import { createWalletRpcRouter } from './wallet-rpc.mjs';
@@ -53,13 +58,29 @@ function securityHeaders(_req, res, next) {
   next();
 }
 
+// The saved purchase members a portal answer repeats (see saved-state-view.mjs).
+const TERMS_MEMBERS = ['profile', 'operation', 'network', 'rail', 'domain', 'buyer', 'seller', 'listing', 'price', 'preparedAt', 'approvalExpiresAt', 'protocol',
+  'deadline', 'deadlineSecAfterCommit', 'acceptanceModel'];
+const EVIDENCE_MEMBERS = ['listingMode', 'directoryMode', 'paymentMode', 'simulated', 'reportedTxHash', 'networkIdentity', 'commitment', 'receipt', 'next', 'actionable', 'protocol'];
+// A seller's refusal code is repeated only in this plain form.
+const SELLER_CODE = /^[a-z0-9_]{1,64}$/;
+
 function errorStatus(error) {
-  if (error instanceof OutboundError) return 503;
+  if (error instanceof OutboundError || error instanceof SellerUnavailableError) return 503;
   if (error instanceof ChallengeError || error instanceof WalletFormatError) return 400;
-  if (error instanceof AccountError) return 409;
+  if (error instanceof AccountError || error instanceof SellerRefusedError) return 409;
+  if (error instanceof RelayAccessError) return error.httpStatus;
   // 202: a plan step still running past the page's wait (plan_in_progress).
   if (error instanceof OperationError) return error.code === 'not_found' ? 404 : error.code === 'not_configured' ? 503 : error.httpStatus === 202 ? 202 : 409;
   return 500;
+}
+
+// The error body's code, message and cause. Seller errors carry no seller text: only the plugin's message and the cause code.
+function errorBody(error, status) {
+  if (error instanceof SellerRefusedError) return { error: 'seller_refused', message: 'the seller refused this request', ...(SELLER_CODE.test(error.code) ? { cause: error.code } : {}) };
+  if (error instanceof SellerUnavailableError) return { error: 'seller_unavailable', message: 'the seller did not answer', cause: error.causeCode };
+  const cause = error?.code === 'profile_not_admitted' ? allowlistedCause(error) : undefined;
+  return { error: error instanceof OutboundError ? 'upstream_unavailable' : error.code ?? 'server_error', message: status === 500 ? 'internal error' : error.message, ...(cause ? { cause } : {}) };
 }
 
 export function linkToken(secret, accountId, expires, nonce) {
@@ -67,7 +88,9 @@ export function linkToken(secret, accountId, expires, nonce) {
 }
 
 // timeline: the app's shared purchase step log (src/util/purchase-step-log.mjs).
-export function createPortalRouter({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger, authenticateProbeBearer, chain, fetchImpl = globalThis.fetch, now = () => Date.now(), offlineAgreementBroker = null, timeline = createPurchaseStepLog({ logger }) }) {
+// relayAccess: the native wallet relay's capabilities (src/wallet/relay-access.mjs); with it, an answer that hands the
+// wallet a payment payload also carries a relay capability for that purchase.
+export function createPortalRouter({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger, authenticateProbeBearer, chain, fetchImpl = globalThis.fetch, now = () => Date.now(), offlineAgreementBroker = null, timeline = createPurchaseStepLog({ logger }), relayAccess = null }) {
   const router = express.Router();
   const purchasePoll=createPurchasePoll(),signTimes=new Map();
   router.drainPurchasePolls=(options)=>purchasePoll.drain(options);
@@ -131,8 +154,7 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
     } catch (error) {
       const status = errorStatus(error);
       if (status === 500) logger.error('portal_error', { path: req.path, message: error.message });
-      const code = error instanceof OutboundError ? 'upstream_unavailable' : error.code ?? 'server_error';
-      res.status(status).json({ error: code, message: status === 500 ? 'internal error' : error.message, ...(error.details ? { details: error.details } : {}), ...(error.buyerFunding ? { buyerFunding: error.buyerFunding } : {}) });
+      res.status(status).json({ ...errorBody(error, status), ...(error.details ? { details: error.details } : {}), ...(error.buyerFunding ? { buyerFunding: error.buyerFunding } : {}) });
     }
   };
   const address = (value) => normalizeDemosAddress(value);
@@ -268,10 +290,10 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
   const purchaseView = (operation, extra = {}, sellerIdentity = sellerIdentities?.cached(operation.terms.seller.claim)) => ({
     id: operation.id,
     status: operation.status,
-    terms: operation.terms,
+    terms: savedStateView(operation.terms, TERMS_MEMBERS),
     termsHash: operation.termsHash,
     expiresAt: operation.expiresAt,
-    evidence: purchases.portalEvidence(operation),
+    evidence: savedStateView(purchases.portalEvidence(operation), EVIDENCE_MEMBERS),
     // Only while this process runs the purchase's Agreement plan step.
     ...(purchases.planRunning?.(operation) ? { planRunning: true } : {}),
     ...(config.portalAutoAdvance==='on'?{autoAdvance:{requiresSignature:requiresSignature(operation)}}:{}),
@@ -291,14 +313,19 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
   }));
   router.post('/portal/api/purchase/:id/challenge', json, api(async (req) =>
     purchases.issueApprovalChallenge({ operationId: req.params.id, token: req.body?.token, address: address(req.body?.address) })));
-  // refusal: the fixed text of a handoff refused before signing (purchases.mjs PAYMENT_TERMS_CANCELLED).
+  // A payload comes with a relay capability for this purchase; a refusal code with this plugin's explanation of it.
+  const handoffAnswer = (req, result) => ({
+    payload: result.payload,
+    ...(result.payload && relayAccess ? { relayAccess: relayAccess.mint({ operationId: req.params.id, phases: RELAY_PHASES }) } : {}),
+    ...(!result.payload && result.refused ? { refusal: handoffRefusal(result.refused) } : {}),
+  });
   router.post('/portal/api/purchase/:id/approve', json, api(async (req) => {
     const result = await purchases.approve({ operationId: req.params.id, token: req.body?.token, challengeId: String(req.body?.challengeId ?? ''), signature: String(req.body?.signature ?? '') });
-    return purchaseView(result.operation, { payload: result.payload, ...(result.refusal ? { refusal: result.refusal } : {}) });
+    return purchaseView(result.operation, handoffAnswer(req, result));
   }));
   router.post('/portal/api/purchase/:id/handoff', json, api(async (req) => {
     const result = await purchases.prepareHandoff({ operationId: req.params.id, token: req.body?.token });
-    return purchaseView(result.operation, { payload: result.payload, ...(result.refusal ? { refusal: result.refusal } : {}) });
+    return purchaseView(result.operation, handoffAnswer(req, result));
   }));
   router.post('/portal/api/purchase/:id/native-payment/lane', json, api(async (req) => {
     if (req.get('origin') !== config.publicOrigin) throw new OperationError('origin_mismatch', 'same-origin wallet lane reads are required');
@@ -332,7 +359,7 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
     return purchaseView(r.operation);
   }));
   router.post('/portal/api/purchase/:id/completion/request', json, api(async (req) => {
-    const r = purchases.completionRequest({ operationId: id(req), token: token(req) });
+    const r = await purchases.completionRequest({ operationId: id(req), token: token(req) });
     return purchaseView(r.operation, { signRequest: { kind: 'completed-bundle', ...r.request } });
   }));
   router.post('/portal/api/purchase/:id/completion/countersign', json, api(async (req) => {
