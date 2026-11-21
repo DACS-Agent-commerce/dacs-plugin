@@ -52,6 +52,17 @@ empty value are refused. It is the plugin's own setting for running purchases
 through the SDK client's purchase service, and it does not change the client's
 purchase hold.
 
+`loadConfig` refuses `on` in this order:
+
+1. Unless `DACS_CHAIN_RPC_URL` is an `https` URL on a host that is not loopback.
+2. With `sdk_part_missing: <part> <name>` while the installed client lacks a
+   purchase part that has a fixed public name. Today that is one part: the
+   evidence recorder, `createPurchaseEvidenceRecorder`.
+3. With `switch_on_not_validated` in every other case, until the whole
+   switch-on path is validated. The client's passive purchase reader, its stop
+   seam, its fee-ceiling and wallet-handoff members and its HTTPS seller client
+   have no fixed public names yet, so `loadConfig` cannot look them up.
+
 ## Add a switch
 
 1. Add `src/switches/DACS_MY_FEATURE.switch`. It is strict JSON. The extension
