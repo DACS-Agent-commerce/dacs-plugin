@@ -59,6 +59,9 @@ export async function startChainFixture() {
         const block = blocks[data.blockNumber];
         return block ? { number: block.number, status: 'confirmed', content: { ordered_transactions: block.txs, timestamp: block.timestamp } } : null;
       }
+      // The node's network answer chosen by the test; none by default.
+      case 'getNetworkInfo':
+        return faults.networkInfo;
       default:
         return undefined;
     }
