@@ -58,10 +58,10 @@
   {
     "file": "test/embedded-wallet-contract.test.mjs",
     "test": "loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated]",
-    "expect": "Cannot find module 'src/util/purchase-readback-cache.mjs'",
-    "card": "P41c",
+    "expect": "Cannot find module 'src/dacs/delivery-deadline-watch.mjs'",
+    "card": "P42aa",
     "issue": "DACS-Agent-commerce/dacs-plugin#322",
-    "reason": "The purchase readback cache module is absent."
+    "reason": "The delivery deadline watch module that app.mjs imports is absent."
   },
   {
     "file": "test/portal-delivery-evidence-label.test.mjs",
@@ -118,5 +118,29 @@
     "card": "P41d",
     "issue": "DACS-Agent-commerce/dacs-plugin#434",
     "reason": "The pinned client holds purchase actions; final candidate validation owns admitted execution."
+  },
+  {
+    "file": "test/purchase-readback-cache.test.mjs",
+    "test": "config enables purchase reuse only with 1, default off",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/mcp-resource-contract.test.mjs",
+    "test": "widget host expects the served GitHub signals resource URI",
+    "expect": "ENOENT: no such file or directory, open 'deploy/test/mcp-apps.browser.test.mjs'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#324",
+    "reason": "The deploy package's MCP Apps browser test is absent."
+  },
+  {
+    "file": "test/purchase-receipt-sdk.test.mjs",
+    "test": "a stored receipt the SDK's readable-receipt check rejects (missing version, writer or evidence; malformed member) exports no anchor state, block or transaction, and an indeterminate receipt exports its preserved receipt hash only and is never shown as the current state",
+    "expect": "isReadableAnchorReceipt is absent from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41c1r",
+    "issue": "DACS-Agent-commerce/dacs-plugin#322",
+    "reason": "The receipt export gate waits for a public readable-receipt check on the client."
   }
 ]
