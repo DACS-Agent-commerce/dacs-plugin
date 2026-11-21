@@ -65,7 +65,7 @@ test('a receipt whose evidence names a fixture substrate or finality profile is 
 });
 
 test('a stored receipt the SDK\'s readable-receipt check rejects (missing version, writer or evidence; malformed member) exports no anchor state, block or transaction, and an indeterminate receipt exports its preserved receipt hash only and is never shown as the current state', () => {
-  assert.equal(typeof client.isReadableAnchorReceipt, 'function', 'isReadableAnchorReceipt is absent from @kynesyslabs/dacs-client@0.1.0-alpha.0');
+  assert.ok(typeof client.isReadableAnchorReceipt === 'function', 'isReadableAnchorReceipt is absent from @kynesyslabs/dacs-client@0.1.0-alpha.0');
   const without = (key) => { const receipt = demosReceipt(); delete receipt[key]; return receipt; };
   const rejected = { 'missing version': without('receiptVersion'), 'missing writer': without('writer'), 'missing evidence': without('evidence'),
     'malformed block height': { ...demosReceipt(), blockRef: { id: 'f'.repeat(64), height: '042' } }, 'malformed state': { ...demosReceipt(), state: 'settled' } };

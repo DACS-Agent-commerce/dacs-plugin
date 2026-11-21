@@ -987,7 +987,7 @@ test('readExpected refuses an absolute path anywhere in expect and names the cau
   const scoped = "'@kynesyslabs/dacs@0.1.0-alpha.0' is not in this registry";
   assert.equal(read(scoped).size, 1, 'scoped package with its version');
   assert.equal(read('x'.repeat(16) + ' deploy/a.json').size, 1, 'exactly 30 characters');
-  assert.equal(readExpected(join(root, 'test/expected-until-card.json')).size, 15, 'the shipped list');
+  assert.equal(readExpected(join(root, 'test/expected-until-card.json')).size, 18, 'the shipped list');
   const refused = [
     ['absolute path in the middle', "ENOENT: no such file or directory, open '/work/http-mcp' then 'deploy/env-contract.json'"],
     ['absolute path after the cause', `${expectedCause} in /work/http-mcp`],

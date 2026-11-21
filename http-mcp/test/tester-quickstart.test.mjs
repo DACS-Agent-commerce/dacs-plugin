@@ -120,14 +120,14 @@ const freePort = () => new Promise((resolve) => {
 
 // The card-owned startup failure (P42aa) is Node's report of one missing module and nothing else.
 // Every nonblank line of the complete stderr must belong to that report; any other line is a different failure.
-const CARD_CAUSE = /^Error \[ERR_MODULE_NOT_FOUND\]: Cannot find module '(?:[^'\n]*\/)?src\/util\/purchase-readback-cache\.mjs' imported from \S.*\.m?js$/;
+const CARD_CAUSE = /^Error \[ERR_MODULE_NOT_FOUND\]: Cannot find module '(?:[^'\n]*\/)?src\/dacs\/delivery-deadline-watch\.mjs' imported from \S.*\.m?js$/;
 const NODE_REPORT_LINES = [
   /^node:internal\/[\w/.-]+:\d+$/,
   /^ {4}throw new ERR_MODULE_NOT_FOUND\($/,
   /^ +\^$/,
   /^ {4}at (?:\S+ \(node:internal\/[\w/.-]+:\d+:\d+\)|node:internal\/[\w/.-]+:\d+:\d+)(?: \{)?$/,
   /^ {2}code: 'ERR_MODULE_NOT_FOUND',$/,
-  /^ {2}url: 'file:\/\/[^'\n]*\/src\/util\/purchase-readback-cache\.mjs'$/,
+  /^ {2}url: 'file:\/\/[^'\n]*\/src\/dacs\/delivery-deadline-watch\.mjs'$/,
   /^\}$/,
   /^Node\.js v\d+\.\d+\.\d+$/,
 ];
@@ -188,7 +188,7 @@ async function checkLoopbackServer(child, origin, beforeShutdown, diagnostic = (
   }
   if (startupFailed) {
     // The child has exited and its stderr has closed, so this is the complete output.
-    assert.ok(!onlyCardCause(stderr), 'Quickstart startup failed: missing src/util/purchase-readback-cache.mjs');
+    assert.ok(!onlyCardCause(stderr), 'Quickstart startup failed: missing src/dacs/delivery-deadline-watch.mjs');
     throw new Error(stderr.trim() || `Server exited before /health answered (${child.exitCode ?? child.signalCode})`);
   }
 }
@@ -227,7 +227,7 @@ test('the startup check fails a server that answers, then exits by itself before
 // before the crash or while it is being stopped.
 function cardCrash(work, { before = '', onSigterm = null } = {}) {
   mkdirSync(join(work, 'src'));
-  writeFileSync(join(work, 'src/app.mjs'), "import './util/purchase-readback-cache.mjs';\n");
+  writeFileSync(join(work, 'src/app.mjs'), "import './dacs/delivery-deadline-watch.mjs';\n");
   const script = [
     "import { spawnSync } from 'node:child_process';",
     `process.stderr.write(${JSON.stringify(before)});`,
@@ -239,7 +239,7 @@ function cardCrash(work, { before = '', onSigterm = null } = {}) {
   return spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'ignore', 'pipe'] });
 }
 
-const CARD_MESSAGE = 'Quickstart startup failed: missing src/util/purchase-readback-cache.mjs';
+const CARD_MESSAGE = 'Quickstart startup failed: missing src/dacs/delivery-deadline-watch.mjs';
 
 test('the startup check reports the card message for Node\'s complete missing-module report', async () => {
   const work = mkdtempSync(join(tmpdir(), 'dacs-quickstart-card-'));

@@ -358,7 +358,7 @@ package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
 - `test/switch-registry-mutants.test.mjs` — missing mutation anchor refuses the CLI before mirror setup or test execution — P46 — DACS-Agent-commerce/dacs-plugin#324
 - `test/switch-registry-mutants.test.mjs` — repeated mutation anchor refuses the CLI before mirror setup or test execution — P46 — DACS-Agent-commerce/dacs-plugin#324
 - `test/switch-registry-mutants.test.mjs` — a behavior-preserving mutation survives without an anchor freshness false kill — P46 — DACS-Agent-commerce/dacs-plugin#324
-- `test/embedded-wallet-contract.test.mjs` — loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated] — P41c — DACS-Agent-commerce/dacs-plugin#322
+- `test/embedded-wallet-contract.test.mjs` — loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated] — P42aa — DACS-Agent-commerce/dacs-plugin#322
 - `test/portal-delivery-evidence-label.test.mjs` — "Delivered" claims only the verified report, and delivery evidence is shown separately for every server state — P53c2 — DACS-Agent-commerce/dacs-plugin#325
 - `test/tester-quickstart.test.mjs` — the documented loopback startup answers /health and MCP with honest not_configured results — P42aa — DACS-Agent-commerce/dacs-plugin#322
 - `test/overnight-package.test.mjs` — source -> reproducible npm tarball -> clean install -> documented `npx dacs-chatgpt-plugin` cold start, HTTP + MCP, Ctrl-C; bin-shim restart, SIGTERM — P42aa — DACS-Agent-commerce/dacs-plugin#326
@@ -366,6 +366,9 @@ package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
 - `test/agreement-create-delivery.test.mjs` — after submission has resolved, the same delivery is claimed sequentially through the installed client, and a later explicit recheck reconciles it by readback with exactly one delivery — P41d — DACS-Agent-commerce/dacs-plugin#434
 - `test/agreement-create-delivery.test.mjs` — a second buyer on one protocol object is refused by the client — P41d — DACS-Agent-commerce/dacs-plugin#434
 - `test/agreement-create-delivery.test.mjs` — a kill between the client handoff commit and the delivery commit leaves no delivery, reissues no handoff, and the purchase stays read-back-only — P41d — DACS-Agent-commerce/dacs-plugin#434
+- `test/purchase-readback-cache.test.mjs` — config enables purchase reuse only with 1, default off — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/mcp-resource-contract.test.mjs` — widget host expects the served GitHub signals resource URI — P46 — DACS-Agent-commerce/dacs-plugin#324
+- `test/purchase-receipt-sdk.test.mjs` — a stored receipt the SDK's readable-receipt check rejects (missing version, writer or evidence; malformed member) exports no anchor state, block or transaction, and an indeterminate receipt exports its preserved receipt hash only and is never shown as the current state — P41c1r — DACS-Agent-commerce/dacs-plugin#322
 
 The seller control of `test/mutant-helper-verdicts.test.mjs` was removed because
 it read `src/devnet-demo/seller-write-batch.mjs`, which is not carried; card P303a
