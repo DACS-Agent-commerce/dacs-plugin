@@ -270,7 +270,7 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `http-mcp/src/util/rate-limit.mjs` | `d113add7109a56e78bc191994649826ab5820b5f` | verbatim |
 | `http-mcp/src/util/text.mjs` | `1d922fed1da018ce9a4296d97bb50323e5eb67f6` | verbatim |
 | `http-mcp/src/wallet/challenges.mjs` | `f13872ca91c08dc5cc75023dfa720b84ad21ac75` | verbatim |
-| `http-mcp/src/wallet/demos-signature.mjs` | `d0e7be2dfe0aa845e1086ba1ee1f03e4d94c3fd6` | changed here after a verbatim import: refuses small-order and non-canonical public keys before verifying; a missing or null argument returns false |
+| `http-mcp/src/wallet/demos-signature.mjs` | `f14f47653916b62c581b115173073bad5a19585f` | changed here after a verbatim import: refuses small-order and non-canonical public keys before verifying; a missing or null argument returns false; non-string message returns false |
 | `http-mcp/src/wallet/demos-transaction-signature.mjs` | `864fcf8266d32bad8b99be94ed733a42f3ef17ac` | added: verifies a transaction signature in the form the node's network answer selects; used by ops health |
 | `http-mcp/src/wallet/write-batch.mjs` | `e810076db644040fda924b3e140506891b5e5bd6` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/README.md` | `1c563f44954939b8052877aad255ebfcbd9e00f9` | verbatim |
@@ -359,7 +359,7 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `http-mcp/test/dacs-plugin-purchase.test.mjs` | `152af444bebee938ddf5cdc70113e5727e4e82a3` | edited here: the test that read `paymentEvidence` fields raw from the model copy now decodes the seller-data envelope and asserts the same values |
 | `http-mcp/test/dacs-storage-anchor-wallet.test.mjs` | `0863efaa3157ed4f6321496fb93a5072be1781da` | verbatim |
 | `http-mcp/test/delivery-deadline-watch.test.mjs` | `1218c3923cad3db36b2a93cc73421828d1d48caa` | verbatim |
-| `http-mcp/test/demos-signature-encoding.test.mjs` | `3bc532f591f543d245c7df4def6dd0a01e584e94` | changed here after a verbatim import: a test that a missing or null argument to the signature check returns false |
+| `http-mcp/test/demos-signature-encoding.test.mjs` | `629474d9c92723306e3b311c0b62e5ff535c206a` | changed here after a verbatim import: a test that a missing or null argument to the signature check returns false; non-string messages return false while the signed string verifies |
 | `http-mcp/test/denied-agreement-recovery.browser.test.mjs` | `4e802d0430ff0cd1ef9738c38024460537c76dcd` | verbatim |
 | `http-mcp/test/denied-agreement-recovery.test.mjs` | `2af3357dc0509b9872f977385a2c754993d112a4` | edited: comments: references to internal records not carried removed |
 | `http-mcp/test/devnet-agreement-transport.browser.test.mjs` | `4004fe7e0cafb02ce9fc44ba219ce67aa74417fd` | verbatim |

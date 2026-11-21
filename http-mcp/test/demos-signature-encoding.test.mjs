@@ -89,6 +89,30 @@ for (const prefix of ['0x', '0X']) {
   });
 }
 
+test('verifyDemosSignature accepts the signed string and refuses non-string messages', async (t) => {
+  const key = freshKey();
+  const message = 'demos-signature-message: caf\u00e9 \ud83d\ude80';
+  const bytes = Buffer.from(message, 'utf8');
+  const signature = sign(null, bytes, key.privateKey).toString('hex');
+
+  await t.test('accepts the signed string message', () => {
+    assert.equal(verifyDemosSignature({ address: key.address, message, signature }), true);
+  });
+
+  const cases = [
+    ['Buffer', Buffer.from(bytes)],
+    ['Uint8Array', new Uint8Array(bytes)],
+    ['array of numbers', Array.from(bytes)],
+    ['number', 42],
+    ['plain object', {}],
+  ];
+  for (const [name, value] of cases) {
+    await t.test(`refuses a ${name} message`, () => {
+      assert.equal(verifyDemosSignature({ address: key.address, message: value, signature }), false);
+    });
+  }
+});
+
 test('verifyDemosSignature with no argument or null returns false instead of throwing', () => {
   assert.equal(verifyDemosSignature(), false);
   assert.equal(verifyDemosSignature(null), false);

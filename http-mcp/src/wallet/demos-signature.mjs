@@ -118,6 +118,7 @@ function publicKeyObject(address) {
 // refused. Malformed input returns false, never throws.
 export function verifyDemosSignature(input) {
   try {
+    if (typeof input?.message !== 'string') return false;
     const { address, message, signature } = input;
     const sig = decodeSignature(signature);
     return cryptoVerify(null, Buffer.from(message, 'utf8'), publicKeyObject(address), sig);
