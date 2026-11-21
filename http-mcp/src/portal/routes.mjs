@@ -90,7 +90,7 @@ export function linkToken(secret, accountId, expires, nonce) {
 // timeline: the app's shared purchase step log (src/util/purchase-step-log.mjs).
 // relayAccess: the native wallet relay's capabilities (src/wallet/relay-access.mjs); with it, an answer that hands the
 // wallet a payment payload also carries a relay capability for that purchase.
-export function createPortalRouter({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger, authenticateProbeBearer, chain, fetchImpl = globalThis.fetch, now = () => Date.now(), offlineAgreementBroker = null, timeline = createPurchaseStepLog({ logger }), relayAccess = null }) {
+export function createPortalRouter({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger, authenticateProbeBearer, chain, fetchImpl = globalThis.fetch, now = () => Date.now(), offlineAgreementBroker = null, timeline = createPurchaseStepLog({ logger }), relayAccess = null, createDelivery = null }) {
   const router = express.Router();
   const purchasePoll=createPurchasePoll(),signTimes=new Map();
   router.drainPurchasePolls=(options)=>purchasePoll.drain(options);
@@ -287,11 +287,13 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
     const shown=purchases.portalEvidence(operation).protocol;
     return !shown?.notSaved&&(operation.status==='agreement_pending'?!operation.state?.protocol?.signatures:shown?.stage==='awaiting-countersignature'?!operation.state.protocol.bundle?.buyerSignature:['awaiting_approval','approved'].includes(operation.status));
   };
+  const deliveryView = operationId => { const retained = createDelivery?.forOperation(operationId); return retained ? savedStateView(retained, ['id', 'state']) : null; };
   const purchaseView = (operation, extra = {}, sellerIdentity = sellerIdentities?.cached(operation.terms.seller.claim)) => ({
     id: operation.id,
     status: operation.status,
     terms: savedStateView(operation.terms, TERMS_MEMBERS),
     termsHash: operation.termsHash,
+    delivery: deliveryView(operation.id),
     expiresAt: operation.expiresAt,
     evidence: savedStateView(purchases.portalEvidence(operation), EVIDENCE_MEMBERS),
     // Only while this process runs the purchase's Agreement plan step.

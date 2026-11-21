@@ -86,5 +86,37 @@
     "card": "P42aa",
     "issue": "DACS-Agent-commerce/dacs-plugin#326",
     "reason": "The pinned SDK package is unavailable in the public registry."
+  },
+  {
+    "file": "test/agreement-create-delivery.test.mjs",
+    "test": "the wallet-request seam records the delivery and returns outcome_unknown at once, and Agreement submission through the installed client resolves to the queued pending operation and its delivery id while every challenge and claim call is withheld",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions; final candidate validation owns admitted execution."
+  },
+  {
+    "file": "test/agreement-create-delivery.test.mjs",
+    "test": "after submission has resolved, the same delivery is claimed sequentially through the installed client, and a later explicit recheck reconciles it by readback with exactly one delivery",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions; final candidate validation owns admitted execution."
+  },
+  {
+    "file": "test/agreement-create-delivery.test.mjs",
+    "test": "a second buyer on one protocol object is refused by the client",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions; final candidate validation owns admitted execution."
+  },
+  {
+    "file": "test/agreement-create-delivery.test.mjs",
+    "test": "a kill between the client handoff commit and the delivery commit leaves no delivery, reissues no handoff, and the purchase stays read-back-only",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions; final candidate validation owns admitted execution."
   }
 ]

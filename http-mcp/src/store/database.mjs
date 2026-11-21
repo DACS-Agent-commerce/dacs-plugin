@@ -89,6 +89,20 @@ const PLUGIN_SCHEMA = [
      created_at TEXT NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS relay_capabilities_by_operation ON relay_capabilities(operation_id)`,
+  `CREATE TABLE IF NOT EXISTS agreement_create_deliveries (
+     delivery_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE,
+     account_id TEXT NOT NULL, wallet TEXT NOT NULL, terms_hash TEXT NOT NULL, kind TEXT NOT NULL,
+     request_bytes BLOB NOT NULL, request_hash TEXT NOT NULL,
+     state TEXT NOT NULL CHECK (state IN ('issued','claimed')),
+     start_record_id TEXT, claim_expires_at TEXT, journal_capability_hash TEXT,
+     created_at TEXT NOT NULL, claimed_at TEXT
+   )`,
+  `CREATE TABLE IF NOT EXISTS agreement_create_events (
+     delivery_id TEXT NOT NULL, seq INTEGER NOT NULL,
+     kind TEXT NOT NULL CHECK (kind IN ('pass','browser-stage','result','retirement')),
+     body TEXT NOT NULL, created_at TEXT NOT NULL,
+     PRIMARY KEY (delivery_id, seq)
+   )`,
 ];
 
 // Thrown when an existing app database does not hold exactly the schema this build creates.
