@@ -67,9 +67,16 @@ export function createAgreementCreateDelivery({ db, starts, gates, now = () => D
     eventInsert.run(deliveryId, seq, kind, canonicalize(body), new Date(now()).toISOString());
     return seq;
   }
+  // The switch, the write stop and any binding cause refuse; the stop is reported before a binding cause so it is never hidden.
+  function gate() {
+    if (!gates.purchasesOn()) return 'sdk_purchases_off';
+    if (gates.stopped()) return 'writes_stopped';
+    const cause = gates.bindingCause();
+    return cause == null ? null : typeof cause === 'string' && cause ? cause : 'binding_unreadable';
+  }
   function effectAuthority(operationId) {
-    const gate = !gates.purchasesOn() ? 'sdk_purchases_off' : gates.bindingCause() ?? (gates.stopped() ? 'writes_stopped' : null);
-    if (gate) return { ok: false, reason: gate };
+    const refusal = gate();
+    if (refusal) return { ok: false, reason: refusal };
     const row = stored.get(operationId), operation = purchase.get(operationId);
     const pass = row && events(row.delivery_id).findLast(event => event.kind === 'pass');
     const start = row && starts.get(pass?.body.startRecordId ?? row.start_record_id);
@@ -143,6 +150,7 @@ export function createAgreementCreateDelivery({ db, starts, gates, now = () => D
       if (retained.some(event => event.kind === 'browser-stage' && event.body.stage === 'broadcast-accepted')) fail('readback_only');
       if (typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash) || !Array.isArray(history) || history.length > HISTORY_LIMIT
         || history.some((record, index) => !record || record.seq !== index + 1 || typeof record.passId !== 'string' || !record.passId
+          || typeof record.kind !== 'string' || (record.stage !== undefined && typeof record.stage !== 'string')
           || Object.keys(record).some(key => !['seq', 'kind', 'stage', 'passId'].includes(key)) || (record.kind === 'signed' && index !== 0)
           || !/^(signed|signed-held|observed|(?:dispatch|confirm|broadcast)-(?:started|acknowledged|unknown|withheld))$/.test(record.kind)
           || (record.kind === 'signed-held' ? !['dispatch', 'confirm', 'broadcast'].includes(record.stage)
@@ -157,7 +165,7 @@ export function createAgreementCreateDelivery({ db, starts, gates, now = () => D
     });
   }
   return { walletFactory: () => ({ request, getPublicAccount: () => null, getWriteProfile: () => null }), walletFactoryFor,
-    forOperation: operationId => view(stored.get(operationId)) ?? null, bindStart, claim, admitJournal, appendPass, events, effectAuthority,
+    forOperation: operationId => view(stored.get(operationId)) ?? null, bindStart, claim, admitJournal, appendPass, events, effectAuthority, gate,
     appendEvent: ({ deliveryId, kind, body }) => transaction(db, () => {
       if (!['browser-stage', 'result', 'retirement'].includes(kind)) fail('invalid_event');
       return append(deliveryId, kind, body);

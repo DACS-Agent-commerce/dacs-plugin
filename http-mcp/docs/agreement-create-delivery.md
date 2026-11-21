@@ -24,3 +24,10 @@ answer leaves the purchase readback-only; no capability or delivery is reissued.
 If the client committed its handoff before the delivery was stored, resume remains
 readback-only and a claim challenge reports `delivery_missing`. Start a new purchase.
 The host supplies mounting and the admission, binding and stop inputs.
+
+## Upgrade
+
+The two delivery tables are added under schema version 3 with no migration. A version 3
+data file written by an earlier build lacks them and is refused with
+`purchase_state_schema_mismatch`. This pre-release build needs a fresh data directory;
+the earlier file is not changed.

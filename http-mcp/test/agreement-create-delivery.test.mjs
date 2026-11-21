@@ -2,7 +2,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalize } from '@kynesyslabs/dacs';
@@ -407,4 +407,60 @@ test('a failed Start rebind keeps the previous binding', async t => {
   w.db.exec("CREATE TEMP TRIGGER fail_rebind BEFORE UPDATE ON agreement_create_deliveries BEGIN SELECT RAISE(ABORT, 'binding store failure'); END");
   assert.throws(() => w.delivery.bindStart({ operationId: 'purchase', start: w.start() }), /binding store failure/);
   assert.equal(row(w).start_record_id, before.start_record_id); assert.equal(row(w).claim_expires_at, before.claim_expires_at);
+});
+
+test('a recovery history whose kind or stage is not a string is refused history_invalid and appends nothing', async t => {
+  const { w, post, answer } = await claimedWorld(t), body = passBody(w), options = { journal: answer.journalCapability };
+  const before = w.delivery.events(answer.delivery.id).length;
+  for (const record of [{ seq: 2, kind: ['dispatch-started'], stage: 'dispatch', passId: 'x' }, { seq: 2, kind: ['observed'], passId: 'x' },
+    { seq: 2, kind: 'dispatch-started', stage: ['dispatch'], passId: 'x' }]) {
+    const result = await post('pass', { ...body, history: [...signedHistory, record] }, options);
+    assert.equal(result.status, 409); assert.equal(result.body.error, 'history_invalid');
+  }
+  assert.equal(w.delivery.events(answer.delivery.id).length, before);
+});
+
+test('the gate refuses any binding cause, reports the write stop before a binding cause, and a refused claim consumes nothing', async t => {
+  const w = worldFor(t); await w.send(); const post = await serveDelivery(t, w), claim = await signedClaim(post, w);
+  for (const [patch, error, cause] of [[{ cause: 'binding_unreadable' }, 'profile_not_admitted', 'binding_unreadable'], [{ cause: '' }, 'profile_not_admitted', 'binding_unreadable'],
+    [{ cause: 'binding_unreadable', stopped: true }, 'writes_stopped'], [{ cause: 'tp1_local_binding_changed', stopped: true }, 'writes_stopped']]) {
+    Object.assign(w.gateState, { cause: null, stopped: false }, patch);
+    const result = await post('claim', claim);
+    assert.equal(result.status, 409); assert.equal(result.body.error, error); assert.equal(result.body.cause, cause);
+    assert.equal(result.body.request, undefined); assert.equal(row(w).state, 'issued');
+    assert.equal(w.delivery.effectAuthority('purchase').reason, cause ? 'binding_unreadable' : 'writes_stopped');
+  }
+  Object.assign(w.gateState, { cause: null, stopped: false });
+  const granted = await post('claim', claim); assert.equal(granted.status, 200); assert.ok(granted.body.request);
+});
+
+test('a number that JSON allows but canonical JSON cannot hold is refused invalid_request, not a server error', async t => {
+  const w = worldFor(t); await w.send(); const post = await serveDelivery(t, w);
+  for (const [action, raw] of [['challenge', '{"start":1e400,"token":"purchase"}'], ['pass', '{"hash":"x","history":[1e400],"start":"s","token":"purchase"}']]) {
+    const result = await post(action, raw, { raw: true });
+    assert.equal(result.status, 400); assert.equal(result.body.error, 'invalid_request');
+  }
+});
+
+test('a server error is logged by the router without any capability or request bytes', async t => {
+  const { w, answer } = await claimedWorld(t), body = passBody(w);
+  w.relayAccess = { ...w.relayAccess, mint: () => { throw new Error('capability store failure'); } };
+  const post = await serveDelivery(t, w);
+  assert.equal((await post('pass', body, { journal: answer.journalCapability })).status, 500);
+  const lines = w.logger.lines.filter(line => line.includes('agreement_create_error'));
+  assert.equal(lines.length, 1); assert.match(lines[0], /capability store failure/);
+  for (const secret of [answer.journalCapability, answer.request]) assert.equal(w.logger.lines.some(line => line.includes(secret)), false);
+});
+
+test('the old offline-agreement broker purpose and statement stay beside the claim purpose', async t => {
+  const w = worldFor(t);
+  assert.equal(PURPOSES.OFFLINE_AGREEMENT_BROKER, 'offline-agreement-browser-session');
+  assert.equal(PURPOSES.AGREEMENT_CREATE_CLAIM, 'agreement-create-claim');
+  const issue = purpose => w.challenges.issue({ purpose, address: w.wallet.address, accountId: 'acct-relay', binding: { operation: 'purchase' } }).message;
+  assert.match(issue(PURPOSES.OFFLINE_AGREEMENT_BROKER), /one exact SIMULATED Agreement CREATE in this operation\. This is not payment approval\./);
+  assert.match(issue(PURPOSES.AGREEMENT_CREATE_CLAIM), /Claim this purchase's one Agreement record request/);
+});
+
+test('the delivery doc says a version 3 file from an earlier build needs a fresh data directory', () => {
+  assert.match(readFileSync(new URL('../docs/agreement-create-delivery.md', import.meta.url), 'utf8'), /needs a fresh data directory/);
 });
