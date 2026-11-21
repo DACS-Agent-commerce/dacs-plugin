@@ -20,6 +20,8 @@ const SRC = new URL('../src/', import.meta.url);
 const ENUMS = ['DACS_SHOWCASE_RECEIPT', 'DACS_SELLER_WRITE_BATCHES', 'DACS_DELIVERY_DEADLINE_WATCH', 'DACS_SHOWCASE_WALKTHROUGH'];
 const SEVEN = [...ENUMS, 'DACS_SHOWCASE_LEDGER', 'DACS_SHOWCASE_PUBLICATION_VIEW', 'DACS_WALLET_EXTENSION_PROBE'];
 const among = (switches, names) => switches.map((s) => s.env).filter((env) => names.includes(env));
+// Accepted values that a rule in loadConfig refuses on the bare environment (docs/SWITCHES.md), with that rule's message.
+const REFUSED_BY_RULE = { DACS_SDK_PURCHASES: { on: 'DACS_SDK_PURCHASES=on requires an https, non-loopback DACS_CHAIN_RPC_URL' } };
 
 test('every switch is parsed by config and documented in SWITCHES.md', () => {
   const docs = readFileSync(new URL('../docs/SWITCHES.md', import.meta.url), 'utf8');
@@ -41,7 +43,9 @@ test('every switch is parsed by config and documented in SWITCHES.md', () => {
     } else {
       assert.equal(loadConfig(base)[s.configKey], entry.default, `${s.env} default`);
       for (const value of entry.values) {
+        const ruleMessage = REFUSED_BY_RULE[s.env]?.[value];
         if (Object.hasOwn(s.held, value)) assert.throws(() => parse(value), (e) => e instanceof ConfigError && e.message === s.held[value], `${s.env}=${value} held`);
+        else if (ruleMessage) assert.throws(() => parse(value), (e) => e instanceof ConfigError && e.message === ruleMessage, `${s.env}=${value} refused by its rule`);
         else assert.equal(parse(value), value, `${s.env}=${value}`);
       }
       const invalid = `${s.env} must be ${entry.values.slice(0, -1).join(', ')} or ${entry.values.at(-1)}`;
@@ -109,13 +113,15 @@ test('the two static settings among the switches keep their place, values and ru
   assert.deepEqual(SWITCHES.filter((s) => ['DACS_COMMIT_ON_SIGNATURE', 'DACS_INTENT_APPROVAL'].includes(s.env)), []);
 });
 
-// A private copy of config.mjs with its own switches/ directory.
+// A private copy of config.mjs, and the modules it imports, with its own switches/ directory.
 function sandbox(t) {
   const dir = mkdtempSync(join(tmpdir(), 'switch-registry-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  mkdirSync(join(dir, 'src'));
+  mkdirSync(join(dir, 'src/sdk'), { recursive: true });
+  symlinkSync(join(PACKAGE_ROOT, 'node_modules'), join(dir, 'node_modules'));
   cpSync(new URL('config.mjs', SRC), join(dir, 'src/config.mjs'));
   cpSync(new URL('switch-files.mjs', SRC), join(dir, 'src/switch-files.mjs'));
+  cpSync(new URL('sdk/activation-seams.mjs', SRC), join(dir, 'src/sdk/activation-seams.mjs'));
   cpSync(new URL('switches/', SRC), join(dir, 'src/switches'), { recursive: true });
   let n = 0;
   return {

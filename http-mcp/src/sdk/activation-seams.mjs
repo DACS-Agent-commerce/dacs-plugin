@@ -6,7 +6,7 @@
 // absent part is reported as missing instead of failing the module load. Only
 // parts with a fixed public name are listed here.
 import * as installedClient from '@kynesyslabs/dacs-client';
-import { OperationError } from '../operations.mjs';
+import { OperationError } from '@kynesyslabs/dacs-client';
 
 const EVIDENCE_RECORDER = Object.freeze({ part: 'P19r', name: 'createPurchaseEvidenceRecorder' });
 const NAMED_PARTS = Object.freeze([EVIDENCE_RECORDER]);
