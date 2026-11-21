@@ -76,17 +76,20 @@ test("a purchase at agreement-signing gets exactly one CREATE delivery holding t
 
 test("a claim needs the purchase's handoff token and the bound wallet's signature over a challenge from the real challenge service, and another account, wallet or operation is refused not_found with nothing handed out", async t => {
   const w = worldFor(t); await w.send(); const post = await serveDelivery(t, w);
-  for (const token of ['wrong', 'another-account', '']) assert.deepEqual((await post('challenge', { token, start: w.start().id })).body, { error: 'not_found' });
+  for (const token of ['wrong', 'another-account', '']) assert.deepEqual((await post('challenge', { token, start: w.start().id })).body, { error: 'not_found', message: 'not_found' });
+  seedPurchase(w.db, { operationId: 'other-purchase', accountId: 'other-account', wallet: createEphemeralWallet().address });
+  assert.deepEqual((await post('challenge', { token: 'purchase', start: w.start().id }, { id: 'other-purchase' })).body, { error: 'not_found', message: 'not_found' });
   const body = await signedClaim(post, w);
   assert.equal((await post('claim', { ...body, signature: createEphemeralWallet().signHex('different message') })).body.error, 'bad_signature');
   w.db.prepare('DELETE FROM wallets').run();
-  assert.deepEqual((await post('claim', body)).body, { error: 'not_found' }); assert.equal(row(w).state, 'issued');
+  assert.deepEqual((await post('claim', body)).body, { error: 'not_found', message: 'not_found' }); assert.equal(row(w).state, 'issued');
 });
 
 test("a second claim of the same delivery returns its state and no request bytes, also after a restart", async t => {
-  const path = fileFor(t), first = deliveryWorld({ path }); await first.send(); const original = claimDirect(first); first.close();
-  const w = worldFor(t, { path, seed: false }); const repeated = claimDirect(w);
-  assert.deepEqual(repeated, { delivery: { id: original.delivery.id, state: 'claimed' } }); assert.equal(count(w), 1);
+  const path = fileFor(t), first = deliveryWorld({ path }); await first.send(); const original = claimDirect(first), wallet = first.wallet; first.close();
+  const w = worldFor(t, { path, seed: false, wallet }), post = await serveDelivery(t, w);
+  const repeated = await post('claim', { token: 'purchase', challengeId: 'unused', signature: 'unused' });
+  assert.deepEqual(repeated.body, { delivery: { id: original.delivery.id, state: 'claimed' } }); assert.equal(count(w), 1);
 });
 
 test("a claim past its Start's expiry or for a closed purchase is refused with the delivery's state and no bytes", async t => {
@@ -141,9 +144,10 @@ test("the delivery, challenge, claim and pass routes log no capability, challeng
 });
 
 test("a crash after the claim and before the wallet's answer leaves the delivery claimed, with no second claim and no second request delivery", async t => {
-  const path = fileFor(t), w = worldFor(t, { path }); w.path = path; await w.send();
-  const challenge = w.challenges.issue({ purpose: PURPOSES.AGREEMENT_CREATE_CLAIM, address: w.wallet.address, accountId: 'acct-relay', binding: {} });
-  await killAt(t, w, 'committed', { challengeId: challenge.challengeId, signature: w.wallet.signHex(challenge.message) });
+  const path = fileFor(t), before = worldFor(t, { path }); before.path = path; await before.send();
+  const challenge = before.challenges.issue({ purpose: PURPOSES.AGREEMENT_CREATE_CLAIM, address: before.wallet.address, accountId: 'acct-relay', binding: {} });
+  await killAt(t, before, 'committed', { challengeId: challenge.challengeId, signature: before.wallet.signHex(challenge.message) });
+  before.close(); const w = worldFor(t, { path, seed: false, wallet: before.wallet });
   assert.equal(row(w).state, 'claimed'); assert.equal(claimDirect(w).request, undefined); assert.equal(count(w), 1);
 });
 
@@ -185,6 +189,9 @@ test("a claim whose challenge names another delivery, request hash or Start, an 
   }
   w.db.prepare('UPDATE challenges SET binding = ? WHERE id = ?').run(JSON.stringify(stored), body.challengeId);
   w.clock.at += 60000; assert.equal((await post('claim', body)).body.error, 'challenge_expired');
+  const replayed = await signedClaim(post, w, start);
+  w.challenges.verifyAndConsume({ challengeId: replayed.challengeId, purpose: PURPOSES.AGREEMENT_CREATE_CLAIM, expectedBinding: {}, signature: replayed.signature, consumedBy: 'purchase' });
+  assert.equal((await post('claim', replayed)).body.error, 'challenge_replayed');
   const fresh = await signedClaim(post, w, start); assert.ok((await post('claim', fresh)).body.request);
   assert.equal((await post('claim', fresh)).body.request, undefined);
 });
@@ -199,8 +206,9 @@ test("an unclaimed delivery follows the purchase's newer live Start for the same
 });
 
 test("a child process killed after the delivery commit and before any response restarts, /view with only the account session and the handoff token returns the retained delivery id, and the challenge and claim then succeed for that one delivery with no replacement delivery", async t => {
-  const path = fileFor(t), w = worldFor(t, { path }); w.path = path;
-  await killAt(t, w, 'delivery');
+  const path = fileFor(t), before = worldFor(t, { path }); before.path = path;
+  await killAt(t, before, 'delivery'); before.close();
+  const w = worldFor(t, { path, seed: false, wallet: before.wallet });
   const post = await serveDelivery(t, w); const view = await post('view', { token: 'purchase' }); assert.equal(view.body.delivery.id, row(w).delivery_id);
   assert.ok((await post('claim', await signedClaim(post, w))).body.request); assert.equal(count(w), 1);
 });
@@ -211,9 +219,10 @@ test("with the real app store and the installed public journal, a failure inject
     const challenge = w.challenges.issue({ purpose: PURPOSES.AGREEMENT_CREATE_CLAIM, address: w.wallet.address, accountId: 'acct-relay', binding: {} });
     await killAt(t, w, point, { challengeId: challenge.challengeId, signature: w.wallet.signHex(challenge.message) });
     const committed = point === 'committed';
-    assert.equal(row(w).state, committed ? 'claimed' : 'issued'); assert.equal(Boolean(row(w).journal_capability_hash), committed);
-    assert.equal(Boolean(w.db.prepare('SELECT consumed_at FROM challenges WHERE id = ?').get(challenge.challengeId).consumed_at), committed);
-    assert.equal(w.db.prepare('SELECT count(*) AS n FROM relay_capabilities').get().n, committed ? 1 : 0);
+    w.close(); const restarted = worldFor(t, { path, seed: false, wallet: w.wallet });
+    assert.equal(row(restarted).state, committed ? 'claimed' : 'issued'); assert.equal(Boolean(row(restarted).journal_capability_hash), committed);
+    assert.equal(Boolean(restarted.db.prepare('SELECT consumed_at FROM challenges WHERE id = ?').get(challenge.challengeId).consumed_at), committed);
+    assert.equal(restarted.db.prepare('SELECT count(*) AS n FROM relay_capabilities').get().n, committed ? 1 : 0);
   }
   const w = worldFor(t); await w.send(); const start = w.start();
   for (const point of ['consume', 'mint']) {

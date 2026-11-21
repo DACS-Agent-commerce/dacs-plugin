@@ -38,7 +38,8 @@ export function createAgreementCreateRouter({ delivery, challenges, purchases, a
         res.status(status).json(answer);
       } catch (error) {
         const status = error.code === 'not_found' ? 404 : error.code === 'invalid_request' || error instanceof ChallengeError ? 400 : error instanceof OperationError ? 409 : 500;
-        res.status(status).json({ error: status === 500 ? 'server_error' : error.code, ...(error.cause?.code ? { cause: error.cause.code } : {}) });
+        res.status(status).json({ error: status === 500 ? 'server_error' : error.code, message: status === 500 ? 'internal error' : error.code,
+          ...(error.code === 'profile_not_admitted' && error.cause?.code ? { cause: error.cause.code } : {}) });
       }
     });
   }
@@ -71,6 +72,6 @@ export function createAgreementCreateRouter({ delivery, challenges, purchases, a
       mintRelay: () => { relayAccess.revokeOperation(operation.id); return mint(operation, start); } });
     return { delivery: { id: retained.id, state: retained.state }, pass: { seq: pass.seq, expiresAt: pass.expiresAt }, relayAccess: pass.relayAccess };
   });
-  router.use(prefix, (error, _req, res, next) => error ? res.status(400).json({ error: 'invalid_request' }) : next());
+  router.use(prefix, (error, _req, res, next) => error ? res.status(400).json({ error: 'invalid_request', message: 'invalid_request' }) : next());
   return router;
 }

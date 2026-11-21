@@ -3,6 +3,7 @@
 // capability grants evidence access only. A recovery pass restores effect authority
 // over retained signed bytes without moving the claim or handing out request bytes.
 // The app database and the client's wallet journal share no transaction.
+// A row moves only from issued to claimed; its events are append-only.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { canonicalize, sha256Hex } from '@kynesyslabs/dacs';
 import { DEVNET_AGREEMENT_KIND, DEVNET_AGREEMENT_PROFILE, OperationError } from '@kynesyslabs/dacs-client';
