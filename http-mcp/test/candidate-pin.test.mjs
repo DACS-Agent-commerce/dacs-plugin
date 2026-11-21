@@ -14,7 +14,10 @@ const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const SDK_SCOPE = '@kynesyslabs/';
 const DEPENDENCY_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'overrides'];
-const CLIENT_NAMES = ['createSqlitePurchaseStore', 'PURCHASE_STATE_SCHEMA', 'sellerSessionTransitionState', 'OperationError', 'OutboundError', 'WalletFormatError', 'purchaseNext', 'networkIdentityLabel', 'PURCHASE_STATUS_HELP'];
+const CLIENT_NAMES = ['createSqlitePurchaseStore', 'PURCHASE_STATE_SCHEMA', 'sellerSessionTransitionState', 'OperationError', 'OutboundError', 'WalletFormatError', 'purchaseNext', 'networkIdentityLabel', 'PURCHASE_STATUS_HELP',
+  'rpcAuthRefusal', 'transferRefusal', 'DEVNET_NATIVE_RPC_PATH', 'DEVNET_NATIVE_BINDING_PATH', 'SellerRefusedError', 'SellerUnavailableError', 'createPurchaseService'];
+const NODE_WALLET_NAMES = ['isDevnetAgreementTransport', 'createHeldTransportFacade', 'createNodeWalletSession', 'passContext'];
+const JOURNAL_NAMES = ['openDurableWalletJournal'];
 const CORE_NAMES = ['canonicalize'];
 
 const candidateDir = process.env[CANDIDATE_DIR_ENV];
@@ -33,7 +36,8 @@ test('package.json pins the SDK packages to exact candidate versions with no fil
   assert.equal(pkg.bundledDependencies, undefined);
   assert.equal(existsSync(join(PACKAGE_ROOT, 'vendor')), false);
   assert.equal(execFileSync('git', ['ls-files', '*.tgz'], { cwd: REPO_ROOT, encoding: 'utf8' }), '', 'no archive is committed');
-  assert.equal(pkg.overrides['@kynesyslabs/demosdk'], '4.0.20');
+  assert.equal(pkg.dependencies['@kynesyslabs/demosdk'], '4.0.23');
+  assert.equal(pkg.overrides['@kynesyslabs/demosdk'], '4.0.23');
   assert.equal(pkg.dependencies.viem, '2.57.18');
 
   await t.test('the versions equal the candidate manifest', { skip }, () => {
@@ -62,7 +66,7 @@ test('package-lock.json integrity for each SDK package equals the candidate mani
   }
 });
 
-test('every SDK name chat-02a imports (the P41a2a and P41a2b rows of the measured table) resolves from the installed interim candidate without loading better-sqlite3', { skip }, async () => {
+test('every SDK name the plugin imports from the client root, its node-wallet and durable-journal entries and the core resolves from the installed interim candidate without loading better-sqlite3', { skip }, async () => {
   const work = mkdtempSync(join(tmpdir(), 'candidate-pin-'));
   try {
     const seed = await seedOfflineCache({ archiveDir: candidateDir, lock, repoRoot: REPO_ROOT, env: isolatedNpmEnv(work) });
@@ -72,9 +76,13 @@ test('every SDK name chat-02a imports (the P41a2a and P41a2b rows of the measure
     await installOffline(seed, ['ci', '--omit=dev'], { cwd: project });
     const probe = `
       const client = await import('@kynesyslabs/dacs-client');
+      const nodeWallet = await import('@kynesyslabs/dacs-client/node-wallet');
+      const journal = await import('@kynesyslabs/dacs-client/wallet/durable-journal');
       const core = await import('@kynesyslabs/dacs');
       const { createRequire } = await import('node:module');
-      const missing = [...${JSON.stringify(CLIENT_NAMES)}.filter((name) => client[name] === undefined), ...${JSON.stringify(CORE_NAMES)}.filter((name) => core[name] === undefined)];
+      const absent = (entry, names) => names.filter((name) => entry[name] === undefined);
+      const missing = [...absent(client, ${JSON.stringify(CLIENT_NAMES)}), ...absent(nodeWallet, ${JSON.stringify(NODE_WALLET_NAMES)}),
+        ...absent(journal, ${JSON.stringify(JOURNAL_NAMES)}), ...absent(core, ${JSON.stringify(CORE_NAMES)})];
       let sqlite = 'absent';
       try { createRequire(process.cwd() + '/probe.cjs').resolve('better-sqlite3'); sqlite = 'resolves'; } catch { /* not installed */ }
       console.log(JSON.stringify({ missing, sqlite }));`;
