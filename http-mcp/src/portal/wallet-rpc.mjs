@@ -1,6 +1,5 @@
-import { readIssuedWallet } from '../devnet-demo/issued-readback.mjs';
-import { nativeRelayWallet, operatorBuyerAccessConfig } from '../devnet-demo/buyer-access.mjs';
-// Same-origin RPC relay for the EXPERIMENTAL embedded (extension-free) wallet.
+// Same-origin RPC relays for the EXPERIMENTAL embedded (extension-free) wallet. The native relay over the client's
+// transport is described at createNativeRelayRouter; this note describes the simulated-loopback relay.
 // Enabled only by DACS_EMBEDDED_WALLET_WRITES=simulated-loopback, which config
 // accepts only with a loopback DACS_CHAIN_RPC_URL; production/live enabling is
 // held for the independent security and live gates.
@@ -30,11 +29,17 @@ import { nativeRelayWallet, operatorBuyerAccessConfig } from '../devnet-demo/buy
 //  - only the SDK's identity/signature/timestamp auth headers are forwarded,
 //    and only when well-formed; bodies and headers are never logged.
 import express from 'express';
+import { DEVNET_NATIVE_BINDING_PATH, DEVNET_NATIVE_RPC_PATH, rpcAuthRefusal, transferRefusal } from '@kynesyslabs/dacs-client';
+import { isDevnetAgreementTransport } from '@kynesyslabs/dacs-client/node-wallet';
 import { fetchBoundedJson, OutboundError } from '../util/http.mjs';
-import { SIMULATION_HEADER } from '../dacs/chain.mjs';
-import { isDevnetNativeTransport, isDevnetAgreementTransport, DEVNET_NATIVE_RPC_PATH, DEVNET_NATIVE_BINDING_PATH, rpcAuthRefusal, transferRefusal } from '../wallet/devnet-native-transport.mjs';
+import { allowlistedCause } from '../util/allowlisted-cause.mjs';
+import { RELAY_ACCESS_HEADER, RelayAccessError } from '../wallet/relay-access.mjs';
 
 export const WALLET_RPC_PATH = '/portal/api/wallet-rpc';
+// The header a simulated fixture chain puts on every answer (the client's chain reader checks the same name).
+const SIMULATION_HEADER = 'x-dacs-simulation';
+// A relay capability's form: 32 bytes in unpadded base64url.
+const CAPABILITY_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 const NODE_CALLS = new Set(['getNetworkInfo', 'getNetworkParameters', 'getAddressNonce', 'getTweet']);
 const EXECUTE_EXTRAS = new Set(['confirmTx', 'broadcastTx']);
 const AUTH_HEADERS = {
@@ -56,71 +61,99 @@ export function relayedCall(body) {
   return null;
 }
 
-export function createWalletRpcRouter({ config, fetchImpl = globalThis.fetch, logger, offlineAgreementBroker = null, nativeTransport = null, buyerAccess = null }) {
-  const router = express.Router();
-  // Separately mounted by the composition root only for an opaque source
-  // capability. This never changes the existing simulated/held profile route.
-  if (nativeTransport !== null) {
-    if (!isDevnetNativeTransport(nativeTransport) && !isDevnetAgreementTransport(nativeTransport)) throw new TypeError('an explicit trusted native transport capability is required');
-    // The Agreement (operator/native-demo) relay always enforces buyer access;
-    // only the separate native-payment profile predates it.
-    const access = operatorBuyerAccessConfig(buyerAccess);
-    if (!access && isDevnetAgreementTransport(nativeTransport)) throw new TypeError('the native Agreement wallet relay requires the operator buyerAccess capability');
-    // Buyers only: the operator custody seller's wallet traffic is in-process
-    // (devnet-demo/seller-relay.mjs), so a request naming it is refused here.
-    const assertRelayWallet = (wallet) => { if (access) access.assertRelayWallet(wallet); };
-    const authHeaders = (req) => {
-      const headers={};
-      for(const [name,pattern] of Object.entries(AUTH_HEADERS)) { const v=req.get(name); if(typeof v === 'string' && v.length <= 512 && pattern.test(v))headers[name]=v; }
-      return headers;
-    };
-    const json = express.json({ limit:'64kb' });
-    const sameOrigin = (req,res,next) => !req.get('origin') || req.get('origin') === config.publicOrigin ? next() : res.status(403).json({ error:'wrong_origin' });
-    router.post('/portal/api/devnet-native-wallet-profile',sameOrigin,(_req,res) => res.json(nativeTransport.profile(config.publicOrigin)));
-    router.get(DEVNET_NATIVE_RPC_PATH,(_req,res) => res.json({ result:200,response:{ relay:'dacs-native-only',profile:'devnet-native' } }));
-    router.post(DEVNET_NATIVE_BINDING_PATH,sameOrigin,json,async (req,res) => {
-      // Lane-resolution proofs are server-only (cancel/settlement); the browser reads back {phase,address,hash}.
-      if (req.body && typeof req.body === 'object' && ['failedNonceFence','consumedByHash'].some((k) => Object.hasOwn(req.body,k))) return res.status(400).json({ error:'invalid_params' });
-      try {
-        try{assertRelayWallet(req.body?.address);}
-        catch(error){
-          if(error.code==='buyer_access_closed'&&req.body?.phase==='readback'){
-            const read=await readIssuedWallet({sourceCapability:nativeTransport,address:req.body.address,hash:req.body.hash});
-            if(read)return res.json(read);
-          }
-          // Releasing a transient connection lease never signs or resends.
-          if(error.code!=='buyer_access_closed'||req.body?.phase!=='release')throw error;
-        }
-        // bind and signature need the wallet's own RPC auth headers.
-        return res.json(await nativeTransport.walletBinding(req.body,authHeaders(req)));
-      }
-      catch(error) {
-        logger?.info('native_wallet_binding_held',{ code:error.code ?? 'unavailable' });
-        // A refused RPC auth set (stale clock, replay, busy) or a refused
-        // transfer (its payment cancelled, or not the one its lease named)
-        // says so, as 409.
-        const refusal=rpcAuthRefusal(error) ?? transferRefusal(error);
-        return refusal ? res.status(refusal[0]).json(refusal[1]) : res.status(500).json({ error:error.code ?? 'network_binding_unavailable',message:'native transport binding/readback is held; nothing is retried' });
-      }
-    });
-    router.post(DEVNET_NATIVE_RPC_PATH,sameOrigin,json,async (req,res) => {
-      const headers=authHeaders(req);
-      try {
-        const wallet=nativeRelayWallet(req.body);
-        if(wallet!==null)assertRelayWallet(wallet);
-        return res.json(await nativeTransport.rpc(req.body,headers));
-      }
-      catch(error) {
-        if(['buyer_access_closed','seller_wallet_in_process'].includes(error.code))return res.status(409).json({error:error.code,message:error.message});
-        logger?.info('native_wallet_rpc_held',{ code:error.code ?? 'unavailable' });
-        const refusal=rpcAuthRefusal(error) ?? transferRefusal(error);
-        if(refusal)return res.status(refusal[0]).json(refusal[1]);
-        // Never a status the SDK automatically retries, especially after send.
-        return res.status(500).json({ result:500,response:'native transport held or outcome unknown; read back, never resend',require_reply:false,extra:null });
-      }
-    });
-    return router;
+const authHeaders = (req) => {
+  const headers = {};
+  for (const [name, pattern] of Object.entries(AUTH_HEADERS)) {
+    const value = req.get(name);
+    if (typeof value === 'string' && value.length <= 512 && pattern.test(value)) headers[name] = value;
   }
+  return headers;
+};
+
+// The native relay's answer to a failed call: the relay's own refusal, the client's held-profile refusal, a refused
+// RPC auth set (stale clock, replay, busy) or transfer as 409, and anything else as 500 (`unknown`), never retried.
+function relayFailure(res, error, unknown) {
+  if (error instanceof RelayAccessError) return res.status(error.httpStatus).json({ error: error.code, message: error.message });
+  if (error?.code === 'profile_not_admitted') {
+    const cause = allowlistedCause(error);
+    return res.status(409).json({ error: error.code, message: error.message, ...(cause ? { cause } : {}) });
+  }
+  const refusal = rpcAuthRefusal(error) ?? transferRefusal(error);
+  return refusal ? res.status(refusal[0]).json(refusal[1]) : res.status(500).json(unknown(error));
+}
+
+// The native relay runs over the client's own transport (its node-wallet session's held facade), which owns the node
+// connection, its lane journal and its no-resend rule. Every call needs a relay capability (src/wallet/relay-access.mjs)
+// in the x-dacs-relay-access header, checked before the body is parsed and again just before the transport is called,
+// after any wait behind the same purchase's earlier call. Once it or its handoff expires it admits only lease releases
+// and readbacks (which read the retained record and never send). Bind, signature and execute are refused 403: no signed
+// bytes are forwarded. Bodies are capped at 64 KiB; failures are never 502/503/504, never retried, and never logged with a capability.
+function createNativeRelayRouter({ config, logger, nativeTransport, relayAccess }) {
+  if (!isDevnetAgreementTransport(nativeTransport)) throw new TypeError('the native wallet relay requires the client\'s registered transport');
+  if (!relayAccess) throw new TypeError('the native wallet relay requires relayAccess');
+  const router = express.Router();
+  const json = express.json({ limit: '64kb' });
+  const sameOrigin = (req, res, next) => (!req.get('origin') || req.get('origin') === config.publicOrigin ? next() : res.status(403).json({ error: 'wrong_origin' }));
+  const presented = (req) => req.get(RELAY_ACCESS_HEADER);
+  // Checked before the body is parsed, so a caller without a capability never gets a body read.
+  const capabilityShape = (req, res, next) => (CAPABILITY_SHAPE.test(presented(req) ?? '') ? next() : relayFailure(res, new RelayAccessError()));
+  // One queue per purchase: a call reaches the transport only after the purchase's earlier call settled.
+  const queues = new Map();
+  function inQueue(operationId, work) {
+    const run = (queues.get(operationId) ?? Promise.resolve()).then(work);
+    const tail = run.then(() => {}, () => {});
+    queues.set(operationId, tail);
+    tail.then(() => { if (queues.get(operationId) === tail) queues.delete(operationId); });
+    return run;
+  }
+  // Admits the call, waits its turn, admits it again and calls the transport in the same tick; `needsLive` refuses a non-live capability.
+  function relayed(req, { wallet, phase, needsLive }, call) {
+    const admit = () => {
+      const access = relayAccess.admit({ presented: presented(req), wallet, phase });
+      if (needsLive && !access.live) throw new RelayAccessError();
+      return access;
+    };
+    return inQueue(admit().operationId, () => { admit(); return call(); });
+  }
+
+  router.post('/portal/api/devnet-native-wallet-profile', sameOrigin, (_req, res) => res.json(nativeTransport.profile(config.publicOrigin)));
+  router.get(DEVNET_NATIVE_RPC_PATH, (_req, res) => res.json({ result: 200, response: { relay: 'dacs-native-only', profile: 'devnet-native' } }));
+  router.post(DEVNET_NATIVE_BINDING_PATH, sameOrigin, capabilityShape, json, async (req, res) => {
+    const body = isObject(req.body) ? req.body : {};
+    // Lane-resolution proofs are server-only (cancel/settlement); the browser reads back {phase,address,hash}.
+    if (['failedNonceFence', 'consumedByHash'].some((name) => Object.hasOwn(body, name))) return res.status(400).json({ error: 'invalid_params' });
+    const { phase, address, hash } = body;
+    try {
+      // bind and signature would carry wallet-signed bytes; a readback reads only the transport's retained record; a
+      // lease release never signs or resends.
+      if (phase === 'bind' || phase === 'signature') throw new RelayAccessError();
+      const call = phase === 'readback' ? () => nativeTransport.binding({ phase, address, hash }) : () => nativeTransport.walletBinding(body, authHeaders(req));
+      return res.json(await relayed(req, { wallet: address, phase, needsLive: false }, call));
+    } catch (error) {
+      logger?.info('native_wallet_binding_held', { code: error.code ?? 'unavailable' });
+      return relayFailure(res, error, (cause) => ({ error: cause.code ?? 'network_binding_unavailable', message: 'native transport binding/readback is held; nothing is retried' }));
+    }
+  });
+  router.post(DEVNET_NATIVE_RPC_PATH, sameOrigin, capabilityShape, json, async (req, res) => {
+    try {
+      if (req.body?.method === 'execute') throw new RelayAccessError();
+      return res.json(await relayed(req, { wallet: null, phase: 'rpc', needsLive: true }, () => nativeTransport.rpc(req.body, authHeaders(req))));
+    } catch (error) {
+      logger?.info('native_wallet_rpc_held', { code: error.code ?? 'unavailable' });
+      return relayFailure(res, error, () => ({ result: 500, response: 'native transport held or outcome unknown; read back, never resend', require_reply: false, extra: null }));
+    }
+  });
+  return router;
+}
+
+/**
+ * Returns the wallet relay router. With `nativeTransport` (the client's registered transport, a held facade) and
+ * `relayAccess` it is the native relay; otherwise the embedded-wallet profile route and, when configured, the
+ * simulated-loopback relay. Throws TypeError for a native transport that is not the client's, or without relayAccess.
+ */
+export function createWalletRpcRouter({ config, fetchImpl = globalThis.fetch, logger, offlineAgreementBroker = null, nativeTransport = null, relayAccess = null }) {
+  if (nativeTransport !== null) return createNativeRelayRouter({ config, logger, nativeTransport, relayAccess });
+  const router = express.Router();
   const enabled = config.embeddedWallet?.writes === 'simulated-loopback' && Boolean(config.chain);
   const rpcUrl = enabled ? config.chain.rpcUrl : null;
   const rpcOrigin = enabled ? new URL(rpcUrl).origin : null;
