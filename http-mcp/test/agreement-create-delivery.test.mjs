@@ -60,6 +60,9 @@ async function killAt(t, w, point, challenge) {
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   const message = await Promise.race([once(child, 'message').then(([m]) => m), once(child, 'exit').then(() => { throw new Error(stderr || 'child exited before crash point'); })]);
   assert.equal(message.point, point); assert.equal(message.journalCalls, 0);
+  // A child that is not blocked at the crash point gets time to finish the claim, so a racing pause cannot pass.
+  await new Promise(resolve => setTimeout(resolve, 250));
+  assert.equal(child.exitCode, null); assert.equal(child.signalCode, null);
   const exited = once(child, 'exit'); child.kill('SIGKILL'); await exited;
 }
 
