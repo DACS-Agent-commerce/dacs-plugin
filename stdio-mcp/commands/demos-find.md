@@ -16,8 +16,8 @@ This command is written to search and check, using the two read-only tools named
    - If `listings` is empty, `withheld` is 0 and `cursor` is null, but `total` is above 0, say that the Directory reports `total` matches and this page shows none. Do not say that nothing was found.
    - Say that nothing was found only when `total` is 0, `withheld` is 0 and `cursor` is null. Then stop.
 4. Call `demos_dacs_listing_check` for the hit the user picks, with the seller claim, listing id and version exactly as `demos_dacs_discover` returned them. Never pass a `revocation` value, and never take one from the Directory hit.
-5. If the call returned an error instead of a `decision`, report the error plainly, say that the listing was not checked, and give no verdict. Do not call the listing valid, invalid or "probably fine". Otherwise report the `decision` first, in plain words:
-   - If the hit was marked `revoked`, say first that the Directory reports it withdrawn, whatever the decision is. Never call it unknown, and never say its revocation is not established.
+5. If the call returned an error instead of a `decision`, report the error plainly, say that the listing was not checked, and give no verdict. Do not call the listing valid, invalid or "probably fine". Otherwise, if the hit was marked `revoked`, report the withdrawal first, then the `decision`; if not, report the `decision` first. Report the `decision` in plain words:
+   - If the hit was marked `revoked`, say that the Directory reports it withdrawn, whatever the decision is. Never call it unknown, and never say its revocation is not established.
    - `accept` — every check passed. This is a check of the listing only; it is not a purchase and not an endorsement of the seller.
    - `reject` — name each failed check and what it means.
    - `indeterminate` — NOT verified. Never describe it as valid or "probably fine". Look at every check in the result that is not `pass`.
