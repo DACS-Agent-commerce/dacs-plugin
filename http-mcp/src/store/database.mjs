@@ -1,4 +1,4 @@
-// Durable state for accounts, wallets, agents, operations, challenges and the OAuth provider, on
+// Durable state for accounts, wallets, agents, operations, challenges, relay capabilities and the OAuth provider, on
 // node:sqlite (WAL, synchronous=FULL), so idempotency keys, one-use challenges and approvals are
 // enforced by UNIQUE constraints and survive process restarts. The client's PurchaseStore owns every
 // transaction, and the client's PURCHASE_STATE_SCHEMA is the only DDL for the purchase tables: a new
@@ -78,6 +78,17 @@ const PLUGIN_SCHEMA = [
      value TEXT NOT NULL,
      created_at TEXT NOT NULL
    )`,
+  // Native wallet relay capabilities (src/wallet/relay-access.mjs), stored only as their hash.
+  `CREATE TABLE IF NOT EXISTS relay_capabilities (
+     capability_hash TEXT PRIMARY KEY,
+     account_id TEXT NOT NULL,
+     operation_id TEXT NOT NULL,
+     wallet TEXT NOT NULL,
+     phases TEXT NOT NULL,
+     expires_at TEXT NOT NULL,
+     created_at TEXT NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS relay_capabilities_by_operation ON relay_capabilities(operation_id)`,
 ];
 
 // Thrown when an existing app database does not hold exactly the schema this build creates.

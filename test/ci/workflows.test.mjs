@@ -156,7 +156,7 @@ test('http-mcp builds the pinned SDK archives outside the checkout, validates th
   assert.match(steps[preparation], /npm -v.*10\.9\.9/);
   assert.match(steps[preparation], /npm install --global npm@10\.9\.9/);
   assert.match(steps[preparation], /test "\$\(npm -v\)" = "10\.9\.9"/);
-  assert.match(steps[preparation], /umask 022[\s\S]*git -C "\$sdk_source" fetch --depth 1 https:\/\/github\.com\/DACS-Agent-commerce\/dacs-sdk\.git cc301976133bd2b0046c9a979cba88c82be19d97/);
+  assert.match(steps[preparation], /umask 022[\s\S]*git -C "\$sdk_source" fetch --depth 1 https:\/\/github\.com\/DACS-Agent-commerce\/dacs-sdk\.git 7a05b3497f1eb94125426d37a90d3e09b2290aa7/);
   assert.match(steps[preparation], /\$RUNNER_TEMP\/http-mcp-sdk-candidate/);
   const sourceInstalls = [...steps[preparation].matchAll(/cd "\$sdk_source" && (npm ci[^)\n]*)/g)].map((m) => m[1]);
   assert.equal(sourceInstalls.length, 1);
@@ -181,12 +181,13 @@ function assertHttpSdkSetup(workflow) {
   };
 
   const lockedDemosdk = (root) => JSON.parse(readFileSync(path.join(REPO_ROOT, root, 'package-lock.json'), 'utf8')).packages['node_modules/@kynesyslabs/demosdk'].version;
-  const version = lockedDemosdk('http-mcp');
-  assert.equal(lockedDemosdk('http-mcp/wallet-build'), version, 'both http-mcp roots lock one demosdk version, so one archive serves the candidate check');
-  position(`npm pack @kynesyslabs/demosdk@${version} --silent --pack-destination "$archive_dir" > /dev/null`);
+  // Each http-mcp root's locked demosdk version has its own archive for the candidate check.
+  for (const version of new Set([lockedDemosdk('http-mcp'), lockedDemosdk('http-mcp/wallet-build')])) {
+    position(`npm pack @kynesyslabs/demosdk@${version} --silent --pack-destination "$archive_dir" > /dev/null`);
+  }
 
   const checkout = position('git -C "$sdk_source" checkout -q --detach FETCH_HEAD');
-  const verified = position('test "$(git -C "$sdk_source" rev-parse HEAD)" = "cc301976133bd2b0046c9a979cba88c82be19d97"');
+  const verified = position('test "$(git -C "$sdk_source" rev-parse HEAD)" = "7a05b3497f1eb94125426d37a90d3e09b2290aa7"');
   const sourceInstall = commands.findIndex((line) => line.startsWith('(cd "$sdk_source" && npm ci'));
   assert.ok(checkout < verified && verified < sourceInstall, 'the fetched commit is verified after checkout and before anything is installed from it');
 
