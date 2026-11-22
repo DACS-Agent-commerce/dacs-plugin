@@ -12,6 +12,7 @@ import { chromium } from 'playwright-core';
 import { startOfflineTester } from '../../bin/dacs-chatgpt-offline-test.mjs';
 import { Profile } from '../helpers/overnight-ui-browser.mjs';
 import { dashboardClient } from '../helpers/overnight-ui-actors.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 
 const CHROME = process.env.DACS_TEST_CHROME;
 let h;
@@ -31,13 +32,6 @@ before(async () => {
   browserServer = await chromium.launchServer({ executablePath: CHROME, headless: true, downloadsPath: downloads });
   browser = await chromium.connect(browserServer.wsEndpoint());
   run.d = dashboardClient(h);
-  const found = await run.d.action('find-listing');
-  assert.equal(found.ok, true);
-  const verified = (await run.d.state()).listing.verification;
-  assert.equal(verified.transactable, true);
-  run.title = verified.title;
-  run.priceDem = verified.amount;
-  run.amountOs = verified.amountOs;
   run.buyer = new Profile(await browser.newContext({ acceptDownloads: true }), h, 'buyer');
 });
 
@@ -94,8 +88,9 @@ async function saveDownload(download) {
 }
 
 test('C1/C4/C5/C6 buyer: discovers the baseline listing, rejection, interruption, purchase settles only on readback', { timeout: 180_000 }, async () => {
-  const { buyer: b, title, priceDem, amountOs } = run;
+  const { buyer: b } = run;
   const payee = h.listing.sellerAddress;
+  let title, priceDem, amountOs;
   await unit(async (step) => {
     await step('[C1] buyer: built-in wallet and normal OAuth sign-in', async () => {
       await b.open();
@@ -109,6 +104,14 @@ test('C1/C4/C5/C6 buyer: discovers the baseline listing, rejection, interruption
       await b.waitText('listing-error', /Type part of a service title/);
       if ((await b.activeId()) !== 'search-query') throw new Error(`focus is on #${await b.activeId()}`);
     });
+    // The purchase starts here; the wallet and sign-in above serve the identity, evidence and restart tests too.
+    await requireSdkPurchases(h.origin);
+    const found = await run.d.action('find-listing');
+    assert.equal(found.ok, true);
+    const verified = (await run.d.state()).listing.verification;
+    assert.equal(verified.transactable, true);
+    ({ title, amount: priceDem, amountOs } = verified);
+    Object.assign(run, { title, priceDem, amountOs });
     await step('[C4] buyer discovers the baseline fixture Listing by title and verifies its exact price', async () => {
       await b.dash.locator('#search-query').fill(title);
       await b.dash.locator('#search-query').press('Enter');
@@ -208,6 +211,7 @@ test('C2 buyer: Twitter identity add then remove with the built-in wallet', { ti
 });
 
 test('C7 evidence download by keyboard reflects the actual workflow and carries no secrets', { timeout: 60_000 }, async () => {
+  await requireSdkPurchases(h.origin);
   const { buyer: b, title, amountOs } = run;
   assert.ok(run.settled && run.twitterRemoved, 'earlier workflow steps did not complete');
   await unit(async (step) => {

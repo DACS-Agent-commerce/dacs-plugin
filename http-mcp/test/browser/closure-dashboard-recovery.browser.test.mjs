@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { startOfflineTester } from '../../bin/dacs-chatgpt-offline-test.mjs';
 import { Profile } from '../helpers/overnight-ui-browser.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 
 const CHROME = process.env.DACS_TEST_CHROME;
 const TW_HANDLE = `cd_tw_${Math.random().toString(36).slice(2, 6)}`;
@@ -62,6 +63,7 @@ test('setup: built-in wallet and buyer sign-in', { timeout: 120_000 }, async () 
 });
 
 test('F1 [accepting control first]: a purchase settles with a receipt; Prepare then starts a new one and the settled purchase with its receipt stays listed, after reload and in the evidence file', { timeout: 180_000 }, async () => {
+  await requireSdkPurchases(h.origin);
   await t.click('Find test service');
   await t.waitText('v-result', /^Verified: transactable$/);
   await t.click('Prepare simulated purchase');
