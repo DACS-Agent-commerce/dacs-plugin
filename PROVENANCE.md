@@ -98,7 +98,6 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `http-mcp/docs/DEVNET-OPERATOR-PAYMENT-RECOVERY.md` | `301c4111215bf1aacc1c3f145890ffd4077d6383` | changed here after a verbatim import: the list of what the evidence does not establish ends with a disclaimer sentence, as the public-gate wording rule requires |
 | `http-mcp/docs/DEVNET-OPERATOR-RECOVERY.md` | `720a802556ca9bae6858b2f21d35a0d34bdccd45` | verbatim |
 | `http-mcp/docs/DEVNET-OPERATOR-SEQUENTIAL.md` | `3e9a84e829333d12e1e2e749c84f96fca3d80f5d` | verbatim |
-| `http-mcp/docs/DEVNET-RECIPIENT-BALANCE.md` | `f36e480bf8de10b940207b03c2ef7a3308ef00fd` | verbatim |
 | `http-mcp/docs/DURABLE-WALLET-JOURNAL.md` | `4a48ffad0a2593dc55d3322adf517924cd12ad88` | edited: fixture path renamed |
 | `http-mcp/docs/EMBEDDED-WALLET-FLOW-COVERAGE.md` | `27798c78872f503dba182cbad06176634e764381` | edited: public wording: internal review, process, PR and private-path references removed or reworded; directory name in a column header corrected; digests of internal run logs and a source manifest removed |
 | `http-mcp/docs/EMBEDDED-WALLET-INTEGRATION.md` | `d5894a9ff7498d9e86e98500bdd5f6fb1220bfb5` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -206,9 +205,7 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `http-mcp/scripts/check-tester-dashboard-package.mjs` | `2a64982fdbcbabd7eaa9d393978b465c34ec2797` | verbatim |
 | `http-mcp/scripts/config-equivalence-migration.mjs` | `5886e736b864ef09d692c71497fe9789a751b5f1` | edited: comments and test names: internal review and process references removed; no behaviour change; the default baseline is the ref name `v1-baseline` instead of a commit id; fixture path renamed |
 | `http-mcp/scripts/devnet-demo-compose.mjs` | `1de7461cf7578ee046ca225df1db7b4b05915baa` | verbatim |
-| `http-mcp/scripts/devnet-demo-operator-bootstrap.mjs` | `1605193c9d38c9da37f603cd747cca68d08d892d` | verbatim |
 | `http-mcp/scripts/devnet-demo-purchase.mjs` | `1de7461cf7578ee046ca225df1db7b4b05915baa` | verbatim |
-| `http-mcp/scripts/devnet-demo-recipient-balance.mjs` | `cc1e1a084825d58445a75dcd9f0091498e93c191` | verbatim |
 | `http-mcp/scripts/embedded-wallet-runtime.mjs` | `7f59558f58f904395cb93e3d2d87c5dab444b1a7` | verbatim |
 | `http-mcp/scripts/off-surface.mjs` | `88dccbcffd650274de5a7bd6f5fb0f3074d4bd85` | verbatim |
 | `http-mcp/scripts/ops-health.mjs` | `f8316f76d36ae6217c67a213564331e722f1a690` | verbatim |
