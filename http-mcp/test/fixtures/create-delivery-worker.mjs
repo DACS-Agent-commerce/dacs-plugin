@@ -11,9 +11,11 @@ for (const method of ['get', 'put', 'entries', 'withWalletLock']) {
   journal[method] = (...args) => { journalCalls++; return original(...args); };
 }
 world.delivery.walletFactoryFor('purchase')({ anchorJournal: journal });
+// Blocks at once, inside any open transaction: a send callback would only run after the synchronous claim had committed.
 const pause = (point) => {
   if (input.point !== point) return;
-  process.send({ point, journalCalls }, () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0));
+  process.send({ point, journalCalls });
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 };
 if (input.point === 'delivery') {
   await world.send();

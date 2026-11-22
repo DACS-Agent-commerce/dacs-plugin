@@ -2,7 +2,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalize } from '@kynesyslabs/dacs';
@@ -60,6 +60,9 @@ async function killAt(t, w, point, challenge) {
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   const message = await Promise.race([once(child, 'message').then(([m]) => m), once(child, 'exit').then(() => { throw new Error(stderr || 'child exited before crash point'); })]);
   assert.equal(message.point, point); assert.equal(message.journalCalls, 0);
+  // A child that is not blocked at the crash point gets time to finish the claim, so a racing pause cannot pass.
+  await new Promise(resolve => setTimeout(resolve, 250));
+  assert.equal(child.exitCode, null); assert.equal(child.signalCode, null);
   const exited = once(child, 'exit'); child.kill('SIGKILL'); await exited;
 }
 
@@ -238,7 +241,7 @@ test("with the real app store and the installed public journal, a failure inject
   }
 });
 
-test("after a server restart, a claimed delivery whose history proves no possible earlier broadcast gets one pass binding from a new live Start with its journal capability, effect authority holds again, a fresh relay capability is returned, and no request bytes, claim or change to the claim binding follow, a delivery whose only browser-stage record is broadcast-started with a wholly withheld broadcast history gets that pass too, and each pass event binds the retained hash and the canonical presented-history digest also when no dispatch intent exists", async t => {
+test("after a server restart, a claimed delivery whose history proves no possible earlier broadcast gets one pass binding from a new live Start with its journal capability, effect authority holds again, a fresh relay capability is returned, and no request bytes, claim or change to the claim binding follow, a delivery whose retained browser-stage broadcast-started has no retained withheld record is refused broadcast_unproven whatever history it presents and gets that pass once its own withheld record is retained, and each pass event binds the retained hash and the canonical presented-history digest also when no dispatch intent exists", async t => {
   for (const history of [signedHistory, [...signedHistory, { seq: 2, kind: 'broadcast-started', stage: 'broadcast', passId: 'pass' }, { seq: 3, kind: 'broadcast-withheld', stage: 'broadcast', passId: 'pass' }]]) {
     const path = fileFor(t);
     const first = await claimedWorld(t, { path }); const answer = first.answer, wallet = first.w.wallet;
@@ -246,11 +249,56 @@ test("after a server restart, a claimed delivery whose history proves no possibl
     const w = worldFor(t, { path, wallet, seed: false }), post = await serveDelivery(t, w);
     assert.equal(w.delivery.effectAuthority('purchase').reason, 'expired');
     w.delivery.appendEvent({ deliveryId: answer.delivery.id, kind: 'browser-stage', body: { stage: 'broadcast-started', hash: SIGNED_HASH } });
-    const body = passBody(w, history); const passed = await post('pass', body, { journal: answer.journalCapability });
+    const body = passBody(w, history), retained = w.delivery.events(answer.delivery.id).length;
+    const refused = await post('pass', body, { journal: answer.journalCapability });
+    assert.equal(refused.status, 409); assert.equal(refused.body.error, 'broadcast_unproven');
+    assert.equal(w.delivery.events(answer.delivery.id).length, retained); assert.equal(w.delivery.effectAuthority('purchase').reason, 'expired');
+    w.delivery.appendEvent({ deliveryId: answer.delivery.id, kind: 'browser-stage', body: { stage: 'broadcast-withheld', hash: SIGNED_HASH } });
+    const passed = await post('pass', body, { journal: answer.journalCapability });
     assert.equal(passed.status, 200, JSON.stringify(passed.body)); assert.equal(passed.body.request, undefined); assert.equal(row(w).start_record_id, binding);
     const event = w.delivery.events(answer.delivery.id).at(-1);
     assert.equal(event.body.hash, SIGNED_HASH); assert.equal(event.body.withheldDigest, hashOf(canonicalize(history))); assert.deepEqual(w.delivery.effectAuthority('purchase'), { ok: true });
     assert.equal(w.relayAccess.admit({ presented: passed.body.relayAccess.capability, wallet: w.wallet.address, phase: 'rpc' }).live, true);
+  }
+});
+
+const stageRecord = (stage, passId = 'p1', hash = SIGNED_HASH) => ({ stage, hash, passId });
+const passState = (w, deliveryId) => ({ row: row(w), events: w.delivery.events(deliveryId), authority: w.delivery.effectAuthority('purchase'),
+  relay: w.db.prepare('SELECT * FROM relay_capabilities ORDER BY rowid').all() });
+
+test('a signed-only or wholly withheld presented history after a retained browser-stage broadcast-started or dispatch-started with no retained withheld record is refused broadcast_unproven, mints or revokes no relay capability and changes no delivery, event or authority state', async t => {
+  const withheldHistory = [...signedHistory, { seq: 2, kind: 'broadcast-started', stage: 'broadcast', passId: 'pass' }, { seq: 3, kind: 'broadcast-withheld', stage: 'broadcast', passId: 'pass' }];
+  for (const [stage, history] of [['broadcast-started', signedHistory], ['broadcast-started', withheldHistory], ['dispatch-started', signedHistory]]) {
+    const { w, post, answer } = await claimedWorld(t);
+    w.delivery.appendEvent({ deliveryId: answer.delivery.id, kind: 'browser-stage', body: stageRecord(stage) });
+    const body = passBody(w, history), before = passState(w, answer.delivery.id);
+    const refused = await post('pass', body, { journal: answer.journalCapability });
+    assert.equal(refused.status, 409, stage); assert.equal(refused.body.error, 'broadcast_unproven'); assert.equal(refused.body.relayAccess, undefined);
+    let minted = 0;
+    assert.throws(() => w.delivery.appendPass({ operationId: 'purchase', start: w.starts.current('purchase'), hash: SIGNED_HASH, history, mintRelay: () => { minted += 1; } }),
+      { code: 'broadcast_unproven' });
+    assert.equal(minted, 0); assert.deepEqual(passState(w, answer.delivery.id), before);
+  }
+});
+
+test('a retained browser-stage broadcast-started gets the pass once the server retains its own broadcast-withheld or dispatch-withheld record for that hash and attempt, and a withheld record of another attempt, retained before the intent, naming no hash or following an unknown outcome, or a second intent, still refuses broadcast_unproven', async t => {
+  for (const stage of ['broadcast-withheld', 'dispatch-withheld']) {
+    const { w, post, answer } = await claimedWorld(t), deliveryId = answer.delivery.id, body = passBody(w), options = { journal: answer.journalCapability };
+    w.delivery.appendEvent({ deliveryId, kind: 'browser-stage', body: stageRecord('broadcast-started') });
+    assert.equal((await post('pass', body, options)).body.error, 'broadcast_unproven');
+    w.delivery.appendEvent({ deliveryId, kind: 'browser-stage', body: stageRecord(stage) });
+    const passed = await post('pass', body, options);
+    assert.equal(passed.status, 200, JSON.stringify(passed.body)); assert.equal(w.delivery.events(deliveryId).at(-1).body.hash, SIGNED_HASH);
+    assert.equal(w.relayAccess.admit({ presented: passed.body.relayAccess.capability, wallet: w.wallet.address, phase: 'rpc' }).live, true);
+  }
+  const started = stageRecord('broadcast-started'), withheld = stageRecord('broadcast-withheld');
+  for (const records of [[started, stageRecord('broadcast-withheld', 'p2')], [withheld, started], [started, { stage: 'broadcast-withheld', passId: 'p1' }],
+    [started, stageRecord('broadcast-unknown'), withheld], [started, started, withheld]]) {
+    const { w, post, answer } = await claimedWorld(t);
+    for (const record of records) w.delivery.appendEvent({ deliveryId: answer.delivery.id, kind: 'browser-stage', body: record });
+    const retained = w.delivery.events(answer.delivery.id).length;
+    assert.equal((await post('pass', passBody(w), { journal: answer.journalCapability })).body.error, 'broadcast_unproven', JSON.stringify(records));
+    assert.equal(w.delivery.events(answer.delivery.id).length, retained);
   }
 });
 
@@ -404,4 +452,60 @@ test('a failed Start rebind keeps the previous binding', async t => {
   w.db.exec("CREATE TEMP TRIGGER fail_rebind BEFORE UPDATE ON agreement_create_deliveries BEGIN SELECT RAISE(ABORT, 'binding store failure'); END");
   assert.throws(() => w.delivery.bindStart({ operationId: 'purchase', start: w.start() }), /binding store failure/);
   assert.equal(row(w).start_record_id, before.start_record_id); assert.equal(row(w).claim_expires_at, before.claim_expires_at);
+});
+
+test('a recovery history whose kind or stage is not a string is refused history_invalid and appends nothing', async t => {
+  const { w, post, answer } = await claimedWorld(t), body = passBody(w), options = { journal: answer.journalCapability };
+  const before = w.delivery.events(answer.delivery.id).length;
+  for (const record of [{ seq: 2, kind: ['dispatch-started'], stage: 'dispatch', passId: 'x' }, { seq: 2, kind: ['observed'], passId: 'x' },
+    { seq: 2, kind: 'dispatch-started', stage: ['dispatch'], passId: 'x' }]) {
+    const result = await post('pass', { ...body, history: [...signedHistory, record] }, options);
+    assert.equal(result.status, 409); assert.equal(result.body.error, 'history_invalid');
+  }
+  assert.equal(w.delivery.events(answer.delivery.id).length, before);
+});
+
+test('the gate refuses any binding cause, reports the write stop before a binding cause, and a refused claim consumes nothing', async t => {
+  const w = worldFor(t); await w.send(); const post = await serveDelivery(t, w), claim = await signedClaim(post, w);
+  for (const [patch, error, cause] of [[{ cause: 'binding_unreadable' }, 'profile_not_admitted', 'binding_unreadable'], [{ cause: '' }, 'profile_not_admitted', 'binding_unreadable'],
+    [{ cause: 'binding_unreadable', stopped: true }, 'writes_stopped'], [{ cause: 'tp1_local_binding_changed', stopped: true }, 'writes_stopped']]) {
+    Object.assign(w.gateState, { cause: null, stopped: false }, patch);
+    const result = await post('claim', claim);
+    assert.equal(result.status, 409); assert.equal(result.body.error, error); assert.equal(result.body.cause, cause);
+    assert.equal(result.body.request, undefined); assert.equal(row(w).state, 'issued');
+    assert.equal(w.delivery.effectAuthority('purchase').reason, cause ? 'binding_unreadable' : 'writes_stopped');
+  }
+  Object.assign(w.gateState, { cause: null, stopped: false });
+  const granted = await post('claim', claim); assert.equal(granted.status, 200); assert.ok(granted.body.request);
+});
+
+test('a number that JSON allows but canonical JSON cannot hold is refused invalid_request, not a server error', async t => {
+  const w = worldFor(t); await w.send(); const post = await serveDelivery(t, w);
+  for (const [action, raw] of [['challenge', '{"start":1e400,"token":"purchase"}'], ['pass', '{"hash":"x","history":[1e400],"start":"s","token":"purchase"}']]) {
+    const result = await post(action, raw, { raw: true });
+    assert.equal(result.status, 400); assert.equal(result.body.error, 'invalid_request');
+  }
+});
+
+test('a server error is logged by the router without any capability or request bytes', async t => {
+  const { w, answer } = await claimedWorld(t), body = passBody(w);
+  w.relayAccess = { ...w.relayAccess, mint: () => { throw new Error('capability store failure'); } };
+  const post = await serveDelivery(t, w);
+  assert.equal((await post('pass', body, { journal: answer.journalCapability })).status, 500);
+  const lines = w.logger.lines.filter(line => line.includes('agreement_create_error'));
+  assert.equal(lines.length, 1); assert.match(lines[0], /capability store failure/);
+  for (const secret of [answer.journalCapability, answer.request]) assert.equal(w.logger.lines.some(line => line.includes(secret)), false);
+});
+
+test('the old offline-agreement broker purpose and statement stay beside the claim purpose', async t => {
+  const w = worldFor(t);
+  assert.equal(PURPOSES.OFFLINE_AGREEMENT_BROKER, 'offline-agreement-browser-session');
+  assert.equal(PURPOSES.AGREEMENT_CREATE_CLAIM, 'agreement-create-claim');
+  const issue = purpose => w.challenges.issue({ purpose, address: w.wallet.address, accountId: 'acct-relay', binding: { operation: 'purchase' } }).message;
+  assert.match(issue(PURPOSES.OFFLINE_AGREEMENT_BROKER), /one exact SIMULATED Agreement CREATE in this operation\. This is not payment approval\./);
+  assert.match(issue(PURPOSES.AGREEMENT_CREATE_CLAIM), /Claim this purchase's one Agreement record request/);
+});
+
+test('the delivery doc says a version 3 file from an earlier build needs a fresh data directory', () => {
+  assert.match(readFileSync(new URL('../docs/agreement-create-delivery.md', import.meta.url), 'utf8'), /needs a fresh data directory/);
 });
