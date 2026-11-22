@@ -8,7 +8,6 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { canonicalize, sha256Hex } from '@kynesyslabs/dacs';
 import { DEVNET_AGREEMENT_KIND, DEVNET_AGREEMENT_PROFILE, OperationError } from '@kynesyslabs/dacs-client';
 import { transaction } from '../store/database.mjs';
-import { deriveDispatchHistory } from '../../public/portal/embedded-wallet/effect-records.mjs';
 
 /** Maximum recovery passes retained for one delivery. */
 export const CREATE_PASS_LIMIT = 8;
@@ -20,6 +19,28 @@ const fail = code => { throw new OperationError(code, code); };
 const view = row => row && ({ id: row.delivery_id, state: row.state, requestHash: row.request_hash });
 const capabilityHash = value => sha256Hex(`dacs-create-journal:${value}`);
 const refused = code => ({ success: false, error: { code } });
+
+// What a shape-checked presented history proves about dispatch. The server holds its own reading of the wallet's
+// dispatch-history rule (the wallet's browser module is never loaded here); the test table keeps the two equal.
+// Each intent is its own attempt, an outcome answers only the intent before it, and an outcome with no open intent
+// counts as an unknown attempt. An unknown confirmation is never cleared by a later acknowledgement.
+function dispatchVerdict(history) {
+  const attempts = [];
+  let observed = false;
+  for (const { kind, stage, passId } of history) {
+    if (kind === 'observed') observed = true;
+    else if (stage && kind !== 'signed-held') {
+      const phase = kind.slice(stage.length + 1), answered = phase === 'started' ? undefined
+        : attempts.findLast(attempt => attempt.passId === passId && attempt.stage === stage && attempt.phase === 'started');
+      if (phase === 'started') attempts.push({ passId, stage, phase });
+      else if (answered) answered.phase = phase;
+      else attempts.push({ passId, stage, phase: 'unknown' });
+    }
+  }
+  const sent = stage => attempts.some(attempt => attempt.stage === stage && attempt.phase !== 'withheld');
+  const unknown = attempts.some(attempt => attempt.stage === 'confirm' && ['started', 'unknown'].includes(attempt.phase));
+  return { signed: history[0]?.kind === 'signed', neverDispatched: !observed && !sent('dispatch') && !sent('broadcast'), confirmation: unknown ? 'unknown' : 'known' };
+}
 
 /** Creates the synchronous app store and the client's immediate wallet handoff. Store errors propagate. */
 export function createAgreementCreateDelivery({ db, starts, gates, now = () => Date.now(), random = randomBytes }) {
@@ -46,9 +67,16 @@ export function createAgreementCreateDelivery({ db, starts, gates, now = () => D
     eventInsert.run(deliveryId, seq, kind, canonicalize(body), new Date(now()).toISOString());
     return seq;
   }
+  // The switch, the write stop and any binding cause refuse; the stop is reported before a binding cause so it is never hidden.
+  function gate() {
+    if (!gates.purchasesOn()) return 'sdk_purchases_off';
+    if (gates.stopped()) return 'writes_stopped';
+    const cause = gates.bindingCause();
+    return cause == null ? null : typeof cause === 'string' && cause ? cause : 'binding_unreadable';
+  }
   function effectAuthority(operationId) {
-    const gate = !gates.purchasesOn() ? 'sdk_purchases_off' : gates.bindingCause() ?? (gates.stopped() ? 'writes_stopped' : null);
-    if (gate) return { ok: false, reason: gate };
+    const refusal = gate();
+    if (refusal) return { ok: false, reason: refusal };
     const row = stored.get(operationId), operation = purchase.get(operationId);
     const pass = row && events(row.delivery_id).findLast(event => event.kind === 'pass');
     const start = row && starts.get(pass?.body.startRecordId ?? row.start_record_id);
@@ -122,12 +150,13 @@ export function createAgreementCreateDelivery({ db, starts, gates, now = () => D
       if (retained.some(event => event.kind === 'browser-stage' && event.body.stage === 'broadcast-accepted')) fail('readback_only');
       if (typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash) || !Array.isArray(history) || history.length > HISTORY_LIMIT
         || history.some((record, index) => !record || record.seq !== index + 1 || typeof record.passId !== 'string' || !record.passId
+          || typeof record.kind !== 'string' || (record.stage !== undefined && typeof record.stage !== 'string')
           || Object.keys(record).some(key => !['seq', 'kind', 'stage', 'passId'].includes(key)) || (record.kind === 'signed' && index !== 0)
           || !/^(signed|signed-held|observed|(?:dispatch|confirm|broadcast)-(?:started|acknowledged|unknown|withheld))$/.test(record.kind)
           || (record.kind === 'signed-held' ? !['dispatch', 'confirm', 'broadcast'].includes(record.stage)
             : record.kind.includes('-') ? record.stage !== record.kind.split('-')[0] : record.stage !== undefined))
         || retained.some(event => ['browser-stage', 'pass'].includes(event.kind) && event.body.hash && event.body.hash !== hash)) fail('history_invalid');
-      const verdict = deriveDispatchHistory(history);
+      const verdict = dispatchVerdict(history);
       if (!verdict.signed || !verdict.neverDispatched || verdict.confirmation === 'unknown') fail('readback_only');
       if (retained.filter(event => event.kind === 'pass').length >= CREATE_PASS_LIMIT) fail('pass_limit');
       const expiresAt = expiry(operation, start);
@@ -136,7 +165,7 @@ export function createAgreementCreateDelivery({ db, starts, gates, now = () => D
     });
   }
   return { walletFactory: () => ({ request, getPublicAccount: () => null, getWriteProfile: () => null }), walletFactoryFor,
-    forOperation: operationId => view(stored.get(operationId)) ?? null, bindStart, claim, admitJournal, appendPass, events, effectAuthority,
+    forOperation: operationId => view(stored.get(operationId)) ?? null, bindStart, claim, admitJournal, appendPass, events, effectAuthority, gate,
     appendEvent: ({ deliveryId, kind, body }) => transaction(db, () => {
       if (!['browser-stage', 'result', 'retirement'].includes(kind)) fail('invalid_event');
       return append(deliveryId, kind, body);

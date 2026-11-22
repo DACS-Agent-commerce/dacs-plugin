@@ -48,27 +48,35 @@ export const requireFunctions = (what, value, names) => {
 function requestLock(locks, name, clock, timeoutMs) {
   return new Promise((resolve, reject) => {
     const abort = new AbortController();
-    const startedAt = clock.now();
+    let startedAt;
+    let cancelTimer;
     let phase = 'waiting';
     const expire = () => {
       phase = 'timed-out';
       abort.abort(new Error(`fence not granted within ${timeoutMs} ms`));
       reject(refuse('tp1_fence_timeout', abort.signal.reason));
     };
-    const cancelTimer = clock.setTimer(() => {
-      if (phase === 'waiting') expire();
-    }, timeoutMs);
-    if (typeof cancelTimer !== 'function') {
-      phase = 'failed';
-      reject(refuse('eb_fence_failed', new TypeError('clock.setTimer must return a function that cancels the timer')));
-      return;
-    }
     const fail = (cause) => {
       if (phase !== 'waiting') return;
       phase = 'failed';
-      cancelTimer();
+      // Cleanup is best effort: a broken canceller must not hide the original failure or leave this promise pending.
+      try { cancelTimer?.(); } catch { /* The original failure remains the refusal's cause. */ }
       reject(refuse('eb_fence_failed', cause));
     };
+    try {
+      startedAt = clock.now();
+      cancelTimer = clock.setTimer(() => {
+        if (phase === 'waiting') expire();
+      }, timeoutMs);
+      if (typeof cancelTimer !== 'function') {
+        fail(new TypeError('clock.setTimer must return a function that cancels the timer'));
+        return;
+      }
+    } catch (cause) {
+      fail(cause);
+      return;
+    }
+    if (phase !== 'waiting') return;
     try {
       locks.request(name, { mode: 'exclusive', signal: abort.signal }, () => {
         if (phase !== 'waiting') return undefined;
@@ -77,8 +85,8 @@ function requestLock(locks, name, clock, timeoutMs) {
           expire();
           return undefined;
         }
-        phase = 'granted';
         cancelTimer();
+        phase = 'granted';
         return new Promise((releaseLock) => resolve(releaseLock));
       }).catch(fail);
     } catch (cause) {
@@ -90,6 +98,7 @@ function requestLock(locks, name, clock, timeoutMs) {
 /**
  * The actor fence for one wallet, shared by every tab through Web Locks.
  * `run(operationId, work, capability?)` runs `work(capability)` holding the fence and releases it on every path;
+ * it rejects with a `TypeError` before requesting the lock when `work` is not a function;
  * with a capability it is a nested step: the capability must be the live one for the same operation (else
  * `tp1_fence_not_owned`) and nothing is acquired. `release(capability, operationId)` ends the hold and returns
  * whether it did; only the owner's own capability can. `owns(capability, operationId)` says whether the capability
@@ -102,9 +111,9 @@ function requestLock(locks, name, clock, timeoutMs) {
  * await it before the section ends; one still running then overlaps the next section. A
  * capability that is not the live one is refused `tp1_fence_not_owned`. `run` and `replaceConnection` throw
  * `tp1_fence_timeout` (cause kept) after `timeoutMs`
- * and `eb_fence_failed` (cause kept) when the lock request itself fails or `clock.setTimer` does not return a
- * function. `createWalletFence` throws a `TypeError` for a `locks` without `request`, a `clock` without `now` and
- * `setTimer`, a `timeoutMs` that is not an integer from 1 to 2^31-1, or a `walletId` that is not a non-empty string.
+ * and `eb_fence_failed` (cause kept) when the lock request or acquisition clock calls fail, including timer
+ * cancellation, or `clock.setTimer` does not return a function. `createWalletFence` throws a `TypeError` for a
+ * `locks` without `request`, a `clock` without `now` and `setTimer`, a `timeoutMs` that is not an integer from 1 to 2^31-1, or a `walletId` that is not a non-empty string.
  */
 export function createWalletFence({ locks, walletId, clock = SYSTEM_CLOCK, timeoutMs = FENCE_TIMEOUT_MS }) {
   requireFunctions('locks', locks, ['request']);
@@ -129,6 +138,7 @@ export function createWalletFence({ locks, walletId, clock = SYSTEM_CLOCK, timeo
   }
 
   async function run(operationId, work, capability) {
+    if (typeof work !== 'function') throw new TypeError('work must be a function');
     if (capability !== undefined) {
       if (!owns(capability, operationId)) throw refuse('tp1_fence_not_owned');
       return work(capability);
