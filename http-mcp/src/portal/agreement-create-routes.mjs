@@ -8,7 +8,7 @@ import { CREATE_JOURNAL_HEADER } from './agreement-create-delivery.mjs';
 const BODY_LIMIT = 64 * 1024;
 const fail = code => { throw new OperationError(code, code); };
 /** Returns the standalone challenge, one-use claim and recovery-pass router. No request bytes or capabilities are logged. */
-export function createAgreementCreateRouter({ delivery, challenges, purchases, accounts, relayAccess, starts, now = () => Date.now() }) {
+export function createAgreementCreateRouter({ delivery, challenges, purchases, accounts, relayAccess, starts, logger = null, now = () => Date.now() }) {
   const router = express.Router(), prefix = '/portal/api/purchase/:id/agreement-create';
   const raw = express.raw({ type: () => true, limit: BODY_LIMIT, inflate: false });
   const binding = (operation, start, retained) => ({ operation: operation.id, 'terms-hash': operation.termsHash,
@@ -25,21 +25,24 @@ export function createAgreementCreateRouter({ delivery, challenges, purchases, a
         const bytes = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
         let body;
         try { body = JSON.parse(bytes); } catch { fail('invalid_request'); }
+        let canonical = null;
+        try { canonical = body && !Array.isArray(body) ? Buffer.from(canonicalize(body)) : null; } catch { /* a number JSON allows but JCS cannot hold */ }
         if (!body || Array.isArray(body) || Object.keys(body).sort().join(',') !== members.slice().sort().join(',')
-          || !Buffer.from(canonicalize(body)).equals(req.body) || members.filter(key => key !== 'history').some(key => typeof body[key] !== 'string')) fail('invalid_request');
+          || !canonical?.equals(req.body) || members.filter(key => key !== 'history').some(key => typeof body[key] !== 'string')) fail('invalid_request');
         req.body = body;
-        const gate = delivery.effectAuthority(null);
-        if (!gate.ok && ['sdk_purchases_off', 'writes_stopped'].includes(gate.reason)) fail(gate.reason);
-        if (!gate.ok && gate.reason.startsWith('tp1_')) {
-          const error = new OperationError('profile_not_admitted', 'profile_not_admitted'); error.cause = { code: gate.reason }; throw error;
+        const refusal = delivery.gate();
+        if (refusal === 'sdk_purchases_off' || refusal === 'writes_stopped') fail(refusal);
+        if (refusal) {
+          const error = new OperationError('profile_not_admitted', 'profile_not_admitted'); error.cause = { code: refusal }; throw error;
         }
         const operation = authenticate(req), answer = handler(req, operation);
         const status = ['closed', 'expired'].includes(answer.delivery?.state) ? 409 : 200;
         res.status(status).json(answer);
       } catch (error) {
         const status = error.code === 'not_found' ? 404 : error.code === 'invalid_request' || error instanceof ChallengeError ? 400 : error instanceof OperationError ? 409 : 500;
+        if (status === 500) logger?.error('agreement_create_error', { path: req.path, message: error.message });
         res.status(status).json({ error: status === 500 ? 'server_error' : error.code, message: status === 500 ? 'internal error' : error.code,
-          ...(error.code === 'profile_not_admitted' && error.cause?.code ? { cause: error.cause.code } : {}) });
+          ...(error.code === 'profile_not_admitted' && /^[a-z0-9_]{1,64}$/.test(error.cause?.code) ? { cause: error.cause.code } : {}) });
       }
     });
   }

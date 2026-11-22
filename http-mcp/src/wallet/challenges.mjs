@@ -10,6 +10,7 @@ export const PURPOSES = Object.freeze({
   LOGIN: 'account-login',
   LINK_WALLET: 'link-wallet',
   APPROVE_PURCHASE: 'approve-purchase',
+  OFFLINE_AGREEMENT_BROKER: 'offline-agreement-browser-session',
   AGREEMENT_CREATE_CLAIM: 'agreement-create-claim',
 });
 
@@ -17,6 +18,7 @@ const STATEMENTS = {
   [PURPOSES.LOGIN]: 'Sign in to your DACS plugin account with this wallet. This does not move funds.',
   [PURPOSES.LINK_WALLET]: 'Link this wallet to the DACS plugin account below. Only sign if you started this from your own ChatGPT conversation: the account holder will be able to sign in with this wallet. This does not move funds.',
   [PURPOSES.APPROVE_PURCHASE]: 'Approve exactly this DEM testnet purchase. Your wallet will ask separately before any transaction is sent.',
+  [PURPOSES.OFFLINE_AGREEMENT_BROKER]: 'Authenticate this linked wallet for one exact SIMULATED Agreement CREATE in this operation. This is not payment approval. The packaged wallet must separately show and approve the complete CREATE debit. No payment or completion is enabled.',
   [PURPOSES.AGREEMENT_CREATE_CLAIM]: "Claim this purchase's one Agreement record request with this wallet. This signature sends nothing by itself; your wallet will ask separately before any transaction is sent.",
 };
 

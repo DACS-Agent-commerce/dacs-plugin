@@ -277,7 +277,7 @@ test('on the real carried manifest-and-lock pairs, http-mcp is published and a s
 
   await t.test('the optional registry peer range in http-mcp\'s lock is not a refused resolution', () => {
     const peers = carried['http-mcp']['package-lock.json'].packages[lockKey(`${SDK_SCOPE}/dacs`)].peerDependencies;
-    assert.equal(peers[DEMOSDK], '^4.0.16');
+    assert.equal(peers[DEMOSDK], '^4.0.17');
     assert.notEqual(stateOf(runSdkInput(['--prepare', 'stdio']), 'http-mcp').state, 'refused');
   });
 

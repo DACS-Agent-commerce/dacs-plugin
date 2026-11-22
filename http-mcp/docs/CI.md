@@ -115,7 +115,10 @@ includes that build and the workflow sets
 `DACS_TEST_CHROME` to its path, so they do not move with the weekly image's
 `/usr/bin/chromium-browser`, which they use only when `DACS_TEST_CHROME` is unset
 (as in a local run). If the browser stops working the cases fail; they do not
-skip. The hosted runner's kernel and Docker still roll; the test userland and
+skip. The run step also sets `DACS_TEST_DOWNLOAD_PARENT` to a directory in
+pwuser's `HOME`: the browser files that use
+`test/helpers/overnight-acceptance-browser.mjs` fail without one outside `/tmp`,
+and the other browser files put their downloads there too. The hosted runner's kernel and Docker still roll; the test userland and
 browser bytes are fixed by the container digest. Updating the image, browser or
 terminal driver is an explicit workflow/lockfile change. The Ubuntu snapshot
 service and container registry must be available; setup fails if either is not.
@@ -381,6 +384,32 @@ package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
 - `test/portal-auto-assets.test.mjs` — auto-advance config defaults off, rejects typos, and matches its deployment contract entry — P46 — DACS-Agent-commerce/dacs-plugin#323
 - `test/showcase-walkthrough.test.mjs` — switch: default off, strict off/on, env contract and example — P46 — DACS-Agent-commerce/dacs-plugin#323
 - `test/wallet-extension-probe-routes.test.mjs` — probe switch requires exactly 1, stays off by default, and its contract entry matches config — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/browser/closure-dashboard-recovery.browser.test.mjs` — F1 [accepting control first]: a purchase settles with a receipt; Prepare then starts a new one and the settled purchase with its receipt stays listed, after reload and in the evidence file — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/embedded-wallet-flow.browser.test.mjs` — B1 [browser-real + sdk-real] portal purchase with the embedded wallet: exact-terms approval, one broadcast, simulated receipt — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/embedded-wallet-portal.browser.test.mjs` — opt-in: a deliberate embedded choice survives later extension discovery; real SDK import; payments stay unavailable and no live transaction is attempted [browser-real + sdk-real + SIMULATED extension] — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-core-identity.browser.test.mjs` — P5 [browser-real, C1 wording] simulated profile: sign-in, wallet link, purchase approval and status pages are headed and labelled SIMULATED; nothing says testnet without "not" — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-core-identity.browser.test.mjs` — D1 [browser-real, accepting control] default profile: the existing wording is unchanged — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui-recovery.browser.test.mjs` — same wallet, same run: purchases are not blocked — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui-start-over.browser.test.mjs` — accepting control: same profile, no reset, the buyer buys the baseline listing — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui-start-over.browser.test.mjs` — earlier buyer operations stay shown truthfully, bound to the old wallet, and are not changed — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui-start-over.browser.test.mjs` — lost wallet, buyer: a new built-in wallet signs in and completes a baseline purchase — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui.browser.test.mjs` — C1/C4/C5/C6 buyer: discovers the baseline listing, rejection, interruption, purchase settles only on readback — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui.browser.test.mjs` — C7 evidence download by keyboard reflects the actual workflow and carries no secrets — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — OAuth account linking through the portal with a simulated wallet — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — changed listing terms surface before any signature is requested (F9) — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — embedded wallet without writes: the payment refusal does not point to an installed extension, which cannot pay either — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — embedded wallet payment: another-network session sends nothing; the approval shows the full debit and the receipt its limits — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — DACS purchase in the portal: Agreement, commitment-gated payment, evidence, delivery and counter-signature with the embedded wallet — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/tester-dashboard.browser.test.mjs` — guided dashboard: wallet, OAuth sign-in, verified listing, purchase receipt, GitHub add/remove, cancel, checklist, export — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-acceptance.browser.test.mjs` — OA-B1 [C1,C6] keyboard-only dashboard steps, wallet input errors, Escape-declined sign-in, retained unlock, keyboard approval — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-acceptance.browser.test.mjs` — OA-B2 [C4,C5,C7] interrupted purchase approval resumes without duplication; rejected/cancelled purchases never show success; export reflects actions — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+
+The `test/browser/` entries are the tests that drive a purchase, or read one an
+earlier test in the file makes. With SDK purchases off each stops at
+`requireSdkPurchases` (`test/helpers/sdk-purchases.mjs`) right before its first
+purchase step, with one fixed line; the steps before that call still run. The
+identity, sign-in, wallet-link and dashboard tests in the same files run in
+full.
 
 The seller control of `test/mutant-helper-verdicts.test.mjs` was removed because
 it read `src/devnet-demo/seller-write-batch.mjs`, which is not carried; card P303a

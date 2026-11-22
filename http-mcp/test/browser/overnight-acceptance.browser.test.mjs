@@ -16,6 +16,7 @@ import {
   unlock, connect, openUnlocked, approve, reject, portalLog, step, accountWithEmbeddedWallet, dashboard, dashboardSignIn, popupFrom, tabStops, focusAndPress,
 } from '../helpers/overnight-acceptance-browser.mjs';
 import { ok, call, unique, demToOs } from '../helpers/overnight-acceptance-flows.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 
 const root = cleanupStack();
 let browser;
@@ -128,6 +129,7 @@ test('OA-B1 [C1,C6] keyboard-only dashboard steps, wallet input errors, Escape-d
   await d.waitText('sign-in-status', new RegExp(`^Signed in\\. Linked wallet: ${address}$`));
 
   // Primary steps continue from the keyboard.
+  await requireSdkPurchases(h.origin);
   await focusAndPress(page, page.getByRole('button', { name: 'Find test service', exact: true }));
   await d.waitText('v-result', /^Verified: transactable$/);
   await focusAndPress(page, page.getByRole('button', { name: 'Prepare simulated purchase', exact: true }));
@@ -142,6 +144,7 @@ test('OA-B2 [C4,C5,C7] interrupted purchase approval resumes without duplication
   const { h, rec, d } = await freshTester(t);
   const { pw, address } = await createThrowawayWallet(rec, d);
   await dashboardSignIn(d, pw, address);
+  await requireSdkPurchases(h.origin);
   await d.click('Find test service');
   await d.waitText('v-result', /^Verified: transactable$/);
   const priceOs = demToOs(h.listing.price.amount);
