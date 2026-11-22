@@ -341,6 +341,51 @@ test('a clock whose setTimer returns a non-function refuses eb_fence_failed with
   assert.equal(tab.locks.requests, 0);
 });
 
+test('run rejects non-function work before requesting a lock or starting a timer', async () => {
+  const tab = createTab();
+  for (const work of [undefined, null, false, 0, 'work', {}, [], Symbol('work')]) {
+    await assert.rejects(tab.fence.run('invalid', work), TypeError);
+    assert.equal(tab.locks.requests, 0);
+    assert.equal(tab.clock.pendingTimers(), 0);
+    assert.equal(tab.fence.connectionGeneration, 0);
+  }
+  assert.equal(await tab.fence.run('valid', () => 'ran'), 'ran');
+  assert.equal(tab.locks.requests, 1);
+});
+
+test('run rejects non-function work while the wallet lock is already held', async () => {
+  const tab = createTab();
+  const holder = tab.hold();
+  await settle();
+  const invalid = settled(tab.fence.run('invalid', null));
+  try {
+    assert.ok(await hasSettled(invalid), 'invalid work must not wait for the held lock');
+    assert.ok((await invalid).error instanceof TypeError);
+    assert.equal(tab.locks.requests, 1, 'only the existing holder requested the lock');
+    assert.equal(tab.clock.pendingTimers(), 0);
+  } finally {
+    holder.release();
+    await Promise.all(tab.background);
+    await invalid;
+  }
+});
+
+test('nested run rejects non-function work and preserves its owner capability', async () => {
+  const tab = createTab();
+  await tab.fence.run('owner', async (capability) => {
+    for (const work of [undefined, null, 'work', {}]) {
+      await assert.rejects(tab.fence.run('owner', work, capability), {
+        name: 'TypeError', message: 'work must be a function',
+      });
+      assert.ok(tab.fence.owns(capability, 'owner'));
+    }
+    assert.equal(await tab.fence.run('owner', () => 'nested', capability), 'nested');
+    assert.equal(tab.locks.requests, 1);
+    assert.equal(tab.clock.pendingTimers(), 0);
+  });
+  assert.ok(await tab.isFree());
+});
+
 test('replaceConnection throws a TypeError for a non-function at once, before taking the fence or changing the generation', () => {
   const tab = createTab();
   for (const replace of [undefined, 'reconnect', {}]) assert.throws(() => tab.fence.replaceConnection(replace), { name: 'TypeError', message: 'replace must be a function' });
@@ -427,4 +472,64 @@ test('the system clock reads a non-decreasing number, fires a timer, and a cance
   SYSTEM_CLOCK.setTimer(() => fired.push('cancelled'), 0)();
   await new Promise((resolve) => SYSTEM_CLOCK.setTimer(() => { fired.push('kept'); resolve(); }, 0));
   assert.deepEqual(fired, ['kept']);
+});
+
+// Acquisition failures must be the same refusal for both public entry points.
+for (const entry of ['run', 'replaceConnection']) {
+  for (const broken of ['initial-now', 'setTimer', 'grant-now', 'cancelTimer']) {
+    test(`${entry}: a throwing ${broken} refuses eb_fence_failed and leaves the fence usable`, { timeout: 2000 }, async () => {
+      const baseClock = createFakeClock();
+      const locks = createFakeLocks();
+      const cause = { toJSON() { throw new Error('must not serialize cause'); }, toString() { throw new Error('must not stringify cause'); } };
+      let brokenClock = true;
+      let reads = 0;
+      let staleTimer;
+      const clock = {
+        now() {
+          reads += 1;
+          if (brokenClock && (broken === 'initial-now' || (broken === 'grant-now' && reads === 2))) throw cause;
+          return baseClock.now();
+        },
+        setTimer(callback, ms) {
+          if (brokenClock && broken === 'setTimer') { staleTimer = callback; throw cause; }
+          const cancel = baseClock.setTimer(callback, ms);
+          return () => {
+            cancel();
+            if (brokenClock && broken === 'cancelTimer') throw cause;
+          };
+        },
+      };
+      const fence = createWalletFence({ locks, walletId: 'throwing-clock', clock });
+      let calls = 0;
+      const work = () => { calls += 1; return 'ran'; };
+      const invoke = () => entry === 'run' ? fence.run('op', work) : fence.replaceConnection(work);
+      const outcome = await settled(invoke());
+      assert.equal(outcome.error?.name, 'EffectBoundaryRefusal');
+      assert.ok(outcome.error instanceof EffectBoundaryRefusal);
+      assert.equal(outcome.error.code, 'eb_fence_failed');
+      assert.equal(outcome.error.cause, cause);
+      assert.equal(calls, 0);
+      assert.equal(fence.connectionGeneration, 0);
+      assert.equal(locks.requests, ['initial-now', 'setTimer'].includes(broken) ? 0 : 1);
+      staleTimer?.();
+      baseClock.advance(FENCE_TIMEOUT_MS);
+      assert.equal(calls, 0, 'a stale timer cannot grant failed work');
+      assert.equal(baseClock.pendingTimers(), 0);
+      brokenClock = false;
+      assert.equal(await invoke(), 'ran', 'the next acquisition succeeds');
+      assert.equal(calls, 1);
+      assert.equal(fence.connectionGeneration, entry === 'replaceConnection' ? 1 : 0);
+    });
+  }
+}
+
+test('a throwing timer cancellation during lock rejection preserves the lock error as cause', { timeout: 2000 }, async () => {
+  const cause = new Error('lock failed');
+  const clock = { now: () => 0, setTimer: () => () => { throw new Error('cancel failed'); } };
+  const locks = createFakeLocks();
+  locks.failWith = cause;
+  const fence = createWalletFence({ locks, walletId: 'failed-lock', clock });
+  const outcome = await settled(fence.run('op', () => assert.fail('must not run')));
+  assertRefusal(outcome.error, 'eb_fence_failed');
+  assert.equal(outcome.error.cause, cause);
 });
