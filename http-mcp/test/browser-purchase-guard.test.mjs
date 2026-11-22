@@ -32,15 +32,15 @@ test('requireSdkPurchases refuses with its one listed line while the app runs wi
   assert.ok(!SDK_PURCHASES_OFF.includes('\n'), 'one line');
 });
 
-test('every browser test that stops at requireSdkPurchases has one P42aa2b expected entry with that line, and every such entry names one', () => {
+test('every browser test that stops at requireSdkPurchases has one expected entry with that line, and every such entry names one', () => {
   const files = readdirSync(join(root, 'test/browser')).filter((name) => name.endsWith('.browser.test.mjs')).map((name) => `test/browser/${name}`);
   const guarded = files.flatMap((file) => guardedTests(file).map((name) => JSON.stringify([file, name])));
   assert.ok(guarded.length > 0, 'the purchase-driving browser tests call the guard');
   const expected = readExpected(join(root, 'test/expected-until-card.json'));
   const listed = [...expected.values()].filter((entry) => entry.expect === SDK_PURCHASES_OFF);
   assert.deepEqual(listed.map((entry) => JSON.stringify([entry.file, entry.test])).sort(), [...guarded].sort());
+  assert.equal(new Set(listed.map((entry) => `${entry.card} ${entry.issue}`)).size, 1, 'one card composes purchases again for all of them');
   for (const entry of listed) {
-    assert.equal(entry.card, 'P42aa2b', `${entry.file}: ${entry.test}`);
     // The runner takes the guard's failure as expected, from the test itself or from a hook (as the cause).
     for (const failure of [{ error: SDK_PURCHASES_OFF, cause: SDK_PURCHASES_OFF }, { error: 'failed running before hook', cause: SDK_PURCHASES_OFF }]) {
       const result = judge(entry.file, { failures: [{ test: entry.test, ...failure }], passing: [], seen: [entry.test], exit: 1 }, new Map(), expected, root);

@@ -404,7 +404,7 @@ package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
 - `test/browser/overnight-acceptance.browser.test.mjs` — OA-B1 [C1,C6] keyboard-only dashboard steps, wallet input errors, Escape-declined sign-in, retained unlock, keyboard approval — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
 - `test/browser/overnight-acceptance.browser.test.mjs` — OA-B2 [C4,C5,C7] interrupted purchase approval resumes without duplication; rejected/cancelled purchases never show success; export reflects actions — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
 
-The P42aa2b browser entries are the tests that drive a purchase, or read one an
+The `test/browser/` entries are the tests that drive a purchase, or read one an
 earlier test in the file makes. With SDK purchases off each stops at
 `requireSdkPurchases` (`test/helpers/sdk-purchases.mjs`) right before its first
 purchase step, with one fixed line; the steps before that call still run. The
