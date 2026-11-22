@@ -362,6 +362,10 @@ package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
 - `test/portal-delivery-evidence-label.test.mjs` — "Delivered" claims only the verified report, and delivery evidence is shown separately for every server state — P53c2 — DACS-Agent-commerce/dacs-plugin#325
 - `test/tester-quickstart.test.mjs` — the documented loopback startup answers /health and MCP with honest not_configured results — P42aa — DACS-Agent-commerce/dacs-plugin#322
 - `test/overnight-package.test.mjs` — source -> reproducible npm tarball -> clean install -> documented `npx dacs-chatgpt-plugin` cold start, HTTP + MCP, Ctrl-C; bin-shim restart, SIGTERM — P42aa — DACS-Agent-commerce/dacs-plugin#326
+- `test/agreement-create-delivery.test.mjs` — the wallet-request seam records the delivery and returns outcome_unknown at once, and Agreement submission through the installed client resolves to the queued pending operation and its delivery id while every challenge and claim call is withheld — P41d — DACS-Agent-commerce/dacs-plugin#434
+- `test/agreement-create-delivery.test.mjs` — after submission has resolved, the same delivery is claimed sequentially through the installed client, and a later explicit recheck reconciles it by readback with exactly one delivery — P41d — DACS-Agent-commerce/dacs-plugin#434
+- `test/agreement-create-delivery.test.mjs` — a second buyer on one protocol object is refused by the client — P41d — DACS-Agent-commerce/dacs-plugin#434
+- `test/agreement-create-delivery.test.mjs` — a kill between the client handoff commit and the delivery commit leaves no delivery, reissues no handoff, and the purchase stays read-back-only — P41d — DACS-Agent-commerce/dacs-plugin#434
 
 The seller control of `test/mutant-helper-verdicts.test.mjs` was removed because
 it read `src/devnet-demo/seller-write-batch.mjs`, which is not carried; card P303a
