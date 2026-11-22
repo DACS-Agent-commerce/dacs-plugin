@@ -42,6 +42,20 @@ function dispatchVerdict(history) {
   return { signed: history[0]?.kind === 'signed', neverDispatched: !observed && !sent('dispatch') && !sent('broadcast'), confirmation: unknown ? 'unknown' : 'known' };
 }
 
+// Whether the server's own retained browser stages leave a dispatch or broadcast attempt unproven. Every retained
+// dispatch or broadcast record opens an attempt unless it is a withheld record for this hash answering the latest open
+// attempt of the same pass. A presented history never answers a retained attempt.
+function retainedAttemptOpen(retained, hash) {
+  const open = [];
+  for (const { kind, body } of retained) {
+    const phase = kind === 'browser-stage' && /^(?:dispatch|broadcast)-([a-z]+)$/.exec(body.stage)?.[1];
+    const answered = phase === 'withheld' && body.hash === hash ? open.findLastIndex(passId => passId === body.passId) : -1;
+    if (answered >= 0) open.splice(answered, 1);
+    else if (phase) open.push(body.passId);
+  }
+  return open.length > 0;
+}
+
 /** Creates the synchronous app store and the client's immediate wallet handoff. Store errors propagate. */
 export function createAgreementCreateDelivery({ db, starts, gates, now = () => Date.now(), random = randomBytes }) {
   const stored = db.prepare('SELECT * FROM agreement_create_deliveries WHERE operation_id = ?');
@@ -156,6 +170,7 @@ export function createAgreementCreateDelivery({ db, starts, gates, now = () => D
           || (record.kind === 'signed-held' ? !['dispatch', 'confirm', 'broadcast'].includes(record.stage)
             : record.kind.includes('-') ? record.stage !== record.kind.split('-')[0] : record.stage !== undefined))
         || retained.some(event => ['browser-stage', 'pass'].includes(event.kind) && event.body.hash && event.body.hash !== hash)) fail('history_invalid');
+      if (retainedAttemptOpen(retained, hash)) fail('broadcast_unproven');
       const verdict = dispatchVerdict(history);
       if (!verdict.signed || !verdict.neverDispatched || verdict.confirmation === 'unknown') fail('readback_only');
       if (retained.filter(event => event.kind === 'pass').length >= CREATE_PASS_LIMIT) fail('pass_limit');
