@@ -241,7 +241,7 @@ test("with the real app store and the installed public journal, a failure inject
   }
 });
 
-test("after a server restart, a claimed delivery whose history proves no possible earlier broadcast gets one pass binding from a new live Start with its journal capability, effect authority holds again, a fresh relay capability is returned, and no request bytes, claim or change to the claim binding follow, a delivery whose only browser-stage record is broadcast-started with a wholly withheld broadcast history gets that pass too, and each pass event binds the retained hash and the canonical presented-history digest also when no dispatch intent exists", async t => {
+test("after a server restart, a claimed delivery whose history proves no possible earlier broadcast gets one pass binding from a new live Start with its journal capability, effect authority holds again, a fresh relay capability is returned, and no request bytes, claim or change to the claim binding follow, a delivery whose retained browser-stage broadcast-started has no retained withheld record is refused broadcast_unproven whatever history it presents and gets that pass once its own withheld record is retained, and each pass event binds the retained hash and the canonical presented-history digest also when no dispatch intent exists", async t => {
   for (const history of [signedHistory, [...signedHistory, { seq: 2, kind: 'broadcast-started', stage: 'broadcast', passId: 'pass' }, { seq: 3, kind: 'broadcast-withheld', stage: 'broadcast', passId: 'pass' }]]) {
     const path = fileFor(t);
     const first = await claimedWorld(t, { path }); const answer = first.answer, wallet = first.w.wallet;
@@ -249,11 +249,56 @@ test("after a server restart, a claimed delivery whose history proves no possibl
     const w = worldFor(t, { path, wallet, seed: false }), post = await serveDelivery(t, w);
     assert.equal(w.delivery.effectAuthority('purchase').reason, 'expired');
     w.delivery.appendEvent({ deliveryId: answer.delivery.id, kind: 'browser-stage', body: { stage: 'broadcast-started', hash: SIGNED_HASH } });
-    const body = passBody(w, history); const passed = await post('pass', body, { journal: answer.journalCapability });
+    const body = passBody(w, history), retained = w.delivery.events(answer.delivery.id).length;
+    const refused = await post('pass', body, { journal: answer.journalCapability });
+    assert.equal(refused.status, 409); assert.equal(refused.body.error, 'broadcast_unproven');
+    assert.equal(w.delivery.events(answer.delivery.id).length, retained); assert.equal(w.delivery.effectAuthority('purchase').reason, 'expired');
+    w.delivery.appendEvent({ deliveryId: answer.delivery.id, kind: 'browser-stage', body: { stage: 'broadcast-withheld', hash: SIGNED_HASH } });
+    const passed = await post('pass', body, { journal: answer.journalCapability });
     assert.equal(passed.status, 200, JSON.stringify(passed.body)); assert.equal(passed.body.request, undefined); assert.equal(row(w).start_record_id, binding);
     const event = w.delivery.events(answer.delivery.id).at(-1);
     assert.equal(event.body.hash, SIGNED_HASH); assert.equal(event.body.withheldDigest, hashOf(canonicalize(history))); assert.deepEqual(w.delivery.effectAuthority('purchase'), { ok: true });
     assert.equal(w.relayAccess.admit({ presented: passed.body.relayAccess.capability, wallet: w.wallet.address, phase: 'rpc' }).live, true);
+  }
+});
+
+const stageRecord = (stage, passId = 'p1', hash = SIGNED_HASH) => ({ stage, hash, passId });
+const passState = (w, deliveryId) => ({ row: row(w), events: w.delivery.events(deliveryId), authority: w.delivery.effectAuthority('purchase'),
+  relay: w.db.prepare('SELECT * FROM relay_capabilities ORDER BY rowid').all() });
+
+test('a signed-only or wholly withheld presented history after a retained browser-stage broadcast-started or dispatch-started with no retained withheld record is refused broadcast_unproven, mints or revokes no relay capability and changes no delivery, event or authority state', async t => {
+  const withheldHistory = [...signedHistory, { seq: 2, kind: 'broadcast-started', stage: 'broadcast', passId: 'pass' }, { seq: 3, kind: 'broadcast-withheld', stage: 'broadcast', passId: 'pass' }];
+  for (const [stage, history] of [['broadcast-started', signedHistory], ['broadcast-started', withheldHistory], ['dispatch-started', signedHistory]]) {
+    const { w, post, answer } = await claimedWorld(t);
+    w.delivery.appendEvent({ deliveryId: answer.delivery.id, kind: 'browser-stage', body: stageRecord(stage) });
+    const body = passBody(w, history), before = passState(w, answer.delivery.id);
+    const refused = await post('pass', body, { journal: answer.journalCapability });
+    assert.equal(refused.status, 409, stage); assert.equal(refused.body.error, 'broadcast_unproven'); assert.equal(refused.body.relayAccess, undefined);
+    let minted = 0;
+    assert.throws(() => w.delivery.appendPass({ operationId: 'purchase', start: w.starts.current('purchase'), hash: SIGNED_HASH, history, mintRelay: () => { minted += 1; } }),
+      { code: 'broadcast_unproven' });
+    assert.equal(minted, 0); assert.deepEqual(passState(w, answer.delivery.id), before);
+  }
+});
+
+test('a retained browser-stage broadcast-started gets the pass once the server retains its own broadcast-withheld or dispatch-withheld record for that hash and attempt, and a withheld record of another attempt, retained before the intent, naming no hash or following an unknown outcome, or a second intent, still refuses broadcast_unproven', async t => {
+  for (const stage of ['broadcast-withheld', 'dispatch-withheld']) {
+    const { w, post, answer } = await claimedWorld(t), deliveryId = answer.delivery.id, body = passBody(w), options = { journal: answer.journalCapability };
+    w.delivery.appendEvent({ deliveryId, kind: 'browser-stage', body: stageRecord('broadcast-started') });
+    assert.equal((await post('pass', body, options)).body.error, 'broadcast_unproven');
+    w.delivery.appendEvent({ deliveryId, kind: 'browser-stage', body: stageRecord(stage) });
+    const passed = await post('pass', body, options);
+    assert.equal(passed.status, 200, JSON.stringify(passed.body)); assert.equal(w.delivery.events(deliveryId).at(-1).body.hash, SIGNED_HASH);
+    assert.equal(w.relayAccess.admit({ presented: passed.body.relayAccess.capability, wallet: w.wallet.address, phase: 'rpc' }).live, true);
+  }
+  const started = stageRecord('broadcast-started'), withheld = stageRecord('broadcast-withheld');
+  for (const records of [[started, stageRecord('broadcast-withheld', 'p2')], [withheld, started], [started, { stage: 'broadcast-withheld', passId: 'p1' }],
+    [started, stageRecord('broadcast-unknown'), withheld], [started, started, withheld]]) {
+    const { w, post, answer } = await claimedWorld(t);
+    for (const record of records) w.delivery.appendEvent({ deliveryId: answer.delivery.id, kind: 'browser-stage', body: record });
+    const retained = w.delivery.events(answer.delivery.id).length;
+    assert.equal((await post('pass', passBody(w), { journal: answer.journalCapability })).body.error, 'broadcast_unproven', JSON.stringify(records));
+    assert.equal(w.delivery.events(answer.delivery.id).length, retained);
   }
 });
 
