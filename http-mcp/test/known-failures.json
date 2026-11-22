@@ -140,13 +140,6 @@
     "expect": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'sdk_purchases_off'\n- 'unresolved_payment'\n"
   },
   {
-    "file": "test/embedded-wallet-contract.test.mjs",
-    "test": "loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated]",
-    "reason": "The test needs src/dacs/wallet-transactions.mjs, which is not carried. Card P55a ports or retires this test.",
-    "class": "main-defect",
-    "expect": "src/dacs/wallet-transactions.mjs'"
-  },
-  {
     "file": "test/embedded-wallet-transaction.test.mjs",
     "test": "purchase: real SDK sign -> confirm -> one broadcast; the server settles only from its own readback",
     "reason": "Drives a purchase or a listing verification on the loopback fixtures; createApp builds only the SDK purchases off composition, so the step refuses (sdk_purchases_off, or get_listing not_configured). Card P55a ports or retires this test.",
