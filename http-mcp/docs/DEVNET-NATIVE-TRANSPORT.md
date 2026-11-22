@@ -31,7 +31,7 @@ the expected values:
   trusted transport boundary and must honor the binder/HTTP no-cache, no-
   redirect, bounded response, timeout and actual-route context contracts.
 
-Pass the returned opaque capability as `createApp({..., nativeWalletTransport})`.
+The v2 `createApp` takes no transport option, so the app does not use this capability.
 App/router reject serialized capabilities or approval booleans. Only this
 programmatic source seam mounts the new profile, binding and fixed-RPC routes.
 No CLI/env/public enabling option exists. The relay has bounded JSON, fixed

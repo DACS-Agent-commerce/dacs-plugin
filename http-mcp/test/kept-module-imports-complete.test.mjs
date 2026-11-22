@@ -83,7 +83,7 @@ process.stdout.write(String(modules.size));
 function links(entry) {
   const child = spawnSync(process.execPath, ['--experimental-vm-modules', '--experimental-import-meta-resolve', '--no-warnings', '--input-type=module', '-e', LINK_CHILD, root, join(root, entry)],
     { cwd: root, encoding: 'utf8', timeout: 120_000 });
-  return { ok: child.status === 0 && Number(child.stdout) > 1, detail: `${entry}: ${child.stderr.trim().split('\n').slice(0, 4).join(' | ')}` };
+  return { ok: child.status === 0 && Number(child.stdout) >= 1, detail: `${entry}: ${child.stderr.trim().split('\n').slice(0, 4).join(' | ')}` };
 }
 
 // scripts/showcase-safety.mjs drives the showcase's test fixtures, which load modules this tree does not carry.

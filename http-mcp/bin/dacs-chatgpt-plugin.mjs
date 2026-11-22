@@ -17,9 +17,8 @@ try {
 }
 
 const logger = createLogger({ level: config.logLevel });
-const { app, close, startDeliveryDeadlineWatch, stopDeliveryDeadlineWatch } = await createApp({ config, logger });
+const { app, close } = await createApp({ config, logger });
 const server = app.listen(config.port, config.host, () => {
-  startDeliveryDeadlineWatch();
   const address = server.address();
   logger.info('listening', { host: address.address, port: address.port, mcp: config.mcpUrl, authMode: config.authMode });
 });
@@ -30,7 +29,6 @@ let stopping = false;
 async function shutdown(signal) {
   if (stopping) return;
   stopping = true;
-  stopDeliveryDeadlineWatch();
   logger.info('shutdown', { signal });
   const force = setTimeout(() => process.exit(1), 10_000);
   force.unref();

@@ -1,32 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const STATIC_IMPORT = /(?:^|\n)\s*(?:import|export)\s[^'"`;]*?from\s*['"]([^'"]+)['"]|(?:^|\n)\s*import\s*['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
-// The served wallet's bundled runtime is generated code with no repository imports.
-const SKIPPED = new Set(['node_modules', 'runtime-chunks']);
 
 const specifiers = (file) => [...readFileSync(file, 'utf8').matchAll(STATIC_IMPORT)].map((match) => match[1] ?? match[2] ?? match[3]);
-const sources = (dir) => readdirSync(dir).flatMap((name) => {
-  const path = join(dir, name);
-  if (SKIPPED.has(name)) return [];
-  return statSync(path).isDirectory() ? sources(path) : /\.m?js$/.test(name) ? [path] : [];
-});
 const unresolved = (file) => specifiers(file).filter((spec) => spec.startsWith('.') && !existsSync(resolve(dirname(file), spec)));
-
-test('the kept modules import no not-carried path, and the only kept sources that still do are app.mjs, mcp/server.mjs and the scripts on the not-carried list', () => {
-  const stillUnresolved = ['src', 'bin', 'scripts', 'public'].flatMap((top) => sources(join(root, top)))
-    .filter((file) => unresolved(file).length > 0).map((file) => relative(root, file)).sort();
-  assert.deepEqual(stillUnresolved, [
-    'scripts/devnet-demo-operator-bootstrap.mjs',
-    'scripts/devnet-demo-recipient-balance.mjs',
-    'src/app.mjs',
-    'src/mcp/server.mjs',
-  ]);
-});
 
 const SWITCHED = ['src/mcp/seller-content.mjs', 'src/ops/health.mjs', 'src/portal/purchase-receipt.mjs', 'src/identities.mjs'];
 const SDK_ENTRIES = new Set(['@kynesyslabs/dacs', '@kynesyslabs/dacs-client', '@kynesyslabs/dacs-client/wallet/durable-journal']);

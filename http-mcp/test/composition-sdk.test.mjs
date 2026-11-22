@@ -56,7 +56,7 @@ test('with DACS_SDK_PURCHASES off the app boots, read-only tools answer, and eve
   const user = await linkedUser(h);
   for (const [name, args] of [['get_profile', {}], ['get_account_status', {}], ['get_identities', {}]]) {
     const answer = await toolRaw(h, user, name, args);
-    assert.equal(answer.isError, false, `${name}: ${answer.content[0]?.text}`);
+    assert.ok(!answer.isError, `${name}: ${answer.content[0]?.text}`);
   }
   const verification = await tool(h, null, 'get_listing', { listingId: listing.listingId, version: listing.version, seller: listing.seller });
   assert.deepEqual([verification.error, verification.details], ['not_configured', { reason: 'sdk_purchases_off' }]);

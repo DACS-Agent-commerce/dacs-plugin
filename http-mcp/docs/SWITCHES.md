@@ -63,6 +63,19 @@ purchase hold.
    seam, its fee-ceiling and wallet-handoff members and its HTTPS seller client
    have no fixed public names yet, so `loadConfig` cannot look them up.
 
+`createApp` builds only the `off` composition and refuses a configuration with
+`on` (`switch_on_not_validated`). With `off`, the app builds no purchase service,
+wallet relay, seller transport or listing verifier:
+
+- purchase views, `get_purchase_status` and `verify_deal` answer `not_configured`
+  with `sdk_part_missing: P19`, the client's passive purchase reader;
+- every purchase action answers `sdk_purchases_off`, and the portal's wallet
+  report answers 503 `not_configured` with `details.reason` `sdk_purchases_off`;
+- `get_listing` answers `not_configured` with `details.reason` `sdk_purchases_off`;
+- `/health` reports `sdkPurchases: { switch: "off", evidence: "unavailable" }`.
+
+Directory search, accounts, identity reads and identity actions work as usual.
+
 ## Add a switch
 
 1. Add `src/switches/DACS_MY_FEATURE.switch`. It is strict JSON. The extension

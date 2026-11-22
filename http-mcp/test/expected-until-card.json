@@ -142,5 +142,13 @@
     "card": "P41c1r",
     "issue": "DACS-Agent-commerce/dacs-plugin#322",
     "reason": "The receipt export gate waits for a public readable-receipt check on the client."
+  },
+  {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "with DACS_SDK_PURCHASES off, the CREATE evidence routes answer 503 not_configured with zero writes when the installed client has no evidence recorder",
+    "expect": "the CREATE evidence router is not mounted: src/portal/agreement-create-evidence.mjs is absent",
+    "card": "P41c2",
+    "issue": "DACS-Agent-commerce/dacs-plugin#438",
+    "reason": "CREATE evidence route tests fail until the evidence router is mounted (dacs-plugin#438); P41c2 mounts it and removes this entry."
   }
 ]

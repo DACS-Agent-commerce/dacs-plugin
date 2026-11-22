@@ -10,6 +10,13 @@ import { OperationError } from '@kynesyslabs/dacs-client';
 
 const EVIDENCE_RECORDER = Object.freeze({ part: 'P19r', name: 'createPurchaseEvidenceRecorder' });
 const NAMED_PARTS = Object.freeze([EVIDENCE_RECORDER]);
+// The client's passive purchase reader has no fixed public name, so a refusal names its part alone.
+const PASSIVE_READER = Object.freeze({ part: 'P19' });
+// The client purchase service's passive readers, as its createPurchaseService documentation lists them, and its
+// other members, each a purchase action.
+const PURCHASE_SERVICE_PASSIVE = Object.freeze(['status', 'portalOperation', 'portalEvidence', 'verifyDeal', 'planRunning']);
+const PURCHASE_SERVICE_ACTIVE = Object.freeze(['prepare', 'issueApprovalChallenge', 'approve', 'prepareHandoff', 'nativePaymentLane',
+  'reportWalletResult', 'cancel', 'agreementIdentity', 'agreementPlan', 'agreementSubmit', 'completionRequest', 'completionCountersign', 'protocolRecheck']);
 
 /**
  * Reads the named SDK purchase parts from `namespace` (the installed client
@@ -26,21 +33,24 @@ export function readActivationSeams(namespace = installedClient) {
 }
 
 /**
- * Builds a frozen object with one async method per listed name. A `passive`
- * name rejects OperationError `not_configured` with the message
+ * Builds a frozen object with one method per listed name. A `passive` name
+ * throws OperationError `not_configured` at the call, as the passive readers
+ * it stands in for answer synchronously; the message is
  * `sdk_part_missing: <part> <name>` of `missing`, the absent part the read
- * needs. An `active` name rejects OperationError `sdk_purchases_off`. The
- * methods keep no state and call nothing.
+ * needs (`<part>` alone when it has no public name). An `active` name is async
+ * and rejects OperationError `sdk_purchases_off`. The methods keep no state
+ * and call nothing.
  *
  * Throws TypeError when a name is listed as both passive and active.
  */
 export function createRefusalObject({ passive, active, missing }) {
   const both = passive.filter((name) => active.includes(name));
   if (both.length > 0) throw new TypeError(`listed as both passive and active: ${both.join(', ')}`);
+  const missingText = missing.name ? `${missing.part} ${missing.name}` : missing.part;
   const refusal = {};
   for (const name of passive) {
-    refusal[name] = async () => {
-      throw new OperationError('not_configured', `sdk_part_missing: ${missing.part} ${missing.name}`, { part: missing.part, name: missing.name });
+    refusal[name] = () => {
+      throw new OperationError('not_configured', `sdk_part_missing: ${missingText}`, { part: missing.part, name: missing.name });
     };
   }
   for (const name of active) {
@@ -50,3 +60,24 @@ export function createRefusalObject({ passive, active, missing }) {
   }
   return Object.freeze(refusal);
 }
+
+/**
+ * Returns the purchase service handed to routes and tools while SDK purchases
+ * are off: a refusal object with the client purchase service's member names.
+ * Its passive readers throw `not_configured` naming the passive reader's part;
+ * every purchase action rejects `sdk_purchases_off`.
+ */
+export function createPurchasesOff() {
+  return createRefusalObject({ passive: PURCHASE_SERVICE_PASSIVE, active: PURCHASE_SERVICE_ACTIVE, missing: PASSIVE_READER });
+}
+
+/**
+ * The listing verifier handed to get_listing while SDK purchases are off: no
+ * verifier is built, and `verify` rejects OperationError `not_configured` with
+ * details `{ reason: 'sdk_purchases_off' }`.
+ */
+export const LISTING_VERIFICATION_OFF = Object.freeze({
+  async verify() {
+    throw new OperationError('not_configured', 'listing verification is off while SDK purchases are off', { reason: 'sdk_purchases_off' });
+  },
+});
