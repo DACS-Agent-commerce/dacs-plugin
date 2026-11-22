@@ -76,6 +76,10 @@ wallet relay, seller transport or listing verifier:
 
 Directory search, accounts, identity reads and identity actions work as usual.
 
+The client signs a seller request only for a seller the operator has enrolled
+in the data directory's participant enrollment file
+([PARTICIPANT-ENROLLMENT.md](PARTICIPANT-ENROLLMENT.md)).
+
 ## Add a switch
 
 1. Add `src/switches/DACS_MY_FEATURE.switch`. It is strict JSON. The extension
