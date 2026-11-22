@@ -857,7 +857,7 @@ test('a listed cause on the first line never hides an unrelated failure on the s
 
 test('each card-owned startup message leaves an appended unrelated failure new', () => {
   const expected = readExpected(join(root, 'test/expected-until-card.json'));
-  for (const file of ['test/tester-quickstart.test.mjs', 'test/overnight-package.test.mjs']) {
+  for (const file of ['test/overnight-package.test.mjs']) {
     const { test: name, expect } = [...expected.values()].find((entry) => entry.file === file);
     for (const field of ['error', 'cause']) {
       const check = (message) => judge(file, { failures: [{ test: name, [field]: message }], passing: [], seen: [name], exit: 1 }, new Map(), expected, root);
@@ -987,7 +987,7 @@ test('readExpected refuses an absolute path anywhere in expect and names the cau
   const scoped = "'@kynesyslabs/dacs@0.1.0-alpha.0' is not in this registry";
   assert.equal(read(scoped).size, 1, 'scoped package with its version');
   assert.equal(read('x'.repeat(16) + ' deploy/a.json').size, 1, 'exactly 30 characters');
-  assert.equal(readExpected(join(root, 'test/expected-until-card.json')).size, 18, 'the shipped list');
+  assert.equal(readExpected(join(root, 'test/expected-until-card.json')).size, 21, 'the shipped list');
   const refused = [
     ['absolute path in the middle', "ENOENT: no such file or directory, open '/work/http-mcp' then 'deploy/env-contract.json'"],
     ['absolute path after the cause', `${expectedCause} in /work/http-mcp`],

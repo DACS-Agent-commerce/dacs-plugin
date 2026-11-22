@@ -58,10 +58,10 @@
   {
     "file": "test/embedded-wallet-contract.test.mjs",
     "test": "loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated]",
-    "expect": "Cannot find module 'src/dacs/delivery-deadline-watch.mjs'",
-    "card": "P42aa",
+    "expect": "Cannot find module 'src/dacs/wallet-transactions.mjs'",
+    "card": "P41a2a",
     "issue": "DACS-Agent-commerce/dacs-plugin#322",
-    "reason": "The delivery deadline watch module that app.mjs imports is absent."
+    "reason": "The test imports src/dacs/wallet-transactions.mjs, which is not carried."
   },
   {
     "file": "test/portal-delivery-evidence-label.test.mjs",
@@ -70,14 +70,6 @@
     "card": "P53c2",
     "issue": "DACS-Agent-commerce/dacs-plugin#325",
     "reason": "The delivery consumer module is absent."
-  },
-  {
-    "file": "test/tester-quickstart.test.mjs",
-    "test": "the documented loopback startup answers /health and MCP with honest not_configured results",
-    "expect": "Quickstart startup failed: missing src/dacs/delivery-deadline-watch.mjs",
-    "card": "P42aa",
-    "issue": "DACS-Agent-commerce/dacs-plugin#322",
-    "reason": "The quickstart server cannot start without the delivery deadline watch that app.mjs imports."
   },
   {
     "file": "test/overnight-package.test.mjs",
@@ -149,6 +141,30 @@
     "expect": "the CREATE evidence router is not mounted: src/portal/agreement-create-evidence.mjs is absent",
     "card": "P41c2",
     "issue": "DACS-Agent-commerce/dacs-plugin#438",
-    "reason": "CREATE evidence route tests fail until the evidence router is mounted (dacs-plugin#438); P41c2 mounts it and removes this entry."
+    "reason": "CREATE evidence route tests fail until the evidence router is mounted; card P41c2 mounts it and removes this entry."
+  },
+  {
+    "file": "test/portal-auto-assets.test.mjs",
+    "test": "auto-advance config defaults off, rejects typos, and matches its deployment contract entry",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/showcase-walkthrough.test.mjs",
+    "test": "switch: default off, strict off/on, env contract and example",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/wallet-extension-probe-routes.test.mjs",
+    "test": "probe switch requires exactly 1, stays off by default, and its contract entry matches config",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
   }
 ]

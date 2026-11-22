@@ -103,8 +103,8 @@ test('with DACS_SDK_PURCHASES off, the CREATE evidence routes answer 503 not_con
   const before = databaseRows(h.app.db);
   for (const route of ['journal', 'result']) {
     const answer = await post(h, `/portal/api/purchase/${PURCHASE_ID}/agreement-create/${route}`, { token: 'handoff-token' });
-    assert.equal(answer.status, 503, `the CREATE evidence router is not mounted: src/portal/agreement-create-evidence.mjs is absent (${route} answered ${answer.status})`);
-    assert.deepEqual([answer.error, answer.message], ['not_configured', 'sdk_part_missing: P19r createPurchaseEvidenceRecorder'], route);
+    assert.ok(answer.status !== 404, 'the CREATE evidence router is not mounted: src/portal/agreement-create-evidence.mjs is absent');
+    assert.deepEqual([answer.status, answer.error, answer.message], [503, 'not_configured', 'sdk_part_missing: P19r createPurchaseEvidenceRecorder'], route);
   }
   assert.equal(databaseRows(h.app.db), before);
 });
