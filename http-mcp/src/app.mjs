@@ -68,7 +68,8 @@ const REMOVED_BROKER_OPTIONS = Object.freeze(['dacsProtocol', 'nativeWalletTrans
  * (src/sdk/switch-on.mjs). Rejects TypeError before opening the database for a
  * removed broker option or for switch combinations that cannot run together.
  */
-export async function createApp({ config, fetchImpl = globalThis.fetch, now = () => Date.now(), logger = createLogger({ level: config.logLevel }), ...options }) {
+export async function createApp(options) {
+  const { config, fetchImpl = globalThis.fetch, now = () => Date.now(), logger = createLogger({ level: config.logLevel }) } = options;
   const removed = REMOVED_BROKER_OPTIONS.filter((name) => Object.hasOwn(options, name));
   if (removed.length > 0) throw new TypeError(`createApp takes no ${removed.join(', ')}: the client's Agreement CREATE goes only to the CREATE delivery`);
   if (config.sellerWriteBatches === 'on') throw new TypeError('seller write batches are held until native SDK preparation and batch transport integration are reviewed');
