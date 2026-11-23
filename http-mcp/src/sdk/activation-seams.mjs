@@ -14,9 +14,10 @@ const NAMED_PARTS = Object.freeze([EVIDENCE_RECORDER]);
 const PASSIVE_READER = Object.freeze({ part: 'P19' });
 // The client purchase service's passive readers, as its createPurchaseService documentation lists them, and its
 // other members, each a purchase action.
-const PURCHASE_SERVICE_PASSIVE = Object.freeze(['status', 'portalOperation', 'portalEvidence', 'verifyDeal', 'planRunning']);
-const PURCHASE_SERVICE_ACTIVE = Object.freeze(['prepare', 'issueApprovalChallenge', 'approve', 'prepareHandoff', 'nativePaymentLane',
+export const PURCHASE_SERVICE_PASSIVE = Object.freeze(['status', 'portalOperation', 'portalEvidence', 'verifyDeal', 'planRunning']);
+export const PURCHASE_SERVICE_ACTIVE = Object.freeze(['prepare', 'issueApprovalChallenge', 'approve', 'prepareHandoff', 'nativePaymentLane',
   'reportWalletResult', 'cancel', 'agreementIdentity', 'agreementPlan', 'agreementSubmit', 'completionRequest', 'completionCountersign', 'protocolRecheck']);
+const purchasesOff = () => new OperationError('sdk_purchases_off', 'SDK purchases are off on this server, so this purchase action is refused');
 
 /**
  * Reads the named SDK purchase parts from `namespace` (the installed client
@@ -38,12 +39,12 @@ export function readActivationSeams(namespace = installedClient) {
  * it stands in for answer synchronously; the message is
  * `sdk_part_missing: <part> <name>` of `missing`, the absent part the read
  * needs (`<part>` alone when it has no public name). An `active` name is async
- * and rejects OperationError `sdk_purchases_off`. The methods keep no state
- * and call nothing.
+ * and rejects the error `refuse()` returns, by default OperationError
+ * `sdk_purchases_off`. The methods keep no state and call nothing else.
  *
  * Throws TypeError when a name is listed as both passive and active.
  */
-export function createRefusalObject({ passive, active, missing }) {
+export function createRefusalObject({ passive, active, missing, refuse = purchasesOff }) {
   const both = passive.filter((name) => active.includes(name));
   if (both.length > 0) throw new TypeError(`listed as both passive and active: ${both.join(', ')}`);
   const missingText = missing.name ? `${missing.part} ${missing.name}` : missing.part;
@@ -55,7 +56,7 @@ export function createRefusalObject({ passive, active, missing }) {
   }
   for (const name of active) {
     refusal[name] = async () => {
-      throw new OperationError('sdk_purchases_off', 'SDK purchases are off on this server, so this purchase action is refused');
+      throw refuse();
     };
   }
   return Object.freeze(refusal);
@@ -69,6 +70,17 @@ export function createRefusalObject({ passive, active, missing }) {
  */
 export function createPurchasesOff() {
   return createRefusalObject({ passive: PURCHASE_SERVICE_PASSIVE, active: PURCHASE_SERVICE_ACTIVE, missing: PASSIVE_READER });
+}
+
+/**
+ * Returns the purchase service handed to routes and tools when SDK purchases
+ * are on but the startup TP-1 binding failed: passive readers answer as with
+ * SDK purchases off, and every purchase action rejects OperationError `code`
+ * (the binding's own `tp1_*` code) with details `{ cause }`, the failure's own code.
+ */
+export function createPurchasesUnbound(code, cause) {
+  return createRefusalObject({ passive: PURCHASE_SERVICE_PASSIVE, active: PURCHASE_SERVICE_ACTIVE, missing: PASSIVE_READER,
+    refuse: () => new OperationError(code, 'the TP-1 binding at startup failed, so purchase actions are refused until the server restarts', { cause }) });
 }
 
 /**

@@ -15,6 +15,8 @@ import { normalizeDemosAddress } from '../wallet/demos-signature.mjs';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const SIMULATION_HEADER = 'x-dacs-simulation';
+// Only a chain fixture on this machine may mark its answers simulated; a remote node's marker is ignored.
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const UNSIGNED_SDK_HEADERS = Object.freeze({ identity: 'ed25519:', signature: '', timestamp: '' });
 const SIMULATED = 'simulated-fixture';
 const PUBLIC_READ = 'public-chain-read';
@@ -38,8 +40,8 @@ function delegatedReads(chainReads) {
  * chainReader()) when one is passed.
  *
  * Returns a frozen object: `network`, `rpcOrigin`, `pinnedIdentity` (from
- * `chainReads`, else null), `evidenceMode` (`simulated-fixture` once any
- * answer is marked simulated, else `public-chain-read`), `getIdentities` and
+ * `chainReads`, else null), `evidenceMode` (`simulated-fixture` once an
+ * answer from a loopback RPC is marked simulated, else `public-chain-read`), `getIdentities` and
  * the delegated reads. `getIdentities(address, { timeoutMs })` resolves the
  * decoded `{ result: 200, response }` envelope and rejects OutboundError
  * `unavailable` (no answer, non-200 result) or `invalid` (oversized, malformed
@@ -50,11 +52,12 @@ function delegatedReads(chainReads) {
 export function createDemosChainReader({ rpcUrl, network, timeoutMs = DEFAULT_TIMEOUT_MS, fetchImpl = globalThis.fetch, chainReads = null }) {
   const endpoint = new URL(rpcUrl);
   const reads = delegatedReads(chainReads);
+  const loopback = LOOPBACK_HOSTS.has(endpoint.hostname);
   let markedSimulated = false;
 
   const observingFetch = async (input, init) => {
     const response = await fetchImpl(input, init);
-    if (response.headers.get(SIMULATION_HEADER)) markedSimulated = true;
+    if (loopback && response.headers.get(SIMULATION_HEADER)) markedSimulated = true;
     return response;
   };
 

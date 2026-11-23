@@ -17,6 +17,7 @@ import { createApp } from '../src/app.mjs';
 import { createLogger } from '../src/util/log.mjs';
 import { CALLBACK_ORIGIN } from './helpers/harness.mjs';
 import { linkedUser, tool, toolRaw } from './helpers/flows.mjs';
+import { prepareArgs, switchOnHarness } from './helpers/switch-on-world.mjs';
 
 const base = { DACS_PUBLIC_ORIGIN: 'https://plugin.example', DACS_OAUTH_COOKIE_KEYS: 'k'.repeat(32) };
 const remoteChain = { DACS_CHAIN_RPC_URL: 'https://node.chain.invalid' };
@@ -159,13 +160,22 @@ test('every shipped call of loadConfig (bin/dacs-chatgpt-plugin.mjs and bin/offl
   assert.equal(await bin.stop(), 0);
 });
 
-test('with DACS_SDK_PURCHASES off a purchase never reaches a client purchase path, and this build, which has no SDK client purchase path, refuses on at config load and in createApp', async (t) => {
-  assert.throws(() => loadConfig(on), (error) => error instanceof ConfigError && error.code === 'sdk_part_missing');
+test('with DACS_SDK_PURCHASES off a purchase never reaches a client purchase path', async (t) => {
   const dataDir = scratchDir(t, 'sdk-switch-app-');
   const config = loadConfig({ ...base, DACS_PUBLIC_ORIGIN: 'http://127.0.0.1:9', DACS_ALLOW_INSECURE_LOCALHOST: '1', DACS_DATA_DIR: dataDir });
-  await assert.rejects(createApp({ config: { ...config, sdkPurchases: 'on' }, logger: silentLogger() }), (error) => error instanceof ConfigError && error.code === 'switch_on_not_validated');
-  assert.deepEqual(readdirSync(dataDir), [], 'createApp refused before it opened the database');
   const app = await createApp({ config, logger: silentLogger() });
   t.after(() => app.close());
   await assert.rejects(app.services.purchases.prepare({ accountId: 'acct_1', listingId: 'fixture-report', version: 1 }), (error) => error.code === 'sdk_purchases_off');
+});
+
+test('with DACS_SDK_PURCHASES=on, a purchase reaches the SDK client purchase path; a build without that path refuses `on` at config load', async (t) => {
+  assert.throws(() => loadConfig(on), (error) => error instanceof ConfigError && error.code === 'sdk_part_missing');
+  const { h, node } = await switchOnHarness(t);
+  const user = await linkedUser(h);
+  const readsAtStartup = node.reads.length;
+  // The client's own purchase hold answers: the call went through the session's client purchase service.
+  const prepared = await tool(h, user, 'prepare_purchase', { listingId: 'fixture-report', version: 1, seller: user.wallet.claim, idempotencyKey: 'switch-on-1' });
+  assert.equal(prepared.error, 'profile_not_admitted');
+  assert.ok(node.reads.length > readsAtStartup, 'the buyer session bound over the node before the client answered');
+  await assert.rejects(h.app.services.purchases.prepare(prepareArgs(h, user, 'switch-on-2')), (error) => error.code === 'profile_not_admitted' && error.cause === undefined);
 });
