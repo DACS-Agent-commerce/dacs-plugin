@@ -23,7 +23,9 @@ function listen(server, port = 0) {
 }
 
 // fetchImpl, when given, is the app's outbound fetch (for example one that records each request).
-export async function startHarness({ env = {}, chain: existingChain, directory: existingDirectory, logs, fetchImpl } = {}) {
+// `configure` maps the loaded configuration before createApp sees it; tests use it for settings loadConfig refuses,
+// such as SDK purchases on.
+export async function startHarness({ env = {}, chain: existingChain, directory: existingDirectory, logs, fetchImpl, configure = (config) => config } = {}) {
   const chain = existingChain ?? (await startChainFixture());
   const directory = existingDirectory ?? (await startDirectoryFixture());
   // The harness owns (and removes on close) only a data dir it created itself;
@@ -50,7 +52,7 @@ export async function startHarness({ env = {}, chain: existingChain, directory: 
   delete effectiveEnv.__port;
 
   async function boot() {
-    const config = loadConfig(effectiveEnv);
+    const config = configure(loadConfig(effectiveEnv));
     const logger = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
     const created = await createApp({ config, logger, ...(fetchImpl ? { fetchImpl } : {}) });
     server.removeAllListeners('request');

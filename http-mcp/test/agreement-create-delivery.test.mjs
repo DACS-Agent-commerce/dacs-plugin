@@ -401,10 +401,11 @@ test('a failed delivery insert propagates its cause and leaves no delivery', asy
   await assert.rejects(w.send(), /delivery disk failure/); assert.equal(count(w), 0);
 });
 
-test('effect gates run before state and keep the binding cause', async t => {
+test('effect gates run before state; a tp1 binding cause answers its own code and any other cause keeps profile_not_admitted', async t => {
   const w = worldFor(t), post = await serveDelivery(t, w);
   w.purchases.portalOperation = () => { throw new Error('state was read'); };
-  for (const [patch, error, cause] of [[{ on: false }, 'sdk_purchases_off'], [{ on: true, cause: 'tp1_local_binding_changed' }, 'profile_not_admitted', 'tp1_local_binding_changed'], [{ cause: null, stopped: true }, 'writes_stopped']]) {
+  for (const [patch, error, cause] of [[{ on: false }, 'sdk_purchases_off'], [{ on: true, cause: 'tp1_local_binding_changed' }, 'tp1_local_binding_changed'],
+    [{ cause: 'binding_unreadable' }, 'profile_not_admitted', 'binding_unreadable'], [{ cause: null, stopped: true }, 'writes_stopped']]) {
     Object.assign(w.gateState, patch);
     const result = await post('challenge', { token: 'purchase', start: 'start' }); assert.equal(result.status, 409); assert.equal(result.body.error, error);
     if (cause) assert.equal(result.body.cause, cause);

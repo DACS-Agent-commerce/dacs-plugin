@@ -31,7 +31,8 @@ export function createAgreementCreateRouter({ delivery, challenges, purchases, a
           || !canonical?.equals(req.body) || members.filter(key => key !== 'history').some(key => typeof body[key] !== 'string')) fail('invalid_request');
         req.body = body;
         const refusal = delivery.gate();
-        if (refusal === 'sdk_purchases_off' || refusal === 'writes_stopped') fail(refusal);
+        // A failed startup TP-1 binding answers its own tp1_* code; any other binding cause stays profile_not_admitted.
+        if (refusal === 'sdk_purchases_off' || refusal === 'writes_stopped' || refusal?.startsWith('tp1_')) fail(refusal);
         if (refusal) {
           const error = new OperationError('profile_not_admitted', 'profile_not_admitted'); error.cause = { code: refusal }; throw error;
         }

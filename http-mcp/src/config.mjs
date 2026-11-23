@@ -287,6 +287,9 @@ export function loadConfig(env = process.env, { clientNamespace } = {}) {
           timeoutMs: parseInteger('DACS_CHAIN_TIMEOUT_MS', env.DACS_CHAIN_TIMEOUT_MS, 10000, { min: 500, max: 60000 }),
         }
       : null,
+    // The node connection's TP-1 transport authority label, set by the operator; no default. The SDK purchases on
+    // composition refuses its startup binding tp1_local_binding_invalid when it is missing or not a plain token.
+    tp1TransportAuthority: env.DACS_TP1_TRANSPORT_AUTHORITY || null,
     demAmountEncoding,
     fundingHelpUrl: env.DACS_FUNDING_HELP_URL ? parseFundingUrl('DACS_FUNDING_HELP_URL', env.DACS_FUNDING_HELP_URL) : '',
     showcaseReportView,
