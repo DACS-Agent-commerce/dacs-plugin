@@ -1,14 +1,14 @@
-import { sellerFailureCause } from '../dacs/seller-http.mjs';
 import { canonicalize, contentHash, fixedPriceAgreementLogicalAddress, isCanonicalJobId, logicalToStorageProgramName } from '@kynesyslabs/dacs';
-import { deriveStorageAddress } from '../dacs/wallet-transactions.mjs';
+import { deriveStorageAddress, sellerFailureCause } from '@kynesyslabs/dacs-client';
+import { DURABLE_WALLET_JOURNAL_FORMAT, DURABLE_WALLET_JOURNAL_VERSION } from '@kynesyslabs/dacs-client/wallet/durable-journal';
 import { verifyDemosTransactionSignature } from '../wallet/demos-transaction-signature.mjs';
+import { SCHEMA_VERSION } from '../store/database.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { readFileSync, lstatSync, realpathSync, readlinkSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { purchaseTimeline } from './purchase-timeline.mjs';
-import { DURABLE_WALLET_JOURNAL_FORMAT, DURABLE_WALLET_JOURNAL_VERSION } from '../wallet/durable-journal.mjs';
 
 const minute=60_000,sha=(value)=>createHash('sha256').update(value).digest('hex');
 const HASH=/^[0-9a-f]{64}$/,ID=/^pur_[A-Za-z0-9_-]{16}$/;
@@ -305,9 +305,9 @@ function readLegacyPublications(db,now) {
 }
 function readPurchases(databasePath,now,stateRoots) {
   return readOnlySnapshot(databasePath,(db)=>{
-    // Must equal SCHEMA_VERSION in ../store/database.mjs (not exported), which writes '3'.
-    if(db.prepare("SELECT value FROM meta WHERE key='schema_version'").get()?.value!=='3')fail();
+    if(db.prepare("SELECT value FROM meta WHERE key='schema_version'").get()?.value!==String(SCHEMA_VERSION))fail();
     const events=db.prepare('SELECT at,type,data FROM operation_events WHERE operation_id=? ORDER BY seq');
+    const retirement=createRetirementReader(db);
     const rows=db.prepare("SELECT id,account_id,status,state,created_at,updated_at,expires_at,terms_hash,json_extract(terms,'$.domain.network') AS network,json_extract(terms,'$.domain.chainIdentity') AS chain_identity,json_extract(terms,'$.protocol.jobId') AS job,json_extract(terms,'$.protocol.transportBinding') AS transport_binding,json_extract(terms,'$.buyer.wallet') AS buyer,json_extract(terms,'$.seller.payee') AS seller,json_extract(terms,'$.protocol') IS NOT NULL AS protocol FROM operations WHERE kind='purchase' ORDER BY created_at DESC,id").all().map(row=>{
       if(!ID.test(row.id))fail();
       const status=stage(row.status),state=JSON.parse(row.state),protocol=state?.protocol?.stage;
@@ -361,7 +361,7 @@ function readPurchases(databasePath,now,stateRoots) {
       const writes=[...open].sort(),unknown=effective==='payment_uncertain'||effective==='unknown'||writes.length>0;
       const held=state?.protocol?.chainReadbackHeld;
       if(held!==undefined&&(held===null||typeof held!=='object'||held.action!==CHAIN_READBACK_HELD))fail();
-      return {purchaseId:row.id,stage:effective,enteredAt:entered,updatedAt:at(row.updated_at),createdAt:at(row.created_at),unknown,writes,vet,operatorAction:held!==undefined,lastAttemptDispatched:log.last!==undefined?log.lastAttemptDispatched:tail.lastAttemptDispatched,
+      return {purchaseId:row.id,stage:effective,enteredAt:entered,updatedAt:at(row.updated_at),createdAt:at(row.created_at),unknown,writes,vet,operatorAction:held!==undefined,createRetirement:retirement(row.id),lastAttemptDispatched:log.last!==undefined?log.lastAttemptDispatched:tail.lastAttemptDispatched,
         ...(sellerFailureCause(log.last!==undefined?log.causeCode:tail.causeCode)?{causeCode:log.last!==undefined?log.causeCode:tail.causeCode}:{}),unresolvedRead:!unknown&&!vet&&(log.last!==undefined?log.lastAttemptDispatched:tail.lastAttemptDispatched)!==false&&(last==='indeterminate'||last==='unknown'),history,seller:row.seller,buyer:row.buyer,termsHash:row.terms_hash,
         // What the source transport journal's buyer records bind to (payerRecord, buyerCreateHandoff):
         // agreement is the exact Agreement retained for the wallet CREATE (protocol-purchases.mjs :831).
@@ -393,6 +393,21 @@ const JOURNALS=['seller-artifacts.sqlite','seller-wallet.sqlite','node2-transpor
 const text=(value,pattern)=>typeof value==='string'&&pattern.test(value),iso=(value)=>(at(value),true);
 const plain=(value)=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const sameKeys=(value,keys)=>JSON.stringify(Object.keys(value).sort())===JSON.stringify([...keys].sort());
+// The latest retirement event of a purchase's Agreement CREATE delivery
+// (src/portal/agreement-create-delivery.mjs events): 'pending-retirement' or
+// 'retired' for a body of that exact shape, 'malformed' for any other body, and
+// 'none' when there is no retirement. A retirement grants nothing here; it is reported.
+const RETIREMENTS={pending:['hash','historyDigest','lane','nonce','state'],retired:['hash','proofs','state']};
+function retirementState(body){
+  let value;try{value=JSON.parse(body);}catch{return 'malformed';}
+  if(!plain(value)||!Object.hasOwn(RETIREMENTS,value.state)||!sameKeys(value,RETIREMENTS[value.state])||(value.hash!==null&&!text(value.hash,HASH)))return 'malformed';
+  if(value.state==='retired')return plain(value.proofs)&&sameKeys(value.proofs,['absence','lane','nonce'])?'retired':'malformed';
+  return typeof value.lane==='string'&&value.lane!==''&&Number.isSafeInteger(value.nonce)&&value.nonce>=0&&text(value.historyDigest,HASH)?'pending-retirement':'malformed';
+}
+function createRetirementReader(db){
+  const latest=db.prepare("SELECT e.body FROM agreement_create_events e JOIN agreement_create_deliveries d ON d.delivery_id=e.delivery_id WHERE d.operation_id=? AND e.kind='retirement' ORDER BY e.seq DESC LIMIT 1");
+  return (purchaseId)=>{const row=latest.get(purchaseId);return row?retirementState(row.body):'none';};
+}
 const TERMS=['nonce','to','amountOs','payloadDigest'];
 const terms=(entry)=>Number.isSafeInteger(entry.nonce)&&text(entry.to,/^0x[0-9a-f]{64}$/)&&text(entry.amountOs,/^[1-9][0-9]*$/)&&text(entry.payloadDigest,HASH);
 // The producer's format markers (NATIVE_PAYER_RECORD_FORMATS), refusals kept
@@ -639,7 +654,7 @@ export function opsHealth({databasePath,operatorState=null,logPath=null,now=Date
       timeline.push({lane:'log',stage:stage(event.stage),timestampMs:event.timestampMs,source:'server-log'});
     }
     timeline.sort((a,b)=>a.timestampMs-b.timestampMs);
-    return {purchaseId:row.purchaseId,stage:row.stage,ageMs:Math.max(0,now-row.enteredAt),outcome:outcome(row),...(row.lastAttemptDispatched===false?{lastAttemptDispatched:false}:{}),...(sellerFailureCause(row.causeCode)?{causeCode:row.causeCode}:{}),unresolvedWrites:row.writes,timeline:timeline.map((event,i)=>({stage:event.stage,lane:event.lane,source:event.source,at:new Date(event.timestampMs).toISOString(),gapMs:i?Math.max(0,event.timestampMs-timeline[i-1].timestampMs):0}))};
+    return {purchaseId:row.purchaseId,stage:row.stage,ageMs:Math.max(0,now-row.enteredAt),outcome:outcome(row),createRetirement:row.createRetirement,...(row.lastAttemptDispatched===false?{lastAttemptDispatched:false}:{}),...(sellerFailureCause(row.causeCode)?{causeCode:row.causeCode}:{}),unresolvedWrites:row.writes,timeline:timeline.map((event,i)=>({stage:event.stage,lane:event.lane,source:event.source,at:new Date(event.timestampMs).toISOString(),gapMs:i?Math.max(0,event.timestampMs-timeline[i-1].timestampMs):0}))};
   });
   const authority={networkInfo,activatedChains:new Set(),unavailable:[],mismatch:[]};
   const {journals,unconfirmed}=sellerWrites(operatorState,present,rows.map(row=>row.seller),new Set(rows.map(row=>row.buyer).filter(value=>/^0x[0-9a-f]{64}$/.test(value??''))),stateRoots,new Map(rows.map(row=>[row.purchaseId,row])),authority);
@@ -648,7 +663,7 @@ export function opsHealth({databasePath,operatorState=null,logPath=null,now=Date
 export function formatOpsHealth(report) {
   const lines=[`${report.healthy?'HEALTHY':'STUCK'} ${report.at}`];
   for(const purchase of report.purchases){
-    lines.push(`purchase ${purchase.purchaseId} stage=${purchase.stage} ageMs=${purchase.ageMs} outcome=${purchase.outcome}${purchase.causeCode?` cause=${purchase.causeCode}`:''}${purchase.lastAttemptDispatched===false?' last-attempt=not-sent':''}`);
+    lines.push(`purchase ${purchase.purchaseId} stage=${purchase.stage} ageMs=${purchase.ageMs} outcome=${purchase.outcome}${purchase.causeCode?` cause=${purchase.causeCode}`:''}${purchase.lastAttemptDispatched===false?' last-attempt=not-sent':''}${purchase.createRetirement==='none'?'':` create-retirement=${purchase.createRetirement}`}`);
     for(const event of purchase.timeline)lines.push(`  ${event.at} gapMs=${event.gapMs} ${event.lane}:${event.stage} source=${event.source}`);
   }
   if(!report.purchases.length)lines.push('recent purchases: none');

@@ -19,9 +19,12 @@ export const { transaction } = purchaseStore;
 /** Whether a SQLite error is a UNIQUE or PRIMARY KEY violation. */
 export const { isUniqueViolation } = purchaseStore;
 
-// v3: the purchase tables are the client's schema (operations gains handoff_expires_at and job_id).
-// Pre-release: older files are refused rather than migrated.
-const SCHEMA_VERSION = 3;
+/**
+ * The app database's schema version, stored as its decimal text in meta.schema_version.
+ * v3: the purchase tables are the client's schema (operations gains handoff_expires_at and job_id).
+ * Pre-release: older files are refused rather than migrated.
+ */
+export const SCHEMA_VERSION = 3;
 const BUSY_TIMEOUT_MS = 5000;
 const IN_MEMORY = ':memory:';
 // Persistent settings come after busy_timeout so a concurrent first open waits instead of failing.

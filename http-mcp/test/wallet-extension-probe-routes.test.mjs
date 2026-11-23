@@ -148,6 +148,33 @@ test('probe nonce endpoint is read-only, owner-wallet bound and refuses unavaila
   } finally {await h.close();}
 });
 
+test('the probe\'s owner-only GET /network runs the same six signature-form cases against the composed modules with no resolve hook', async () => {
+  const { verifyDemosTransactionSignature } = await import('../src/wallet/demos-transaction-signature.mjs');
+  const { h, wallet } = await ownerHarness();
+  try {
+    const { provider } = await linkAccount({ harness: h, wallet }), headers = { authorization: `Bearer ${provider.tokens().access_token}` };
+    const url = `${h.origin}/portal/wallet-extension-probe/network`, txHash = hash('probe transaction'), activatedChains = new Set();
+    const read = async (answer) => { h.chain.faults.networkInfo = answer; const res = await fetch(url, { headers }); return [res.status, await res.json()]; };
+    const verdicts = (networkInfo) => ['bare', 'domain'].map((form) => verifyDemosTransactionSignature({ networkInfo, hash: txHash, publicKey: wallet.address, activatedChains,
+      signature: wallet.signHex(form === 'domain' ? `demos-tx:v1:${networkInfo.chainId}:${txHash}` : txHash) }));
+    const active = { chainId: 7, forks: { signatureDomain: { activated: true } } };
+    for (const [label, answer, expected] of [
+      ['inactive', { chainId: 7, forks: { signatureDomain: { activated: false } } }, ['valid', 'invalid']],
+      ['missing member', { chainId: 8, forks: {} }, ['valid', 'invalid']],
+      ['non-boolean', { chainId: 9, forks: { signatureDomain: { activated: 'true' } } }, ['unavailable', 'unavailable']],
+      ['active', active, ['invalid', 'valid']],
+      ['downgrade after active', { chainId: 7, forks: {} }, ['unavailable', 'unavailable']],
+    ]) {
+      const [status, body] = await read(answer);
+      assert.equal(status, 200, label);
+      assert.deepEqual(body, answer, label);
+      assert.deepEqual(verdicts(body), expected, label);
+    }
+    assert.deepEqual(await read(undefined), [500, { error: 'network_unavailable' }], 'unreadable');
+    assert.equal((await fetch(url)).status, 404, 'owner only');
+  } finally { await h.close(); }
+});
+
 // A page's module and fetch subrequests never carry a bearer header,
 // so only the built-in issuer's session cookie can load the probe in a browser.
 const externalRefusal = JSON.stringify({ error: 'not_found' });

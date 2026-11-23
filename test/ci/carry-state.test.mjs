@@ -30,7 +30,6 @@ const EXCLUDED_FILES = [
   'http-mcp/src/purchases.mjs',
   'http-mcp/src/wallet/devnet-native-transport.mjs',
   'http-mcp/src/wallet/durable-journal.mjs',
-  'http-mcp/src/util/purchase-readback-cache.mjs',
   'http-mcp/src/buyer-funding.mjs',
   'stdio-mcp/buyer/src/protocol.mjs',
   'http-mcp/scripts/check-node-build.mjs',
@@ -46,12 +45,8 @@ const EXCLUDED_MODULE_IMPORTERS = new Map([
   ['http-mcp/scripts/devnet-demo-operator-bootstrap.mjs', SCRIPT_OWNER],
   ['http-mcp/scripts/devnet-demo-recipient-balance.mjs', SCRIPT_OWNER],
   ['http-mcp/src/app.mjs', SWITCH_OWNER],
-  ['http-mcp/src/identities.mjs', SWITCH_OWNER],
-  ['http-mcp/src/mcp/seller-content.mjs', SWITCH_OWNER],
   ['http-mcp/src/mcp/server.mjs', SWITCH_OWNER],
   ['http-mcp/src/operations.mjs', SWITCH_OWNER],
-  ['http-mcp/src/ops/health.mjs', SWITCH_OWNER],
-  ['http-mcp/src/portal/purchase-receipt.mjs', SWITCH_OWNER],
   ['http-mcp/src/portal/wallet-rpc.mjs', SWITCH_OWNER],
 ]);
 

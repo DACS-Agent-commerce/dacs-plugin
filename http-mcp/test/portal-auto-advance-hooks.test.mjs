@@ -8,7 +8,7 @@ import http from 'node:http';
 import vm from 'node:vm';
 import express from 'express';
 import {createPortalRouter} from '../src/portal/routes.mjs';
-import {protocolView} from '../src/dacs/protocol-purchases.mjs';
+import {protocolView} from '@kynesyslabs/dacs-client';
 import {OperationError} from '../src/operations.mjs';
 import {createPurchaseAutoAdvance,purchasePhase,recoverable} from '../src/portal/purchase-auto-advance.mjs';
 import {fakeClock,flush} from './helpers/portal-auto-dom.mjs';

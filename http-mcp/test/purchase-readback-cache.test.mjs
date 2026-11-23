@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPurchaseReadbackCache, sameIncludedFact } from '../src/util/purchase-readback-cache.mjs';
+import { createPurchaseReadbackCache } from '../src/util/purchase-readback-cache.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { contractView, runtimeNames } from './helpers/env-contract-view.mjs';
 const receipt=()=>({receiptVersion:'1',substrate:'demos',finalityProfile:'TEST',logicalAddress:'dacs:agreement:test',nativeAddress:'TEST-address',contentHash:'a'.repeat(64),transactionRef:{kind:'demos',value:'b'.repeat(64)},writer:'TEST-writer',state:'included',observationDisposition:'established',observedAt:100,blockRef:{id:'c'.repeat(64),height:'1',timestamp:100},evidence:{kind:'TEST',value:'TEST-proof'}});
@@ -30,7 +30,6 @@ test('positive inclusion reuses only the same purchase and exact scope; values a
 for(const [name,change] of Object.entries({hash:r=>r.transactionRef.value='d'.repeat(64),block:r=>r.blockRef.id='d'.repeat(64),height:r=>r.blockRef.height='2',timestamp:r=>r.blockRef.timestamp=101,content:r=>r.contentHash='d'.repeat(64),native:r=>r.nativeAddress='different',logical:r=>r.logicalAddress='different',writer:r=>r.writer='different'}))test(`a changed ${name} misses and a returned mismatch never enters the cache`,async()=>{
   const {cache}=harness();let reads=0;const read=async()=>{reads++;return result();};
   await cache.read(input(),read);const changed=input();change(changed.receipt);
-  assert.equal(sameIncludedFact(changed.receipt,receipt()),false);
   await cache.read(changed,read);await cache.read(changed,read);assert.equal(reads,3);
 });
 for(const disposition of ['absent','pending','indeterminate','rejected'])test(`${disposition} is never cached`,async()=>{
@@ -76,9 +75,15 @@ test('cache bounds evict safely and shutdown during a read cannot repopulate',as
 });
 
 
-test('invalid inclusion coordinates on either side never compare equal',()=>{
+test('invalid inclusion coordinates on either side are never cached',async()=>{
   for(const alter of [r=>r.state='submitted',r=>{r.observationDisposition='indeterminate';r.preservedReceiptHash='e'.repeat(64);},r=>delete r.blockRef,r=>r.extra=true,r=>r.transactionRef.value='not-a-hash',r=>r.blockRef.id='not-a-hash']){
-    const bad=receipt();alter(bad);assert.equal(sameIncludedFact(bad,receipt()),false);assert.equal(sameIncludedFact(receipt(),bad),false);assert.equal(sameIncludedFact(bad,bad),false);
+    for(const side of ['request','answer','both']){
+      const {cache}=harness(),bad=receipt();alter(bad);let reads=0;
+      const request={...input(),receipt:side==='answer'?receipt():bad};
+      const read=async()=>{reads++;return {...result(),native:{receipt:side==='request'?receipt():structuredClone(bad),txRef:{writeTxHash:'b'.repeat(64)}}};};
+      await cache.read(request,read);await cache.read(request,read);
+      assert.equal(reads,2,side);
+    }
   }
 });
 test('in-flight caller mutation cannot change the captured receipt coordinates',async()=>{
