@@ -297,8 +297,8 @@ wrote to stderr or any line it wrote to stdout all stay failures. When the file
 loads again its entry fails the run as a known failure that now passes, and is
 removed.
 
-`test/known-failures.json` holds 241 entries: 182 carry-over entries, the
-seller-disposition payment-path case and 58 other `main-defect` entries.
+`test/known-failures.json` holds 240 entries: 182 carry-over entries, the
+seller-disposition payment-path case and 57 other `main-defect` entries.
 
 - The seller-disposition case was recorded in the source repository as
   observing 7 CREATEs instead of 5. That entry does not describe this
