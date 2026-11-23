@@ -9,9 +9,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEVNET_NATIVE_RPC_PATH } from '@kynesyslabs/dacs-client';
 import { canonicalize } from '@kynesyslabs/dacs';
+import { TP1_APPROVED_IDENTITY_RECORD } from '@kynesyslabs/dacs/wire';
 import { linkedUser } from './helpers/flows.mjs';
 import { databaseRows } from './helpers/database-rows.mjs';
-import { accountOf, prepareArgs, switchOnHarness, tp1Node } from './helpers/switch-on-world.mjs';
+import { FIXTURE_CHAIN, accountOf, prepareArgs, switchOnHarness, tp1Node } from './helpers/switch-on-world.mjs';
 
 const HELD = (error) => error.code === 'profile_not_admitted' && error.cause === undefined;
 const healthOf = async (h) => (await (await fetch(`${h.origin}/health`)).json()).sdkPurchases;
@@ -104,6 +105,18 @@ test('a process restart while a purchase session is binding loses nothing, and t
   await assert.rejects(prepare(h, user, 'after-restart'), HELD);
   assert.ok(node.reads.length > reads, 'the new process bound a new session');
   assert.equal(databaseRows(h.app.db), rows, 'the interrupted call wrote nothing');
+});
+
+test('a buyer session whose binding is refused rejects profile_not_admitted with the refusal as its cause, keeps nothing, and the next call binds again', async (t) => {
+  const node = tp1Node();
+  const { h } = await switchOnHarness(t, { node });
+  const user = await linkedUser(h);
+  node.chainIdentity = FIXTURE_CHAIN;
+  await assert.rejects(prepare(h, user, 'refused-session'), (error) => error.code === 'profile_not_admitted' && error.cause?.code === 'tp1_connection_unverified');
+  node.chainIdentity = TP1_APPROVED_IDENTITY_RECORD.chainIdentity;
+  const reads = node.reads.length;
+  await assert.rejects(prepare(h, user, 'rebound-session'), HELD);
+  assert.ok(node.reads.length > reads, 'the refused session was not kept, so the next call bound a new one');
 });
 
 test('in builtin sign-in mode a purchase session ends when the account\'s sign-in session expires', async (t) => {
