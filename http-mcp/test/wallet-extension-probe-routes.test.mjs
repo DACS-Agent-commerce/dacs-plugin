@@ -137,7 +137,9 @@ test('probe nonce endpoint is read-only, owner-wallet bound and refuses unavaila
     const url=`${h.origin}/portal/wallet-extension-probe/nonce/${wallet.address}`;
     assert.equal((await fetch(url)).status,404);assert.equal((await fetch(url,{headers:{authorization:'Bearer invalid'}})).status,404);
     h.chain.setNonce(wallet.address,7);h.chain.setBalance(wallet.address,'2500000000');
-    assert.deepEqual(await (await fetch(url,{headers})).json(),{address:wallet.address,currentNonce:7,nextNonce:8,balanceOs:'2500000000'});
+    const read=await fetch(url,{headers});
+    assert.equal(read.status,200,'the owner reads the nonce');
+    assert.deepEqual(await read.json(),{address:wallet.address,currentNonce:7,nextNonce:8,balanceOs:'2500000000'});
     for(const balance of ['-1','1.5',null]) {h.chain.setBalance(wallet.address,balance);assert.equal((await fetch(url,{headers})).status,500,`balance ${balance}`);}
     h.chain.setBalance(wallet.address,'2500000000');
     assert.equal((await fetch(`${h.origin}/portal/wallet-extension-probe/nonce/${createEphemeralWallet().address}`,{headers})).status,404);
@@ -186,7 +188,7 @@ test('the probe is built-in sign-in only: a browser session loads it, an externa
     await auth(provider,{serverUrl:h.mcpUrl});
     await completeAuthorizationInBrowser({authorizationUrl:provider.authorizationUrl,wallet,origin:h.origin,jar});
     h.chain.setNonce(wallet.address,7);h.chain.setBalance(wallet.address,'1');
-    for (const path of [...probePaths, nonce]) assert.equal((await fetch(`${h.origin}${path}`,{headers:{cookie:jar.header(`${h.origin}${path}`)}})).status,200,`built-in session ${path}`);
+    for (const path of [...probePaths, nonce]) assert.equal((await fetch(`${h.origin}${path}`,{headers:{cookie:jar.header(`${h.origin}${path}`)}})).status,200,`built-in session ${path === nonce ? 'nonce read' : path}`);
   } finally { await h.close(); }
   const issuer = await startTestIssuer();
   const x = await startHarness({ env: { DACS_AUTH_MODE: 'external', DACS_OAUTH_ISSUER: issuer.issuer, DACS_OAUTH_COOKIE_KEYS: '', DACS_WALLET_EXTENSION_PROBE: '1', DACS_WALLET_EXTENSION_PROBE_OWNER_ACCOUNT: ownerId } });

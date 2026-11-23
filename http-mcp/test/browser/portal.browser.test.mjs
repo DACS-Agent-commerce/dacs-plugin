@@ -14,6 +14,7 @@ import { startHarness, CALLBACK_ORIGIN } from '../helpers/harness.mjs';
 import { TestOAuthProvider } from '../helpers/oauth.mjs';
 import { tool, seedSellerListing, linkedUser } from '../helpers/flows.mjs';
 import { createEphemeralWallet } from '../fixtures/wallet.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 
 const CHROME = process.env.DACS_TEST_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const skip = !existsSync(CHROME) && `Chrome not found at ${CHROME}`;
@@ -289,6 +290,7 @@ test('OAuth account linking through the portal with a simulated wallet', { skip 
   // Then try to approve a purchase with the installed-extension stand-in. The
   // portal cannot verify which network an extension would send on, so the
   // payment is held: no approval signature and no send. The embedded-wallet browser flow carries the accepting control.
+  await requireSdkPurchases(h.origin);
   const user = { provider };
   const p = await tool(h, user, 'prepare_purchase', { listingId: 'browser-report', version: 1, seller: seller.claim, idempotencyKey: `browser-${Date.now()}` });
   assert.equal(p.status, 'awaiting_approval');
@@ -345,6 +347,7 @@ test('used wallet link renders a truthful state after reload (F3)', { skip }, as
 test('changed listing terms surface before any signature is requested (F9)', { skip }, async () => {
   const buyer = await linkedUser(h);
   const { listing, locator } = seedSellerListing(h, seller, { listingId: 'browser-volatile', price: '2' });
+  await requireSdkPurchases(h.origin);
   const p = await tool(h, buyer, 'prepare_purchase', { listingId: 'browser-volatile', version: 1, seller: seller.claim, idempotencyKey: `browser-volatile-${Date.now()}` });
   h.chain.faults.alterStorage.set(locator, { ...listing, pricing: { kind: 'fixed', price: { amount: '9', currency: 'DEM' } } });
   try {
@@ -447,6 +450,7 @@ test('identity add in the portal: wallet proof text, user-published URL, one wal
 // held, so the payment refusal must not send the person to the extension.
 test('embedded wallet without writes: the payment refusal does not point to an installed extension, which cannot pay either', { skip }, async () => {
   const buyer = await linkedUser(h);
+  await requireSdkPurchases(h.origin);
   const p = await tool(h, buyer, 'prepare_purchase', { listingId: 'browser-report', version: 1, seller: seller.claim, idempotencyKey: `browser-nowrites-${Date.now()}` });
   assert.equal(p.status, 'awaiting_approval');
   const b = await pageWithWallet(buyer.wallet);
@@ -515,6 +519,7 @@ test('embedded wallet payment: another-network session sends nothing; the approv
     await approveDialog();
     await page.getByText('Wallet linked').waitFor({ timeout: 10000 });
 
+    await requireSdkPurchases(eh.origin);
     const embeddedSeller = createEphemeralWallet();
     seedSellerListing(eh, embeddedSeller, { listingId: 'embedded-report', price: '4' });
     const p = await tool(eh, buyer, 'prepare_purchase', { listingId: 'embedded-report', version: 1, seller: embeddedSeller.claim, idempotencyKey: `embedded-${Date.now()}`, walletAddress: address });
@@ -570,6 +575,7 @@ test('embedded wallet payment: another-network session sends nothing; the approv
 // anchors live in the SIMULATED fixture substrate. The page keeps transfer,
 // DACS purchase, service, completed copies and human acceptance apart.
 test('DACS purchase in the portal: Agreement, commitment-gated payment, evidence, delivery and counter-signature with the embedded wallet', { skip }, async () => {
+  await requireSdkPurchases(h.origin);
   const { startSdkChainFixture } = await import('../helpers/embedded-wallet-flow-fixtures.mjs');
   const { freshPassword, uiCreate, uiUnlock, UI } = await import('../helpers/embedded-wallet-fixtures.mjs');
   const { startProtocolHarness, addSeller } = await import('../dacs-loopback-fixture.test.mjs');

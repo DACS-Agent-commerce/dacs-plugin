@@ -95,7 +95,7 @@ Measured on the fixture chain (6 planned jobs, real SQLite files):
 | `seller-party-vet.sqlite` | 1 row, about 25.7 KB, deleted at the purchase's end | 4,096 rows, 256 MiB | 4,096 purchases not yet ended at once (the byte cap would allow about 10,400) |
 | `seller-artifacts.sqlite` (unchanged from before the party Vet store) | 2 rows, about 30.1 KB, never deleted | 4,096 rows, 32 MiB | about 1,110 in total, fewer once paid purchases add delivery rows |
 
-`GET /health` reports the store under `dependencies.partyVetStore` (`jobs`, `bytes`, `maxJobs`, `maxTotalBytes`, `remainingJobs`, `remainingBytes`). When it is full, a new purchase's plan step fails before any Vet signature with "the party Vet store is full; nothing was written"; purchases already planned continue. The artifact journal's limit is unchanged: it keeps every CREATE intent, and nothing deletes them.
+In v1, `GET /health` reported the store under `dependencies.partyVetStore` (`jobs`, `bytes`, `maxJobs`, `maxTotalBytes`, `remainingJobs`, `remainingBytes`); the v2 app composes no party Vet store and does not report one. When it is full, a new purchase's plan step fails before any Vet signature with "the party Vet store is full; nothing was written"; purchases already planned continue. The artifact journal's limit is unchanged: it keeps every CREATE intent, and nothing deletes them.
 
 ## Separately reviewed real run
 

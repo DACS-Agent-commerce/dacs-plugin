@@ -25,8 +25,11 @@ test('the refusal object has exactly the listed names; passive names refuse not_
   assert.deepEqual(Object.keys(refusal).sort(), [...passive, ...active].sort());
   assert.ok(Object.isFrozen(refusal));
   for (const name of passive) {
-    await assert.rejects(refusal[name]({ operationId: 'op_1' }), (error) => error instanceof OperationError && error.code === 'not_configured' && error.message === 'sdk_part_missing: P19r createPurchaseEvidenceRecorder', name);
+    // A passive reader answers synchronously, so its refusal is thrown at the call, which also rejects an awaiting caller.
+    assert.throws(() => refusal[name]({ operationId: 'op_1' }), (error) => error instanceof OperationError && error.code === 'not_configured' && error.message === 'sdk_part_missing: P19r createPurchaseEvidenceRecorder', name);
   }
+  const partOnly = createRefusalObject({ passive: ['status'], active: [], missing: { part: 'P19' } });
+  assert.throws(() => partOnly.status(), (error) => error.code === 'not_configured' && error.message === 'sdk_part_missing: P19' && error.details.name === undefined, 'a part with no public name is named by its part alone');
   for (const name of active) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await assert.rejects(refusal[name]({ operationId: 'op_1' }), (error) => error instanceof OperationError && error.code === 'sdk_purchases_off', name);

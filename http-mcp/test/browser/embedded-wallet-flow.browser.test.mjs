@@ -26,6 +26,7 @@ import {
   assertNoSecrets, freshPassword, uiCreate, uiShownPhrase, uiUnlock,
 } from '../helpers/embedded-wallet-fixtures.mjs';
 import { CORE_INTERFACE, PROFILE, REQUIRE, installLoopbackOnlyGuard, startSdkChainFixture, startGithubApiFixture, fetchProfile } from '../helpers/embedded-wallet-flow-fixtures.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 
 const externalAttempts = installLoopbackOnlyGuard();
 const presence = modulePresence([...SDK_MODULES, ...UI_MODULES]);
@@ -125,6 +126,7 @@ test('B1 [browser-real + sdk-real] portal purchase with the embedded wallet: exa
   const p = await walletContext();
   const buyer = await linkedUser(h);
   const { address, password, phrase } = await createAndLink(p, buyer);
+  await requireSdkPurchases(h.origin);
   const seller = createEphemeralWallet();
   seedSellerListing(h, seller, { listingId: 'flow-b1', price: '4' });
   const prepared = await tool(h, buyer, 'prepare_purchase', { listingId: 'flow-b1', version: 1, seller: seller.claim, idempotencyKey: `flow-b1-${Date.now()}`, walletAddress: address });

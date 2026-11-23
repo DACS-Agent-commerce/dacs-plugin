@@ -10,6 +10,7 @@ import { chromium } from 'playwright-core';
 import { startOfflineTester } from '../../bin/dacs-chatgpt-offline-test.mjs';
 import { Profile } from '../helpers/overnight-ui-browser.mjs';
 import { dashboardClient } from '../helpers/overnight-ui-actors.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 
 const CHROME = process.env.DACS_TEST_CHROME;
 let h;
@@ -61,6 +62,7 @@ test('accepting control: same profile, no reset, the buyer buys the baseline lis
   assert.ok(await a.dash.locator('#buyer-wallet-hint').isVisible(), 'wallet guidance shown at sign-in');
   await a.signIn('buyer');
   assert.equal(await a.dash.getByRole('button', { name: 'Start over as a new buyer' }).isVisible(), true);
+  await requireSdkPurchases(h.origin);
   await a.click('Find test service');
   await a.waitText('v-result', /^Verified: transactable$/);
   await a.click('Prepare simulated purchase');
@@ -88,6 +90,7 @@ test('lost wallet, buyer: a new profile sees the sign-in held by the old wallet,
 });
 
 test('earlier buyer operations stay shown truthfully, bound to the old wallet, and are not changed', { timeout: 30_000 }, async () => {
+  await requireSdkPurchases(h.origin);
   const list = await b.textOf('buyer-earlier-list');
   assert.ok(list.includes(a.address.slice(0, 10)), 'the old wallet is named');
   assert.ok(list.includes(`purchase ${run.pendingOp}`), 'the pending purchase is listed');
@@ -102,6 +105,7 @@ test('lost wallet, buyer: a new built-in wallet signs in and completes a baselin
   await b.createWallet();
   assert.notEqual(b.address, a.address);
   await b.signIn('buyer');
+  await requireSdkPurchases(h.origin);
   await b.click('Find test service');
   await b.waitText('v-result', /^Verified: transactable$/);
   await b.click('Prepare simulated purchase');

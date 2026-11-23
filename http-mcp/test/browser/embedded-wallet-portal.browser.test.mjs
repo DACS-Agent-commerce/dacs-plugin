@@ -18,6 +18,7 @@ import { auth } from '@modelcontextprotocol/client';
 import { startHarness, CALLBACK_ORIGIN } from '../helpers/harness.mjs';
 import { TestOAuthProvider } from '../helpers/oauth.mjs';
 import { tool, seedSellerListing, linkedUser } from '../helpers/flows.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 import { createEphemeralWallet } from '../fixtures/wallet.mjs';
 import {
   SDK_MODULES, UI_MODULES, UI, EMBEDDED_WALLET_ASSET_PATH, modulePresence, blockedUnless, chromeSkipReason, launchTestChrome,
@@ -179,6 +180,7 @@ test('opt-in: a deliberate embedded choice survives later extension discovery; r
   const phrase = await uiShownPhrase(source.page);
   await source.context.close();
 
+  await requireSdkPurchases(h.origin);
   const seller = createEphemeralWallet();
   seedSellerListing(h, seller, { listingId: 'embedded-portal', price: '3' });
   const buyer = await linkedUser(h);

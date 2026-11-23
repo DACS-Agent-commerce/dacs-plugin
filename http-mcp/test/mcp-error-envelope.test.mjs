@@ -83,10 +83,14 @@ test('funding errors use the same labelled message in text and structured conten
   assert.equal(outsideEnvelopes(result).includes('remote-marker'), false);
 });
 
-// Execute the production private consumer without opening an OAuth session.
-const buyerSource = readFileSync(new URL('../src/devnet-demo/operator-buyer.mjs', import.meta.url), 'utf8');
-const toolValue = vm.runInNewContext(`(${buyerSource.slice(buyerSource.indexOf('function toolValue('), buyerSource.indexOf('const protocolOf='))})`, { decodeSellerDataEnvelope, Error });
+// Execute the production private consumer without opening an OAuth session. Read when a test runs: the
+// operator buyer is not carried, so only the two tests that need it fail, not the whole file.
+const operatorToolValue = () => {
+  const buyerSource = readFileSync(new URL('../src/devnet-demo/operator-buyer.mjs', import.meta.url), 'utf8');
+  return vm.runInNewContext(`(${buyerSource.slice(buyerSource.indexOf('function toolValue('), buyerSource.indexOf('const protocolOf='))})`, { decodeSellerDataEnvelope, Error });
+};
 test('operator buyer preserves the MCP refusal explanation and recovery guidance', async t => {
+  const toolValue = operatorToolValue();
   const { services } = setup();
   const server = createMcpServerFactory({ config, services, logger })();
   t.after(() => server.close());
@@ -96,6 +100,7 @@ test('operator buyer preserves the MCP refusal explanation and recovery guidance
   assert.throws(() => toolValue(result, 'prepare_purchase'), error => error.code === 'buyer_balance_unavailable' && error.message === message);
 });
 test('operator buyer keeps plain errors and gives a readable fallback for incomplete envelopes', () => {
+  const toolValue = operatorToolValue();
   for (const message of ['Plain local refusal', { note: 'untrusted' }, sellerData('x'.repeat(SELLER_DATA_MAX + 1))]) {
     const result = { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: 'refused', message }) }] };
     assert.throws(() => toolValue(result, 'prepare_purchase'), error => error.code === 'refused' && error.message === (typeof message === 'string' ? message : 'prepare_purchase failed: error message unavailable or incomplete'));

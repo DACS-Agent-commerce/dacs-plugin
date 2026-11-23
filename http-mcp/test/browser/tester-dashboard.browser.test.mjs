@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { startOfflineTester } from '../../bin/dacs-chatgpt-offline-test.mjs';
 import { runDashboardFlow } from '../helpers/tester-dashboard-driver.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 
 const CHROME = process.env.DACS_TEST_CHROME;
 let h;
@@ -43,6 +44,8 @@ after(async () => {
 });
 
 test('guided dashboard: wallet, OAuth sign-in, verified listing, purchase receipt, GitHub add/remove, cancel, checklist, export', { timeout: 240_000 }, async () => {
+  // The guided flow interleaves its purchase with the other steps, so it stops before the first one.
+  await requireSdkPurchases(h.origin);
   const results = [];
   const dir = process.env.DACS_TEST_SCREENSHOT_DIR;
   await runDashboardFlow({

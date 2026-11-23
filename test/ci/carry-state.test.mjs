@@ -42,8 +42,6 @@ const isExcludedTarget = (target) => EXCLUDED_PREFIXES.some((prefix) => `${targe
 const SWITCH_OWNER = 'follow-up: switch the import to the published SDK';
 const SCRIPT_OWNER = 'follow-up: switch the script, or retire it with its command';
 const EXCLUDED_MODULE_IMPORTERS = new Map([
-  ['http-mcp/src/app.mjs', SWITCH_OWNER],
-  ['http-mcp/src/mcp/server.mjs', SWITCH_OWNER],
   ['http-mcp/src/operations.mjs', SWITCH_OWNER],
   ['http-mcp/src/portal/wallet-rpc.mjs', SWITCH_OWNER],
 ]);

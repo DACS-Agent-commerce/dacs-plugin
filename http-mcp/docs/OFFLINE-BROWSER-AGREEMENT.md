@@ -5,9 +5,9 @@ embedded wallet. It is not a ChatGPT installation, public service, on-chain
 purchase, security acceptance, Vet pass or finality proof. Payment, commitment,
 DACS-4/5 and completion remain held. Trusted real-chain pins remain empty.
 
-The programmatic app option is `dacsProtocol.browserAgreement = { journal,
-ttlMs? }` alongside the existing loopback seller endpoint map. There is no
-environment or CLI switch. It requires literal HTTP `127.0.0.1`/`[::1]` plugin
+In v1 the programmatic app option was `dacsProtocol.browserAgreement = { journal,
+ttlMs? }` alongside the loopback seller endpoint map. The v2 `createApp` takes
+no `dacsProtocol` option. There is no environment or CLI switch. It requires literal HTTP `127.0.0.1`/`[::1]` plugin
 and RPC origins, `allowInsecureLocal`, the simulated-loopback wallet relay, and
 an explicitly supplied atomic journal (`get`, `put`, `entries`,
 `withWalletLock`). A caller-supplied `walletFactory` is not accepted by this

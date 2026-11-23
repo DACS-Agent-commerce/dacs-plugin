@@ -115,7 +115,10 @@ includes that build and the workflow sets
 `DACS_TEST_CHROME` to its path, so they do not move with the weekly image's
 `/usr/bin/chromium-browser`, which they use only when `DACS_TEST_CHROME` is unset
 (as in a local run). If the browser stops working the cases fail; they do not
-skip. The hosted runner's kernel and Docker still roll; the test userland and
+skip. The run step also sets `DACS_TEST_DOWNLOAD_PARENT` to a directory in
+pwuser's `HOME`: the browser files that use
+`test/helpers/overnight-acceptance-browser.mjs` fail without one outside `/tmp`,
+and the other browser files put their downloads there too. The hosted runner's kernel and Docker still roll; the test userland and
 browser bytes are fixed by the container digest. Updating the image, browser or
 terminal driver is an explicit workflow/lockfile change. The Ubuntu snapshot
 service and container registry must be available; setup fails if either is not.
@@ -292,16 +295,25 @@ module, an `ENOENT` from reading a file while the module is evaluated, an
 assertion failure, a timeout, a second fatal error, any other line the file
 wrote to stderr or any line it wrote to stdout all stay failures. When the file
 loads again its entry fails the run as a known failure that now passes, and is
-removed. The baseline holds 243 carry-over entries; the one other entry is described below.
+removed.
 
-`test/known-failures.json` holds 244 entries: the 243 carry-over entries and one
-other, the seller-disposition payment-path case, recorded in the source
-repository as observing 7 CREATEs instead of 5. That entry does not describe
-this repository. Its test file needs modules that are not carried, so it fails
-at load here and the entry excuses nothing; the file also has a carry-over
-entry, which is the one that matches. The other entry stays because
-`test/run-test-files.test.mjs` reads it. The baseline is not a list of the
-failures in this tree, which are far more numerous.
+`test/known-failures.json` holds 241 entries: 182 carry-over entries, the
+seller-disposition payment-path case and 58 other `main-defect` entries.
+
+- The seller-disposition case was recorded in the source repository as
+  observing 7 CREATEs instead of 5. That entry does not describe this
+  repository. Its test file needs modules that are not carried, so it fails at
+  load here and the entry excuses nothing; the file also has a carry-over entry,
+  which is the one that matches. The entry stays because
+  `test/run-test-files.test.mjs` reads it.
+- The `main-defect` entries are tests in files that load since `src/app.mjs`
+  boots with SDK purchases off. Each reason names the cause: a purchase or
+  listing verification that the off composition refuses, a chain read its
+  chain reader does not make, a module or deploy file that is not carried, or
+  served bytes pinned while the file could not load.
+
+The baseline is not a list of the failures in this tree, which are far more
+numerous.
 
 ### Tests owned by the P303 cards
 
@@ -358,9 +370,8 @@ package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
 - `test/switch-registry-mutants.test.mjs` — missing mutation anchor refuses the CLI before mirror setup or test execution — P46 — DACS-Agent-commerce/dacs-plugin#324
 - `test/switch-registry-mutants.test.mjs` — repeated mutation anchor refuses the CLI before mirror setup or test execution — P46 — DACS-Agent-commerce/dacs-plugin#324
 - `test/switch-registry-mutants.test.mjs` — a behavior-preserving mutation survives without an anchor freshness false kill — P46 — DACS-Agent-commerce/dacs-plugin#324
-- `test/embedded-wallet-contract.test.mjs` — loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated] — P42aa — DACS-Agent-commerce/dacs-plugin#322
+- `test/embedded-wallet-contract.test.mjs` — loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated] — P41a2a — DACS-Agent-commerce/dacs-plugin#322
 - `test/portal-delivery-evidence-label.test.mjs` — "Delivered" claims only the verified report, and delivery evidence is shown separately for every server state — P53c2 — DACS-Agent-commerce/dacs-plugin#325
-- `test/tester-quickstart.test.mjs` — the documented loopback startup answers /health and MCP with honest not_configured results — P42aa — DACS-Agent-commerce/dacs-plugin#322
 - `test/overnight-package.test.mjs` — source -> reproducible npm tarball -> clean install -> documented `npx dacs-chatgpt-plugin` cold start, HTTP + MCP, Ctrl-C; bin-shim restart, SIGTERM — P42aa — DACS-Agent-commerce/dacs-plugin#326
 - `test/agreement-create-delivery.test.mjs` — the wallet-request seam records the delivery and returns outcome_unknown at once, and Agreement submission through the installed client resolves to the queued pending operation and its delivery id while every challenge and claim call is withheld — P41d — DACS-Agent-commerce/dacs-plugin#434
 - `test/agreement-create-delivery.test.mjs` — after submission has resolved, the same delivery is claimed sequentially through the installed client, and a later explicit recheck reconciles it by readback with exactly one delivery — P41d — DACS-Agent-commerce/dacs-plugin#434
@@ -369,6 +380,36 @@ package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
 - `test/purchase-readback-cache.test.mjs` — config enables purchase reuse only with 1, default off — P46 — DACS-Agent-commerce/dacs-plugin#323
 - `test/mcp-resource-contract.test.mjs` — widget host expects the served GitHub signals resource URI — P46 — DACS-Agent-commerce/dacs-plugin#324
 - `test/purchase-receipt-sdk.test.mjs` — a stored receipt the SDK's readable-receipt check rejects (missing version, writer or evidence; malformed member) exports no anchor state, block or transaction, and an indeterminate receipt exports its preserved receipt hash only and is never shown as the current state — P41c1r — DACS-Agent-commerce/dacs-plugin#322
+- `test/composition-sdk.test.mjs` — with DACS_SDK_PURCHASES off, the CREATE evidence routes answer 503 not_configured with zero writes when the installed client has no evidence recorder — P41c2 — DACS-Agent-commerce/dacs-plugin#438
+- `test/portal-auto-assets.test.mjs` — auto-advance config defaults off, rejects typos, and matches its deployment contract entry — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/showcase-walkthrough.test.mjs` — switch: default off, strict off/on, env contract and example — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/wallet-extension-probe-routes.test.mjs` — probe switch requires exactly 1, stays off by default, and its contract entry matches config — P46 — DACS-Agent-commerce/dacs-plugin#323
+- `test/browser/closure-dashboard-recovery.browser.test.mjs` — F1 [accepting control first]: a purchase settles with a receipt; Prepare then starts a new one and the settled purchase with its receipt stays listed, after reload and in the evidence file — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/embedded-wallet-flow.browser.test.mjs` — B1 [browser-real + sdk-real] portal purchase with the embedded wallet: exact-terms approval, one broadcast, simulated receipt — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/embedded-wallet-portal.browser.test.mjs` — opt-in: a deliberate embedded choice survives later extension discovery; real SDK import; payments stay unavailable and no live transaction is attempted [browser-real + sdk-real + SIMULATED extension] — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-core-identity.browser.test.mjs` — P5 [browser-real, C1 wording] simulated profile: sign-in, wallet link, purchase approval and status pages are headed and labelled SIMULATED; nothing says testnet without "not" — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-core-identity.browser.test.mjs` — D1 [browser-real, accepting control] default profile: the existing wording is unchanged — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui-recovery.browser.test.mjs` — same wallet, same run: purchases are not blocked — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui-start-over.browser.test.mjs` — accepting control: same profile, no reset, the buyer buys the baseline listing — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui-start-over.browser.test.mjs` — earlier buyer operations stay shown truthfully, bound to the old wallet, and are not changed — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui-start-over.browser.test.mjs` — lost wallet, buyer: a new built-in wallet signs in and completes a baseline purchase — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui.browser.test.mjs` — C1/C4/C5/C6 buyer: discovers the baseline listing, rejection, interruption, purchase settles only on readback — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-ui.browser.test.mjs` — C7 evidence download by keyboard reflects the actual workflow and carries no secrets — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — OAuth account linking through the portal with a simulated wallet — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — changed listing terms surface before any signature is requested (F9) — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — embedded wallet without writes: the payment refusal does not point to an installed extension, which cannot pay either — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — embedded wallet payment: another-network session sends nothing; the approval shows the full debit and the receipt its limits — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/portal.browser.test.mjs` — DACS purchase in the portal: Agreement, commitment-gated payment, evidence, delivery and counter-signature with the embedded wallet — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/tester-dashboard.browser.test.mjs` — guided dashboard: wallet, OAuth sign-in, verified listing, purchase receipt, GitHub add/remove, cancel, checklist, export — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-acceptance.browser.test.mjs` — OA-B1 [C1,C6] keyboard-only dashboard steps, wallet input errors, Escape-declined sign-in, retained unlock, keyboard approval — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+- `test/browser/overnight-acceptance.browser.test.mjs` — OA-B2 [C4,C5,C7] interrupted purchase approval resumes without duplication; rejected/cancelled purchases never show success; export reflects actions — P42aa2b — DACS-Agent-commerce/dacs-plugin#348
+
+The `test/browser/` entries are the tests that drive a purchase, or read one an
+earlier test in the file makes. With SDK purchases off each stops at
+`requireSdkPurchases` (`test/helpers/sdk-purchases.mjs`) right before its first
+purchase step, with one fixed line; the steps before that call still run. The
+identity, sign-in, wallet-link and dashboard tests in the same files run in
+full.
 
 The seller control of `test/mutant-helper-verdicts.test.mjs` was removed because
 it read `src/devnet-demo/seller-write-batch.mjs`, which is not carried; card P303a

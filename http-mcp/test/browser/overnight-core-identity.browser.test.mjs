@@ -26,6 +26,7 @@ import {
   assertNoSecrets, freshPassword, uiCreate, uiShownPhrase, uiUnlock,
 } from '../helpers/embedded-wallet-fixtures.mjs';
 import { CORE_INTERFACE, REQUIRE, installLoopbackOnlyGuard, startSdkChainFixture, startGithubApiFixture } from '../helpers/embedded-wallet-flow-fixtures.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 
 const externalAttempts = installLoopbackOnlyGuard();
 const presence = modulePresence([...SDK_MODULES, ...UI_MODULES]);
@@ -248,6 +249,7 @@ test('P5 [browser-real, C1 wording] simulated profile: sign-in, wallet link, pur
   assertSimulatedWording(await visibleWording(p.page), 'wallet link');
 
   // Purchase approval, then the status page of the same (cancelled) purchase.
+  await requireSdkPurchases(h.origin);
   const seller = createEphemeralWallet();
   const listingId = `oc-wording-${Math.random().toString(36).slice(2)}`;
   seedSellerListing(h, seller, { listingId, price: '3' });
@@ -276,6 +278,7 @@ test('D1 [browser-real, accepting control] default profile: the existing wording
   cleanups.add('default wording harness close', 10000, () => plain.close());
   const p = await walletContext();
   const user = await linkedUser(plain);
+  await requireSdkPurchases(plain.origin);
   const seller = createEphemeralWallet();
   const listingId = `oc-default-${Math.random().toString(36).slice(2)}`;
   seedSellerListing(plain, seller, { listingId, price: '3' });

@@ -138,6 +138,8 @@ jobs:
               echo "- test gid: $(id -g)"
               echo "- test umask: $(umask)"
             } | tee -a test-results.runner.txt >> "$GITHUB_STEP_SUMMARY"
+            # Browser downloads go to a directory pwuser owns, outside /tmp (test/helpers/overnight-acceptance-browser.mjs).
+            export DACS_TEST_DOWNLOAD_PARENT="$HOME/dacs-test-downloads"
             exec npm run test:ci
           '
       - name: Upload per-file results

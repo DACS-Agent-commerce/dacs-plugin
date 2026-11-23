@@ -21,8 +21,8 @@ no live or Devnet transaction. The external security review is on hold. Node2's 
 | `src/dacs/seller-agent.mjs` | Optional `agreementAnchor` capability on `createSellerAgent`. `commit` (and the durable `reconcileTransport` commitment readback) read the buyer Agreement through it when configured; otherwise the fixture read is unchanged. The commitment is still `commitFixedPriceAgreement` over the exact read artifact (same contentHash check, same signer, same fixture-substrate FinalityCommitmentRecord). `session.agreementRef` is the read's ref; `session.agreementAnchor` and the commit answer name the native record. |
 | `src/dacs/protocol-purchases.mjs` | Optional `dacsProtocol.sellerSr2Commitment`. Wallet Agreement purchases prepared with it carry `terms.protocol.sellerCommitment`; after the native Agreement anchors the buyer requests the seller commit and reads the commitment back (`readCommitment`, fixture substrate). On `verified` the stage becomes `seller-committed`; status stays `agreement_pending`, `assertAgreementPaymentHeld` still refuses payment. Limits name the native Agreement and the fixture commitment explicitly. Without the capability nothing changes. |
 
-`app.mjs` passes `dacsProtocol` through, so the buyer capability is consumed by
-the actual app. The seller capability is consumed by the actual
+In v1 `app.mjs` passed `dacsProtocol` through, so the actual app consumed the
+buyer capability; the v2 `app.mjs` takes no `dacsProtocol` option. The seller capability is consumed by the actual
 `createSellerAgent` behind the existing `createSellerHttpHandler`; the plugin
 does not run a seller, so wiring it into a deployed seller is operator work.
 

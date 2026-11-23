@@ -129,10 +129,20 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
   router.get(['/portal/authorize/:uid', '/portal/link', '/portal/purchase/:id', '/portal/identity/:id'], page);
 
   const json = express.json({ limit: '64kb' });
+  // The purchase a page action names, for its timeline record. Without a passive purchase reader (SDK purchases
+  // off) the read refuses not_configured: nothing is recorded, and the route's own call gives the answer.
+  const actionPurchase = (req) => {
+    try {
+      return purchases.portalOperation(req.params.id, req.body?.token);
+    } catch (error) {
+      if (error?.code === 'not_configured') return null;
+      throw error;
+    }
+  };
   const api = (handler) => async (req, res) => {
     try {
-      if(req.path.startsWith('/portal/api/purchase/')) {
-        const operation=purchases.portalOperation(req.params.id,req.body?.token);
+      const operation = req.path.startsWith('/portal/api/purchase/') ? actionPurchase(req) : null;
+      if (operation) {
         timeline.record({purchaseId:operation.id,jobId:operation.terms.protocol?.jobId ?? null,timestampMs:now(),step:'page-action-received',phase:'complete',durationMs:0,action:req.path.split('/').slice(5).join('/')});
       }
       const result=await handler(req,res);
@@ -334,8 +344,13 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
     return purchases.nativePaymentLane({ operationId: req.params.id, token: req.body?.token, key: req.body?.key });
   }));
   // walletErrorCode: the wallet's structured error code (portal.js pay()), recorded, never trusted alone.
+  // With SDK purchases off nothing records the report: 503 not_configured, details.reason sdk_purchases_off.
+  const reportNotTaken = (error) => {
+    if (error?.code !== 'sdk_purchases_off') throw error;
+    throw new OperationError('not_configured', 'the wallet report is not recorded while SDK purchases are off', { reason: 'sdk_purchases_off' });
+  };
   router.post('/portal/api/purchase/:id/report', json, api(async (req) => {
-    const result = await purchases.reportWalletResult({ operationId: req.params.id, token: req.body?.token, txHash: req.body?.txHash, walletError: req.body?.walletError, walletErrorCode: req.body?.walletErrorCode });
+    const result = await purchases.reportWalletResult({ operationId: req.params.id, token: req.body?.token, txHash: req.body?.txHash, walletError: req.body?.walletError, walletErrorCode: req.body?.walletErrorCode }).catch(reportNotTaken);
     return purchaseView(result.operation, { verification: result.verification });
   }));
 
