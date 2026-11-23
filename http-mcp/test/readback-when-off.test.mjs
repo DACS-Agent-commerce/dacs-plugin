@@ -80,7 +80,7 @@ test('with the switch on and the startup binding refused or timed out, every eff
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const env = { DACS_PUBLIC_ORIGIN: 'http://127.0.0.1:9', DACS_ALLOW_INSECURE_LOCALHOST: '1', DACS_OAUTH_COOKIE_KEYS: 'k'.repeat(64), DACS_DATA_DIR: dataDir, DACS_INTENT_APPROVAL: 'on' };
   const config = switchedOn({ chain: { rpcUrl: NODE_ORIGIN, network: 'demos-testnet', timeoutMs: 1000 } })(loadConfig(env));
-  const node = tp1Node({ mode: 'silent' });
+  const node = tp1Node({ mode: 'gated' });
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const starting = createApp({ config, fetchImpl: routedFetch(node), logger: createLogger({ level: 'error', sink: () => {} }) });
   await node.requested;
@@ -92,5 +92,9 @@ test('with the switch on and the startup binding refused or timed out, every eff
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }));
   const origin = `http://127.0.0.1:${server.address().port}`;
+  await assertEffectRoutesRefuse({ origin, publicOrigin: config.publicOrigin, db: app.db, purchases: app.services.purchases }, 'tp1_authority_timeout');
+  // The node's late answer changes nothing until a restart.
+  node.release();
+  await new Promise((resolve) => setImmediate(resolve));
   await assertEffectRoutesRefuse({ origin, publicOrigin: config.publicOrigin, db: app.db, purchases: app.services.purchases }, 'tp1_authority_timeout');
 });
