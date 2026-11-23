@@ -17,12 +17,10 @@ const sources = (dir) => readdirSync(dir).flatMap((name) => {
 });
 const unresolved = (file) => specifiers(file).filter((spec) => spec.startsWith('.') && !existsSync(resolve(dirname(file), spec)));
 
-test('the kept modules import no not-carried path, and the only kept sources that still do are app.mjs, mcp/server.mjs and the scripts on the not-carried list', () => {
+test('the kept modules import no not-carried path, and the only kept sources that still do are app.mjs and mcp/server.mjs', () => {
   const stillUnresolved = ['src', 'bin', 'scripts', 'public'].flatMap((top) => sources(join(root, top)))
     .filter((file) => unresolved(file).length > 0).map((file) => relative(root, file)).sort();
   assert.deepEqual(stillUnresolved, [
-    'scripts/devnet-demo-operator-bootstrap.mjs',
-    'scripts/devnet-demo-recipient-balance.mjs',
     'src/app.mjs',
     'src/mcp/server.mjs',
   ]);

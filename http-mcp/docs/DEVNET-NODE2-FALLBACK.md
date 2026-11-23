@@ -17,10 +17,6 @@ Status: opt-in, run-scoped, single-node TEST source change. Not a production tru
     - Block-zero admissions are unchanged (v1 format and keys), and they refuse predecessor review material.
   - `readNode2Admission` verifies both formats exactly. A predecessor admission is checked against its schema, derived documentation, TEST pin, trust text and order-independent hash.
   - `createAdmittedNode2DemoTransport` passes the protected binder's existing strict `{blockZeroUnavailable:'literal-error', documentation}` policy **only** for a re-verified predecessor admission. Block-zero (v1) admissions pass `fallback:null`, as before.
-- `scripts/devnet-demo-operator-bootstrap.mjs`
-  - `observe` adds `[--block-zero-unavailable=literal-error]`.
-  - `admit` adds `[--reviewed-identity-source=confirmed-block-one-predecessor --reviewed-block-one-hash=<64hex> --reviewed-block-zero-envelope=<recorded-envelope>]`; the last option is required only when the observation records the current four-field envelope.
-  - Default commands and outputs are unchanged.
 
 Consumers: `src/devnet-demo/operator.mjs` already composes `readNode2Admission → createNode2TransportOwner → createAdmittedNode2DemoTransport`. It needs no change and picks up predecessor admissions automatically.
 
