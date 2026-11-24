@@ -32,12 +32,13 @@ async function buyerWithPurchase(h) {
 }
 
 test('with the switch on, a node that cannot be reached at startup latches tp1_authority_failed and an unreadable participant enrollment file tp1_enrollment_unreadable; purchase tools answer that code and the wallet report answers 503 naming it, with nothing written', async (t) => {
-  for (const [label, options, code] of [['unreachable node', { node: tp1Node({ mode: 'unreachable' }) }, 'tp1_authority_failed'],
-    ['unreadable enrollment', { env: { DACS_DATA_DIR: unreadableEnrollment(t) } }, 'tp1_enrollment_unreadable']]) {
+  for (const [label, options, code, cause] of [['unreachable node', { node: tp1Node({ mode: 'unreachable' }) }, 'tp1_authority_failed', 'unavailable'],
+    ['unreadable enrollment', { env: { DACS_DATA_DIR: unreadableEnrollment(t) } }, 'tp1_enrollment_unreadable', 'tp1_enrollment_unreadable']]) {
     const { h } = await switchOnHarness(t, options);
     const { startupResult } = h.app.services.switchOn;
     assert.deepEqual(startupResult, { ok: false, binding: null, failureCode: code }, label);
     assert.ok(Object.isFrozen(startupResult), 'the startup result cannot change');
+    await assert.rejects(h.app.services.purchases.prepare({ accountId: 'acct_1' }), (error) => error.code === code && error.details?.cause === cause, `${label}: the failure's own code`);
     const { user, purchase } = await buyerWithPurchase(h);
     const rows = databaseRows(h.app.db);
     const prepared = await tool(h, user, 'prepare_purchase', { listingId: 'fixture-report', version: 1, seller: user.wallet.claim, idempotencyKey: 'startup-failed' });

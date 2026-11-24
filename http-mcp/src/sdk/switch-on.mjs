@@ -160,7 +160,8 @@ function buyerResolver({ ops, accounts, now }) {
  * purchase its token authenticates, else null; the one `starts`, `delivery` and
  * `relayAccess`; `createSwitchOnEvidencePorts`; and `close`, which closes the
  * node connection. `preparedOwner` is a prepareSwitchOnOwner handle and
- * `recorderNamespace` the evidence recorder's subpath namespace, or null.
+ * `recorderNamespace` the evidence recorder's subpath namespace, or null;
+ * `listingVerifierFactory` replaces the client's createListingVerifier.
  * Never rejects for a failed binding; rejects only with a database error.
  */
 export async function composeSdkPurchasesOn({ config, db, accounts, ops, coordinates, challenges, directory, chain, fetchImpl, now, logger, stopped,
@@ -175,6 +176,7 @@ export async function composeSdkPurchasesOn({ config, db, accounts, ops, coordin
     readAuthority: createAuthorityReader({ authority: createNodeAuthorityCapability({ owner, claim }), identityRecord: TP1_APPROVED_IDENTITY_RECORD,
       claim, listings, purchases: purchasesByJob, participantImplementations }) });
   let startup;
+  let startupCause = null;
   try {
     owner = ownerFor(preparedOwner, config, fetchImpl);
     const binding = await withinDeadline(async () => {
@@ -184,10 +186,13 @@ export async function composeSdkPurchasesOn({ config, db, accounts, ops, coordin
     startup = { ok: true, binding, failureCode: null };
   } catch (error) {
     startup = { ok: false, binding: null, failureCode: tp1Code(error) };
-    logger.warn('tp1_startup_binding_refused', { code: startup.failureCode, cause: error?.code ?? 'unknown' });
+    startupCause = error?.cause?.code ?? error?.code ?? 'unknown';
+    logger.warn('tp1_startup_binding_refused', { code: startup.failureCode, cause: startupCause });
   }
   const startupResult = Object.freeze(startup);
-  const refused = () => new OperationError(startupResult.failureCode, 'the TP-1 binding at startup failed, so purchase actions are refused until the server restarts');
+  // The failure's own code, as details.cause: for example transport_mismatch or unavailable.
+  const refused = () => new OperationError(startupResult.failureCode, 'the TP-1 binding at startup failed, so purchase actions are refused until the server restarts',
+    { cause: startupCause });
   // A verified Listing registers its seller; nothing else does.
   const registering = (verifier) => Object.freeze({
     async verify(args) {
