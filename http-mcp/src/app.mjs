@@ -51,6 +51,7 @@ import { createLogger } from './util/log.mjs';
 import { createRateLimiter, clientAddress } from './util/rate-limit.mjs';
 import { PURCHASE_POLL_DRAIN_MS } from './portal/purchase-poll.mjs';
 import { createPurchaseStepLog } from './util/purchase-step-log.mjs';
+import { assertTp1RecordCopy } from './tp1-record-copy.mjs';
 
 function serverSecret(db, name) {
   const row = db.prepare('SELECT value FROM secrets WHERE name = ?').get(name);
@@ -70,7 +71,9 @@ const REMOVED_BROKER_OPTIONS = Object.freeze(['dacsProtocol', 'nativeWalletTrans
  * the composition `recorderNamespace`, the evidence recorder's subpath
  * namespace or null. `listingVerifierFactory` and `routerFactories`
  * (`{ portal, agreementCreate }`) replace the client's listing verifier and the
- * two router constructors for a direct test of the switch-on wiring. Rejects
+ * two router constructors for a direct test of the switch-on wiring. In either
+ * composition it first rejects Tp1RecordCopyDrift when the browser's TP-1
+ * record copy differs from the SDK's (src/tp1-record-copy.mjs). Rejects
  * TypeError before opening the database for a removed broker option or for
  * switch combinations that cannot run together; a prepared connection it did
  * not take is closed when it rejects.
@@ -87,6 +90,7 @@ export async function createApp(options) {
 async function assembleApp(options) {
   const { config, fetchImpl = globalThis.fetch, now = () => Date.now(), logger = createLogger({ level: config.logLevel }), preparedOwner = null, recorderNamespace = null,
     listingVerifierFactory, routerFactories = { portal: createPortalRouter, agreementCreate: createAgreementCreateRouter } } = options;
+  assertTp1RecordCopy();
   const removed = REMOVED_BROKER_OPTIONS.filter((name) => Object.hasOwn(options, name));
   if (removed.length > 0) throw new TypeError(`createApp takes no ${removed.join(', ')}: the client's Agreement CREATE goes only to the CREATE delivery`);
   if (config.sellerWriteBatches === 'on') throw new TypeError('seller write batches are held until native SDK preparation and batch transport integration are reviewed');
