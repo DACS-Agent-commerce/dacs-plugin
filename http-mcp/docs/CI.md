@@ -385,8 +385,6 @@ package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
 - `test/composition-sdk.test.mjs` — after a successful startup binding, an authority reader that never answers makes prepare_purchase reject profile_not_admitted with cause code tp1_authority_timeout at 10,000 ms and zero action calls, and a late answer changes nothing — P41d — DACS-Agent-commerce/dacs-plugin#434
 - `test/composition-sdk.test.mjs` — after a successful startup binding, a closed owner connection makes prepare_purchase reject profile_not_admitted with cause code transport_closed and zero seller requests and zero action calls — P41d — DACS-Agent-commerce/dacs-plugin#434
 - `test/start-listing-verified.test.mjs` — with the switch on, the Start response for a verified Listing carries exactly the verified bytes — P41d — DACS-Agent-commerce/dacs-plugin#434
-- `test/composition-sdk.test.mjs` — the composition supplies the client the portal's per-write fee ceiling constant — P19f — DACS-Agent-commerce/dacs-plugin#434
-- `test/composition-sessions.test.mjs` — with the switch on, the native wallet relay is mounted for a live purchase handoff — P19f — DACS-Agent-commerce/dacs-plugin#434
 - `test/portal-auto-assets.test.mjs` — auto-advance config defaults off, rejects typos, and matches its deployment contract entry — P46 — DACS-Agent-commerce/dacs-plugin#323
 - `test/showcase-walkthrough.test.mjs` — switch: default off, strict off/on, env contract and example — P46 — DACS-Agent-commerce/dacs-plugin#323
 - `test/wallet-extension-probe-routes.test.mjs` — probe switch requires exactly 1, stays off by default, and its contract entry matches config — P46 — DACS-Agent-commerce/dacs-plugin#323

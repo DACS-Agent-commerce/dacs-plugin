@@ -40,7 +40,9 @@ export function createAgreementCreateRouter({ delivery, challenges, purchases, a
         const status = ['closed', 'expired'].includes(answer.delivery?.state) ? 409 : 200;
         res.status(status).json(answer);
       } catch (error) {
-        const status = error.code === 'not_found' ? 404 : error.code === 'invalid_request' || error instanceof ChallengeError ? 400 : error instanceof OperationError ? 409 : 500;
+        // not_configured: the passive purchase reader that authenticates the purchase is not in the installed client.
+        const status = error.code === 'not_found' ? 404 : error.code === 'invalid_request' || error instanceof ChallengeError ? 400
+          : error.code === 'not_configured' ? 503 : error instanceof OperationError ? 409 : 500;
         if (status === 500) logger?.error('agreement_create_error', { path: req.path, message: error.message });
         res.status(status).json({ error: status === 500 ? 'server_error' : error.code, message: status === 500 ? 'internal error' : error.code,
           ...(error.code === 'profile_not_admitted' && /^[a-z0-9_]{1,64}$/.test(error.cause?.code) ? { cause: error.cause.code } : {}) });

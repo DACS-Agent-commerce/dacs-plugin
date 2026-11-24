@@ -1,11 +1,13 @@
 // The stop file. An operator creates <dataDir>/KILL to stop new purchase
-// effects; the check below fills the client's required `stopped` seam.
+// effects. The synchronous check below is the Agreement CREATE delivery
+// gate's stop, in the form the client's required `stopped` seam takes.
 //
 // The check makes two lstat calls: the state directory must be a real
 // directory (not a symlink), and only ENOENT on KILL means "absent". Anything
 // at that path, a symlink in either place, or any failure to look means
 // "present", with its cause logged. lstat never follows a link, so a broken or
 // looping symlink named KILL still stops writes.
+import { lstatSync } from 'node:fs';
 import { lstat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ConfigError } from './config.mjs';
@@ -18,6 +20,26 @@ function directoryProblem(stats) {
   return stats.isDirectory() ? null : 'not_a_directory';
 }
 
+// Each lstat result is { stats } or { error }. Why the state directory stops writes, or null when it is a real directory.
+const directoryCause = ({ stats, error }) => (error ? error.code ?? 'lstat_failed' : directoryProblem(stats));
+// Why KILL stops writes, or null when it is absent (ENOENT, and only ENOENT).
+const stopFileCause = ({ error }) => (error ? (error.code === 'ENOENT' ? null : error.code ?? 'lstat_failed') : 'present');
+const lookAsync = (path) => lstat(path).then((stats) => ({ stats }), (error) => ({ error }));
+function lookSync(path) {
+  try {
+    return { stats: lstatSync(path) };
+  } catch (error) {
+    return { error };
+  }
+}
+
+// The answer for one check: false when nothing stops writes, else true with the stopping path and cause logged.
+function stopAnswer(logger, path, cause) {
+  if (cause === null) return false;
+  logger.warn('stop_file_stopped', { path, cause });
+  return true;
+}
+
 /**
  * Creates the stop check for `dataDir`. The returned async function resolves
  * false only when `dataDir` is a real directory and lstat of `dataDir/KILL`
@@ -27,25 +49,26 @@ function directoryProblem(stats) {
  */
 export function createStopFileCheck({ dataDir, logger }) {
   const stopFile = join(dataDir, STOP_FILE_NAME);
-  const stopped = (path, cause) => {
-    logger.warn('stop_file_stopped', { path, cause });
-    return true;
-  };
   return async function isStopped() {
-    let directory;
-    try {
-      directory = await lstat(dataDir);
-    } catch (error) {
-      return stopped(dataDir, error.code ?? 'lstat_failed');
-    }
-    const problem = directoryProblem(directory);
-    if (problem) return stopped(dataDir, problem);
-    try {
-      await lstat(stopFile);
-    } catch (error) {
-      return error.code === 'ENOENT' ? false : stopped(stopFile, error.code ?? 'lstat_failed');
-    }
-    return stopped(stopFile, 'present');
+    const cause = directoryCause(await lookAsync(dataDir));
+    if (cause !== null) return stopAnswer(logger, dataDir, cause);
+    return stopAnswer(logger, stopFile, stopFileCause(await lookAsync(stopFile)));
+  };
+}
+
+/**
+ * Creates the synchronous form of the stop check for `dataDir`, for the
+ * client's `stopped` seam and the Agreement CREATE delivery gate, which call
+ * it without awaiting. Each call reads both paths again and returns a boolean:
+ * the same answer, logged cause and classification as createStopFileCheck. It
+ * never throws.
+ */
+export function createStopFileCheckSync({ dataDir, logger }) {
+  const stopFile = join(dataDir, STOP_FILE_NAME);
+  return function isStopped() {
+    const cause = directoryCause(lookSync(dataDir));
+    if (cause !== null) return stopAnswer(logger, dataDir, cause);
+    return stopAnswer(logger, stopFile, stopFileCause(lookSync(stopFile)));
   };
 }
 
