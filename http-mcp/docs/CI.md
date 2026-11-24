@@ -315,6 +315,18 @@ seller-disposition payment-path case and 57 other `main-defect` entries.
 The baseline is not a list of the failures in this tree, which are far more
 numerous.
 
+### Switch-on tests at the pinned SDK
+
+The switch-on tests (`test/switch-on-*.test.mjs`, `test/composition-sdk.test.mjs`,
+`test/composition-sessions.test.mjs`) call `createApp` directly with SDK
+purchases on, because `loadConfig` refuses `on`, over a scripted node on an
+`.invalid` origin. The pinned client holds every purchase action, so they check
+the startup binding, the refusals, the buyer sessions and the wiring, never an
+admitted purchase. The pinned client has no evidence-recorder subpath: the
+recorder lookup is tested with a stand-in namespace. Tests that need an
+admitted purchase are listed under "Failing tests not covered by the baseline"
+until a pin admits one.
+
 ### Tests owned by the P303 cards
 
 These tests guard approval, custody, seller-evidence or no-resend behaviour. Four
