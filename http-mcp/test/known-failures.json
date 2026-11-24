@@ -386,13 +386,6 @@
   },
   {
     "file": "test/wallet-extension-probe-routes.test.mjs",
-    "test": "switch off hides every probe page/asset and retired publication route while retained portal bytes and purchase hold stay pinned",
-    "reason": "Pins served bytes that changed while this file could not load. Card P55a ports or retires this test.",
-    "class": "main-defect",
-    "expect": "Expected values to be strictly equal:\n+ actual - expected\n\n+ '85d87beb8db0de6469364b64d092902919b7395e58297931d561692d9b36f36f'\n- 'c5d31bad84dd1d3544b070b00b963215388915e83950ab9e56289ecf2b56f506'\n"
-  },
-  {
-    "file": "test/wallet-extension-probe-routes.test.mjs",
     "test": "probe nonce endpoint is read-only, owner-wallet bound and refuses unavailable or malformed nonces",
     "reason": "Needs a chain nonce, balance or network read; with SDK purchases off the app's chain reader makes identity reads only, so the read fails closed. Card P55a ports or retires this test.",
     "class": "main-defect",

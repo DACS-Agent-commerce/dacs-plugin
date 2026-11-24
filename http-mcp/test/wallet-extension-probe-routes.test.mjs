@@ -27,7 +27,9 @@ const legacy = {
   // appends a refusal's buyerFunding sentence (unchanged output when a response carries none).
   // v2 removes the publication flow/capability and unused transaction-kind
   // constant. Buyer and identity flows keep their existing write holds.
-  'portal.js': 'c5d31bad84dd1d3544b070b00b963215388915e83950ab9e56289ecf2b56f506',
+  // Plus pay() throwing, for a handoff refused before signing, the server's explanation of the refusal
+  // code (view.refusal.message) in place of the fixed text.
+  'portal.js': '85d87beb8db0de6469364b64d092902919b7395e58297931d561692d9b36f36f',
   'portal.css': '89a42fa639c0cdd45a5fdd51ec33a4a9fcb218f2017e8528615c263687d3cb49',
 };
 
