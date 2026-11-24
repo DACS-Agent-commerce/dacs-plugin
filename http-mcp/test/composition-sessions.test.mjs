@@ -106,7 +106,7 @@ test('a process restart while a purchase session is binding loses nothing, and t
   assert.equal(databaseRows(h.app.db), rows, 'the interrupted call wrote nothing');
 });
 
-test('a buyer session whose binding is refused rejects with the refusal\'s own bare tp1 code, keeps nothing, and the next call binds again', async (t) => {
+test("a buyer session whose binding is refused rejects with the refusal's own bare tp1 code, keeps nothing, and the next call binds again", async (t) => {
   const node = tp1Node();
   const { h } = await switchOnHarness(t, { node });
   const user = await linkedUser(h);

@@ -57,7 +57,7 @@ test('an expired MCP bearer token is refused 401 before any purchase session loo
   assert.equal(node.reads.length, reads);
 });
 
-test('account A\'s purchase naming B\'s linked wallet is refused not_found on the MCP and portal paths before B\'s reader or any effect', async (t) => {
+test("account A's purchase naming B's linked wallet is refused not_found on the MCP and portal paths before B's reader or any effect", async (t) => {
   const { h, node } = await switchOnHarness(t);
   const [a, b] = [await linkedUser(h), await linkedUser(h)];
   await assert.rejects(h.app.services.purchases.prepare(prepareArgs(h, b, 'b-1')), HELD, 'B\'s session is bound');
@@ -71,7 +71,7 @@ test('account A\'s purchase naming B\'s linked wallet is refused not_found on th
   assert.equal(databaseRows(h.app.db), rows);
 });
 
-test('the purchase facade routes every member by startup state and buyer session: the five passive readers refuse as with purchases off in every state, and each action answers the startup code, not_found without a proven session, or the client\'s hold with one', async (t) => {
+test("the purchase facade routes every member by startup state and buyer session: the five passive readers refuse as with purchases off in every state, and each action answers the startup code, not_found without a proven session, or the client's hold with one", async (t) => {
   const failed = (await switchOnHarness(t, { node: tp1Node({ chainIdentity: FIXTURE_CHAIN }) })).h;
   const failedUser = await linkedUser(failed);
   const failedPurchase = seedHandoffPurchase(failed, { accountId: accountOf(failed, failedUser), wallet: failedUser.wallet.address });
@@ -99,7 +99,7 @@ test('the purchase facade routes every member by startup state and buyer session
   assertPassiveAsOff(purchases, proven, 'unlinked');
 });
 
-test('after buyer session A ends by unlinking its wallet, A\'s next action refuses not_found before a bind, node read or write, and B\'s bound session still reaches the client\'s hold', async (t) => {
+test("after buyer session A ends by unlinking its wallet, A's next action refuses not_found before a bind, node read or write, and B's bound session still reaches the client's hold", async (t) => {
   const { h, node } = await switchOnHarness(t);
   const [a, b] = [await linkedUser(h), await linkedUser(h)];
   const purchaseOfA = seedHandoffPurchase(h, { accountId: accountOf(h, a), wallet: a.wallet.address, key: 'a' });
