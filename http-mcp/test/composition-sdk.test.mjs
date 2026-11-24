@@ -18,7 +18,8 @@ import { createEphemeralWallet } from './fixtures/wallet.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { createApp } from '../src/app.mjs';
 import { createLogger } from '../src/util/log.mjs';
-import { FIXTURE_CHAIN, NODE_ORIGIN, clientRefusal, prepareArgs, switchOnHarness, tp1Node } from './helpers/switch-on-world.mjs';
+import { composeSdkPurchasesOn } from '../src/sdk/switch-on.mjs';
+import { FIXTURE_CHAIN, NODE_ORIGIN, clientRefusal, prepareArgs, routedFetch, switchOnHarness, tp1Node } from './helpers/switch-on-world.mjs';
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PURCHASE_ID = 'pur_AAAAAAAAAAAAAAAA';
@@ -250,15 +251,62 @@ test('after a successful startup binding, an authority reader that never answers
   assert.equal(databaseRows(h.app.db), rows, 'no action ran, before or after the late answer');
 });
 
-test('after a successful startup binding and while SDK purchase admission is held, each of the refused-authority setups (an authority reader naming the revision-1 chain, an authority reader that never answers) makes prepare_purchase reject profile_not_admitted with no cause at once, before any per-call authority read, with zero seller requests and zero action calls', async (t) => {
+const isHeld = (error) => error.code === 'profile_not_admitted' && error.cause === undefined;
+
+/** A switch-on composition built directly over `h`'s parts and its node double; closed after the test. */
+async function composeOver(t, h, node, origins) {
+  const { db, services: { accounts, ops, coordinates, challenges, directory, chain } } = h.app;
+  const composed = await composeSdkPurchasesOn({ config: h.config, db, accounts, ops, coordinates, challenges, directory, chain,
+    fetchImpl: routedFetch(node, origins), now: () => Date.now(), logger: createLogger({ level: 'error', sink: () => {} }), stopped: () => false });
+  t.after(() => composed.close());
+  return composed;
+}
+
+/**
+ * A switch-on composition whose owner connection is closed after the startup binding and after linked user A's
+ * session was bound by one held prepare. Linked user B has no session yet.
+ */
+async function closedOwnerSession(t) {
+  const origins = [];
+  const { h, node } = await switchOnHarness(t, { origins });
+  const [a, b] = [await linkedUser(h), await linkedUser(h)];
+  const composed = await composeOver(t, h, node, origins);
+  await assert.rejects(composed.purchases.prepare(prepareArgs(h, a, 'bind-a')), isHeld);
+  composed.close();
+  return { h, node, a, b, composed, origins, reads: node.reads.length, rows: databaseRows(h.app.db) };
+}
+
+test('after a successful startup binding and while SDK purchase admission is held, each of the refused-authority setups (an authority reader naming the revision-1 chain, an authority reader that never answers, the owner connection closed after the startup binding) makes prepare_purchase reject profile_not_admitted with no cause at once, before any per-call authority read, with zero seller requests and zero action calls', async (t) => {
   for (const setup of [(node) => { node.chainIdentity = TP1_REFUSED_CHAIN_IDENTITIES[0]; }, (node) => { node.mode = 'silent'; }]) {
     const { h, node, user, origins, reads, rows } = await boundSession(t);
     setup(node);
-    await assert.rejects(h.app.services.purchases.prepare(prepareArgs(h, user)), (error) => error.code === 'profile_not_admitted' && error.cause === undefined);
+    await assert.rejects(h.app.services.purchases.prepare(prepareArgs(h, user)), isHeld);
     assert.equal(node.reads.length, reads, 'no authority read for the call');
     assert.deepEqual(sellerOrigins(h, origins), []);
     assert.equal(databaseRows(h.app.db), rows);
   }
+
+  const { h, node, a, b, composed, origins, reads, rows } = await closedOwnerSession(t);
+  await assert.rejects(composed.purchases.prepare(prepareArgs(h, a)), isHeld);
+  // B's session would bind after the close: the closed owner refuses it before any node read.
+  await assert.rejects(composed.purchases.prepare(prepareArgs(h, b, 'bind-b')), (error) => error.code === 'profile_not_admitted' && error.cause?.code === 'transport_closed');
+  assert.equal(node.reads.length, reads, 'no authority read after the close');
+  assert.deepEqual(sellerOrigins(h, origins), []);
+  assert.equal(databaseRows(h.app.db), rows);
+
+  // With the owner left open, B's first bind reads the node and its call reaches the held client.
+  const open = await composeOver(t, h, node, origins);
+  const opened = node.reads.length;
+  await assert.rejects(open.purchases.prepare(prepareArgs(h, b, 'bind-b')), isHeld);
+  assert.ok(node.reads.length > opened, 'B bound over the open owner');
+});
+
+test('after a successful startup binding, a closed owner connection makes prepare_purchase reject profile_not_admitted with cause code transport_closed and zero seller requests and zero action calls', async (t) => {
+  const { h, a, composed, origins, rows } = await closedOwnerSession(t);
+  const error = await clientRefusal(() => composed.purchases.prepare(prepareArgs(h, a)));
+  assert.deepEqual([error.code, error.cause?.code], ['profile_not_admitted', 'transport_closed']);
+  assert.deepEqual(sellerOrigins(h, origins), []);
+  assert.equal(databaseRows(h.app.db), rows, 'no action ran');
 });
 
 const PURCHASE_FACTORIES_SOURCE = fileURLToPath(new URL('./purchases.mjs', import.meta.resolve('@kynesyslabs/dacs-client')));

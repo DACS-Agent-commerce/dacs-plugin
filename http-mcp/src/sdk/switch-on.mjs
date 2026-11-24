@@ -22,7 +22,7 @@ import { PURPOSES } from '../wallet/challenges.mjs';
 import { PURCHASE_SERVICE_ACTIVE, PURCHASE_SERVICE_PASSIVE, createPurchasesUnbound } from './activation-seams.mjs';
 import { loadParticipantEnrollment } from './participant-enrollment.mjs';
 
-// K0's deadline for one TP-1 binding, at startup and for each buyer session.
+// The deadline for one TP-1 binding, at startup and for each buyer session.
 const BINDING_DEADLINE_MS = 10_000;
 const TP1_CODE = /^tp1_[a-z0-9_]{1,59}$/;
 

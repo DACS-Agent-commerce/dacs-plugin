@@ -160,6 +160,14 @@
     "reason": "The pinned client holds purchase actions before any per-call authority read; final candidate validation (P41d) owns admitted execution."
   },
   {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "after a successful startup binding, a closed owner connection makes prepare_purchase reject profile_not_admitted with cause code transport_closed and zero seller requests and zero action calls",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions before any per-call read of the closed owner; once P41d and P35 lift the hold, the call must reject with the client's transport_closed cause."
+  },
+  {
     "file": "test/start-listing-verified.test.mjs",
     "test": "with the switch on, the Start response for a verified Listing carries exactly the verified bytes",
     "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
