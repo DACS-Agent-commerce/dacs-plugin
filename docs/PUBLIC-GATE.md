@@ -200,8 +200,10 @@ node scripts/public-gate/gate.mjs --repo <dir> --commit <full-sha> --scope compl
   `R-PRIVATE` and about 20 s for `R-WORDING`. The private-list scan and the wording-list scan each get the full
   `scanDeadlineMs` (30 s), counted from when that rule starts, so the slower rule has about 1.5x headroom. A slower
   runner stops with `limit:scanDeadlineMs` (exit 2, no report) instead of finishing.
-  The scan does not return to the event loop, so SIGINT and SIGTERM stop the run only while git runs (exit 2, no report).
-- **Exit codes.** 0 pass, 1 findings, 2 missing or malformed input, interrupt during a git call, limit or unscannable
+  The scan does not return to the event loop, and neither do the three git queries that find the repository's folders
+  (each can run up to `gitDeadlineMs`). SIGINT and SIGTERM stop the run at once only while the git object and history reads
+  run (exit 2, no report). A signal that arrives during a folder query is handled when the query ends.
+- **Exit codes.** 0 pass, 1 findings, 2 missing or malformed input, interrupt during a git read, limit or unscannable
   target.
 
 All output leaves through `scripts/public-gate/redact.mjs` on a route listed in `DIAGNOSTIC_ROUTES`.
