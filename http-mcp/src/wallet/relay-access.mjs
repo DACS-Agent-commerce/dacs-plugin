@@ -27,8 +27,11 @@ export class RelayAccessError extends Error {
 
 const hashOf = (capability) => createHash('sha256').update(`dacs-relay-access:${capability}`).digest();
 const iso = (ms) => new Date(ms).toISOString();
-// A handoff expiry in the exact form the client stores, or NaN.
-const handoffExpiry = (stored) => (typeof stored === 'string' && iso(Date.parse(stored)) === stored ? Date.parse(stored) : NaN);
+/** Parses a stored handoff expiry: its epoch milliseconds when it is in the exact ISO form the client stores, else NaN. Never throws. */
+export function handoffExpiry(stored) {
+  const ms = typeof stored === 'string' ? Date.parse(stored) : NaN;
+  return Number.isFinite(ms) && iso(ms) === stored ? ms : NaN;
+}
 
 /**
  * Returns `{ mint, admit, revokeOperation, sweep }` over the app database `db`; every method is synchronous.

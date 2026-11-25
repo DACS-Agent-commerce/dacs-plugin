@@ -115,15 +115,17 @@ function parseSwitches(env, { from = -Infinity, before = null } = {}) {
 // the client's passive reader and stop seam, its fee-ceiling and wallet-handoff
 // members and its HTTPS seller client have no fixed public names yet, so they
 // cannot be looked up here.
-function requireSdkPurchaseParts(clientNamespace) {
-  const [missing] = readActivationSeams(clientNamespace).missing;
+function requireSdkPurchaseParts(clientNamespace, recorderNamespace) {
+  const [missing] = readActivationSeams(clientNamespace, { recorderNamespace }).missing;
   if (missing) throw new ConfigError(`sdk_part_missing: ${missing.part} ${missing.name}`, 'sdk_part_missing');
   throw new ConfigError('switch_on_not_validated: DACS_SDK_PURCHASES=on is refused until the SDK purchase path is validated on the installed client', 'switch_on_not_validated');
 }
 
-// The second argument is for tests only: `clientNamespace` stands in for the
-// installed client namespace. Shipped callers pass the environment alone.
-export function loadConfig(env = process.env, { clientNamespace } = {}) {
+// The second argument's `clientNamespace` is for tests only: it stands in for
+// the installed client namespace. `recorderNamespace` is the evidence
+// recorder's package subpath namespace, imported by the caller, or null when
+// that subpath is absent. Shipped callers pass the environment alone.
+export function loadConfig(env = process.env, { clientNamespace, recorderNamespace = null } = {}) {
   const allowInsecureLocal = env.DACS_ALLOW_INSECURE_LOCALHOST === '1';
   if (!env.DACS_PUBLIC_ORIGIN) throw new ConfigError('DACS_PUBLIC_ORIGIN is required (the stable HTTPS origin that serves /mcp)');
   const publicOrigin = parseOrigin('DACS_PUBLIC_ORIGIN', env.DACS_PUBLIC_ORIGIN, { allowInsecureLocal });
@@ -245,7 +247,7 @@ export function loadConfig(env = process.env, { clientNamespace } = {}) {
   // SDK purchases read the chain from a remote node over https only.
   if (switches.sdkPurchases === 'on') {
     if (!isRemoteHttps(chainRpcUrl)) throw new ConfigError('DACS_SDK_PURCHASES=on requires an https, non-loopback DACS_CHAIN_RPC_URL');
-    requireSdkPurchaseParts(clientNamespace);
+    requireSdkPurchaseParts(clientNamespace, recorderNamespace);
   }
 
   const chainNetwork = env.DACS_CHAIN_NETWORK || 'demos-testnet';

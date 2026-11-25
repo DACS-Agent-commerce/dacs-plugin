@@ -18,10 +18,12 @@
 // A configuration with the switch on (test fixtures only) gets the switch-on
 // composition in src/sdk/switch-on.mjs: the startup TP-1 binding, one set of
 // client purchase objects per buyer session, and, with DACS_INTENT_APPROVAL on,
-// the Agreement CREATE delivery and its challenge, claim and pass routes. Its
+// the Agreement CREATE delivery and its challenge, claim and pass routes, which
+// read KILL on every call and share the portal's relay capability store. Its
 // chain reader adds the client's public testnet reads, pinned to the SDK
 // record's chain identity. The native wallet relay stays unmounted: it needs a
-// server-held buyer key.
+// server-held buyer key. The composition's process descriptor is returned as
+// `services.switchOn`.
 import express from 'express';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
@@ -37,12 +39,10 @@ import { createChallengeService } from './wallet/challenges.mjs';
 import { createOperationStore } from './operations.mjs';
 import { createDemosChainReader } from './sdk/chain-reader.mjs';
 import { createPurchasesOff, LISTING_VERIFICATION_OFF } from './sdk/activation-seams.mjs';
-import { composeSdkPurchasesOn } from './sdk/switch-on.mjs';
-import { createStopFileCheck } from './stop-file.mjs';
-import { createAgreementCreateDelivery } from './portal/agreement-create-delivery.mjs';
+import { composeSdkPurchasesOn, releasePreparedOwner } from './sdk/switch-on.mjs';
+import { createStopFileCheckSync } from './stop-file.mjs';
 import { createAgreementCreateRouter } from './portal/agreement-create-routes.mjs';
 import { createStartIntents } from './portal/start-intent.mjs';
-import { createRelayAccess } from './wallet/relay-access.mjs';
 import { createLegacyPublicationService } from './legacy-publications.mjs';
 import { createSellerIdentityReader } from './seller-identities.mjs';
 import { createIdentityService, createIdentityActions } from './identities.mjs';
@@ -69,11 +69,28 @@ const REMOVED_BROKER_OPTIONS = Object.freeze(['dacsProtocol', 'nativeWalletTrans
 /**
  * Builds the app for `config`: the Express `app`, an async `close`, the
  * database and the services. With SDK purchases on it binds at startup first
- * (src/sdk/switch-on.mjs). Rejects TypeError before opening the database for a
- * removed broker option or for switch combinations that cannot run together.
+ * (src/sdk/switch-on.mjs), over the node connection `preparedOwner` (a
+ * prepareSwitchOnOwner handle for this `config`) or one of its own, and gives
+ * the composition `recorderNamespace`, the evidence recorder's subpath
+ * namespace or null. `listingVerifierFactory` and `routerFactories`
+ * (`{ portal, agreementCreate }`) replace the client's listing verifier and the
+ * two router constructors for a direct test of the switch-on wiring. Rejects
+ * TypeError before opening the database for a removed broker option or for
+ * switch combinations that cannot run together; a prepared connection it did
+ * not take is closed when it rejects.
  */
 export async function createApp(options) {
-  const { config, fetchImpl = globalThis.fetch, now = () => Date.now(), logger = createLogger({ level: config.logLevel }) } = options;
+  try {
+    return await assembleApp(options);
+  } catch (error) {
+    releasePreparedOwner(options.preparedOwner);
+    throw error;
+  }
+}
+
+async function assembleApp(options) {
+  const { config, fetchImpl = globalThis.fetch, now = () => Date.now(), logger = createLogger({ level: config.logLevel }), preparedOwner = null, recorderNamespace = null,
+    listingVerifierFactory, routerFactories = { portal: createPortalRouter, agreementCreate: createAgreementCreateRouter } } = options;
   const removed = REMOVED_BROKER_OPTIONS.filter((name) => Object.hasOwn(options, name));
   if (removed.length > 0) throw new TypeError(`createApp takes no ${removed.join(', ')}: the client's Agreement CREATE goes only to the CREATE delivery`);
   if (config.sellerWriteBatches === 'on') throw new TypeError('seller write batches are held until native SDK preparation and batch transport integration are reviewed');
@@ -93,16 +110,16 @@ export async function createApp(options) {
     ? createDemosPublicChainReader({ rpcUrl: config.chain.rpcUrl, network: 'testnet', pinnedIdentity: TP1_APPROVED_IDENTITY_RECORD.chainIdentity, timeoutMs: config.chain.timeoutMs, fetchImpl })
     : null;
   const chain = config.chain ? createDemosChainReader({ ...config.chain, fetchImpl, chainReads }) : null;
-  // The CREATE delivery's write stop: the KILL file check, read again before each CREATE route; stopped until first read.
-  const stopCheck = createStopFileCheck({ dataDir: config.dataDir, logger });
-  let writesStopped = true;
+  // The CREATE delivery's write stop reads the KILL file at each call.
   const sdk = config.sdkPurchases === 'on'
-    ? await composeSdkPurchasesOn({ config, db, accounts, ops, coordinates, challenges, directory, chain, fetchImpl, now, logger, stopped: () => writesStopped })
+    ? await composeSdkPurchasesOn({ config, db, accounts, ops, coordinates, challenges, directory, chain, fetchImpl, now, logger, preparedOwner, recorderNamespace,
+      listingVerifierFactory, stopped: createStopFileCheckSync({ dataDir: config.dataDir, logger }) })
     : null;
   const verifier = sdk?.verifier ?? LISTING_VERIFICATION_OFF;
   const purchases = sdk?.purchases ?? createPurchasesOff();
-  const startIntents = config.intentApproval === 'on' ? createStartIntents({ purchases, accounts, chain, now }) : null;
-  const createDelivery = sdk && startIntents ? createAgreementCreateDelivery({ db, starts: startIntents, gates: sdk.gates, now }) : null;
+  const intents = config.intentApproval === 'on';
+  const startIntents = intents ? sdk?.starts ?? createStartIntents({ purchases, accounts, chain, now }) : null;
+  const createDelivery = sdk && intents ? sdk.delivery : null;
   // Historical owner history and nonce-proven cancellation; no publication writer.
   const agents = createLegacyPublicationService({ db, ops, coordinates, chain });
   const identityClient = new AsyncLocalStorage();
@@ -142,7 +159,7 @@ export async function createApp(options) {
   };
 
   const services = { accounts, ops, directory, verifier, purchases, agents, identities, identityActions, sellerIdentities, linkSecret };
-  const factory = createMcpServerFactory({ config, services, logger });
+  const factory = createMcpServerFactory({ config, services, logger, devnetLivePurchase: false });
   const maxRequestBodySize = 256 * 1024;
   const mcpHandler = createMcpHandler(factory, { legacy: 'stateless', maxRequestBodySize, onerror: (error) => logger.warn('mcp_protocol_error', { message: error.message }) });
   const nodeMcp = toNodeHandler(mcpHandler, { maxRequestBodySize, onerror: (error) => logger.error('mcp_adapter_error', { message: error.message }) });
@@ -176,7 +193,7 @@ export async function createApp(options) {
       },
       // No evidence recorder is composed in either composition, so no purchase evidence is recorded.
       // With the switch on, `binding` is the startup TP-1 binding: bound with its record id, or refused with its code.
-      sdkPurchases: { switch: config.sdkPurchases, evidence: 'unavailable', ...(sdk ? { binding: sdk.binding } : {}) },
+      sdkPurchases: { switch: config.sdkPurchases, evidence: 'unavailable', ...(sdk ? { binding: sdk.bindingState } : {}) },
       sdk: SDK_PROVENANCE,
       liveness: 'This endpoint never reports chain, payment or ChatGPT installation success.',
     });
@@ -222,15 +239,18 @@ export async function createApp(options) {
     app.use('/oauth', (req, res) => authServer.callback(req, res));
   }
 
-  if (createDelivery) {
-    app.use('/portal/api/purchase/:id/agreement-create', async (_req, _res, next) => {
-      writesStopped = await stopCheck();
-      next();
-    });
-    app.use(createAgreementCreateRouter({ delivery: createDelivery, challenges, purchases, accounts, relayAccess: createRelayAccess({ db, now }), starts: startIntents, logger, now }));
-  }
-  const portalRouter=createPortalRouter({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger, authenticateProbeBearer: async (header) => verifyBearerToken(header, { verifier: await getVerifier(), resourceMetadataUrl: prmUrl }), chain, fetchImpl, now, timeline: purchaseSteps, startIntents, createDelivery });
+  // The routers' options; with the switch on, both hold the composition's one relay capability store.
+  const routeInputs = Object.freeze({
+    portal: Object.freeze({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger,
+      authenticateProbeBearer: async (header) => verifyBearerToken(header, { verifier: await getVerifier(), resourceMetadataUrl: prmUrl }), chain, fetchImpl, now,
+      timeline: purchaseSteps, startIntents, createDelivery, relayAccess: sdk?.relayAccess ?? null, startupRefusal: sdk?.startupRefusal ?? null }),
+    agreementCreate: createDelivery
+      ? Object.freeze({ delivery: createDelivery, challenges, purchases, accounts, relayAccess: sdk.relayAccess, starts: startIntents, logger, now })
+      : null,
+  });
+  const portalRouter = routerFactories.portal(routeInputs.portal);
   app.use(portalRouter);
+  if (routeInputs.agreementCreate) app.use(routerFactories.agreementCreate(routeInputs.agreementCreate));
 
   // Anonymous MCP calls are allowed (public discovery tools). A presented
   // bearer token must verify, or the request is refused with a challenge.
@@ -269,5 +289,6 @@ export async function createApp(options) {
     db.close();
   }
 
-  return { app, close, db, services: { ...services, challenges, coordinates, chain }, authServer, issuer, protectedResourceMetadata };
+  const switchOn = sdk ? Object.freeze({ ...sdk, routeInputs }) : null;
+  return { app, close, db, services: { ...services, challenges, coordinates, chain, switchOn }, authServer, issuer, protectedResourceMetadata };
 }

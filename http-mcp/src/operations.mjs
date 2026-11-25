@@ -29,6 +29,8 @@ function hydrate(row) {
     termsHash: row.terms_hash,
     state: JSON.parse(row.state),
     expiresAt: row.expires_at,
+    // The portal handoff's expiry as stored, unparsed; null until the client opens the handoff.
+    handoffExpiresAt: row.handoff_expires_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

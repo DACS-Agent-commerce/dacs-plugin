@@ -64,6 +64,10 @@ const TERMS_MEMBERS = ['profile', 'operation', 'network', 'rail', 'domain', 'buy
 const EVIDENCE_MEMBERS = ['listingMode', 'directoryMode', 'paymentMode', 'simulated', 'reportedTxHash', 'networkIdentity', 'commitment', 'receipt', 'next', 'actionable', 'protocol'];
 // A seller's refusal code is repeated only in this plain form.
 const SELLER_CODE = /^[a-z0-9_]{1,64}$/;
+// Purchase routes whose handler reads the purchase through the passive reader before any purchase action.
+const PASSIVE_FIRST_ROUTES = ['protocol/recheck', 'intent/start', 'intent/plan', 'intent/sign'].map((route) => `/portal/api/purchase/:id/${route}`);
+// Refusals under which nothing records a wallet report: purchases off, the client's purchase hold, or a TP-1 binding failure.
+const REPORT_NOT_RECORDED = /^(?:sdk_purchases_off|profile_not_admitted|tp1_[a-z0-9_]{1,59})$/;
 
 function errorStatus(error) {
   if (error instanceof OutboundError || error instanceof SellerUnavailableError) return 503;
@@ -92,8 +96,11 @@ export function linkToken(secret, accountId, expires, nonce) {
 // wallet a payment payload also carries a relay capability for that purchase.
 // startIntents: the Start store (src/portal/start-intent.mjs), present only with DACS_INTENT_APPROVAL on; the app
 // passes the one its Agreement CREATE routes share.
+// startupRefusal(operationId, token): with SDK purchases on, the failed startup binding's error for a purchase its
+// handoff token authenticates, else null. The routes that read the purchase through the passive reader before any
+// action (recheck and the Start routes) answer it first.
 export function createPortalRouter({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger, authenticateProbeBearer, chain, fetchImpl = globalThis.fetch, now = () => Date.now(), offlineAgreementBroker = null, timeline = createPurchaseStepLog({ logger }), relayAccess = null, createDelivery = null,
-  startIntents = config.intentApproval === 'on' ? createStartIntents({ purchases, accounts, chain, now }) : null }) {
+  startIntents = config.intentApproval === 'on' ? createStartIntents({ purchases, accounts, chain, now }) : null, startupRefusal = null }) {
   const router = express.Router();
   const purchasePoll=createPurchasePoll(),signTimes=new Map();
   router.drainPurchasePolls=(options)=>purchasePoll.drain(options);
@@ -170,6 +177,13 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
     }
   };
   const address = (value) => normalizeDemosAddress(value);
+  if (startupRefusal) {
+    router.post(PASSIVE_FIRST_ROUTES, json, (req, res, next) => {
+      const refusal = startupRefusal(req.params.id, req.body?.token);
+      if (!refusal) return next();
+      return res.status(errorStatus(refusal)).json(errorBody(refusal, errorStatus(refusal)));
+    });
+  }
 
   // ---- OAuth interaction: wallet login + consent for ChatGPT ----
   // These live under /portal/authorize/:uid because oidc-provider scopes the
@@ -346,10 +360,11 @@ export function createPortalRouter({ config, db, authServer, accounts, challenge
     return purchases.nativePaymentLane({ operationId: req.params.id, token: req.body?.token, key: req.body?.key });
   }));
   // walletErrorCode: the wallet's structured error code (portal.js pay()), recorded, never trusted alone.
-  // With SDK purchases off nothing records the report: 503 not_configured, details.reason sdk_purchases_off.
+  // With SDK purchases off, held, or after a failed TP-1 binding nothing records the report: 503 not_configured,
+  // details.reason the refusal's own code.
   const reportNotTaken = (error) => {
-    if (error?.code !== 'sdk_purchases_off') throw error;
-    throw new OperationError('not_configured', 'the wallet report is not recorded while SDK purchases are off', { reason: 'sdk_purchases_off' });
+    if (!REPORT_NOT_RECORDED.test(error?.code ?? '')) throw error;
+    throw new OperationError('not_configured', 'the wallet report is not recorded on this server', { reason: error.code });
   };
   router.post('/portal/api/purchase/:id/report', json, api(async (req) => {
     const result = await purchases.reportWalletResult({ operationId: req.params.id, token: req.body?.token, txHash: req.body?.txHash, walletError: req.body?.walletError, walletErrorCode: req.body?.walletErrorCode }).catch(reportNotTaken);

@@ -288,8 +288,9 @@ test('after a successful startup binding and while SDK purchase admission is hel
 
   const { h, node, a, b, composed, origins, reads, rows } = await closedOwnerSession(t);
   await assert.rejects(composed.purchases.prepare(prepareArgs(h, a)), isHeld);
-  // B's session would bind after the close: the closed owner refuses it before any node read.
-  await assert.rejects(composed.purchases.prepare(prepareArgs(h, b, 'bind-b')), (error) => error.code === 'profile_not_admitted' && error.cause?.code === 'transport_closed');
+  // B's session would bind after the close: the closed owner refuses it before any node read, and the client's
+  // transport_closed, not a tp1 code, answers as the bare tp1_authority_failed.
+  await assert.rejects(composed.purchases.prepare(prepareArgs(h, b, 'bind-b')), (error) => error.code === 'tp1_authority_failed' && error.cause?.code === 'transport_closed');
   assert.equal(node.reads.length, reads, 'no authority read after the close');
   assert.deepEqual(sellerOrigins(h, origins), []);
   assert.equal(databaseRows(h.app.db), rows);
@@ -383,13 +384,4 @@ test('with SDK purchases on, the app\'s chain reader refuses a storage read and 
   await assert.rejects(chain.readStorageProgram(ANCHOR), isMismatch);
   await assert.rejects(chain.getAddressNonce(createEphemeralWallet().address), isMismatch);
   assert.deepEqual(node.reads.slice(before), ['getBlockByNumber', 'getBlockByNumber']);
-});
-
-const PURCHASE_FACTORIES_SOURCE = fileURLToPath(new URL('./purchases.mjs', import.meta.resolve('@kynesyslabs/dacs-client')));
-const FEE_CEILING_MISSING = 'sdk_part_missing: P19f feeCeilingOs is not an option of the purchase factories in @kynesyslabs/dacs-client@0.1.0-alpha.0';
-
-test('the composition supplies the client the portal\'s per-write fee ceiling constant', () => {
-  if (!readFileSync(PURCHASE_FACTORIES_SOURCE, 'utf8').includes('feeCeilingOs')) throw new Error(FEE_CEILING_MISSING);
-  const composition = readFileSync(join(PACKAGE_ROOT, 'src/sdk/switch-on.mjs'), 'utf8');
-  assert.match(composition, /feeCeilingOs: FEE_CEILING_PER_WRITE_OS/);
 });

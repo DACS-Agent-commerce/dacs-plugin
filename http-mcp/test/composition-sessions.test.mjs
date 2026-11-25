@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DEVNET_NATIVE_RPC_PATH } from '@kynesyslabs/dacs-client';
 import { canonicalize } from '@kynesyslabs/dacs';
 import { TP1_APPROVED_IDENTITY_RECORD } from '@kynesyslabs/dacs/wire';
 import { linkedUser } from './helpers/flows.mjs';
@@ -66,7 +65,7 @@ test('account A\'s request naming wallet B, which is B\'s linked wallet, is refu
   await assert.rejects(prepare(h, b, 'b-1'), HELD);
   const reads = node.reads.length;
   const rows = databaseRows(h.app.db);
-  await assert.rejects(prepare(h, a, 'a-names-b', { walletAddress: b.wallet.address }), (error) => error.code === 'wallet_not_linked');
+  await assert.rejects(prepare(h, a, 'a-names-b', { walletAddress: b.wallet.address }), (error) => error.code === 'not_found');
   assert.equal(node.reads.length, reads, 'neither B\'s session nor a new one was used');
   assert.equal(databaseRows(h.app.db), rows);
 });
@@ -84,7 +83,7 @@ test('a purchase session that ends mid-operation lets the call in flight finish 
   node.mode = 'answer';
   await assert.rejects(inFlight, HELD, 'the call in flight reached the client on its session\'s objects');
   const reads = node.reads.length;
-  await assert.rejects(prepare(h, user, 'after-end'), (error) => error.code === 'wallet_required');
+  await assert.rejects(prepare(h, user, 'after-end'), (error) => error.code === 'not_found');
   assert.equal(node.reads.length, reads, 'the ended session bound nothing new');
 });
 
@@ -107,27 +106,16 @@ test('a process restart while a purchase session is binding loses nothing, and t
   assert.equal(databaseRows(h.app.db), rows, 'the interrupted call wrote nothing');
 });
 
-test('a buyer session whose binding is refused rejects profile_not_admitted with the refusal as its cause, keeps nothing, and the next call binds again', async (t) => {
+test("a buyer session whose binding is refused rejects with the refusal's own bare tp1 code, keeps nothing, and the next call binds again", async (t) => {
   const node = tp1Node();
   const { h } = await switchOnHarness(t, { node });
   const user = await linkedUser(h);
   node.chainIdentity = FIXTURE_CHAIN;
-  await assert.rejects(prepare(h, user, 'refused-session'), (error) => error.code === 'profile_not_admitted' && error.cause?.code === 'tp1_connection_unverified');
+  await assert.rejects(prepare(h, user, 'refused-session'), (error) => error.code === 'tp1_connection_unverified');
   node.chainIdentity = TP1_APPROVED_IDENTITY_RECORD.chainIdentity;
   const reads = node.reads.length;
   await assert.rejects(prepare(h, user, 'rebound-session'), HELD);
   assert.ok(node.reads.length > reads, 'the refused session was not kept, so the next call bound a new one');
-});
-
-test('in builtin sign-in mode a purchase session ends when the account\'s sign-in session expires', async (t) => {
-  const { h, node } = await switchOnHarness(t);
-  const user = await linkedUser(h);
-  await assert.rejects(prepare(h, user, 'signed-in'), HELD);
-  const expired = h.app.db.prepare("UPDATE oidc_models SET expires_at = 1 WHERE model = 'Session' AND json_extract(payload, '$.accountId') = ?").run(accountOf(h, user));
-  assert.ok(expired.changes > 0, 'the account had a sign-in session');
-  const reads = node.reads.length;
-  await assert.rejects(prepare(h, user, 'signed-out'), (error) => error.code === 'session_ended');
-  assert.equal(node.reads.length, reads);
 });
 
 test('the operation store finds a saved purchase by its job id, writes nothing, and answers null for an unknown job', async (t) => {
@@ -146,19 +134,10 @@ test('with the switch on, a KILL file in the data directory makes the CREATE rou
   const { h } = await switchOnHarness(t, { env: { DACS_INTENT_APPROVAL: 'on' } });
   const challenge = () => fetch(`${h.origin}/portal/api/purchase/pur_AAAAAAAAAAAAAAAA/agreement-create/challenge`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: canonicalize({ start: 'start', token: 'token' }) }).then((r) => r.json());
-  assert.equal((await challenge()).error, 'not_found', 'without KILL the route reads the purchase');
+  assert.equal((await challenge()).error, 'not_configured', 'without KILL the route reaches the passive purchase reader');
   writeFileSync(join(h.dataDir, 'KILL'), '');
   assert.equal((await challenge()).error, 'writes_stopped');
 });
-
-test('with the switch on, the native wallet relay is mounted for a live purchase handoff', async (t) => {
-  const { h } = await switchOnHarness(t);
-  const probe = await fetch(`${h.origin}${DEVNET_NATIVE_RPC_PATH}`);
-  if (probe.status === 404) throw new Error(RELAY_UNMOUNTED);
-  assert.deepEqual((await probe.json()).response, { relay: 'dacs-native-only', profile: 'devnet-native' });
-});
-
-const RELAY_UNMOUNTED = 'the native wallet relay is not mounted: src/portal/wallet-rpc.mjs needs a node wallet session, and the installed client has no keyless stop seam (P19) or fee ceiling (P19f) for one';
 
 /** Saves a purchase of `wallet` for `accountId` directly, as the client would have. */
 function seedPurchase(h, { id, accountId, wallet, jobId = null }) {

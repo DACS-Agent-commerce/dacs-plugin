@@ -9,9 +9,12 @@ import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PURCHASE_STATE_SCHEMA, createSqlitePurchaseStore } from '@kynesyslabs/dacs-client';
 
-// Created at import, before this module prepares any statement: the client's statement guard only
-// tracks statements prepared after the store exists.
-const purchaseStore = createSqlitePurchaseStore();
+/**
+ * The app's one client PurchaseStore, created at import before this module prepares any statement: the
+ * client's statement guard only tracks statements prepared after the store exists. Client purchase
+ * services take this instance rather than a second statement guard.
+ */
+export const purchaseStore = createSqlitePurchaseStore();
 
 /** Runs a synchronous callback in the client's BEGIN IMMEDIATE transaction; a nested call is a savepoint. Rolls back and rethrows on any error. */
 export const { transaction } = purchaseStore;

@@ -7,15 +7,20 @@ import { OperationError } from '../src/operations.mjs';
 
 const RECORDER = { part: 'P19r', name: 'createPurchaseEvidenceRecorder' };
 
-test('the activation seams read the evidence recorder from the client namespace and name it as missing when it is absent', () => {
+test('the activation seams read the evidence recorder only from its subpath namespace and name it as missing when that is absent', () => {
   const installed = readActivationSeams();
   assert.equal(installed.evidenceRecorderFactory, null);
   assert.deepEqual(installed.missing, [RECORDER]);
   const recorderFactory = () => ({});
-  const present = readActivationSeams({ ...installedClient, createPurchaseEvidenceRecorder: recorderFactory });
-  assert.equal(present.evidenceRecorderFactory, recorderFactory);
-  assert.deepEqual(present.missing, []);
-  assert.deepEqual(readActivationSeams({ createPurchaseEvidenceRecorder: 'not a function' }).missing, [RECORDER], 'a non-function under the name is absent');
+  const rootOnly = readActivationSeams({ ...installedClient, createPurchaseEvidenceRecorder: recorderFactory });
+  assert.equal(rootOnly.evidenceRecorderFactory, null, 'a root export is not the recorder subpath');
+  assert.deepEqual(rootOnly.missing, [RECORDER]);
+  const subpath = readActivationSeams(installedClient, { recorderNamespace: { createPurchaseEvidenceRecorder: recorderFactory } });
+  assert.equal(subpath.evidenceRecorderFactory, recorderFactory);
+  assert.deepEqual(subpath.missing, []);
+  assert.deepEqual(readActivationSeams(installedClient, { recorderNamespace: null }).missing, [RECORDER], 'an absent subpath');
+  assert.deepEqual(readActivationSeams(installedClient, { recorderNamespace: { createPurchaseEvidenceRecorder: 'not a function' } }).missing, [RECORDER],
+    'a non-function under the name is absent');
 });
 
 test('the refusal object has exactly the listed names; passive names refuse not_configured naming the missing part and active names refuse sdk_purchases_off, with no state kept', async () => {

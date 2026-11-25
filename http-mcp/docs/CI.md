@@ -315,6 +315,18 @@ seller-disposition payment-path case and 57 other `main-defect` entries.
 The baseline is not a list of the failures in this tree, which are far more
 numerous.
 
+### Switch-on tests at the pinned SDK
+
+The switch-on tests (`test/switch-on-*.test.mjs`, `test/composition-sdk.test.mjs`,
+`test/composition-sessions.test.mjs`) call `createApp` directly with SDK
+purchases on, because `loadConfig` refuses `on`, over a scripted node on an
+`.invalid` origin. The pinned client holds every purchase action, so they check
+the startup binding, the refusals, the buyer sessions and the wiring, never an
+admitted purchase. The pinned client has no evidence-recorder subpath: the
+recorder lookup is tested with a stand-in namespace. Tests that need an
+admitted purchase are listed under "Failing tests not covered by the baseline"
+until a pin admits one.
+
 ### Tests owned by the P303 cards
 
 These tests guard approval, custody, seller-evidence or no-resend behaviour. Four
@@ -385,8 +397,6 @@ package as `@scope/name@version`. A `.` or `..` segment is refused anywhere in
 - `test/composition-sdk.test.mjs` — after a successful startup binding, an authority reader that never answers makes prepare_purchase reject profile_not_admitted with cause code tp1_authority_timeout at 10,000 ms and zero action calls, and a late answer changes nothing — P41d — DACS-Agent-commerce/dacs-plugin#434
 - `test/composition-sdk.test.mjs` — after a successful startup binding, a closed owner connection makes prepare_purchase reject profile_not_admitted with cause code transport_closed and zero seller requests and zero action calls — P41d — DACS-Agent-commerce/dacs-plugin#434
 - `test/start-listing-verified.test.mjs` — with the switch on, the Start response for a verified Listing carries exactly the verified bytes — P41d — DACS-Agent-commerce/dacs-plugin#434
-- `test/composition-sdk.test.mjs` — the composition supplies the client the portal's per-write fee ceiling constant — P19f — DACS-Agent-commerce/dacs-plugin#434
-- `test/composition-sessions.test.mjs` — with the switch on, the native wallet relay is mounted for a live purchase handoff — P19f — DACS-Agent-commerce/dacs-plugin#434
 - `test/portal-auto-assets.test.mjs` — auto-advance config defaults off, rejects typos, and matches its deployment contract entry — P46 — DACS-Agent-commerce/dacs-plugin#323
 - `test/showcase-walkthrough.test.mjs` — switch: default off, strict off/on, env contract and example — P46 — DACS-Agent-commerce/dacs-plugin#323
 - `test/wallet-extension-probe-routes.test.mjs` — probe switch requires exactly 1, stays off by default, and its contract entry matches config — P46 — DACS-Agent-commerce/dacs-plugin#323
