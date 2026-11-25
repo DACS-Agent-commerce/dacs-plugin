@@ -4,7 +4,8 @@
 // connection DACS_CHAIN_RPC_URL names, once, within 10 s. A refused or timed-out
 // binding keeps the server up: passive readers answer as with SDK purchases off,
 // and every purchase action refuses with the binding's own tp1_* code until the
-// server restarts.
+// server restarts. The evidence recorder is still built, over a passive-only
+// admission that admits no purchase action.
 //
 // After a successful startup binding, each buyer session (an account and one of
 // its linked wallets) gets its own authority reader, binding, listing verifier
@@ -236,6 +237,11 @@ export async function composeSdkPurchasesOn({ config, db, accounts, ops, coordin
   const starts = createStartIntents({ purchases, accounts, chain, now });
   const delivery = createAgreementCreateDelivery({ db, starts, gates: { purchasesOn: () => true, stopped, bindingCause: () => startupResult.failureCode }, now });
   const recorderFactory = readActivationSeams(undefined, { recorderNamespace }).evidenceRecorderFactory;
+  // The admission the evidence recorder takes after a failed startup binding. The recorder checks only its shape. It
+  // admits no purchase action: bindTp1Profile did not make its binding, so the wire's binding check refuses it, and its
+  // currentLocal throws the startup failure.
+  const passiveOnlyAdmission = () => Object.freeze({ binding: Object.freeze({ state: 'refused', code: startupResult.failureCode }),
+    currentLocal: () => { throw refused(); } });
   let ports = null;
   return Object.freeze({
     startupResult, owner, listings, purchases, starts, delivery, relayAccess: createRelayAccess({ db, now }),
@@ -245,14 +251,14 @@ export async function composeSdkPurchasesOn({ config, db, accounts, ops, coordin
     /**
      * Returns the frozen evidence ports `{ delivery, starts, purchases, readPurchase, recorder, chain, journal }`, the
      * process's own members by reference. `readPurchase(operationId, token)` is the purchase its handoff token
-     * authenticates, or null. `recorder` is built once, over `journal` and the startup admission, when the recorder
-     * subpath and a journal are both given; else null. A repeat call returns the same ports; throws TypeError for
-     * another journal.
+     * authenticates, or null. `recorder` is built once, over `journal` and the startup admission (a passive-only one
+     * when the startup binding failed or timed out), when the recorder subpath and a journal are both given; else
+     * null. A repeat call returns the same ports; throws TypeError for another journal.
      */
     createSwitchOnEvidencePorts({ journal = null } = {}) {
       if (ports && ports.journal !== journal) throw new TypeError('the evidence ports are already bound to another journal');
       ports ??= Object.freeze({ delivery, starts, purchases, chain, journal, readPurchase: (operationId, token) => ops.getByHandoff(operationId, token),
-        recorder: recorderFactory && journal ? recorderFactory({ admission: atStartup?.admission ?? null, journal }) : null });
+        recorder: recorderFactory && journal ? recorderFactory({ admission: atStartup?.admission ?? passiveOnlyAdmission(), journal }) : null });
       return ports;
     },
     close: () => owner?.close(),
