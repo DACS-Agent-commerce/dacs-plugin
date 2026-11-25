@@ -28,7 +28,7 @@
     { "path": "http-mcp/test/fixtures/standard-vectors/listing-preserve-unknown-v0.1.json", "blob": "a1359d03845a1a807461d2b933c4e39bc9ea731d", "rule": "generic-api-key", "line": 208, "reason": "public keys and signatures of a deterministic fixture copied byte for byte from the public conformance vector" }
   ],
   "secretExceptions": [],
-  "textExtensions": [".cjs", ".css", ".html", ".js", ".json", ".md", ".mjs", ".mts", ".sh", ".svg", ".toml", ".ts", ".tsx", ".txt", ".yaml", ".yml"],
+  "textExtensions": [".cjs", ".css", ".exp", ".html", ".js", ".json", ".md", ".mjs", ".mts", ".py", ".sh", ".svg", ".toml", ".ts", ".tsx", ".txt", ".yaml", ".yml"],
   "binaryDispositions": [],
   "allowedHosts": [
     { "value": "github.com", "reason": "code host the code and docs link to; its SSH form is the clone address" },

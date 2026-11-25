@@ -4,10 +4,11 @@ import { decodeUtf8Strict } from './objects.mjs';
 
 /**
  * Decides how a blob is scanned. `config` holds `textExtensions` and `binaryDispositions` ({ path, sha256, reason }).
- * Returns { binary: false } for valid UTF-8 text, { binary: true } for a binary blob with a reviewed disposition for
- * this exact path and content, or { problem } when the blob is unscannable: a code, config or doc file with a NUL byte
- * or invalid UTF-8 ('nul-or-invalid-utf8-text'), or any other binary blob without a disposition
- * ('binary-without-disposition'). Classification only chooses how the bytes are read; no check is skipped.
+ * Returns { binary: false } for a blob with no NUL byte that is valid UTF-8, whatever its extension. A blob with a NUL
+ * byte or invalid UTF-8 is unscannable ('nul-or-invalid-utf8-text') when its file's extension is listed in
+ * `textExtensions`; any other such blob is binary: { binary: true } with a reviewed disposition for this exact path and
+ * content, otherwise unscannable ('binary-without-disposition'). Classification only chooses how the bytes are read;
+ * no check is skipped.
  */
 export function classifyBlob(filePath, bytes, config) {
   if (!bytes.includes(0) && decodeUtf8Strict(bytes) !== null) return { binary: false };
