@@ -48,20 +48,27 @@ test('the object the off composition passes to routes and tools has exactly the 
 });
 
 // The portal routes whose first call is a purchase action, and the Agreement CREATE effect routes with their exact members.
-const PORTAL_ACTIONS = ['challenge', 'approve', 'handoff', 'native-payment/lane', 'report', 'agreement/identity', 'agreement/plan', 'agreement/sign',
+const PORTAL_ACTIONS = ['challenge', 'approve', 'handoff', 'native-payment/lane', 'agreement/identity', 'agreement/plan', 'agreement/sign',
   'completion/request', 'completion/countersign'];
 const CREATE_ROUTES = { challenge: { start: 's', token: 't' }, claim: { challengeId: 'c', signature: 's', token: 't' }, pass: { hash: 'h', history: [], start: 's', token: 't' } };
 
 /** Every effect route of the app at `origin` (public origin `publicOrigin`) answers 409 with exactly `code`, and nothing is written. */
 async function assertEffectRoutesRefuse({ origin, publicOrigin = origin, db, purchases }, code) {
   const before = databaseRows(db);
-  const post = async (path, body) => {
+  const answer = async (path, body) => {
     const response = await fetch(`${origin}/portal/api/purchase/${PURCHASE.operationId}/${path}`, {
       method: 'POST', headers: { 'content-type': 'application/json', origin: publicOrigin }, body: canonicalize(body) });
-    return [response.status, (await response.json()).error];
+    return [response.status, await response.json()];
+  };
+  const post = async (path, body) => {
+    const [status, json] = await answer(path, body);
+    return [status, json.error];
   };
   const actionBody = { token: PURCHASE.token, address: `0x${'ab'.repeat(32)}`, challengeId: 'challenge', signature: 'signature', key: 'lane' };
   for (const action of PORTAL_ACTIONS) assert.deepEqual(await post(action, actionBody), [409, code], action);
+  // The wallet report is not recorded: 503 not_configured, naming the binding's code as the reason.
+  const [reportStatus, report] = await answer('report', actionBody);
+  assert.deepEqual([reportStatus, report.error, report.details?.reason], [503, 'not_configured', code], 'report');
   for (const [route, body] of Object.entries(CREATE_ROUTES)) assert.deepEqual(await post(`agreement-create/${route}`, body), [409, code], route);
   for (const name of ['prepare', 'cancel']) await assert.rejects(purchases[name](PURCHASE), (error) => error.code === code, name);
   assert.equal(databaseRows(db), before);

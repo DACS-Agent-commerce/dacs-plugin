@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, lstatSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStopFileCheck, ensureStateDirectory } from '../src/stop-file.mjs';
+import { createStopFileCheck, createStopFileCheckSync, ensureStateDirectory } from '../src/stop-file.mjs';
 import { ConfigError } from '../src/config.mjs';
 
 function recordingLogger() {
@@ -44,6 +44,42 @@ test('the stop check reports absent only for ENOENT on KILL inside a real state 
         rmSync(root, { recursive: true, force: true });
       }
     });
+  }
+});
+
+test('the synchronous stop check answers each stop-file state with a boolean at once, the same answer and logged cause as the stop check', async (t) => {
+  for (const row of ROWS) {
+    await t.test(row.state, () => {
+      const root = mkdtempSync(join(tmpdir(), 'dacs-stop-file-sync-'));
+      try {
+        row.build(root);
+        const { warnings, logger } = recordingLogger();
+        const stopped = createStopFileCheckSync({ dataDir: join(root, 'state'), logger });
+        const answer = stopped();
+        assert.equal(typeof answer, 'boolean', 'a boolean, not a promise');
+        assert.equal(answer, row.stopped);
+        assert.equal(stopped(), row.stopped, 'a second check reads the same state');
+        if (row.stopped) assert.equal(warnings[0].cause, row.cause, 'the cause is logged');
+        else assert.deepEqual(warnings, []);
+      } finally {
+        try { chmodSync(join(root, 'state'), 0o700); } catch { /* not every row has a directory there */ }
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test('the synchronous stop check reads KILL again on every call', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dacs-stop-file-sync-'));
+  try {
+    const stopped = createStopFileCheckSync({ dataDir: root, logger: recordingLogger().logger });
+    assert.equal(stopped(), false);
+    writeFileSync(join(root, 'KILL'), '');
+    assert.equal(stopped(), true);
+    rmSync(join(root, 'KILL'));
+    assert.equal(stopped(), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
