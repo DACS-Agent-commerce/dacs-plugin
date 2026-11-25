@@ -39,10 +39,11 @@ function delegatedReads(chainReads) {
  * `chainReads` (the client's public reader or a native transport's
  * chainReader()) when one is passed.
  *
- * Returns a frozen object: `network`, `rpcOrigin`, `pinnedIdentity` (from
- * `chainReads`, else null), `evidenceMode` (`simulated-fixture` once an
- * answer from a loopback RPC is marked simulated, else `public-chain-read`), `getIdentities` and
- * the delegated reads. `getIdentities(address, { timeoutMs })` resolves the
+ * Returns a frozen object: `network`, `rpcOrigin`, `pinnedIdentity` and
+ * `observer` (from `chainReads`, else null), `evidenceMode`
+ * (`simulated-fixture` once an answer from a loopback RPC, to this reader or
+ * to `chainReads`, is marked simulated, else `public-chain-read`),
+ * `getIdentities` and the delegated reads. `getIdentities(address, { timeoutMs })` resolves the
  * decoded `{ result: 200, response }` envelope and rejects OutboundError
  * `unavailable` (no answer, non-200 result) or `invalid` (oversized, malformed
  * or out-of-bounds answer).
@@ -87,8 +88,9 @@ export function createDemosChainReader({ rpcUrl, network, timeoutMs = DEFAULT_TI
     network,
     rpcOrigin: endpoint.origin,
     pinnedIdentity: chainReads?.pinnedIdentity ?? null,
+    observer: chainReads?.observer ?? null,
     get evidenceMode() {
-      return markedSimulated || chainReads?.evidenceMode === SIMULATED ? SIMULATED : PUBLIC_READ;
+      return markedSimulated || (loopback && chainReads?.evidenceMode === SIMULATED) ? SIMULATED : PUBLIC_READ;
     },
     getIdentities,
   });
