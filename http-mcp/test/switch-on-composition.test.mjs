@@ -7,8 +7,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { assertTp1Binding } from '@kynesyslabs/dacs/wire';
 import { linkedUser, tool } from './helpers/flows.mjs';
-import { FIXTURE_CHAIN, NODE_ORIGIN, accountOf, routedFetch, seedHandoffPurchase, switchOnHarness, switchedOn, tp1Node } from './helpers/switch-on-world.mjs';
+import { FIXTURE_CHAIN, NODE_ORIGIN, TRANSPORT_AUTHORITY, accountOf, routedFetch, seedHandoffPurchase, switchOnHarness, switchedOn, tp1Node } from './helpers/switch-on-world.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { createApp } from '../src/app.mjs';
 import { INSTRUCTIONS } from '../src/mcp/server.mjs';
@@ -20,6 +21,32 @@ import { purchaseStore, transaction } from '../src/store/database.mjs';
 import { RelayAccessError } from '../src/wallet/relay-access.mjs';
 
 const PORT_NAMES = ['chain', 'delivery', 'journal', 'purchases', 'readPurchase', 'recorder', 'starts'];
+const LOCAL = { endpoint: `${NODE_ORIGIN}/`, transportAuthority: TRANSPORT_AUTHORITY, connectionId: 'test-connection' };
+
+/**
+ * A recorder subpath namespace whose factory applies the client's admission shape check: it throws TypeError
+ * admission_required unless `admission` has exactly the members binding (an object) and currentLocal (a function).
+ * `built` lists the options of each recorder it built.
+ */
+function admissionRequiringRecorder() {
+  const built = [];
+  const createPurchaseEvidenceRecorder = (options) => {
+    const { admission } = options;
+    if (admission === null || typeof admission !== 'object' || Object.keys(admission).sort().join() !== 'binding,currentLocal'
+      || typeof admission.binding !== 'object' || admission.binding === null || typeof admission.currentLocal !== 'function') {
+      throw new TypeError('admission_required');
+    }
+    built.push(options);
+    return Object.freeze({ recorder: built.length });
+  };
+  return { built, recorderNamespace: { createPurchaseEvidenceRecorder } };
+}
+
+/** Asserts that `admission` admits no purchase action: the wire's binding check refuses its binding, and its currentLocal throws the startup `code`. */
+async function assertPassiveOnly(admission, code) {
+  await assert.rejects(assertTp1Binding(admission.binding, LOCAL), (error) => error.code === 'tp1_binding_required');
+  assert.throws(() => admission.currentLocal(), (error) => error.code === code);
+}
 
 /** A journal stand-in that records every member read from it. */
 function watchedJournal() {
@@ -66,8 +93,7 @@ test('the switch-on evidence ports are exactly the seven process members by refe
 });
 
 test('with the recorder subpath namespace given to createApp, the evidence ports build the recorder once over the injected journal and the startup admission, and a null journal builds none', async (t) => {
-  const built = [];
-  const recorderNamespace = { createPurchaseEvidenceRecorder: (options) => { built.push(options); return Object.freeze({ recorder: built.length }); } };
+  const { built, recorderNamespace } = admissionRequiringRecorder();
   const withJournal = (await switchOnHarness(t, { appOptions: { recorderNamespace } })).h.app.services.switchOn;
   const journal = {};
   const ports = withJournal.createSwitchOnEvidencePorts({ journal });
@@ -79,6 +105,33 @@ test('with the recorder subpath namespace given to createApp, the evidence ports
   const withoutJournal = (await switchOnHarness(t, { appOptions: { recorderNamespace } })).h.app.services.switchOn;
   assert.equal(withoutJournal.createSwitchOnEvidencePorts({ journal: null }).recorder, null);
   assert.equal(built.length, 1, 'no recorder without a journal');
+});
+
+test('after a failed startup binding, the evidence ports build the recorder over a passive-only admission that the binding check refuses, whether the node refused the binding or no node connection was made', async (t) => {
+  for (const [label, options, code] of [['node refused', { node: tp1Node({ chainIdentity: FIXTURE_CHAIN }) }, 'tp1_connection_unverified'],
+    ['no connection', { settings: { tp1TransportAuthority: undefined } }, 'tp1_local_binding_invalid']]) {
+    const { built, recorderNamespace } = admissionRequiringRecorder();
+    const { switchOn } = (await switchOnHarness(t, { ...options, appOptions: { recorderNamespace } })).h.app.services;
+    assert.equal(switchOn.startupResult.failureCode, code, label);
+    if (label === 'no connection') assert.equal(switchOn.owner, null, 'the startup failed before any node connection');
+    const journal = {};
+    assert.equal(switchOn.createSwitchOnEvidencePorts({ journal }).recorder.recorder, 1, label);
+    assert.equal(built[0].journal, journal, label);
+    await assertPassiveOnly(built[0].admission, code);
+  }
+});
+
+test('after a startup binding that timed out, the evidence ports build the recorder over a passive-only admission that the binding check refuses', async (t) => {
+  const { built, recorderNamespace } = admissionRequiringRecorder();
+  const node = tp1Node({ mode: 'silent' });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const started = switchOnHarness(t, { node, appOptions: { recorderNamespace } });
+  if (await Promise.race([started.then(() => false, () => false), node.requested.then(() => true)])) t.mock.timers.tick(10_000);
+  const { switchOn } = (await started).h.app.services;
+  t.mock.timers.reset();
+  assert.equal(switchOn.startupResult.failureCode, 'tp1_authority_timeout');
+  assert.equal(switchOn.createSwitchOnEvidencePorts({ journal: {} }).recorder.recorder, 1);
+  await assertPassiveOnly(built[0].admission, 'tp1_authority_timeout');
 });
 
 test('the portal and CREATE routers are built with the switch-on route inputs themselves, which share the process\'s one relay capability store', async (t) => {
