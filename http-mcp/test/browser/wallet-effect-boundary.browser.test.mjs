@@ -166,7 +166,7 @@ test('a failed authority refusal write leaves the started lane closed on restart
   });
 });
 
-test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a late fence grant, a refused request carrying the live capability, a non-owner release, overlapping purchases and reply bounds', async (t) => {
+test('K0-B1 to K0-B11 on the browser boundary: authority and stop deadlines, a late fence grant, a refused request carrying the live capability, overlapping purchases and reply bounds', async (t) => {
   await t.test('K0-B1 an authority reader rejecting with E refuses with E as the cause; signer 0, transport 0', async () => {
     const world = createWorld();
     const failure = new Error('authority node refused');
@@ -1963,20 +1963,27 @@ test('confirmation and broadcast are separate stages, an unknown confirmation in
   const appendReusedPassHistory = async (store, stage, first) => {
     const kinds = [`${stage}-started`, ...(first === 'unanswered' ? [] : [`${stage}-${first}`]), `${stage}-started`, `${stage}-withheld`];
     await store.append(LANE, 0, signedRecord('pass-a'));
-    for (const [index, kind] of kinds.entries()) await store.append(LANE, index + 1, laneRecord(kind, 'pass-a', { stage }));
+    let sequence = 1;
+    if (stage !== 'confirm') {
+      await store.append(LANE, sequence++, laneRecord('confirm-started', 'pass-a', { stage: 'confirm' }));
+      await store.append(LANE, sequence++, laneRecord('confirm-acknowledged', 'pass-a', { stage: 'confirm' }));
+      assert.equal(deriveDispatchHistory(await store.history(LANE)).mayBroadcast, true, 'the lane permits broadcast before the reused transmission stage');
+    }
+    for (const kind of kinds) await store.append(LANE, sequence++, laneRecord(kind, 'pass-a', { stage }));
   };
 
   for (const [first, stage] of [['acknowledged', 'dispatch'], ['unknown', 'dispatch'], ['unanswered', 'dispatch'], ['acknowledged', 'broadcast'], ['unknown', 'broadcast'], ['unanswered', 'broadcast']]) {
-    await t.test(`a reused pass id's ${stage}-withheld does not erase its earlier ${stage}-${first}`, async () => {
+    await t.test(`a reused pass id's ${stage}-withheld does not erase its earlier ${first === 'unanswered' ? `unanswered ${stage}-started` : `${stage}-${first}`}`, async () => {
       const store = storeOver(createFakeIndexedDb());
       await appendReusedPassHistory(store, stage, first);
       const history = deriveDispatchHistory(await store.history(LANE));
+      assert.equal(history.confirmation, 'acknowledged', 'mayBroadcast must not be false merely because confirmation is absent');
       assert.deepEqual([history.neverDispatched, history.mayBroadcast], [false, false]);
     });
   }
 
   for (const first of ['acknowledged', 'unknown', 'unanswered']) {
-    await t.test(`a reused pass id's confirm-withheld does not erase its earlier confirm-${first}`, async () => {
+    await t.test(`a reused pass id's confirm-withheld does not erase its earlier ${first === 'unanswered' ? 'unanswered confirm-started' : `confirm-${first}`}`, async () => {
       const store = storeOver(createFakeIndexedDb());
       await appendReusedPassHistory(store, 'confirm', first);
       assert.equal(deriveDispatchHistory(await store.history(LANE)).confirmation, first === 'unanswered' ? 'unknown' : first);
