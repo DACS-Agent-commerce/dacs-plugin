@@ -13,20 +13,24 @@
 // readback) answer not_configured naming the client part they need, and every
 // purchase action answers sdk_purchases_off. get_listing answers not_configured
 // with reason sdk_purchases_off. Directory search, accounts, identity reads and
-// identity actions work as usual.
+// identity actions work as usual. The chain reader has only the identity read.
 //
 // A configuration with the switch on (test fixtures only) gets the switch-on
 // composition in src/sdk/switch-on.mjs: the startup TP-1 binding, one set of
 // client purchase objects per buyer session, and, with DACS_INTENT_APPROVAL on,
-// the Agreement CREATE delivery and its challenge, claim and pass routes. The
-// native wallet relay stays unmounted: it needs a server-held buyer key.
+// the Agreement CREATE delivery and its challenge, claim and pass routes. Its
+// chain reader adds the client's public testnet reads, pinned to the SDK
+// record's chain identity. The native wallet relay stays unmounted: it needs a
+// server-held buyer key.
 import express from 'express';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 import { createMcpHandler, verifyBearerToken, bearerAuthChallengeResponse } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { hostHeaderValidation, originValidation } from '@modelcontextprotocol/express';
+import { TP1_APPROVED_IDENTITY_RECORD } from '@kynesyslabs/dacs/wire';
 import { createCoordinateStore, createDirectoryClient, SDK_PROVENANCE } from '@kynesyslabs/dacs-client';
+import { createDemosPublicChainReader } from '@kynesyslabs/dacs-client/substrate/demos';
 import { openDatabase } from './store/database.mjs';
 import { createAccountService } from './accounts.mjs';
 import { createChallengeService } from './wallet/challenges.mjs';
@@ -83,7 +87,12 @@ export async function createApp(options) {
   const ops = createOperationStore({ db, timeline: purchaseSteps, handoffSecret: serverSecret(db, 'handoff-hmac-key'), now });
   const coordinates = createCoordinateStore({ db, now });
   const directory = config.directory ? createDirectoryClient({ ...config.directory, fetchImpl }) : null;
-  const chain = config.chain ? createDemosChainReader({ ...config.chain, fetchImpl }) : null;
+  // With SDK purchases on, the Listing verifier and the purchase service read storage programs, the chain identity,
+  // nonces and transfers through the client's public testnet reader, pinned to the SDK record's chain identity.
+  const chainReads = config.chain && config.sdkPurchases === 'on'
+    ? createDemosPublicChainReader({ rpcUrl: config.chain.rpcUrl, network: 'testnet', pinnedIdentity: TP1_APPROVED_IDENTITY_RECORD.chainIdentity, timeoutMs: config.chain.timeoutMs, fetchImpl })
+    : null;
+  const chain = config.chain ? createDemosChainReader({ ...config.chain, fetchImpl, chainReads }) : null;
   // The CREATE delivery's write stop: the KILL file check, read again before each CREATE route; stopped until first read.
   const stopCheck = createStopFileCheck({ dataDir: config.dataDir, logger });
   let writesStopped = true;
