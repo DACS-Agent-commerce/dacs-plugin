@@ -8,7 +8,10 @@ and `loadParticipantEnrollment` in `src/sdk/participant-enrollment.mjs` loads
 them.
 
 With `DACS_SDK_PURCHASES` set to `off`, the only value the server accepts today
-(see [SWITCHES.md](SWITCHES.md)), the server does not read the file.
+(see [SWITCHES.md](SWITCHES.md)), the server does not read the file. The
+switch-on composition loads it once at startup; a file it refuses refuses the
+startup binding with the file's own code, so every purchase action answers
+that code.
 
 ## Location
 

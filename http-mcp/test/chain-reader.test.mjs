@@ -63,6 +63,13 @@ test('an identity read sends the unsigned SDK request shape and an answer marked
   assert.equal(seen[0].credentials, 'omit');
 });
 
+test('a remote RPC origin that marks its answers simulated stays a public chain read', async () => {
+  const fetchImpl = async () => json(EMPTY_IDENTITIES, { 'x-dacs-simulation': 'fixture' });
+  const reader = createDemosChainReader({ rpcUrl: RPC, network: 'demos-testnet', fetchImpl });
+  await reader.getIdentities(ADDR);
+  assert.equal(reader.evidenceMode, 'public-chain-read');
+});
+
 test('an identity answer over the response byte limit is refused before it is decoded', async () => {
   const oversize = `{"result":200,"response":"${'x'.repeat(DEMOS_CCI_RESPONSE_LIMITS.maxEncodedBytes)}"}`;
   const fetchImpl = async () => new Response(oversize, { status: 200, headers: { 'content-type': 'application/json' } });

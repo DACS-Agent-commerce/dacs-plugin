@@ -63,9 +63,8 @@ purchase hold.
    seam, its fee-ceiling and wallet-handoff members and its HTTPS seller client
    have no fixed public names yet, so `loadConfig` cannot look them up.
 
-`createApp` builds only the `off` composition and refuses a configuration with
-`on` (`switch_on_not_validated`). With `off`, the app builds no purchase service,
-wallet relay, seller transport or listing verifier:
+With `off`, the app builds no purchase service, wallet relay, seller transport
+or listing verifier:
 
 - purchase views, `get_purchase_status` and `verify_deal` answer `not_configured`
   with `sdk_part_missing: P19`, the client's passive purchase reader;
@@ -75,6 +74,30 @@ wallet relay, seller transport or listing verifier:
 - `/health` reports `sdkPurchases: { switch: "off", evidence: "unavailable" }`.
 
 Directory search, accounts, identity reads and identity actions work as usual.
+
+`createApp` given a configuration with `on` (test fixtures only, since
+`loadConfig` refuses it) builds the switch-on composition in
+`src/sdk/switch-on.mjs`:
+
+- At startup it binds the SDK's approved TP-1 identity record over the node at
+  `DACS_CHAIN_RPC_URL`, once, within 10 seconds. The node connection's transport
+  authority label is `DACS_TP1_TRANSPORT_AUTHORITY`, a plain token the operator
+  sets; it has no default.
+- If that binding is refused or times out, the server stays up. Purchase views
+  answer as with `off`, and every purchase action, including the Agreement
+  CREATE routes, answers the binding's own `tp1_*` code until a restart: for
+  example `tp1_local_binding_invalid` for a missing transport authority or an
+  `http` endpoint, `tp1_authority_timeout`, or `tp1_enrollment_invalid`.
+  `/health` reports `binding: { state: "refused", code }`, or
+  `{ state: "bound", recordId }` after a successful binding.
+- After a successful binding, each buyer session (an account and one of its
+  linked wallets) gets its own client purchase objects, bound on its first
+  purchase action. A request can only act for a wallet linked to its own
+  account. A session ends when its wallet is no longer linked to the account,
+  and in `builtin` sign-in mode also when the account's sign-in session expires.
+- With `DACS_INTENT_APPROVAL` on, the Agreement CREATE delivery and its
+  challenge, claim and pass routes are mounted. The native wallet relay is not:
+  it needs a node wallet session, which holds a buyer key.
 
 Purchases with `on` need each seller enrolled in the data directory's
 participant enrollment file ([PARTICIPANT-ENROLLMENT.md](PARTICIPANT-ENROLLMENT.md)).

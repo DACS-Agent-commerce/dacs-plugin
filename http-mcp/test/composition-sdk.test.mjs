@@ -9,7 +9,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TP1_REFUSED_CHAIN_IDENTITIES, TP1_REFUSED_FIXTURE_CHAIN_IDENTITIES } from '@kynesyslabs/dacs/wire';
+import { TP1_APPROVED_IDENTITY_RECORD, TP1_REFUSED_CHAIN_IDENTITIES, TP1_REFUSED_FIXTURE_CHAIN_IDENTITIES, bindTp1Profile } from '@kynesyslabs/dacs/wire';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { startHarness } from './helpers/harness.mjs';
 import { linkedUser, seedSellerListing, tool, toolRaw } from './helpers/flows.mjs';
@@ -18,6 +18,8 @@ import { createEphemeralWallet } from './fixtures/wallet.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { createApp } from '../src/app.mjs';
 import { createLogger } from '../src/util/log.mjs';
+import { composeSdkPurchasesOn } from '../src/sdk/switch-on.mjs';
+import { FIXTURE_CHAIN, NODE_ORIGIN, clientRefusal, prepareArgs, routedFetch, switchOnHarness, tp1Node } from './helpers/switch-on-world.mjs';
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PURCHASE_ID = 'pur_AAAAAAAAAAAAAAAA';
@@ -181,4 +183,137 @@ test('no configuration key, environment variable or tool argument can supply an 
     assert.equal(inputSchema.additionalProperties, false, `${name} takes only its named arguments`);
     assert.deepEqual(Object.keys(inputSchema.properties ?? {}).filter((key) => ADMISSION_INPUTS.includes(key)), [], name);
   }
+});
+
+// ---- SDK purchases on: the startup binding and each session's binding ----
+
+const healthOf = async (h) => (await (await fetch(`${h.origin}/health`)).json()).sdkPurchases;
+// A record the SDK has not approved: the approved record under another revision.
+const REVISION_ONE = { ...TP1_APPROVED_IDENTITY_RECORD, recordId: 'dacs-demos-testnet-identity/revision-1', pinVersion: 'dacs-demos-testnet-identity/revision-1' };
+const LOCAL = { endpoint: `${NODE_ORIGIN}/`, transportAuthority: 'tp1-node', connectionId: 'test-connection' };
+// The origins of requests that went neither to the node double nor to the chain and directory fixtures.
+const sellerOrigins = (h, origins) => origins.filter((origin) => ![NODE_ORIGIN, h.chain.url, h.directory.url].includes(origin));
+// A listing the directory does not hold: a purchase of it ends at the verifier, before any seller request.
+const ABSENT_LISTING = { listingId: 'absent-listing' };
+
+/** The record checks the composition's binder makes before it reads the node: `record` is refused with `code`. */
+async function assertRecordRefused(record, code) {
+  const reads = [];
+  await assert.rejects(bindTp1Profile({ record, local: LOCAL, readAuthority: async (scope) => { reads.push(scope); } }), (error) => error.code === code);
+  assert.deepEqual(reads, [], 'refused before the authority was read');
+}
+
+test('the app binds only the SDK\'s approved identity record, and a revision-1 record is refused tp1_identity_unapproved before any signature', async (t) => {
+  const { h, node } = await switchOnHarness(t);
+  assert.deepEqual((await healthOf(h)).binding, { state: 'bound', recordId: TP1_APPROVED_IDENTITY_RECORD.recordId });
+  assert.ok(node.reads.length > 0, 'the startup binding read the node');
+  await assertRecordRefused(REVISION_ONE, 'tp1_identity_unapproved');
+});
+
+test('the composition refuses a fixture chain, a mainnet-labelled record and an http endpoint with their tp1 codes', async (t) => {
+  for (const [label, options, code] of [['fixture chain', { node: tp1Node({ chainIdentity: FIXTURE_CHAIN }) }, 'tp1_connection_unverified'],
+    ['http endpoint', { settings: { chain: { rpcUrl: 'http://node.chain.invalid', network: 'demos-testnet', timeoutMs: 1000 } } }, 'tp1_local_binding_invalid']]) {
+    const { h, node } = await switchOnHarness(t, options);
+    assert.deepEqual((await healthOf(h)).binding, { state: 'refused', code }, label);
+    await assert.rejects(h.app.services.purchases.prepare({ accountId: 'acct_1', listingId: 'fixture-report', version: 1 }), (error) => error.code === code, label);
+    if (label === 'http endpoint') assert.deepEqual(node.reads, [], 'an http endpoint is refused before any node read');
+  }
+  await assertRecordRefused({ ...TP1_APPROVED_IDENTITY_RECORD, network: 'demos-mainnet' }, 'tp1_identity_record_invalid');
+});
+
+/** A switch-on app with a linked user whose purchase session is already bound. */
+async function boundSession(t) {
+  const origins = [];
+  const { h, node } = await switchOnHarness(t, { origins });
+  const user = await linkedUser(h);
+  await h.app.services.purchases.prepare({ ...prepareArgs(h, user, 'bind-session'), ...ABSENT_LISTING }).catch(() => {});
+  node.reset();
+  return { h, node, user, origins, reads: node.reads.length, rows: databaseRows(h.app.db) };
+}
+
+test('after a successful startup binding, an authority reader naming the revision-1 chain makes prepare_purchase reject profile_not_admitted, with the original refusal as its cause and cause code tp1_connection_unverified, and zero seller requests', async (t) => {
+  const { h, node, user, origins } = await boundSession(t);
+  node.chainIdentity = TP1_REFUSED_CHAIN_IDENTITIES[0];
+  const error = await clientRefusal(() => h.app.services.purchases.prepare({ ...prepareArgs(h, user), ...ABSENT_LISTING }));
+  assert.deepEqual([error.code, error.cause?.code], ['profile_not_admitted', 'tp1_connection_unverified']);
+  assert.deepEqual(sellerOrigins(h, origins), []);
+});
+
+test('after a successful startup binding, an authority reader that never answers makes prepare_purchase reject profile_not_admitted with cause code tp1_authority_timeout at 10,000 ms and zero action calls, and a late answer changes nothing', async (t) => {
+  const { h, node, user, rows } = await boundSession(t);
+  node.mode = 'gated';
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const refusal = clientRefusal(() => h.app.services.purchases.prepare({ ...prepareArgs(h, user), ...ABSENT_LISTING }));
+  if (await Promise.race([refusal.then(() => false, () => false), node.requested.then(() => true)])) t.mock.timers.tick(10_000);
+  const error = await refusal;
+  assert.deepEqual([error.code, error.cause?.code], ['profile_not_admitted', 'tp1_authority_timeout']);
+  node.release();
+  assert.equal(databaseRows(h.app.db), rows, 'no action ran, before or after the late answer');
+});
+
+const isHeld = (error) => error.code === 'profile_not_admitted' && error.cause === undefined;
+
+/** A switch-on composition built directly over `h`'s parts and its node double; closed after the test. */
+async function composeOver(t, h, node, origins) {
+  const { db, services: { accounts, ops, coordinates, challenges, directory, chain } } = h.app;
+  const composed = await composeSdkPurchasesOn({ config: h.config, db, accounts, ops, coordinates, challenges, directory, chain,
+    fetchImpl: routedFetch(node, origins), now: () => Date.now(), logger: createLogger({ level: 'error', sink: () => {} }), stopped: () => false });
+  t.after(() => composed.close());
+  return composed;
+}
+
+/**
+ * A switch-on composition whose owner connection is closed after the startup binding and after linked user A's
+ * session was bound by one held prepare. Linked user B has no session yet.
+ */
+async function closedOwnerSession(t) {
+  const origins = [];
+  const { h, node } = await switchOnHarness(t, { origins });
+  const [a, b] = [await linkedUser(h), await linkedUser(h)];
+  const composed = await composeOver(t, h, node, origins);
+  await assert.rejects(composed.purchases.prepare(prepareArgs(h, a, 'bind-a')), isHeld);
+  composed.close();
+  return { h, node, a, b, composed, origins, reads: node.reads.length, rows: databaseRows(h.app.db) };
+}
+
+test('after a successful startup binding and while SDK purchase admission is held, each of the refused-authority setups (an authority reader naming the revision-1 chain, an authority reader that never answers, the owner connection closed after the startup binding) makes prepare_purchase reject profile_not_admitted with no cause at once, before any per-call authority read, with zero seller requests and zero action calls', async (t) => {
+  for (const setup of [(node) => { node.chainIdentity = TP1_REFUSED_CHAIN_IDENTITIES[0]; }, (node) => { node.mode = 'silent'; }]) {
+    const { h, node, user, origins, reads, rows } = await boundSession(t);
+    setup(node);
+    await assert.rejects(h.app.services.purchases.prepare(prepareArgs(h, user)), isHeld);
+    assert.equal(node.reads.length, reads, 'no authority read for the call');
+    assert.deepEqual(sellerOrigins(h, origins), []);
+    assert.equal(databaseRows(h.app.db), rows);
+  }
+
+  const { h, node, a, b, composed, origins, reads, rows } = await closedOwnerSession(t);
+  await assert.rejects(composed.purchases.prepare(prepareArgs(h, a)), isHeld);
+  // B's session would bind after the close: the closed owner refuses it before any node read.
+  await assert.rejects(composed.purchases.prepare(prepareArgs(h, b, 'bind-b')), (error) => error.code === 'profile_not_admitted' && error.cause?.code === 'transport_closed');
+  assert.equal(node.reads.length, reads, 'no authority read after the close');
+  assert.deepEqual(sellerOrigins(h, origins), []);
+  assert.equal(databaseRows(h.app.db), rows);
+
+  // With the owner left open, B's first bind reads the node and its call reaches the held client.
+  const open = await composeOver(t, h, node, origins);
+  const opened = node.reads.length;
+  await assert.rejects(open.purchases.prepare(prepareArgs(h, b, 'bind-b')), isHeld);
+  assert.ok(node.reads.length > opened, 'B bound over the open owner');
+});
+
+test('after a successful startup binding, a closed owner connection makes prepare_purchase reject profile_not_admitted with cause code transport_closed and zero seller requests and zero action calls', async (t) => {
+  const { h, a, composed, origins, rows } = await closedOwnerSession(t);
+  const error = await clientRefusal(() => composed.purchases.prepare(prepareArgs(h, a)));
+  assert.deepEqual([error.code, error.cause?.code], ['profile_not_admitted', 'transport_closed']);
+  assert.deepEqual(sellerOrigins(h, origins), []);
+  assert.equal(databaseRows(h.app.db), rows, 'no action ran');
+});
+
+const PURCHASE_FACTORIES_SOURCE = fileURLToPath(new URL('./purchases.mjs', import.meta.resolve('@kynesyslabs/dacs-client')));
+const FEE_CEILING_MISSING = 'sdk_part_missing: P19f feeCeilingOs is not an option of the purchase factories in @kynesyslabs/dacs-client@0.1.0-alpha.0';
+
+test('the composition supplies the client the portal\'s per-write fee ceiling constant', () => {
+  if (!readFileSync(PURCHASE_FACTORIES_SOURCE, 'utf8').includes('feeCeilingOs')) throw new Error(FEE_CEILING_MISSING);
+  const composition = readFileSync(join(PACKAGE_ROOT, 'src/sdk/switch-on.mjs'), 'utf8');
+  assert.match(composition, /feeCeilingOs: FEE_CEILING_PER_WRITE_OS/);
 });

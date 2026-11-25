@@ -144,6 +144,54 @@
     "reason": "CREATE evidence route tests fail until the evidence router is mounted; card P41c2 mounts it and removes this entry."
   },
   {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "after a successful startup binding, an authority reader naming the revision-1 chain makes prepare_purchase reject profile_not_admitted, with the original refusal as its cause and cause code tp1_connection_unverified, and zero seller requests",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions before any per-call authority read; final candidate validation (P41d) owns admitted execution."
+  },
+  {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "after a successful startup binding, an authority reader that never answers makes prepare_purchase reject profile_not_admitted with cause code tp1_authority_timeout at 10,000 ms and zero action calls, and a late answer changes nothing",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions before any per-call authority read; final candidate validation (P41d) owns admitted execution."
+  },
+  {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "after a successful startup binding, a closed owner connection makes prepare_purchase reject profile_not_admitted with cause code transport_closed and zero seller requests and zero action calls",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions before any per-call read of the closed owner; once P41d and P35 lift the hold, the call must reject with the client's transport_closed cause."
+  },
+  {
+    "file": "test/start-listing-verified.test.mjs",
+    "test": "with the switch on, the Start response for a verified Listing carries exactly the verified bytes",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds prepare, so no purchase reaches a Start; final candidate validation (P41d) owns admitted execution."
+  },
+  {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "the composition supplies the client the portal's per-write fee ceiling constant",
+    "expect": "sdk_part_missing: P19f feeCeilingOs is not an option of the purchase factories in @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P19f",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The installed client has no keyless fee ceiling on its purchase factories; SDK card P19f adds feeCeilingOs, and the composition passes the portal constant once it exists."
+  },
+  {
+    "file": "test/composition-sessions.test.mjs",
+    "test": "with the switch on, the native wallet relay is mounted for a live purchase handoff",
+    "expect": "the native wallet relay is not mounted: src/portal/wallet-rpc.mjs needs a node wallet session, and the installed client has no keyless stop seam (P19) or fee ceiling (P19f) for one",
+    "card": "P19f",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The relay needs the client's registered transport, which today only a node wallet session holding a buyer key provides; SDK cards P19 (keyless stop seam) and P19f (keyless fee ceiling) remove that need."
+  },
+  {
     "file": "test/portal-auto-assets.test.mjs",
     "test": "auto-advance config defaults off, rejects typos, and matches its deployment contract entry",
     "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",

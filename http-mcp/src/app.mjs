@@ -5,14 +5,21 @@
 //   *    /portal/*                                trusted wallet signing portal
 //   POST /mcp                                     MCP Streamable HTTP (2025 stateless + 2026 per-request)
 //
-// SDK purchases (DACS_SDK_PURCHASES) are off in every shipped configuration, and
-// this app builds only that composition. It builds no purchase service, wallet
-// relay, seller transport or listing verifier. Routes and tools get a refusal
-// object with the client purchase service's member names: its passive readers
-// (views, status, readback) answer not_configured naming the client part they
-// need, and every purchase action answers sdk_purchases_off. get_listing answers
-// not_configured with reason sdk_purchases_off. Directory search, accounts,
-// identity reads and identity actions work as usual.
+// SDK purchases (DACS_SDK_PURCHASES) are off in every shipped configuration:
+// loadConfig refuses `on` until the switch-on path is validated. With the switch
+// off the app builds no purchase service, wallet relay, seller transport or
+// listing verifier. Routes and tools get a refusal object with the client
+// purchase service's member names: its passive readers (views, status,
+// readback) answer not_configured naming the client part they need, and every
+// purchase action answers sdk_purchases_off. get_listing answers not_configured
+// with reason sdk_purchases_off. Directory search, accounts, identity reads and
+// identity actions work as usual.
+//
+// A configuration with the switch on (test fixtures only) gets the switch-on
+// composition in src/sdk/switch-on.mjs: the startup TP-1 binding, one set of
+// client purchase objects per buyer session, and, with DACS_INTENT_APPROVAL on,
+// the Agreement CREATE delivery and its challenge, claim and pass routes. The
+// native wallet relay stays unmounted: it needs a server-held buyer key.
 import express from 'express';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
@@ -21,12 +28,17 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { hostHeaderValidation, originValidation } from '@modelcontextprotocol/express';
 import { createCoordinateStore, createDirectoryClient, SDK_PROVENANCE } from '@kynesyslabs/dacs-client';
 import { openDatabase } from './store/database.mjs';
-import { ConfigError } from './config.mjs';
 import { createAccountService } from './accounts.mjs';
 import { createChallengeService } from './wallet/challenges.mjs';
 import { createOperationStore } from './operations.mjs';
 import { createDemosChainReader } from './sdk/chain-reader.mjs';
 import { createPurchasesOff, LISTING_VERIFICATION_OFF } from './sdk/activation-seams.mjs';
+import { composeSdkPurchasesOn } from './sdk/switch-on.mjs';
+import { createStopFileCheck } from './stop-file.mjs';
+import { createAgreementCreateDelivery } from './portal/agreement-create-delivery.mjs';
+import { createAgreementCreateRouter } from './portal/agreement-create-routes.mjs';
+import { createStartIntents } from './portal/start-intent.mjs';
+import { createRelayAccess } from './wallet/relay-access.mjs';
 import { createLegacyPublicationService } from './legacy-publications.mjs';
 import { createSellerIdentityReader } from './seller-identities.mjs';
 import { createIdentityService, createIdentityActions } from './identities.mjs';
@@ -47,14 +59,19 @@ function serverSecret(db, name) {
   return db.prepare('SELECT value FROM secrets WHERE name = ?').get(name).value;
 }
 
+// Options of the in-process Agreement brokers this app no longer composes.
+const REMOVED_BROKER_OPTIONS = Object.freeze(['dacsProtocol', 'nativeWalletTransport', 'devnetAgreementTransport', 'offlineAgreementBroker']);
+
 /**
- * Builds the app for `config` with SDK purchases off: the Express `app`, an
- * async `close`, the database and the services. Rejects ConfigError
- * `switch_on_not_validated` before opening the database when `config` has SDK
- * purchases on, and TypeError for switch combinations that cannot run together.
+ * Builds the app for `config`: the Express `app`, an async `close`, the
+ * database and the services. With SDK purchases on it binds at startup first
+ * (src/sdk/switch-on.mjs). Rejects TypeError before opening the database for a
+ * removed broker option or for switch combinations that cannot run together.
  */
-export async function createApp({ config, fetchImpl = globalThis.fetch, now = () => Date.now(), logger = createLogger({ level: config.logLevel }) }) {
-  if (config.sdkPurchases !== 'off') throw new ConfigError('switch_on_not_validated: createApp builds only the SDK purchases off composition', 'switch_on_not_validated');
+export async function createApp(options) {
+  const { config, fetchImpl = globalThis.fetch, now = () => Date.now(), logger = createLogger({ level: config.logLevel }) } = options;
+  const removed = REMOVED_BROKER_OPTIONS.filter((name) => Object.hasOwn(options, name));
+  if (removed.length > 0) throw new TypeError(`createApp takes no ${removed.join(', ')}: the client's Agreement CREATE goes only to the CREATE delivery`);
   if (config.sellerWriteBatches === 'on') throw new TypeError('seller write batches are held until native SDK preparation and batch transport integration are reviewed');
   if (config.showcaseReportView === true && config.showcaseLedger === true) throw new TypeError('the showcase report view and the showcase ledger cannot be enabled together');
   if (config.intentApproval === 'on' && config.portalAutoAdvance === 'on') throw new TypeError('DACS_INTENT_APPROVAL=on and DACS_PORTAL_AUTO_ADVANCE=on cannot be enabled together; turn one of them off');
@@ -67,8 +84,16 @@ export async function createApp({ config, fetchImpl = globalThis.fetch, now = ()
   const coordinates = createCoordinateStore({ db, now });
   const directory = config.directory ? createDirectoryClient({ ...config.directory, fetchImpl }) : null;
   const chain = config.chain ? createDemosChainReader({ ...config.chain, fetchImpl }) : null;
-  const verifier = LISTING_VERIFICATION_OFF;
-  const purchases = createPurchasesOff();
+  // The CREATE delivery's write stop: the KILL file check, read again before each CREATE route; stopped until first read.
+  const stopCheck = createStopFileCheck({ dataDir: config.dataDir, logger });
+  let writesStopped = true;
+  const sdk = config.sdkPurchases === 'on'
+    ? await composeSdkPurchasesOn({ config, db, accounts, ops, coordinates, challenges, directory, chain, fetchImpl, now, logger, stopped: () => writesStopped })
+    : null;
+  const verifier = sdk?.verifier ?? LISTING_VERIFICATION_OFF;
+  const purchases = sdk?.purchases ?? createPurchasesOff();
+  const startIntents = config.intentApproval === 'on' ? createStartIntents({ purchases, accounts, chain, now }) : null;
+  const createDelivery = sdk && startIntents ? createAgreementCreateDelivery({ db, starts: startIntents, gates: sdk.gates, now }) : null;
   // Historical owner history and nonce-proven cancellation; no publication writer.
   const agents = createLegacyPublicationService({ db, ops, coordinates, chain });
   const identityClient = new AsyncLocalStorage();
@@ -140,8 +165,9 @@ export async function createApp({ config, fetchImpl = globalThis.fetch, now = ()
         chain: chain ? { configured: true, rpcOrigin: chain.rpcOrigin, network: chain.network } : { configured: false },
         externalIssuer: config.authMode === 'external' ? { configured: true, issuer } : { configured: false },
       },
-      // With SDK purchases off no evidence recorder is composed, so no purchase evidence is recorded.
-      sdkPurchases: { switch: config.sdkPurchases, evidence: 'unavailable' },
+      // No evidence recorder is composed in either composition, so no purchase evidence is recorded.
+      // With the switch on, `binding` is the startup TP-1 binding: bound with its record id, or refused with its code.
+      sdkPurchases: { switch: config.sdkPurchases, evidence: 'unavailable', ...(sdk ? { binding: sdk.binding } : {}) },
       sdk: SDK_PROVENANCE,
       liveness: 'This endpoint never reports chain, payment or ChatGPT installation success.',
     });
@@ -187,7 +213,14 @@ export async function createApp({ config, fetchImpl = globalThis.fetch, now = ()
     app.use('/oauth', (req, res) => authServer.callback(req, res));
   }
 
-  const portalRouter=createPortalRouter({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger, authenticateProbeBearer: async (header) => verifyBearerToken(header, { verifier: await getVerifier(), resourceMetadataUrl: prmUrl }), chain, fetchImpl, now, timeline: purchaseSteps });
+  if (createDelivery) {
+    app.use('/portal/api/purchase/:id/agreement-create', async (_req, _res, next) => {
+      writesStopped = await stopCheck();
+      next();
+    });
+    app.use(createAgreementCreateRouter({ delivery: createDelivery, challenges, purchases, accounts, relayAccess: createRelayAccess({ db, now }), starts: startIntents, logger, now }));
+  }
+  const portalRouter=createPortalRouter({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger, authenticateProbeBearer: async (header) => verifyBearerToken(header, { verifier: await getVerifier(), resourceMetadataUrl: prmUrl }), chain, fetchImpl, now, timeline: purchaseSteps, startIntents, createDelivery });
   app.use(portalRouter);
 
   // Anonymous MCP calls are allowed (public discovery tools). A presented
@@ -223,6 +256,7 @@ export async function createApp({ config, fetchImpl = globalThis.fetch, now = ()
     if (!await portalRouter.drainPurchasePolls({ timeoutMs: PURCHASE_POLL_DRAIN_MS })) logger.warn('portal_poll_drain_timeout', { timeoutMs: PURCHASE_POLL_DRAIN_MS });
     purchaseSteps.close();
     await mcpHandler.close();
+    sdk?.close();
     db.close();
   }
 
