@@ -12,10 +12,12 @@ DACS here means Demos Agent Commerce Standards. It is not related to other softw
 | [`stdio-mcp/`](stdio-mcp/) | MCP server and Claude Code plugin, over stdio |
 | `.claude-plugin/` | Claude Code marketplace file at the repository root; it lists the `demos` plugin from `stdio-mcp/` |
 | `scripts/`, `test/`, [`docs/`](docs/) | Repository tooling: the public-content gate, the CI helpers and their tests |
+| [`tools/lint/`](tools/lint/) | Linter: ESLint with bug-finding rules only, kept apart from the plugins so it never ships in their packages; see [`tools/lint/README.md`](tools/lint/README.md) |
 | `.github/workflows/` | CI: `public-gate`, `http-mcp tests`, `stdio-mcp` and `lint` |
 
 Each plugin directory is a separate Node package with its own README, setup steps and
-tests. The repository root holds no plugin code.
+tests. `tools/lint/` is a separate Node package too, with its own README and lockfile;
+it is not a plugin. The repository root holds no plugin code.
 
 [`PROVENANCE.md`](PROVENANCE.md) lists where every file in the first commit came
 from and which ones were edited before import.
