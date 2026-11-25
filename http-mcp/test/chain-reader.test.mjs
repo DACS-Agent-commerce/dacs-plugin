@@ -70,6 +70,32 @@ test('a remote RPC origin that marks its answers simulated stays a public chain 
   assert.equal(reader.evidenceMode, 'public-chain-read');
 });
 
+// Answers block 0 with the genesis hash, marked simulated.
+const markedGenesis = async () => json({ result: 200, response: { number: 0, hash: GENESIS } }, { 'x-dacs-simulation': 'fixture' });
+const isMismatch = (error) => error.code === 'network_identity_mismatch';
+
+test('over the public chain reader on a remote RPC, a node answer marked simulated leaves the reader a public chain read', async () => {
+  const chainReads = createDemosPublicChainReader({ rpcUrl: RPC, network: 'testnet', pinnedIdentity: GENESIS, fetchImpl: markedGenesis });
+  const reader = createDemosChainReader({ rpcUrl: RPC, network: 'testnet', fetchImpl: markedGenesis, chainReads });
+  await assert.rejects(reader.networkIdentity(), isMismatch);
+  assert.deepEqual([chainReads.evidenceMode, reader.evidenceMode], ['simulated-fixture', 'public-chain-read']);
+});
+
+test('over the public chain reader on a loopback RPC, a node answer marked simulated labels the reader simulated-fixture', async () => {
+  const rpcUrl = 'http://127.0.0.1:9/';
+  const chainReads = createDemosPublicChainReader({ rpcUrl, network: 'testnet', pinnedIdentity: GENESIS, fetchImpl: markedGenesis });
+  const reader = createDemosChainReader({ rpcUrl, network: 'testnet', fetchImpl: markedGenesis, chainReads });
+  await assert.rejects(reader.networkIdentity(), isMismatch);
+  assert.equal(reader.evidenceMode, 'simulated-fixture');
+});
+
+test('over the public chain reader, the reader names the public reader\'s transfer observer', () => {
+  const chainReads = createDemosPublicChainReader({ rpcUrl: RPC, network: 'testnet', pinnedIdentity: GENESIS, fetchImpl: nodeStandIn().fetchImpl });
+  const reader = createDemosChainReader({ rpcUrl: RPC, network: 'testnet', chainReads });
+  assert.equal(typeof chainReads.observer, 'string');
+  assert.equal(reader.observer, chainReads.observer);
+});
+
 test('an identity answer over the response byte limit is refused before it is decoded', async () => {
   const oversize = `{"result":200,"response":"${'x'.repeat(DEMOS_CCI_RESPONSE_LIMITS.maxEncodedBytes)}"}`;
   const fetchImpl = async () => new Response(oversize, { status: 200, headers: { 'content-type': 'application/json' } });

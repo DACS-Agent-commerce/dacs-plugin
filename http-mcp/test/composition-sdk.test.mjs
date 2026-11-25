@@ -309,3 +309,79 @@ test('after a successful startup binding, a closed owner connection makes prepar
   assert.deepEqual(sellerOrigins(h, origins), []);
   assert.equal(databaseRows(h.app.db), rows, 'no action ran');
 });
+
+// ---- SDK purchases on: the chain reads of the Listing verifier and the purchase service ----
+
+// The client's admission hold keeps the verifier and the purchase service from reading the chain, so these tests read
+// through the reader the app hands them (services.chain), as the verifier reads an anchor and a payment handoff its nonce.
+const SDK_READS = ['readStorageProgram', 'networkIdentity', 'getAddressNonce', 'observeTransfer'];
+const PINNED = TP1_APPROVED_IDENTITY_RECORD.chainIdentity;
+const BUYER_NONCE = 7;
+const ANCHOR = `stor-${'a1'.repeat(20)}`;
+const isMismatch = (error) => error.code === 'network_identity_mismatch';
+const jsonAnswer = (body) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+
+/**
+ * The TP-1 node double, also answering storage program reads from `programs` (locator to program) and every nonce
+ * read with BUYER_NONCE. `node.reads` records each read: its node message, or `storage-program <locator>`.
+ */
+function readingNode(programs = new Map()) {
+  const node = tp1Node();
+  const blockReads = node.fetch;
+  node.fetch = async (input, init) => {
+    const locator = /^\/storage-program\/(stor-[0-9a-f]{40})$/.exec(new URL(String(input)).pathname)?.[1];
+    if (locator) {
+      node.reads.push(`storage-program ${locator}`);
+      return jsonAnswer({ success: true, ...programs.get(locator) });
+    }
+    if (JSON.parse(init.body).params?.[0]?.message !== 'getAddressNonce') return blockReads(input, init);
+    node.reads.push('getAddressNonce');
+    return jsonAnswer({ result: 200, response: BUYER_NONCE });
+  };
+  return node;
+}
+
+test('with SDK purchases on the app\'s chain reader offers the SDK public reader\'s storage, chain identity, nonce and transfer reads, and with them off it offers none of them', async (t) => {
+  const { h: on } = await switchOnHarness(t);
+  const { h: off } = await offApp(t);
+  assert.deepEqual(SDK_READS.filter((name) => typeof on.app.services.chain[name] === 'function'), SDK_READS);
+  assert.deepEqual(SDK_READS.filter((name) => Object.hasOwn(off.app.services.chain, name)), []);
+});
+
+test('with SDK purchases on, a Listing anchor\'s storage read through the app\'s chain reader checks the node\'s chain against the SDK record and returns the anchored program from the node', async (t) => {
+  const programs = new Map();
+  const { h, node } = await switchOnHarness(t, { node: readingNode(programs) });
+  const seller = createEphemeralWallet();
+  const { listing, locator } = seedSellerListing(h, seller);
+  programs.set(locator, { data: listing, owner: seller.address, programName: 'fixture' });
+  const before = node.reads.length;
+  assert.deepEqual(await h.app.services.chain.readStorageProgram(locator), { status: 'found', data: listing, owner: seller.address.toLowerCase(), programName: 'fixture' });
+  assert.deepEqual(node.reads.slice(before), ['getBlockByNumber', `storage-program ${locator}`]);
+});
+
+test('with SDK purchases on, the app\'s chain reader answers the chain identity check and the buyer nonce read a saved payment handoff makes, from the node', async (t) => {
+  const { h, node } = await switchOnHarness(t, { node: readingNode() });
+  const { chain } = h.app.services;
+  const before = node.reads.length;
+  assert.deepEqual([await chain.networkIdentity(), chain.pinnedIdentity], [{ mode: 'public-chain-read', identity: PINNED }, PINNED]);
+  assert.equal(await chain.getAddressNonce(createEphemeralWallet().address), BUYER_NONCE);
+  assert.deepEqual(node.reads.slice(before), ['getBlockByNumber', 'getAddressNonce']);
+});
+
+test('with SDK purchases on, a transfer readback through the app\'s chain reader asks the node for the transaction status', async (t) => {
+  const { h, node } = await switchOnHarness(t, { node: readingNode() });
+  const before = node.reads.length;
+  // The node double answers no status read, so the SDK reader reports the transfer unavailable.
+  assert.deepEqual(await h.app.services.chain.observeTransfer('ab'.repeat(32)), { status: 'unavailable', reason: 'transaction status read failed' });
+  assert.deepEqual(node.reads.slice(before), ['getBlockByNumber', 'getTransactionStatus']);
+});
+
+test('with SDK purchases on, the app\'s chain reader refuses a storage read and a nonce read with network_identity_mismatch, reading neither, from a node on another chain', async (t) => {
+  const { h, node } = await switchOnHarness(t, { node: readingNode() });
+  node.chainIdentity = FIXTURE_CHAIN;
+  const { chain } = h.app.services;
+  const before = node.reads.length;
+  await assert.rejects(chain.readStorageProgram(ANCHOR), isMismatch);
+  await assert.rejects(chain.getAddressNonce(createEphemeralWallet().address), isMismatch);
+  assert.deepEqual(node.reads.slice(before), ['getBlockByNumber', 'getBlockByNumber']);
+});
