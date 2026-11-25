@@ -4,7 +4,7 @@
 implements the existing consumer interface: async `get(key)`, `put(key, value)`,
 `entries()` and `withWalletLock(key, work)`. Nothing in application
 configuration constructs it, and no public mode is wired. Default/live payment
-holds and the empty `PINNED_CHAIN_IDENTITIES` stay unchanged.
+holds stay unchanged, and the configuration names no chain identity.
 
 ```js
 import { openDurableWalletJournal } from './src/wallet/durable-journal.mjs';

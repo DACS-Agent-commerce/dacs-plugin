@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { startHarness } from './helpers/harness.mjs';
 import { linkedUser, tool, toolRaw } from './helpers/flows.mjs';
 import { createIdentityService, projectIdentities, IDENTITY_READ_LIMITS } from '../src/identities.mjs';
-import { createDemosChainReader } from '../src/dacs/chain.mjs';
+import { createDemosChainReader } from '../src/sdk/chain-reader.mjs';
 import { decodeSellerDataEnvelope } from '../src/mcp/seller-content.mjs';
 
 let h;
@@ -131,6 +131,27 @@ test('a partial outage marks only the failed wallet unavailable with claims null
   assert.equal(failed.raw, null);
   assert.match(failed.error, /ECONNREFUSED/);
   assert.equal(failed.evidence.observedAt, '2026-10-03T00:00:00.000Z');
+});
+
+test('malformed JSON from the RPC leaves each wallet unavailable with claims null, and every wallet failing is identity_reads_unavailable', async () => {
+  const good = `0x${'1'.repeat(64)}`;
+  const bad = `0x${'2'.repeat(64)}`;
+  const fetchImpl = async (_url, init) => {
+    const [address] = JSON.parse(init.body).params[0].params;
+    const body = address === bad ? '{"result":200,"response":' : JSON.stringify({ result: 200, response: { xm: {}, web2: {}, ud: [], pqc: {} } });
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const chain = createDemosChainReader({ rpcUrl: 'http://127.0.0.1:9/', network: 'demos-testnet', fetchImpl });
+  const now = () => Date.parse('2026-10-03T00:00:00Z');
+  const partial = createIdentityService({ chain, accounts: { listWallets: () => [{ address: good }, { address: bad }] }, now });
+  const [ok, failed] = await partial.observe({ accountId: 'acc_x' });
+  assert.equal(ok.status, 'observed');
+  assert.equal(failed.status, 'unavailable');
+  assert.equal(failed.claims, null, 'a malformed answer is unknown, not empty');
+  assert.equal(failed.raw, null);
+  assert.match(failed.error, /malformed JSON/);
+  const allBad = createIdentityService({ chain, accounts: { listWallets: () => [{ address: bad }] }, now });
+  await assert.rejects(allBad.observe({ accountId: 'acc_x' }), (error) => error.code === 'identity_reads_unavailable' && error.details.wallets[0].address === bad);
 });
 
 test('an unrecognised response shape is reported as unrecognized with its raw hash, not coerced', async () => {

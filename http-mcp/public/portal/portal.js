@@ -830,8 +830,8 @@ async function purchaseFlow(id) {
   async function pay(view) {
     if (!view.payload) {
       render(view);
-      // A handoff the server refused before signing says why (its fixed text).
-      if (view.refusal) throw new Error(view.refusal);
+      // A handoff the server refused before signing says why (the server's explanation of the refusal code).
+      if (view.refusal) throw new Error(view.refusal.message);
       log(`No transaction to send (status ${view.status}).`);
       return;
     }

@@ -1,4 +1,4 @@
-// Durable state for accounts, wallets, agents, operations, challenges and the OAuth provider, on
+// Durable state for accounts, wallets, agents, operations, challenges, relay capabilities and the OAuth provider, on
 // node:sqlite (WAL, synchronous=FULL), so idempotency keys, one-use challenges and approvals are
 // enforced by UNIQUE constraints and survive process restarts. The client's PurchaseStore owns every
 // transaction, and the client's PURCHASE_STATE_SCHEMA is the only DDL for the purchase tables: a new
@@ -9,9 +9,12 @@ import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PURCHASE_STATE_SCHEMA, createSqlitePurchaseStore } from '@kynesyslabs/dacs-client';
 
-// Created at import, before this module prepares any statement: the client's statement guard only
-// tracks statements prepared after the store exists.
-const purchaseStore = createSqlitePurchaseStore();
+/**
+ * The app's one client PurchaseStore, created at import before this module prepares any statement: the
+ * client's statement guard only tracks statements prepared after the store exists. Client purchase
+ * services take this instance rather than a second statement guard.
+ */
+export const purchaseStore = createSqlitePurchaseStore();
 
 /** Runs a synchronous callback in the client's BEGIN IMMEDIATE transaction; a nested call is a savepoint. Rolls back and rethrows on any error. */
 export const { transaction } = purchaseStore;
@@ -19,9 +22,12 @@ export const { transaction } = purchaseStore;
 /** Whether a SQLite error is a UNIQUE or PRIMARY KEY violation. */
 export const { isUniqueViolation } = purchaseStore;
 
-// v3: the purchase tables are the client's schema (operations gains handoff_expires_at and job_id).
-// Pre-release: older files are refused rather than migrated.
-const SCHEMA_VERSION = 3;
+/**
+ * The app database's schema version, stored as its decimal text in meta.schema_version.
+ * v3: the purchase tables are the client's schema (operations gains handoff_expires_at and job_id).
+ * Pre-release: older files are refused rather than migrated.
+ */
+export const SCHEMA_VERSION = 3;
 const BUSY_TIMEOUT_MS = 5000;
 const IN_MEMORY = ':memory:';
 // Persistent settings come after busy_timeout so a concurrent first open waits instead of failing.
@@ -77,6 +83,31 @@ const PLUGIN_SCHEMA = [
      name TEXT PRIMARY KEY,
      value TEXT NOT NULL,
      created_at TEXT NOT NULL
+   )`,
+  // Native wallet relay capabilities (src/wallet/relay-access.mjs), stored only as their hash.
+  `CREATE TABLE IF NOT EXISTS relay_capabilities (
+     capability_hash TEXT PRIMARY KEY,
+     account_id TEXT NOT NULL,
+     operation_id TEXT NOT NULL,
+     wallet TEXT NOT NULL,
+     phases TEXT NOT NULL,
+     expires_at TEXT NOT NULL,
+     created_at TEXT NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS relay_capabilities_by_operation ON relay_capabilities(operation_id)`,
+  `CREATE TABLE IF NOT EXISTS agreement_create_deliveries (
+     delivery_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE,
+     account_id TEXT NOT NULL, wallet TEXT NOT NULL, terms_hash TEXT NOT NULL, kind TEXT NOT NULL,
+     request_bytes BLOB NOT NULL, request_hash TEXT NOT NULL,
+     state TEXT NOT NULL CHECK (state IN ('issued','claimed')),
+     start_record_id TEXT, claim_expires_at TEXT, journal_capability_hash TEXT,
+     created_at TEXT NOT NULL, claimed_at TEXT
+   )`,
+  `CREATE TABLE IF NOT EXISTS agreement_create_events (
+     delivery_id TEXT NOT NULL, seq INTEGER NOT NULL,
+     kind TEXT NOT NULL CHECK (kind IN ('pass','browser-stage','result','retirement')),
+     body TEXT NOT NULL, created_at TEXT NOT NULL,
+     PRIMARY KEY (delivery_id, seq)
    )`,
 ];
 

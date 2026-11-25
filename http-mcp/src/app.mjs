@@ -1,27 +1,48 @@
-import { createPurchaseReadbackCache } from './util/purchase-readback-cache.mjs';
-import { createDeliveryDeadlineWatch } from './dacs/delivery-deadline-watch.mjs';
 // Composition root: one Express app serving
 //   GET  /health                                  liveness + configuration status
 //   GET  /.well-known/oauth-protected-resource[/mcp]  RFC 9728 metadata
 //   *    /oauth/*                                 built-in authorization server (builtin mode)
 //   *    /portal/*                                trusted wallet signing portal
 //   POST /mcp                                     MCP Streamable HTTP (2025 stateless + 2026 per-request)
+//
+// SDK purchases (DACS_SDK_PURCHASES) are off in every shipped configuration:
+// loadConfig refuses `on` until the switch-on path is validated. With the switch
+// off the app builds no purchase service, wallet relay, seller transport or
+// listing verifier. Routes and tools get a refusal object with the client
+// purchase service's member names: its passive readers (views, status,
+// readback) answer not_configured naming the client part they need, and every
+// purchase action answers sdk_purchases_off. get_listing answers not_configured
+// with reason sdk_purchases_off. Directory search, accounts, identity reads and
+// identity actions work as usual. The chain reader has only the identity read.
+//
+// A configuration with the switch on (test fixtures only) gets the switch-on
+// composition in src/sdk/switch-on.mjs: the startup TP-1 binding, one set of
+// client purchase objects per buyer session, and, with DACS_INTENT_APPROVAL on,
+// the Agreement CREATE delivery and its challenge, claim and pass routes, which
+// read KILL on every call and share the portal's relay capability store. Its
+// chain reader adds the client's public testnet reads, pinned to the SDK
+// record's chain identity. The native wallet relay stays unmounted: it needs a
+// server-held buyer key. The composition's process descriptor is returned as
+// `services.switchOn`.
 import express from 'express';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 import { createMcpHandler, verifyBearerToken, bearerAuthChallengeResponse } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { hostHeaderValidation, originValidation } from '@modelcontextprotocol/express';
+import { TP1_APPROVED_IDENTITY_RECORD } from '@kynesyslabs/dacs/wire';
+import { createCoordinateStore, createDirectoryClient, SDK_PROVENANCE } from '@kynesyslabs/dacs-client';
+import { createDemosPublicChainReader } from '@kynesyslabs/dacs-client/substrate/demos';
 import { openDatabase } from './store/database.mjs';
 import { createAccountService } from './accounts.mjs';
 import { createChallengeService } from './wallet/challenges.mjs';
 import { createOperationStore } from './operations.mjs';
-import { createCoordinateStore } from './dacs/wallet-transactions.mjs';
-import { createDirectoryClient } from './dacs/directory.mjs';
-import { createDemosChainReader } from './dacs/chain.mjs';
-import { createListingVerifier } from './dacs/verification.mjs';
-import { createPurchaseService } from './purchases.mjs';
-import { createProtocolPurchases, OFFLINE_AGREEMENT_MODE } from './dacs/protocol-purchases.mjs';
+import { createDemosChainReader } from './sdk/chain-reader.mjs';
+import { createPurchasesOff, LISTING_VERIFICATION_OFF } from './sdk/activation-seams.mjs';
+import { composeSdkPurchasesOn, releasePreparedOwner } from './sdk/switch-on.mjs';
+import { createStopFileCheckSync } from './stop-file.mjs';
+import { createAgreementCreateRouter } from './portal/agreement-create-routes.mjs';
+import { createStartIntents } from './portal/start-intent.mjs';
 import { createLegacyPublicationService } from './legacy-publications.mjs';
 import { createSellerIdentityReader } from './seller-identities.mjs';
 import { createIdentityService, createIdentityActions } from './identities.mjs';
@@ -32,15 +53,9 @@ import { createPortalRouter } from './portal/routes.mjs';
 import { createMcpServerFactory, SERVER_INFO } from './mcp/server.mjs';
 import { createLogger } from './util/log.mjs';
 import { createRateLimiter, clientAddress } from './util/rate-limit.mjs';
-import { SDK_PROVENANCE } from './dacs/listing.mjs';
-import { createOfflineAgreementBroker } from './portal/offline-agreement-broker.mjs';
-import { createWalletRpcRouter } from './portal/wallet-rpc.mjs';
 import { PURCHASE_POLL_DRAIN_MS } from './portal/purchase-poll.mjs';
 import { createPurchaseStepLog } from './util/purchase-step-log.mjs';
-import { isDevnetNativeTransport, isDevnetAgreementTransport } from './wallet/devnet-native-transport.mjs';
-import { createDevnetAgreementTransportBroker } from './portal/devnet-agreement-transport-broker.mjs';
-import { operatorBuyerAccessConfig } from './devnet-demo/buyer-access.mjs';
-import { demDeliveryContextUsage } from './dacs/dem-delivery-context-consumer.mjs';
+import { assertTp1RecordCopy } from './tp1-record-copy.mjs';
 
 function serverSecret(db, name) {
   const row = db.prepare('SELECT value FROM secrets WHERE name = ?').get(name);
@@ -49,62 +64,66 @@ function serverSecret(db, name) {
   return db.prepare('SELECT value FROM secrets WHERE name = ?').get(name).value;
 }
 
-// dacsProtocol ({ anchorUrl, sellerEndpoint(claim) }) enables offline DACS
-// protocol purchases against a loopback seller agent and the SIMULATED SR-2
-// fixture substrate. It is a programmatic option only (no environment
-// variable); without it protocol purchases refuse as unavailable.
-// walletAgreement ({ rpcUrl, network, journal, walletFactory }) separately
-// enables the bounded simulated SR-2 Agreement profile. Its factory is an
-// explicit local fixture capability; no buyer key or wallet fallback is held
-// by the plugin and no environment option enables this path.
-// browserAgreement ({ journal, ttlMs? }) is a separate LOOPBACK TEST ONLY
-// option: the portal authenticates the bound wallet and the actual built-in
-// UI approves CREATE; it cannot be combined with an injected walletFactory.
-// It has no env/CLI/public-server enabling path or payment authorization. The
-// separate nativeAgreementPayment programmatic consumer can bind NEW terms
-// to normal payment approval after public Agreement/fixture commitment reads.
-export async function createApp({ config, fetchImpl = globalThis.fetch, now = () => Date.now(), logger = createLogger({ level: config.logLevel }), dacsProtocol = null, nativeWalletTransport = null, devnetAgreementTransport = null, testOnlyDeliveryDeadlineTimer }) {
+// Options of the in-process Agreement brokers this app no longer composes.
+const REMOVED_BROKER_OPTIONS = Object.freeze(['dacsProtocol', 'nativeWalletTransport', 'devnetAgreementTransport', 'offlineAgreementBroker']);
+
+/**
+ * Builds the app for `config`: the Express `app`, an async `close`, the
+ * database and the services. With SDK purchases on it binds at startup first
+ * (src/sdk/switch-on.mjs), over the node connection `preparedOwner` (a
+ * prepareSwitchOnOwner handle for this `config`) or one of its own, and gives
+ * the composition `recorderNamespace`, the evidence recorder's subpath
+ * namespace or null. `listingVerifierFactory` and `routerFactories`
+ * (`{ portal, agreementCreate }`) replace the client's listing verifier and the
+ * two router constructors for a direct test of the switch-on wiring. In either
+ * composition it first rejects Tp1RecordCopyDrift when the browser's TP-1
+ * record copy differs from the SDK's (src/tp1-record-copy.mjs). Rejects
+ * TypeError before opening the database for a removed broker option or for
+ * switch combinations that cannot run together; a prepared connection it did
+ * not take is closed when it rejects.
+ */
+export async function createApp(options) {
+  try {
+    return await assembleApp(options);
+  } catch (error) {
+    releasePreparedOwner(options.preparedOwner);
+    throw error;
+  }
+}
+
+async function assembleApp(options) {
+  const { config, fetchImpl = globalThis.fetch, now = () => Date.now(), logger = createLogger({ level: config.logLevel }), preparedOwner = null, recorderNamespace = null,
+    listingVerifierFactory, routerFactories = { portal: createPortalRouter, agreementCreate: createAgreementCreateRouter } } = options;
+  assertTp1RecordCopy();
+  const removed = REMOVED_BROKER_OPTIONS.filter((name) => Object.hasOwn(options, name));
+  if (removed.length > 0) throw new TypeError(`createApp takes no ${removed.join(', ')}: the client's Agreement CREATE goes only to the CREATE delivery`);
   if (config.sellerWriteBatches === 'on') throw new TypeError('seller write batches are held until native SDK preparation and batch transport integration are reviewed');
   if (config.showcaseReportView === true && config.showcaseLedger === true) throw new TypeError('the showcase report view and the showcase ledger cannot be enabled together');
   if (config.intentApproval === 'on' && config.portalAutoAdvance === 'on') throw new TypeError('DACS_INTENT_APPROVAL=on and DACS_PORTAL_AUTO_ADVANCE=on cannot be enabled together; turn one of them off');
-  // Source capability only. Config/model approval booleans cannot instantiate
-  // a transport or admit a pin. Existing portal/purchase profiles stay held.
-  if (nativeWalletTransport !== null && !isDevnetNativeTransport(nativeWalletTransport)) throw new TypeError('nativeWalletTransport requires the explicit independently trusted source capability');
-  if (devnetAgreementTransport !== null && !isDevnetAgreementTransport(devnetAgreementTransport)) throw new TypeError('devnetAgreementTransport requires its separate opaque source capability');
-  if (devnetAgreementTransport && (nativeWalletTransport || dacsProtocol?.browserAgreement || dacsProtocol?.walletAgreement || dacsProtocol?.nativeAgreementPayment)) throw new TypeError('choose the separately constructed Agreement source, never migrate or combine old profiles');
-  // The native-demo profile mounts the Agreement relay and broker; both need
-  // the constructed operator buyer-access capability (an open one admits all).
-  const buyerAccess = operatorBuyerAccessConfig(dacsProtocol?.buyerAccess);
-  if (devnetAgreementTransport && !buyerAccess) throw new TypeError('devnetAgreementTransport requires the constructed operator buyerAccess capability');
-  const walletTransport = devnetAgreementTransport ?? nativeWalletTransport;
   const db = openDatabase(config.databasePath);
   const accounts = createAccountService({ db, builtinIssuer: config.builtinIssuer, now });
   const challenges = createChallengeService({ db, origin: config.publicOrigin, ttlSeconds: config.challengeTtlSeconds, now });
   // Per-step purchase timeline at debug; one buffered summary line per stage at info.
   const purchaseSteps = createPurchaseStepLog({ logger });
-  const readbackCache = config.readbackCache ? createPurchaseReadbackCache({ loadPurchase: (id) => {
-    const row = db.prepare("SELECT kind,status,state FROM operations WHERE id=?").get(id);
-    return row ? { ...row, state: JSON.parse(row.state) } : null;
-  } }) : null;
-  const timeline = { record: (fields) => { readbackCache?.stageChange(fields); purchaseSteps.record(fields); } };
-  const ops = createOperationStore({ db, timeline, handoffSecret: serverSecret(db, 'handoff-hmac-key'), now });
+  const ops = createOperationStore({ db, timeline: purchaseSteps, handoffSecret: serverSecret(db, 'handoff-hmac-key'), now });
   const coordinates = createCoordinateStore({ db, now });
-  const detachTimeline=walletTransport?.onPurchaseStep((fields)=>{
-    const rows=fields.jobId ? db.prepare("SELECT id,terms FROM operations WHERE kind='purchase' AND json_extract(terms,'$.protocol.jobId')=?").all(fields.jobId)
-      : db.prepare("SELECT o.id,o.terms FROM operations o JOIN write_coordinates c ON c.operation_id=o.id WHERE o.kind='purchase' AND c.from_address=? AND c.expected_nonce=?").all(fields.writer,fields.nonce);
-    if(rows.length===1)purchaseSteps.record({...fields,purchaseId:rows[0].id,jobId:JSON.parse(rows[0].terms).protocol?.jobId ?? null});
-  });
   const directory = config.directory ? createDirectoryClient({ ...config.directory, fetchImpl }) : null;
-  const chain = devnetAgreementTransport ? devnetAgreementTransport.chainReader() : config.chain ? createDemosChainReader({ ...config.chain, fetchImpl }) : null;
-  const verifier = createListingVerifier({ directory, chain, now, cacheImmutable:Boolean(devnetAgreementTransport), observeBinding:devnetAgreementTransport?()=>devnetAgreementTransport.observeBinding():null });
-  const browserAgreement = dacsProtocol?.browserAgreement;
-  if (browserAgreement && Object.keys(browserAgreement).some((k) => !['journal', 'ttlMs'].includes(k))) throw new Error('the loopback browser broker accepts only an explicit public journal and bounded expiry');
-  if (browserAgreement && dacsProtocol.walletAgreement) throw new Error('choose either the loopback browser broker or the injected fixture wallet, not both');
-  const offlineAgreementBroker = devnetAgreementTransport ? createDevnetAgreementTransportBroker({config,ops,accounts,challenges,sourceCapability:devnetAgreementTransport,journal:devnetAgreementTransport.journal,assertBuyerAccess:(operation)=>protocol.assertBuyerAccess(operation.terms.buyer.wallet,operation),fetchImpl,now}) : browserAgreement ? createOfflineAgreementBroker({ config, ops, accounts, challenges, journal: browserAgreement.journal, ttlMs: browserAgreement.ttlMs, fetchImpl, now }) : null;
-  const deliveryDeadlineWatch = createDeliveryDeadlineWatch({ db, ops, coordinates, enabled: config.deliveryDeadlineWatch === 'on', now, logger, ...(testOnlyDeliveryDeadlineTimer ? { timer: testOnlyDeliveryDeadlineTimer } : {}) });
-  if (dacsProtocol) dacsProtocol = { ...dacsProtocol, commitOnSignature: config.commitOnSignature ?? false };
-  const protocol = createProtocolPurchases({ db, ops, coordinates, dacsProtocol: offlineAgreementBroker ? { ...dacsProtocol, walletAgreement: offlineAgreementBroker.walletAgreement, ...(devnetAgreementTransport ? {nativeAgreementPayment:devnetAgreementTransport}: {}) } : dacsProtocol, fetchImpl, now, deliveryDeadlineWatch, readbackCache, buyerChainReadback: config.buyerChainReadback === 'on' });
-  const purchases = createPurchaseService({ db, config, ops, coordinates, accounts, verifier, chain, challenges, protocol, now, logger });
+  // With SDK purchases on, the Listing verifier and the purchase service read storage programs, the chain identity,
+  // nonces and transfers through the client's public testnet reader, pinned to the SDK record's chain identity.
+  const chainReads = config.chain && config.sdkPurchases === 'on'
+    ? createDemosPublicChainReader({ rpcUrl: config.chain.rpcUrl, network: 'testnet', pinnedIdentity: TP1_APPROVED_IDENTITY_RECORD.chainIdentity, timeoutMs: config.chain.timeoutMs, fetchImpl })
+    : null;
+  const chain = config.chain ? createDemosChainReader({ ...config.chain, fetchImpl, chainReads }) : null;
+  // The CREATE delivery's write stop reads the KILL file at each call.
+  const sdk = config.sdkPurchases === 'on'
+    ? await composeSdkPurchasesOn({ config, db, accounts, ops, coordinates, challenges, directory, chain, fetchImpl, now, logger, preparedOwner, recorderNamespace,
+      listingVerifierFactory, stopped: createStopFileCheckSync({ dataDir: config.dataDir, logger }) })
+    : null;
+  const verifier = sdk?.verifier ?? LISTING_VERIFICATION_OFF;
+  const purchases = sdk?.purchases ?? createPurchasesOff();
+  const intents = config.intentApproval === 'on';
+  const startIntents = intents ? sdk?.starts ?? createStartIntents({ purchases, accounts, chain, now }) : null;
+  const createDelivery = sdk && intents ? sdk.delivery : null;
   // Historical owner history and nonce-proven cancellation; no publication writer.
   const agents = createLegacyPublicationService({ db, ops, coordinates, chain });
   const identityClient = new AsyncLocalStorage();
@@ -144,13 +163,7 @@ export async function createApp({ config, fetchImpl = globalThis.fetch, now = ()
   };
 
   const services = { accounts, ops, directory, verifier, purchases, agents, identities, identityActions, sellerIdentities, linkSecret };
-  // The Node2 Devnet operator composition makes the SR-2 wallet Agreement
-  // purchase real; the MCP text must say so instead of the held default.
-  const devnetLivePurchase = Boolean(devnetAgreementTransport && dacsProtocol?.nativeSellerCommitment && dacsProtocol?.nativeDemDelivery);
-  // The showcase reports a live purchase only when the protocol can also
-  // prepare it (that needs the seller endpoint resolver).
-  const showcaseLivePurchase = devnetLivePurchase && protocol.supportsMode(OFFLINE_AGREEMENT_MODE);
-  const factory = createMcpServerFactory({ config, services, logger, devnetLivePurchase, showcaseLivePurchase });
+  const factory = createMcpServerFactory({ config, services, logger, devnetLivePurchase: false });
   const maxRequestBodySize = 256 * 1024;
   const mcpHandler = createMcpHandler(factory, { legacy: 'stateless', maxRequestBodySize, onerror: (error) => logger.warn('mcp_protocol_error', { message: error.message }) });
   const nodeMcp = toNodeHandler(mcpHandler, { maxRequestBodySize, onerror: (error) => logger.error('mcp_adapter_error', { message: error.message }) });
@@ -163,19 +176,15 @@ export async function createApp({ config, fetchImpl = globalThis.fetch, now = ()
   const local = ['localhost', '127.0.0.1', '[::1]'];
   const allowedHosts = config.allowInsecureLocal ? [publicHost, ...local] : [publicHost];
   // Liveness first: container healthchecks connect via 127.0.0.1 without the public Host.
-  const partyVetStore = () => (dacsProtocol?.demDeliveryContext ? demDeliveryContextUsage(dacsProtocol.demDeliveryContext) : null);
   app.get('/health', (_req, res) => {
-    const vetStore = partyVetStore();
     let database = 'ok';
     try {
       db.prepare('SELECT 1').get();
     } catch {
       database = 'error';
     }
-    const sellerTls = dacsProtocol?.sellerTlsReadiness?.();
     res.status(database === 'ok' ? 200 : 503).json({
-      status: database === 'ok' && sellerTls?.status !== 'unusable' ? 'ok' : 'degraded',
-      ...(sellerTls ? { sellerTls } : {}),
+      status: database === 'ok' ? 'ok' : 'degraded',
       server: SERVER_INFO,
       mcp: config.mcpUrl,
       authMode: config.authMode,
@@ -185,10 +194,10 @@ export async function createApp({ config, fetchImpl = globalThis.fetch, now = ()
         directory: directory ? { configured: true, origin: directory.origin } : { configured: false },
         chain: chain ? { configured: true, rpcOrigin: chain.rpcOrigin, network: chain.network } : { configured: false },
         externalIssuer: config.authMode === 'external' ? { configured: true, issuer } : { configured: false },
-        // The operator's party Vet store: used and remaining jobs and bytes.
-        // New purchase plans fail closed once it is full.
-        ...(vetStore ? { partyVetStore: vetStore } : {}),
       },
+      // No evidence recorder is composed in either composition, so no purchase evidence is recorded.
+      // With the switch on, `binding` is the startup TP-1 binding: bound with its record id, or refused with its code.
+      sdkPurchases: { switch: config.sdkPurchases, evidence: 'unavailable', ...(sdk ? { binding: sdk.bindingState } : {}) },
       sdk: SDK_PROVENANCE,
       liveness: 'This endpoint never reports chain, payment or ChatGPT installation success.',
     });
@@ -234,9 +243,18 @@ export async function createApp({ config, fetchImpl = globalThis.fetch, now = ()
     app.use('/oauth', (req, res) => authServer.callback(req, res));
   }
 
-  if (walletTransport) app.use(createWalletRpcRouter({ config,logger,nativeTransport:walletTransport,buyerAccess }));
-  const portalRouter=createPortalRouter({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger, authenticateProbeBearer: async (header) => verifyBearerToken(header, { verifier: await getVerifier(), resourceMetadataUrl: prmUrl }), chain, fetchImpl, now, offlineAgreementBroker, timeline: purchaseSteps });
+  // The routers' options; with the switch on, both hold the composition's one relay capability store.
+  const routeInputs = Object.freeze({
+    portal: Object.freeze({ config, db, authServer, accounts, challenges, purchases, identityActions, sellerIdentities, linkSecret, logger,
+      authenticateProbeBearer: async (header) => verifyBearerToken(header, { verifier: await getVerifier(), resourceMetadataUrl: prmUrl }), chain, fetchImpl, now,
+      timeline: purchaseSteps, startIntents, createDelivery, relayAccess: sdk?.relayAccess ?? null, startupRefusal: sdk?.startupRefusal ?? null }),
+    agreementCreate: createDelivery
+      ? Object.freeze({ delivery: createDelivery, challenges, purchases, accounts, relayAccess: sdk.relayAccess, starts: startIntents, logger, now })
+      : null,
+  });
+  const portalRouter = routerFactories.portal(routeInputs.portal);
   app.use(portalRouter);
+  if (routeInputs.agreementCreate) app.use(routerFactories.agreementCreate(routeInputs.agreementCreate));
 
   // Anonymous MCP calls are allowed (public discovery tools). A presented
   // bearer token must verify, or the request is refused with a challenge.
@@ -263,20 +281,18 @@ export async function createApp({ config, fetchImpl = globalThis.fetch, now = ()
   purgeTimer.unref();
 
   async function close() {
-    await deliveryDeadlineWatch.stop();
     clearInterval(purgeTimer);
     // Let in-flight portal rechecks finish before their dependencies close,
     // but never for longer than the bound: a hung seller call must not hold
     // shutdown open. A timed-out drain closes exactly as a shutdown without a
     // drain would; any unknown outcome stays readback-only.
     if (!await portalRouter.drainPurchasePolls({ timeoutMs: PURCHASE_POLL_DRAIN_MS })) logger.warn('portal_poll_drain_timeout', { timeoutMs: PURCHASE_POLL_DRAIN_MS });
-    readbackCache?.close();
-    detachTimeline?.();
     purchaseSteps.close();
-    await walletTransport?.close();
     await mcpHandler.close();
+    sdk?.close();
     db.close();
   }
 
-  return { app, close, db, startDeliveryDeadlineWatch: deliveryDeadlineWatch.start, stopDeliveryDeadlineWatch: deliveryDeadlineWatch.stop, services: { ...services, challenges, coordinates, chain, protocol }, authServer, issuer, protectedResourceMetadata };
+  const switchOn = sdk ? Object.freeze({ ...sdk, routeInputs }) : null;
+  return { app, close, db, services: { ...services, challenges, coordinates, chain, switchOn }, authServer, issuer, protectedResourceMetadata };
 }

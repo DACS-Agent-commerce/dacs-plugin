@@ -52,6 +52,71 @@ empty value are refused. It is the plugin's own setting for running purchases
 through the SDK client's purchase service, and it does not change the client's
 purchase hold.
 
+`loadConfig` refuses `on` in this order:
+
+1. Unless `DACS_CHAIN_RPC_URL` is an `https` URL on a host that is not loopback.
+2. With `sdk_part_missing: <part> <name>` while the installed client lacks a
+   purchase part that has a fixed public name. Today that is one part: the
+   evidence recorder, `createPurchaseEvidenceRecorder`, looked up only in its
+   package subpath `@kynesyslabs/dacs-client/purchase/evidence-recorder`
+   (the namespace `loadConfig` and `createApp` take as `recorderNamespace`). An
+   export of that name at the client root does not count.
+3. With `switch_on_not_validated` in every other case, until the whole
+   switch-on path is validated. The client's passive purchase reader, its stop
+   seam, its fee-ceiling and wallet-handoff members and its HTTPS seller client
+   have no fixed public names yet, so `loadConfig` cannot look them up.
+
+With `off`, the app builds no purchase service, wallet relay, seller transport
+or listing verifier:
+
+- purchase views, `get_purchase_status` and `verify_deal` answer `not_configured`
+  with `sdk_part_missing: P19`, the client's passive purchase reader;
+- every purchase action answers `sdk_purchases_off`, and the portal's wallet
+  report answers 503 `not_configured` with `details.reason` `sdk_purchases_off`;
+- `get_listing` answers `not_configured` with `details.reason` `sdk_purchases_off`;
+- `/health` reports `sdkPurchases: { switch: "off", evidence: "unavailable" }`.
+
+Directory search, accounts, identity reads and identity actions work as usual.
+
+`createApp` given a configuration with `on` (test fixtures only, since
+`loadConfig` refuses it) builds the switch-on composition in
+`src/sdk/switch-on.mjs`:
+
+- At startup it reads the participant enrollment file and binds the SDK's
+  approved TP-1 identity record over the node at the root of
+  `DACS_CHAIN_RPC_URL` (an `https` URL with no path, query or fragment), once,
+  within 10 seconds. The node connection's transport authority label is
+  `DACS_TP1_TRANSPORT_AUTHORITY`, a plain token the operator sets; it has no
+  default. The result is kept as `services.switchOn.startupResult`.
+- If that binding fails, the server stays up. Purchase views answer as with
+  `off`, and every purchase action answers a bare `tp1_*` code until a restart:
+  `tp1_local_binding_invalid` for a missing or invalid transport authority or
+  endpoint, `tp1_authority_timeout`, `tp1_enrollment_unreadable` or
+  `tp1_enrollment_invalid`, the node's own `tp1_*` refusal, or
+  `tp1_authority_failed` when the node could not be read. The wallet report
+  answers 503 `not_configured` with that code as `details.reason`. `/health`
+  reports `binding: { state: "refused", code }`, or `{ state: "bound", recordId }`.
+- After a successful binding, purchase views still answer as with `off`. Each
+  buyer session (an account and one of its linked wallets) gets its own client
+  purchase objects, bound on its first purchase action; the client then holds
+  the action (`profile_not_admitted`, and 503 for the wallet report). A call for
+  a wallet its account does not own, or by a portal link whose handoff has
+  expired, answers `not_found` before any session. A session ends when its
+  wallet is unlinked.
+- With `DACS_INTENT_APPROVAL` on, the Agreement CREATE delivery and its
+  challenge, claim and pass routes are mounted. They read `KILL` on every call.
+  The native wallet relay is not mounted: it needs a node wallet session, which
+  holds a buyer key.
+
+Purchases with `on` need each seller enrolled in the data directory's
+participant enrollment file ([PARTICIPANT-ENROLLMENT.md](PARTICIPANT-ENROLLMENT.md)).
+
+With either value, the portal serves the browser's copy of the SDK's approved
+TP-1 identity record at `/portal/assets/tp1-identity-record.mjs`. Before it
+opens the database, `createApp` compares that copy with the SDK's record by
+canonical JSON bytes and digest, and refuses to start with
+`tp1_record_copy_drift` on any difference.
+
 ## Add a switch
 
 1. Add `src/switches/DACS_MY_FEATURE.switch`. It is strict JSON. The extension

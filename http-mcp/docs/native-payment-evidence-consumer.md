@@ -11,8 +11,9 @@ buyer, Listing pin, signed Agreement hash, commitment hash and native transfer.
 
 Enablement requires an explicitly constructed
 `createNativePaymentEvidenceConsumer({rpcUrl, anchorEvidence})` capability, not
-Boolean consent, a model decision or a caller-supplied verified verdict. Buyer
-configuration uses `dacsProtocol.nativePaymentEvidence`; seller configuration
+Boolean consent, a model decision or a caller-supplied verified verdict. In v1 the
+buyer configuration was `dacsProtocol.nativePaymentEvidence`, an option the v2
+`createApp` does not take; seller configuration
 uses `createSellerAgent({nativePaymentEvidence, ...})`. Both consume only the
 owned literal `http://127.0.0.1` fixture origin. Only fresh prepared native
 Agreement/payment terms receive the immutable capability marker. Default and

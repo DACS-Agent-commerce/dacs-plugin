@@ -38,6 +38,16 @@ test('CI gives the checkout and HOME to pwuser before running tests without root
   assert.equal((workflow.match(/npm run test:ci/g) ?? []).length, 1, 'the suite must only run after dropping privileges');
 });
 
+// The overnight-acceptance browser helper (test/helpers/overnight-acceptance-browser.mjs) fails every file that uses
+// it unless DACS_TEST_DOWNLOAD_PARENT names a directory outside /tmp; the other browser files use it when it is set.
+test('CI gives the browser tests a download parent outside /tmp in pwuser\'s HOME, set before the suite starts', () => {
+  const run = workflow.slice(workflow.indexOf('- name: Run tests as pwuser'), workflow.indexOf('- name: Upload per-file results'));
+  const parent = run.match(/^\s*export DACS_TEST_DOWNLOAD_PARENT="\$HOME\/([\w.-]+)"$/m);
+  assert.ok(parent, 'the run step exports DACS_TEST_DOWNLOAD_PARENT under "$HOME", which the prepare step gives to pwuser');
+  assert.ok(run.indexOf(parent[0]) < run.indexOf('exec npm run test:ci'), 'exported before the suite starts');
+  assert.ok(run.indexOf(parent[0]) > run.indexOf('setpriv --reuid=1001'), 'exported in the pwuser shell, where HOME is the prepared one');
+});
+
 test('CI runs the whole suite, browser files included, in the digest-pinned container with no seller-reference checkout, and uploads results even on failure', () => {
   assert.match(pkg.scripts['test:ci'], /^node scripts\/run-test-files\.mjs \. test-results\.jsonl \d+ --browser /, 'test:ci adds the browser files');
   assert.equal((workflow.match(/\bnpm run test:ci\b/g) ?? []).length, 1);

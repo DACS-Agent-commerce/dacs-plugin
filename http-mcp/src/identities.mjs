@@ -9,7 +9,7 @@
 // @kynesyslabs/dacs 0.1.0-alpha.0 resolves identities with one unified
 // gcr_routine getIdentities call and projects the decoded
 // {result:200, response:{xm, web2, ud, pqc, nomis, humanpassport, ethos, tlsn}}
-// envelope with parseCciRecord (see src/dacs/chain.mjs for the transport).
+// envelope with parseCciRecord (the injected chain reader is the transport).
 //
 // Evidence is labelled for what it is: one configured RPC endpoint's answer,
 // timestamped by this server's clock. It is not authenticated, finalized or
@@ -17,13 +17,12 @@
 // not_configured; a failed read is reported as unavailable with claims: null,
 // never as an empty identity list; there is never a fixture fallback.
 import { createHash } from 'node:crypto';
-import { parseCciRecord } from '@kynesyslabs/dacs/identity';
+import { canonicalize, parseCciRecord } from '@kynesyslabs/dacs';
+import { NotConfiguredError } from '@kynesyslabs/dacs-client';
 import { AccountError } from './accounts.mjs';
-import { NotConfiguredError } from './dacs/verification.mjs';
 import { normalizeDemosAddress } from './wallet/demos-signature.mjs';
 import { OperationError } from './operations.mjs';
 import { sha256Hex } from './util/ids.mjs';
-import { canonicalize } from './dacs/listing.mjs';
 
 export const IDENTITY_NOTE = 'Associations reported by the configured Demos node: not KYC, legal identity or proof of personhood, and not proof of which transaction caused them.';
 

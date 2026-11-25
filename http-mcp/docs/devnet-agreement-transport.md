@@ -8,8 +8,9 @@ native-only. Existing simulated/default/testnet-held profiles are unchanged.
 Construct `createDevnetAgreementTransport({ expected, transportOwner, journal,
 fetchImpl })` only with independently trusted canonical HTTPS pins, an actual
 egress owner implementing the protected binder context/connection-fence contract,
-and the existing durable public journal. Supply that opaque capability as
-`createApp({ devnetAgreementTransport, ... })`. The separate browser broker
+and the existing durable public journal. In v1 that opaque capability was supplied
+as `createApp({ devnetAgreementTransport, ... })`; the v2 `createApp` takes no
+transport option. The separate browser broker
 requires the exact capability and journal. New purchase terms carry its immutable
 transportBinding under the existing termsHash and wallet-signed challenge. Old
 terms/queued operations cannot migrate. No CLI/config enables this source branch.

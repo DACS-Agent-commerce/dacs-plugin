@@ -402,7 +402,7 @@ export function mountEmbeddedWallet(root, { sessionFactory, vaultStore = createM
 
   function lockedView() {
     const pw = passwordField('Password', 'current-password');
-    const unlockForm = form(run('unlock_failed', async () => {
+    const unlock = run('unlock_failed', async () => {
       const password = pw.input.value;
       pw.input.value = '';
       const record = await vaultStore.get();
@@ -425,7 +425,18 @@ export function mountEmbeddedWallet(root, { sessionFactory, vaultStore = createM
         discard(opened.session);
         throw failure;
       }
-    }),
+    });
+    // The form is novalidate, so an empty submit would start the key derivation with every
+    // control disabled (a disabled field reports no required-field state). Refuse it before the
+    // busy state and let the browser show its required-field message on the still-enabled field.
+    const unlockForm = form(async (event) => {
+      if (!busy && !destroyed && pw.input.value === '') {
+        event?.preventDefault?.();
+        pw.input.reportValidity?.();
+        return;
+      }
+      await unlock(event);
+    },
       pw.wrap,
       el('button', { type: 'submit', class: 'ew-primary' }, 'Unlock'),
     );

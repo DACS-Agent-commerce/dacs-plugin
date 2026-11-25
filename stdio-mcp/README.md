@@ -264,8 +264,8 @@ For a one-off session: `claude --plugin-dir /absolute/path/to/<repo>/stdio-mcp`.
 
 The plugin provides:
 - the `demos` MCP server, whose tools appear as `mcp__plugin_demos_demos__*`;
-- slash commands `/demos-find`, `/demos-balance`, `/demos-verify-receipt`,
-  `/demos-attest` and `/demos-buy`;
+- slash commands `/demos:demos-onboard`, `/demos:demos-find`, `/demos:demos-balance`,
+  `/demos:demos-verify-receipt`, `/demos:demos-attest` and `/demos:demos-buy`;
 - the `demos-safe-flow` skill, which teaches Claude the
   prepare → card → human approves off-chat → submit flow.
 
@@ -412,7 +412,8 @@ test/unit/      mocked-SDK tests: confirmation gate, spend cap, leak fuzzing, DA
 test/integration/  read-only testnet test through the real stdio server
 .claude-plugin/ plugin.json + marketplace.json
 .mcp.json       plugin MCP server definition
-commands/       /demos-find /demos-balance /demos-verify-receipt /demos-attest /demos-buy
+commands/       /demos:demos-onboard /demos:demos-find /demos:demos-balance
+                /demos:demos-verify-receipt /demos:demos-attest /demos:demos-buy
 skills/         demos-safe-flow
 ```
 

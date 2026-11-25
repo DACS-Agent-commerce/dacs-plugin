@@ -58,10 +58,10 @@
   {
     "file": "test/embedded-wallet-contract.test.mjs",
     "test": "loopback transactionTransport lifecycle: real bundled SDK sends once, then lock removes authority [loopback-simulated]",
-    "expect": "Cannot find module 'src/util/purchase-readback-cache.mjs'",
-    "card": "P41c",
+    "expect": "Cannot find module 'src/dacs/wallet-transactions.mjs'",
+    "card": "P41a2a",
     "issue": "DACS-Agent-commerce/dacs-plugin#322",
-    "reason": "The purchase readback cache module is absent."
+    "reason": "The test imports src/dacs/wallet-transactions.mjs, which is not carried."
   },
   {
     "file": "test/portal-delivery-evidence-label.test.mjs",
@@ -72,19 +72,283 @@
     "reason": "The delivery consumer module is absent."
   },
   {
-    "file": "test/tester-quickstart.test.mjs",
-    "test": "the documented loopback startup answers /health and MCP with honest not_configured results",
-    "expect": "Quickstart startup failed: missing src/util/purchase-readback-cache.mjs",
-    "card": "P42aa",
-    "issue": "DACS-Agent-commerce/dacs-plugin#322",
-    "reason": "The quickstart server cannot start without the purchase readback cache."
-  },
-  {
     "file": "test/overnight-package.test.mjs",
     "test": "source -> reproducible npm tarball -> clean install -> documented `npx dacs-chatgpt-plugin` cold start, HTTP + MCP, Ctrl-C; bin-shim restart, SIGTERM",
     "expect": "Clean install failed: @kynesyslabs/dacs@0.1.0-alpha.0 is not in this registry",
     "card": "P42aa",
     "issue": "DACS-Agent-commerce/dacs-plugin#326",
     "reason": "The pinned SDK package is unavailable in the public registry."
+  },
+  {
+    "file": "test/agreement-create-delivery.test.mjs",
+    "test": "the wallet-request seam records the delivery and returns outcome_unknown at once, and Agreement submission through the installed client resolves to the queued pending operation and its delivery id while every challenge and claim call is withheld",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions; final candidate validation owns admitted execution."
+  },
+  {
+    "file": "test/agreement-create-delivery.test.mjs",
+    "test": "after submission has resolved, the same delivery is claimed sequentially through the installed client, and a later explicit recheck reconciles it by readback with exactly one delivery",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions; final candidate validation owns admitted execution."
+  },
+  {
+    "file": "test/agreement-create-delivery.test.mjs",
+    "test": "a second buyer on one protocol object is refused by the client",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions; final candidate validation owns admitted execution."
+  },
+  {
+    "file": "test/agreement-create-delivery.test.mjs",
+    "test": "a kill between the client handoff commit and the delivery commit leaves no delivery, reissues no handoff, and the purchase stays read-back-only",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions; final candidate validation owns admitted execution."
+  },
+  {
+    "file": "test/purchase-readback-cache.test.mjs",
+    "test": "config enables purchase reuse only with 1, default off",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/mcp-resource-contract.test.mjs",
+    "test": "widget host expects the served GitHub signals resource URI",
+    "expect": "ENOENT: no such file or directory, open 'deploy/test/mcp-apps.browser.test.mjs'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#324",
+    "reason": "The deploy package's MCP Apps browser test is absent."
+  },
+  {
+    "file": "test/purchase-receipt-sdk.test.mjs",
+    "test": "a stored receipt the SDK's readable-receipt check rejects (missing version, writer or evidence; malformed member) exports no anchor state, block or transaction, and an indeterminate receipt exports its preserved receipt hash only and is never shown as the current state",
+    "expect": "isReadableAnchorReceipt is absent from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41c1r",
+    "issue": "DACS-Agent-commerce/dacs-plugin#322",
+    "reason": "The receipt export gate waits for a public readable-receipt check on the client."
+  },
+  {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "with DACS_SDK_PURCHASES off, the CREATE evidence routes answer 503 not_configured with zero writes when the installed client has no evidence recorder",
+    "expect": "the CREATE evidence router is not mounted: src/portal/agreement-create-evidence.mjs is absent",
+    "card": "P41c2",
+    "issue": "DACS-Agent-commerce/dacs-plugin#438",
+    "reason": "CREATE evidence route tests fail until the evidence router is mounted; card P41c2 mounts it and removes this entry."
+  },
+  {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "after a successful startup binding, an authority reader naming the revision-1 chain makes prepare_purchase reject profile_not_admitted, with the original refusal as its cause and cause code tp1_connection_unverified, and zero seller requests",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions before any per-call authority read; final candidate validation (P41d) owns admitted execution."
+  },
+  {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "after a successful startup binding, an authority reader that never answers makes prepare_purchase reject profile_not_admitted with cause code tp1_authority_timeout at 10,000 ms and zero action calls, and a late answer changes nothing",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions before any per-call authority read; final candidate validation (P41d) owns admitted execution."
+  },
+  {
+    "file": "test/composition-sdk.test.mjs",
+    "test": "after a successful startup binding, a closed owner connection makes prepare_purchase reject profile_not_admitted with cause code transport_closed and zero seller requests and zero action calls",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds purchase actions before any per-call read of the closed owner; once P41d and P35 lift the hold, the call must reject with the client's transport_closed cause."
+  },
+  {
+    "file": "test/start-listing-verified.test.mjs",
+    "test": "with the switch on, the Start response for a verified Listing carries exactly the verified bytes",
+    "expect": "profile_not_admitted from @kynesyslabs/dacs-client@0.1.0-alpha.0",
+    "card": "P41d",
+    "issue": "DACS-Agent-commerce/dacs-plugin#434",
+    "reason": "The pinned client holds prepare, so no purchase reaches a Start; final candidate validation (P41d) owns admitted execution."
+  },
+  {
+    "file": "test/portal-auto-assets.test.mjs",
+    "test": "auto-advance config defaults off, rejects typos, and matches its deployment contract entry",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/showcase-walkthrough.test.mjs",
+    "test": "switch: default off, strict off/on, env contract and example",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/wallet-extension-probe-routes.test.mjs",
+    "test": "probe switch requires exactly 1, stays off by default, and its contract entry matches config",
+    "expect": "ENOENT: no such file or directory, open 'deploy/env-contract.json'",
+    "card": "P46",
+    "issue": "DACS-Agent-commerce/dacs-plugin#323",
+    "reason": "The deploy environment contract is absent."
+  },
+  {
+    "file": "test/browser/closure-dashboard-recovery.browser.test.mjs",
+    "test": "F1 [accepting control first]: a purchase settles with a receipt; Prepare then starts a new one and the settled purchase with its receipt stays listed, after reload and in the evidence file",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/embedded-wallet-flow.browser.test.mjs",
+    "test": "B1 [browser-real + sdk-real] portal purchase with the embedded wallet: exact-terms approval, one broadcast, simulated receipt",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Calls prepare_purchase on the fixture harness, a purchase path P42aa2a removed with createApp's built-in purchase service and its dacsProtocol option: with SDK purchases off it refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/embedded-wallet-portal.browser.test.mjs",
+    "test": "opt-in: a deliberate embedded choice survives later extension discovery; real SDK import; payments stay unavailable and no live transaction is attempted [browser-real + sdk-real + SIMULATED extension]",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Calls prepare_purchase on the fixture harness, a purchase path P42aa2a removed with createApp's built-in purchase service and its dacsProtocol option: with SDK purchases off it refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-core-identity.browser.test.mjs",
+    "test": "P5 [browser-real, C1 wording] simulated profile: sign-in, wallet link, purchase approval and status pages are headed and labelled SIMULATED; nothing says testnet without \"not\"",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Calls prepare_purchase on the fixture harness, a purchase path P42aa2a removed with createApp's built-in purchase service and its dacsProtocol option: with SDK purchases off it refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-core-identity.browser.test.mjs",
+    "test": "D1 [browser-real, accepting control] default profile: the existing wording is unchanged",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Calls prepare_purchase on the fixture harness, a purchase path P42aa2a removed with createApp's built-in purchase service and its dacsProtocol option: with SDK purchases off it refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-ui-recovery.browser.test.mjs",
+    "test": "same wallet, same run: purchases are not blocked",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-ui-start-over.browser.test.mjs",
+    "test": "accepting control: same profile, no reset, the buyer buys the baseline listing",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-ui-start-over.browser.test.mjs",
+    "test": "earlier buyer operations stay shown truthfully, bound to the old wallet, and are not changed",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-ui-start-over.browser.test.mjs",
+    "test": "lost wallet, buyer: a new built-in wallet signs in and completes a baseline purchase",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-ui.browser.test.mjs",
+    "test": "C1/C4/C5/C6 buyer: discovers the baseline listing, rejection, interruption, purchase settles only on readback",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-ui.browser.test.mjs",
+    "test": "C7 evidence download by keyboard reflects the actual workflow and carries no secrets",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/portal.browser.test.mjs",
+    "test": "OAuth account linking through the portal with a simulated wallet",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Calls prepare_purchase on the fixture harness, a purchase path P42aa2a removed with createApp's built-in purchase service and its dacsProtocol option: with SDK purchases off it refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/portal.browser.test.mjs",
+    "test": "changed listing terms surface before any signature is requested (F9)",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Calls prepare_purchase on the fixture harness, a purchase path P42aa2a removed with createApp's built-in purchase service and its dacsProtocol option: with SDK purchases off it refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/portal.browser.test.mjs",
+    "test": "embedded wallet without writes: the payment refusal does not point to an installed extension, which cannot pay either",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Calls prepare_purchase on the fixture harness, a purchase path P42aa2a removed with createApp's built-in purchase service and its dacsProtocol option: with SDK purchases off it refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/portal.browser.test.mjs",
+    "test": "embedded wallet payment: another-network session sends nothing; the approval shows the full debit and the receipt its limits",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Calls prepare_purchase on the fixture harness, a purchase path P42aa2a removed with createApp's built-in purchase service and its dacsProtocol option: with SDK purchases off it refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/portal.browser.test.mjs",
+    "test": "DACS purchase in the portal: Agreement, commitment-gated payment, evidence, delivery and counter-signature with the embedded wallet",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Starts the loopback DACS protocol purchase through createApp's dacsProtocol option and its offline Agreement broker, both removed by P42aa2a with the built-in purchase service. Card P42aa2b composes the client purchase service with the Agreement CREATE delivery adapter instead and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/tester-dashboard.browser.test.mjs",
+    "test": "guided dashboard: wallet, OAuth sign-in, verified listing, purchase receipt, GitHub add/remove, cancel, checklist, export",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-acceptance.browser.test.mjs",
+    "test": "OA-B1 [C1,C6] keyboard-only dashboard steps, wallet input errors, Escape-declined sign-in, retained unlock, keyboard approval",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
+  },
+  {
+    "file": "test/browser/overnight-acceptance.browser.test.mjs",
+    "test": "OA-B2 [C4,C5,C7] interrupted purchase approval resumes without duplication; rejected/cancelled purchases never show success; export reflects actions",
+    "expect": "SDK purchases are off: src/app.mjs composes no listing verifier or purchase service, so the purchase path this test drives refuses sdk_purchases_off",
+    "card": "P42aa2b",
+    "issue": "DACS-Agent-commerce/dacs-plugin#348",
+    "reason": "Drives the offline launcher's SIMULATED purchase (find the test service, then prepare, approve and pay), or reads the one an earlier test in the file completes, which P42aa2a removed with createApp's built-in purchase service and listing verifier: with SDK purchases off get_listing answers not_configured and every purchase action refuses sdk_purchases_off. Card P42aa2b composes the client purchase service again and removes this entry with the test's requireSdkPurchases call."
   }
 ]

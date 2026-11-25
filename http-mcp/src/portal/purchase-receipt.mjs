@@ -1,15 +1,8 @@
 import { types } from 'node:util';
-import { OperationError } from '../operations.mjs';
-import { networkIdentityLabel, PURCHASE_STATUS_HELP } from '../purchases.mjs';
-import { protocolView, usesAgreementContext, usesNativeDemDelivery } from '../dacs/protocol-purchases.mjs';
-import { usesNativePaymentEvidence } from '../dacs/native-payment-evidence-consumer.mjs';
-import { DEVNET_NATIVE_COMMITMENT_MARKER } from '../devnet-demo/commitment-consumer.mjs';
-import { FIXTURE_FINALITY, FIXTURE_SUBSTRATE } from '../dacs/fixture-anchors.mjs';
 import { compositeVerificationAddress } from '@kynesyslabs/dacs';
-import { vetNotPerformedRef } from '../dacs/purchase-protocol.mjs';
-import { normalizeDemAmount } from '../dacs/listing.mjs';
-import { AGREEMENT_CONTEXT_SOURCE, isOperatorContextAuthority } from '../dacs/agreement-context-consumer.mjs';
-import { DEM_DELIVERY_CONTEXT_SOURCE, isDemDeliveryContextAuthority } from '../dacs/dem-delivery-context-consumer.mjs';
+import { AGREEMENT_CONTEXT_SOURCE, DEM_DELIVERY_CONTEXT_SOURCE, isDemDeliveryContextAuthority, isOperatorContextAuthority, networkIdentityLabel,
+  normalizeDemAmount, protocolView, PURCHASE_STATUS_HELP, usesAgreementContext, usesNativeDemDelivery, usesNativePaymentEvidence, vetNotPerformedRef } from '@kynesyslabs/dacs-client';
+import { OperationError } from '../operations.mjs';
 
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 // Single-line text: no Unicode control (Cc), format (Cf: every zero-width and bidi
@@ -56,11 +49,12 @@ const PUBLICATIONS = new Set(['native-read-back','pending-readback','held-eviden
 const HOLD = new Map([['pending', 'Delivery evidence has not been read back yet.'], ['rejected', 'Delivery evidence was rejected or did not match the verified Deliverable.']]);
 const NATIVE_EVIDENCE_HELD = 'Payment evidence is held: it has not been read back and verified.';
 // Anchor receipt metadata is exported only from these fixed vocabularies: the SDK's
-// native Demos receipt, the plugin's loopback fixture receipt, and the SDK lifecycle
-// and disposition enums. Anything else is exported as null.
-const SUBSTRATES = new Set(['demos', FIXTURE_SUBSTRATE]);
-const FINALITY_PROFILES = new Set(['demos-bft-confirmed-native-read', FIXTURE_FINALITY]);
-const TRANSACTION_KINDS = new Set(['demos-storage-program', 'fixture-sr2-write']);
+// native Demos receipt and the SDK lifecycle and disposition enums. Anything else is
+// exported as null, and a receipt from any other substrate or finality profile shows
+// no anchor state or disposition.
+const SUBSTRATES = new Set(['demos']);
+const FINALITY_PROFILES = new Set(['demos-bft-confirmed-native-read']);
+const TRANSACTION_KINDS = new Set(['demos-storage-program']);
 const ANCHOR_STATES = new Set(['submitted','accepted','included','finalized','rejected','dropped','replaced','expired','reorged']);
 const DISPOSITIONS = new Set(['established', 'indeterminate']);
 const known = (set, v) => typeof v === 'string' && set.has(v) ? v : null;
@@ -331,6 +325,7 @@ function artifact(kind, ref, r, { checkedHash = null, checkedAt = null, method =
   // A missing slot carries no metadata at all, whatever the stored receipt holds.
   const kept = (v) => recorded ? v : null;
   const receiptTx = hash(r?.transactionRef?.value) !== null;
+  const demos = known(SUBSTRATES, r?.substrate) !== null && known(FINALITY_PROFILES, r?.finalityProfile) !== null;
   return { kind, status: recorded ? 'recorded' : 'missing', reason: text(reason) ?? (recorded ? null : 'No well-formed stored reference is available.'),
     reference: { storage: storage ? { kind: 'storage-program', value: storage } : null,
       nativeStorage: native ? { kind: 'demos-storage', value: native } : null,
@@ -338,13 +333,14 @@ function artifact(kind, ref, r, { checkedHash = null, checkedAt = null, method =
     block: { number: kept(integer(blockNumber) ?? (typeof r?.blockRef?.height === 'string' && /^\d{1,16}$/.test(r.blockRef.height) ? integer(Number(r.blockRef.height)) : null)), id: kept(text(r?.blockRef?.id, 128)), timestamp: kept(time(r?.blockRef?.timestamp)) },
     checkedHash: kept(hash(checkedHash) ?? (refValid(ref) ? ref.contentHash : hash(r?.contentHash))),
     observation: { checkedAt: kept(iso(checkedAt)), recordedAt: kept(time(r?.observedAt)), method: kept(text(method)), rpcOrigin: kept(origin(rpcOrigin)), scope: kept(text(scope, 400)),
-      substrate: kept(known(SUBSTRATES, r?.substrate)), finalityProfile: kept(known(FINALITY_PROFILES, r?.finalityProfile)), disposition: kept(known(DISPOSITIONS, r?.observationDisposition)), state: kept(known(ANCHOR_STATES, r?.state)) } };
+      substrate: kept(known(SUBSTRATES, r?.substrate)), finalityProfile: kept(known(FINALITY_PROFILES, r?.finalityProfile)), disposition: kept(demos ? known(DISPOSITIONS, r?.observationDisposition) : null), state: kept(demos ? known(ANCHOR_STATES, r?.state) : null) } };
 }
 
 function evidence(c) {
   const { operation, t, p, limits: v } = c, prepared = operation.state.preparedVerification?.evidence;
   // The transport endpoint is named only for records this profile reads through it:
-  // the Agreement always, the rest only when that record is native rather than a fixture.
+  // the Agreement always, and the Deliverable, delivery evidence and payment evidence
+  // only when the client's terms select a native read for them.
   const endpoint = t.protocol?.transportBinding?.source === 'devnet-agreement-transport/v1' ? endpointOrigin(t.protocol.transportBinding.endpoint) : null;
   const via = (native) => native ? endpoint : null, scope = text(v.finality);
   const nativeDelivery = via(usesNativeDemDelivery(operation));
@@ -358,7 +354,7 @@ function evidence(c) {
       artifact('Listing', { anchor: t.listing.anchor, contentHash: t.listing.contentHash }, null, { checkedHash: t.listing.contentHash, checkedAt: prepared?.checkedAt, method: 'prepare-time-readback', rpcOrigin: prepared?.chainRpcOrigin, scope: prepared?.chainMode }),
       vet('buyer'), vet('seller'),
       artifact('Agreement', p.agreement?.ref, p.agreement?.anchorReceipt, { checkedHash: p.agreement?.hash, method: 'readback', rpcOrigin: via(true), scope }),
-      artifact('commitment', p.commitment?.ref, p.commitment?.anchorReceipt, { checkedHash: p.commitment?.contentHash, checkedAt: p.commitment?.verifiedAt, method: 'readback', rpcOrigin: via(t.protocol?.sellerCommitment === DEVNET_NATIVE_COMMITMENT_MARKER), scope }),
+      artifact('commitment', p.commitment?.ref, p.commitment?.anchorReceipt, { checkedHash: p.commitment?.contentHash, checkedAt: p.commitment?.verifiedAt, method: 'readback', scope }),
       artifact('payment', null, null, { txHash: p.transfer?.txHash, blockNumber: p.transfer?.blockNumber, scope: 'observed-by-one-rpc-tuple-only; inclusion is not BFT finality', method: 'readback' }),
       artifact('payment-evidence', p.paymentEvidence?.ref, p.paymentEvidence?.anchorReceipt, { checkedHash: p.paymentEvidence?.evidenceHash, checkedAt: p.paymentEvidence?.verifiedAt, method: 'readback', rpcOrigin: via(usesNativePaymentEvidence(operation)), scope,
         reason: p.stage === 'native-payment-evidence-held' ? NATIVE_EVIDENCE_HELD : null }),

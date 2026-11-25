@@ -51,6 +51,8 @@ export interface OnboardDeps {
   /** The normal pay prepare (approval card + off-chat approval), allowed to pay the wallet itself. */
   prepareSelfPayment: (address: string) => Promise<unknown>;
   guarded: <A>(fn: (a: A) => Promise<unknown>) => (a: A) => Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }>;
+  /** Read the same STOP/KILL markers as the server before creating a wallet. */
+  stopRequested: () => boolean;
   writesBlocked: string | null;
   /** The write blocker evaluated now: a purchase-only marker can appear after start-up. */
   writesBlockedNow: () => string | null;
@@ -345,6 +347,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           { name: 'remember', label: 'Remember the passphrase on this computer (chmod-600 file) so the assistant can use the wallet after a restart', type: 'checkbox', value: 'on' },
         ],
         onApprove: async (form) => {
+          if (d.stopRequested()) return { error: 'A stop was requested; no wallet is created.' };
           if (blockedNow()) return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' };
           if (created || existsSync(path)) return { error: 'A wallet was already created. Check demos_onboard_status.' };
           const pass = form.passphrase ?? '';
@@ -364,6 +367,7 @@ export function registerOnboardTools(server: McpServer, d: OnboardDeps): void {
           const mnemonic = d.walletFactory.newMnemonic();
           guard.register(mnemonic); // the guard covers the phrase from the moment it exists
           const address = (await d.walletFactory.addressOf(mnemonic)).toLowerCase();
+          if (d.stopRequested()) return { error: 'A stop was requested; no wallet is created.' };
           if (blockedNow()) return { error: 'This wallet is fenced for purchase-only use; no wallet is created.' }; // the address lookup awaited
           const ks: KeystoreFile = { ...encryptMnemonic(mnemonic, pass, { address }), onboarding: { createdAt: new Date(d.now()).toISOString() } };
           if (decryptKeystore(ks, pass) !== mnemonic) return { error: 'Internal check failed; nothing was created.' };

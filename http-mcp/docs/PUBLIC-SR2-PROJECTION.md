@@ -6,8 +6,9 @@ stops at `seller-committed`, with purchase status `agreement_pending`. Payment,
 claims, Vet, delivery and strict finalization remain held. Fixture inclusion is
 simulated evidence; it does not establish consensus or live verification.
 
-Configure the existing buyer capability as
-`dacsProtocol.sellerSr2Commitment = { commitmentSubstrate: "fixture", publicProjection: true }`.
+In v1 the buyer capability was configured as
+`dacsProtocol.sellerSr2Commitment = { commitmentSubstrate: "fixture", publicProjection: true }`;
+the v2 `createApp` takes no `dacsProtocol` option.
 The prepared purchase terms bind `sellerAgreementProjection: "public-signed-create"`.
 The old `{ commitmentSubstrate: "fixture" }` configuration, omitted capability,
 legacy commitment client body `{ jobId }`, fixture seller and Agreement-only

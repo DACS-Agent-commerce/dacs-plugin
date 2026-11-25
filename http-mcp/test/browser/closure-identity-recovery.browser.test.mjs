@@ -167,7 +167,9 @@ test('cancel before the wallet is asked, from the keyboard: the action is closed
   await openAction(add, { proof: false });
   const blocked = await call(h, user, 'start_identity_action', { idempotencyKey: unique('cl-id'), action: 'add', kind: 'twitter', walletAddress: address });
   assert.equal(blocked.code, 'identity_operation_in_progress');
-  assert.match(blocked.message, /cancel it on its portal page/);
+  // Tool error prose reaches the model as a labelled {label, text, truncated} envelope.
+  assert.match(blocked.message.label, /untrusted/);
+  assert.match(blocked.message.text, /cancel it on its portal page/);
   await focusAndPress(page, page.locator('#identity-cancel'));
   await page.getByText('Identity action cancelled. Nothing was sent to your wallet.').waitFor({ timeout: 15000 });
   assert.equal(await status(), 'cancelled');

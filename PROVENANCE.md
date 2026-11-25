@@ -52,7 +52,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
+Files: 763 (verbatim 484, edited 215, changed here 19, added 45).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 | `http-mcp/bin/offline-fixtures/tester-ui/dashboard.js` | `1b518aa2253517a41e0b152c334c6606dbcc762e` | verbatim |
 | `http-mcp/bin/offline-fixtures/tester-ui/index.html` | `1affc91c0383a8891ffaa9aa8d87569901e06f5a` | verbatim |
 | `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md` | `d59ae0969c74048f55fc4a5fdcfce145a9495dc6` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording |
-| `http-mcp/docs/CI.md` | `ddd9f9c7d1b8374828a6ebb29d69eae7f9558d56` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; a "state of this repository" note; baseline and discovery-count text corrected to this tree; a private commit id removed; then changed here: the baseline entry count; a list of the tests owned by the P303 cards and a list of failing tests the baseline does not cover; one mention of the provenance file says "source checkout" |
+| `http-mcp/docs/CI.md` | `d69786a1c6ebb173c59b4fd64b09188a5df3ae61` | edited: public wording: internal review, process, PR and private-path references removed or reworded; further public wording; a "state of this repository" note; baseline and discovery-count text corrected to this tree; a private commit id removed; then changed here: the baseline entry count; a list of the tests owned by the P303 cards and a list of failing tests the baseline does not cover; one mention of the provenance file says "source checkout"; then changed here: the baseline entry counts follow the removal of the probe routes test's switch-off entry |
 | `http-mcp/docs/CONNECT-OTHER-CLIENTS.md` | `b9baac786e7c40bb2453aabd2088ea63a3f8ef9a` | verbatim |
 | `http-mcp/docs/CURRENT-TESTER-PACKAGE.md` | `eb83facc209e15cbac39d5b6a33dfc2799a9c525` | edited: public wording: internal review, process, PR and private-path references removed or reworded; the tarball and original-artifact lookup described as the test now does it |
 | `http-mcp/docs/DEPLOYMENT-CHECKLIST.md` | `b37f6a7471a9c24f4c20d265c3a796498e0cbd86` | edited: public wording: internal review, process, PR and private-path references removed or reworded; then changed here: the container item names the root `Dockerfile` and its `/data` layout instead of the deploy bundle, which is not carried |
@@ -98,7 +98,6 @@ Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 | `http-mcp/docs/DEVNET-OPERATOR-PAYMENT-RECOVERY.md` | `301c4111215bf1aacc1c3f145890ffd4077d6383` | changed here after a verbatim import: the list of what the evidence does not establish ends with a disclaimer sentence, as the public-gate wording rule requires |
 | `http-mcp/docs/DEVNET-OPERATOR-RECOVERY.md` | `720a802556ca9bae6858b2f21d35a0d34bdccd45` | verbatim |
 | `http-mcp/docs/DEVNET-OPERATOR-SEQUENTIAL.md` | `3e9a84e829333d12e1e2e749c84f96fca3d80f5d` | verbatim |
-| `http-mcp/docs/DEVNET-RECIPIENT-BALANCE.md` | `f36e480bf8de10b940207b03c2ef7a3308ef00fd` | verbatim |
 | `http-mcp/docs/DURABLE-WALLET-JOURNAL.md` | `4a48ffad0a2593dc55d3322adf517924cd12ad88` | edited: fixture path renamed |
 | `http-mcp/docs/EMBEDDED-WALLET-FLOW-COVERAGE.md` | `27798c78872f503dba182cbad06176634e764381` | edited: public wording: internal review, process, PR and private-path references removed or reworded; directory name in a column header corrected; digests of internal run logs and a source manifest removed |
 | `http-mcp/docs/EMBEDDED-WALLET-INTEGRATION.md` | `d5894a9ff7498d9e86e98500bdd5f6fb1220bfb5` | edited: public wording: internal review, process, PR and private-path references removed or reworded |
@@ -206,9 +205,7 @@ Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 | `http-mcp/scripts/check-tester-dashboard-package.mjs` | `2a64982fdbcbabd7eaa9d393978b465c34ec2797` | verbatim |
 | `http-mcp/scripts/config-equivalence-migration.mjs` | `5886e736b864ef09d692c71497fe9789a751b5f1` | edited: comments and test names: internal review and process references removed; no behaviour change; the default baseline is the ref name `v1-baseline` instead of a commit id; fixture path renamed |
 | `http-mcp/scripts/devnet-demo-compose.mjs` | `1de7461cf7578ee046ca225df1db7b4b05915baa` | verbatim |
-| `http-mcp/scripts/devnet-demo-operator-bootstrap.mjs` | `1605193c9d38c9da37f603cd747cca68d08d892d` | verbatim |
 | `http-mcp/scripts/devnet-demo-purchase.mjs` | `1de7461cf7578ee046ca225df1db7b4b05915baa` | verbatim |
-| `http-mcp/scripts/devnet-demo-recipient-balance.mjs` | `cc1e1a084825d58445a75dcd9f0091498e93c191` | verbatim |
 | `http-mcp/scripts/embedded-wallet-runtime.mjs` | `7f59558f58f904395cb93e3d2d87c5dab444b1a7` | verbatim |
 | `http-mcp/scripts/off-surface.mjs` | `88dccbcffd650274de5a7bd6f5fb0f3074d4bd85` | verbatim |
 | `http-mcp/scripts/ops-health.mjs` | `f8316f76d36ae6217c67a213564331e722f1a690` | verbatim |
@@ -577,7 +574,7 @@ Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 | `http-mcp/test/identities.test.mjs` | `142ef667e3faa7824ef4dba93d0523d0a881ce7a` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/identity-actions.test.mjs` | `0b1edc65471375ca30eaf6dd2b47add79a42e743` | verbatim |
 | `http-mcp/test/immutable-readbacks.test.mjs` | `f8dd18c87541eacb81c19031caa1e43d19c14723` | verbatim |
-| `http-mcp/test/known-failures.json` | `d4d4f4916c9e719fd9c5c7a5f2403ba8598264d4` | edited: the reason text says the entry does not apply in this repository; then changed here: carry-over entries for 67 more test files (53, then 14 that the P303 cards own or that need the P42aa modules) |
+| `http-mcp/test/known-failures.json` | `5e7d83192517dfda67191f9f1a66537a5369f6a5` | edited: the reason text says the entry does not apply in this repository; then changed here: carry-over entries for 67 more test files (53, then 14 that the P303 cards own or that need the P42aa modules); then changed here: the entry for the probe routes test's switch-off case is removed, because the case passes with the re-pinned `portal.js` digest |
 | `http-mcp/test/legacy-publication-cancel.test.mjs` | `3e10c754c17c7a9178e49c4bdb65f3bfc5c07778` | verbatim |
 | `http-mcp/test/listing-http-unavailable.test.mjs` | `f43c769cf92b4767fbeaa5b312a4fb48ad3ca739` | verbatim |
 | `http-mcp/test/loopback-test-tls.test.mjs` | `aa3c5624eb24b6db6232aaf669c371ce0463629b` | verbatim |
@@ -713,7 +710,7 @@ Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 | `http-mcp/test/wallet-extension-probe-mutants.test.mjs` | `77a0c826dc69d56ea8df166cc42b9a2cb1c631c8` | verbatim |
 | `http-mcp/test/wallet-extension-probe-r4.test.mjs` | `b5a0ca08caab79ff4d001bbcc4179a47de0d5d72` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `http-mcp/test/wallet-extension-probe-r5.test.mjs` | `642d7f5fae1903aa01fc3cd22e77752c97440c80` | edited: comments and test names: internal review and process references removed; no behaviour change; further public wording; a pinned documentation sentence updated |
-| `http-mcp/test/wallet-extension-probe-routes.test.mjs` | `b3521fca674f912d80997d6196f5b60067501861` | edited: comments and test names: internal review and process references removed; no behaviour change; the pinned `portal.js` digest is the published file's |
+| `http-mcp/test/wallet-extension-probe-routes.test.mjs` | `1f06be7f4173853fb5547e92f01b5f6cd8fcf9f9` | edited: comments and test names: internal review and process references removed; no behaviour change; the pinned `portal.js` digest is the published file's; then changed here: the `portal.js` digest is re-pinned after the file's `pay()` refusal change, which the comment above the pins names |
 | `http-mcp/test/wallet-extension-probe-tx-domain.test.mjs` | `cd82b5c1036fcc45a67a2cc893a8c2dc67a72bf6` | added: the probe checks a wallet's transaction signature in the form the node selects; message checks stay exact-text |
 | `http-mcp/test/wallet-extension-probe.test.mjs` | `263600d37d0dd5e4816729a6131853c7d95e0b56` | edited: comments and test names: internal review and process references removed; no behaviour change; further public wording; one test renamed and its stub simplified; one test fixture field and one assertion message reworded; two test fixture values changed |
 | `http-mcp/test/wallet-write-batch.test.mjs` | `1ac41ee542005e3dc2444addb7a5dfaddb607db8` | edited: comments and test names: internal review and process references removed; no behaviour change |
@@ -739,7 +736,7 @@ Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 | `stdio-mcp/.gitignore` | `db95153686d0c7bbbc1ffe2b84468bf9a5f979af` | verbatim |
 | `stdio-mcp/.mcp.json` | `8d95666d475cae1188a491e6992c2690d13fc309` | changed here after a verbatim import: passes the DACS Directory URL option to the server as `DACS_DIRECTORY_URL` |
 | `stdio-mcp/LICENSE` | `7d73a34f494ae4d87e549308c2b4559497dc7ffb` | verbatim |
-| `stdio-mcp/README.md` | `5ca4f1ada00e024c4487cd988047b661d4200b8a` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked; then changed here: the note on the CI workflow names the workflow file; an "Install in Claude Code" section and `/demos-find` in the command lists; then changed here: the install section says the GitHub form needs the root marketplace on the default branch and gives the local-clone form, says to remove an added `stdio-mcp` marketplace first, and the install and onboarding steps use the full command names `/demos:demos-find` and `/demos:demos-onboard`; then changed here: the remove step warns that saved settings and secrets are deleted, and the copy-and-build text is scoped to the GitHub route, with the local clone built in place |
+| `stdio-mcp/README.md` | `41975918c7f4c9404ba9f101c09e66e2e554dd24` | edited: no link to the network site; no built-in RPC default; testnet writes and faucet requests are refused in this release; no references to documents that are not carried; keystore examples use neutral paths; a "state of this release" note; install directory corrected; flows this release refuses marked; then changed here: the note on the CI workflow names the workflow file; an "Install in Claude Code" section and `/demos-find` in the command lists; then changed here: the install section says the GitHub form needs the root marketplace on the default branch and gives the local-clone form, says to remove an added `stdio-mcp` marketplace first, and the install and onboarding steps use the full command names `/demos:demos-find` and `/demos:demos-onboard`; then changed here: the remove step warns that saved settings and secrets are deleted, and the copy-and-build text is scoped to the GitHub route, with the local clone built in place; then changed here: both command lists name all six commands, adding `/demos:demos-onboard`, in the full `/demos:` form |
 | `stdio-mcp/SECURITY.md` | `3d58f87836ffea22e1a00d970d9c9f2f9fcd9253` | edited: testnet writes and faucet requests are refused in this release; vulnerability reports point to GitHub's private vulnerability reporting; live-run claim marked as made in the source repository; the CI description corrected to this tree; then changed here: the CI description names the workflow file |
 | `stdio-mcp/adapters/HOSTS.md` | `bb8adfc1574c71436b8ce455afb09a03af360b70` | verbatim |
 | `stdio-mcp/adapters/claude/README.md` | `a83699c03384cb7e060e0a4444babad1042e19c2` | verbatim |
@@ -751,13 +748,13 @@ Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 | `stdio-mcp/commands/demos-attest.md` | `02bdbc279d52aaac7171e83bb508dacfc3e3227b` | verbatim |
 | `stdio-mcp/commands/demos-balance.md` | `826440407f8fc34e3838fcc56fd98abd217a70a4` | verbatim |
 | `stdio-mcp/commands/demos-buy.md` | `88ae81ae7d279a3ba2c1b4634b4e75648cc09d74` | verbatim |
-| `stdio-mcp/commands/demos-find.md` | `7693ecd0fa133e90d0cfa3a161ec3bfff6054930` | added: searches the public Directory and checks the signed Listing the user picks; an empty page is reported from its `withheld`, `cursor` and `total`; then changed here: `withheld` and `cursor` are also reported when hits are shown, an error from the listing check is reported as not checked, and the rules for a hit marked `revoked` agree |
+| `stdio-mcp/commands/demos-find.md` | `fb0d337f056e7c252306b6a28963876422435027` | added: searches the public Directory and checks the signed Listing the user picks; an empty page is reported from its `withheld`, `cursor` and `total`; then changed here: `withheld` and `cursor` are also reported when hits are shown, an error from the listing check is reported as not checked, and the rules for a hit marked `revoked` agree; then changed here: a withdrawn hit is reported before its decision, and other hits start with their decision |
 | `stdio-mcp/commands/demos-onboard.md` | `7c2f187772845f801d0cced18a967a0c52442a2c` | verbatim |
 | `stdio-mcp/commands/demos-verify-receipt.md` | `3859eb3b0c8375a3e08cff9d0d733e87b0a3c47e` | verbatim |
 | `stdio-mcp/docs/MANDATES.md` | `ddfa22924388adcc07fc785ab870aebc1e3b6631` | verbatim |
 | `stdio-mcp/package-lock.json` | `0214468e7e282c0249daa85cf6c73881539dd534` | changed here after a verbatim import: declares ajv, which a Directory unit test imports, as a devDependency |
 | `stdio-mcp/package.json` | `9435223d112f21b034f3ad1a51f580f6a4b0b2f2` | verbatim |
-| `stdio-mcp/scripts/launch.mjs` | `98afd69e8345e1b0249d64ae6fb6f218746140d5` | verbatim |
+| `stdio-mcp/scripts/launch.mjs` | `dce5b8037684221b23a52eabcd7928d8bef33ef6` | changed here after a verbatim import: quotes the plugin folder for a POSIX shell in the missing-build command |
 | `stdio-mcp/skills/demos-onboard/SKILL.md` | `913f8094cbb7852c1b9f73acf4a6f27bfc311e6d` | verbatim |
 | `stdio-mcp/skills/demos-safe-flow/SKILL.md` | `0f73a1740f64355ed641c0713465207c2279599c` | verbatim |
 | `stdio-mcp/src/amount.ts` | `85820ceb4cd07d5908d3f19ea3174cd1dbbe42c5` | verbatim |
@@ -778,11 +775,11 @@ Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 | `stdio-mcp/src/keystore.ts` | `791b33b25fe8e29e92857b346965533228813d65` | verbatim |
 | `stdio-mcp/src/log.ts` | `9164ef9bd5557aaa34ca0983806f12ed019a8728` | verbatim |
 | `stdio-mcp/src/mandates.ts` | `7bda4646563dc14091f9e1d3508408ebe766f780` | verbatim |
-| `stdio-mcp/src/onboard.ts` | `9a40e08036e4883eebaa4f00e478607437920381` | verbatim |
+| `stdio-mcp/src/onboard.ts` | `ff7d53a9b31587e2cebd0cd90cb00544f5cec0a3` | verbatim; changed here: re-check STOP/KILL before wallet creation and after address lookup |
 | `stdio-mcp/src/prepare_core.ts` | `70d5ac863b27c7103f8a230ab3db8cc65d472a57` | verbatim |
 | `stdio-mcp/src/receipts.ts` | `3fb97e6ebe93a840a1df422d5ba6917b1c9d3578` | verbatim |
 | `stdio-mcp/src/secrets.ts` | `ca0c3736baf1961a77fab94f9db8844749de64f5` | verbatim |
-| `stdio-mcp/src/server.ts` | `1e409a5b02c571f83d28bed990f203ab5b5db847` | verbatim |
+| `stdio-mcp/src/server.ts` | `7c8b12f3932a46d9d702236cd010913963e105ff` | verbatim; changed here: share the existing STOP/KILL marker predicate with onboarding |
 | `stdio-mcp/src/spend.ts` | `dd1827a0826ac41bcd91562779ffcfeffa696e93` | verbatim |
 | `stdio-mcp/test/fixtures/listing-preserve-unknown-v0.1.json` | `6e64f1110858e005b52b2fe8559810bd41514943` | verbatim |
 | `stdio-mcp/test/helpers.ts` | `9bd6aeb48172ea1f463bd65da96acdcca4b6bc13` | edited: mock RPC uses a reserved .invalid host and counts as the known testnet as a test double |
@@ -794,9 +791,10 @@ Files: 762 (verbatim 485, edited 215, changed here 18, added 44).
 | `stdio-mcp/test/unit/guard.test.ts` | `21da5541cc58f8fce07313f3c4b821d411134a33` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `stdio-mcp/test/unit/keyless-http.test.ts` | `9574b7eaceef3f45a1f00da924317a4532234dbf` | verbatim |
 | `stdio-mcp/test/unit/keystore-and-reads.test.ts` | `d8e40a28f796868c2cd55a0b34f4eb8cb60f67d2` | verbatim |
+| `stdio-mcp/test/unit/launch.test.ts` | `b1d5d0aceb8ed6f6884baf987e14af14c6d816a3` | added: checks the missing-build command from paths containing spaces, quotes and shell metacharacters |
 | `stdio-mcp/test/unit/listing.test.ts` | `1776f63ba9bf3b96de13b8303a879d53511c27e9` | changed here after a verbatim import: tests added for ordinary and small-order keys on listing and presentation signatures |
 | `stdio-mcp/test/unit/no-key-leak.test.ts` | `7d28d7c24e969954ae11bb97ab45facb77cdeb3c` | edited: comments and test names: internal review and process references removed; no behaviour change |
-| `stdio-mcp/test/unit/onboard.test.ts` | `fc20a5f78039bbbc1b4c1f56ebcdcbc0c10d6cbf` | edited: expects the reserved faucet placeholder; the faucet refusal case uses an explicit mainnet setup, since unlisted testnet RPCs no longer take writes |
+| `stdio-mcp/test/unit/onboard.test.ts` | `faf961b7f1289967005118d4eafaca86c4f52cc1` | edited: expects the reserved faucet placeholder; the faucet refusal case uses an explicit mainnet setup, since unlisted testnet RPCs no longer take writes; changed here: add STOP and KILL races during address lookup |
 | `stdio-mcp/test/unit/prism.test.ts` | `ac59a60af9c7a9cbda4c63a29f9488b8b231c667` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a header comment reworded to neutral text; no behaviour change |
 | `stdio-mcp/test/unit/spend-and-policy.test.ts` | `9534816425ca70e4e6735189201237ac082c1c20` | edited: testnet RPC example replaced by a reserved .invalid host; adds the sanitized-defaults guard test; adds a regression check that the mainnet opt-in does not open testnet writes |
 | `stdio-mcp/test/unit/workflow-pins.test.ts` | `3c95e96a4644ac45ee572216ba7947fb3e3eab5d` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the skip wording says "without the workflow file" |

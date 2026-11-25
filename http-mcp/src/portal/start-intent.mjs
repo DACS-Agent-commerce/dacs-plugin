@@ -123,5 +123,5 @@ export function createStartIntents({ purchases, accounts, chain = null, now = ()
     }));
   }
 
-  return { mount, issue, admit };
+  return { mount, issue, admit, current: operationId => records.get(latest.get(operationId)) ?? null, get: recordId => records.get(recordId) ?? null };
 }

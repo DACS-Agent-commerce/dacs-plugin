@@ -123,7 +123,7 @@ Receipt fields and sources:
 | `seller.address`, `seller.identityClaim` | `terms.seller.payee`, `.claim` |
 | `seller.listingId`, `seller.version`, `seller.listingHash` | `terms.listing.listingId`, `.version`, `.contentHash` |
 | `price.amount`, `price.asset`, `price.network` | `terms.price.amount`, `.currency` (DEM), `terms.network` |
-| `price.networkLabel` | Existing `networkIdentityLabel(terms.domain)`; simulated fixture or bound genesis |
+| `price.networkLabel` | The client's `networkIdentityLabel(terms.domain)`: `genesis <chainIdentity>`, or `unbound` without a domain |
 | `buyerAddress` | `terms.buyer.wallet` |
 | `stages[].name`, `.status`, `.reason` | Five rows defined below; fixed one-line explanations and the Vet statement (below) |
 | `deliveryDeadline.deadline` | Stored overdue deadline, else signed `state.protocol.agreement.artifact.terms.deadline`; no recalculation |
@@ -197,15 +197,15 @@ Evidence fields and sources:
 | `artifacts[].kind`, `.status`, `.reason` | Fixed slot kind; `recorded` only with usable storage/transaction reference, else `missing`; fixed hold wording (below) or the fixed missing reason; stored reason text is never copied |
 | `artifacts[].reference.storage.kind`, `.value` | `storage-program`, exact ref anchor locator or receipt logicalAddress |
 | `artifacts[].reference.nativeStorage.kind`, `.value` | `demos-storage`, exact receipt nativeAddress |
-| `artifacts[].reference.transaction.kind`, `.value` | Receipt transactionRef value with its kind if the kind is `demos-storage-program` or `fixture-sr2-write` (else null), or `demos-transaction` and stored transfer txHash; no URL |
+| `artifacts[].reference.transaction.kind`, `.value` | Receipt transactionRef value with its kind if the kind is `demos-storage-program` (else null), or `demos-transaction` and stored transfer txHash; no URL |
 | `artifacts[].block.number`, `.id`, `.timestamp` | Recorded slots only: transfer blockNumber or receipt blockRef height, id, timestamp |
 | `artifacts[].checkedHash` | Recorded slots only: explicit checked hash below, else valid ref contentHash, else receipt contentHash |
 | `artifacts[].observation.checkedAt` | Stored plugin ISO verification time below; null if unavailable |
 | `artifacts[].observation.recordedAt` | Recorded slots only: receipt observedAt in epoch milliseconds (retained original observation) |
 | `artifacts[].observation.method` | Known preparation/readback/provider-reference path; null if absent evidence readback |
-| `artifacts[].observation.rpcOrigin` | Recorded slots only, and only a bare origin without credentials/query/path; no link. Listing: stored prepare-time chainRpcOrigin. The origin of the `devnet-agreement-transport/v1` endpoint (stored as the root URL `<origin>/`; any other stored form names none) is named for the Agreement, and for the commitment, payment evidence, Deliverable and delivery evidence only when that record is native in this profile (native seller commitment marker, native payment evidence, native DEM delivery); fixture records name none |
+| `artifacts[].observation.rpcOrigin` | Recorded slots only, and only a bare origin without credentials/query/path; no link. Listing: stored prepare-time chainRpcOrigin. The origin of the `devnet-agreement-transport/v1` endpoint (stored as the root URL `<origin>/`; any other stored form names none) is named for the Agreement, and for the payment evidence, Deliverable and delivery evidence only when the client's terms select a native read for that record (native payment evidence, native DEM delivery); the commitment and any other record name none |
 | `artifacts[].observation.scope` | Recorded slots only, one line of at most 400 characters: stored prepare-time chainMode, applicable protocolView finality limit, the Vet statement, payment tuple-only limit, or downgraded delivery warning |
-| `artifacts[].observation.substrate`, `.finalityProfile`, `.disposition`, `.state` | Recorded slots only, and only from fixed vocabularies, else null. Substrate: `demos` (the SDK's native Demos receipt) or the plugin's loopback fixture substrate. finalityProfile: `demos-bft-confirmed-native-read` or the fixture's `fixture-immediate-no-chain`. Disposition: `established` or `indeterminate`. State: the SDK anchor lifecycle states (`submitted`, `accepted`, `included`, `finalized`, `rejected`, `dropped`, `replaced`, `expired`, `reorged`). Labels do not establish consensus finality |
+| `artifacts[].observation.substrate`, `.finalityProfile`, `.disposition`, `.state` | Recorded slots only, and only from fixed vocabularies, else null. Substrate: `demos` (the SDK's native Demos receipt). finalityProfile: `demos-bft-confirmed-native-read`. Disposition (`established` or `indeterminate`) and state are exported only for a receipt with both of those values; any other substrate or finality profile shows null for all four. State: the SDK anchor lifecycle states (`submitted`, `accepted`, `included`, `finalized`, `rejected`, `dropped`, `replaced`, `expired`, `reorged`). Labels do not establish consensus finality |
 | `bundle.bundleHash`, `.finalisedAt`, `.verifiedAt`, `.buyerCounterSignature`, `.sellerSignature` | Stored bundle fields, if a bundle hash exists; only well-formed signatures, no signing messages or wallet authorization secrets |
 | `limits.finality`, `.vet` | Applicable protocolView finality limit, and the Vet statement; fallback not-established/not-recorded |
 | `limits.humanAcceptance` | `not-recorded` |

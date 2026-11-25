@@ -63,9 +63,9 @@ jobs:
           archive_dir="$RUNNER_TEMP/http-mcp-sdk-candidate"
           mkdir -p "$sdk_source" "$archive_dir"
           git -C "$sdk_source" init -q
-          git -C "$sdk_source" fetch --depth 1 https://github.com/DACS-Agent-commerce/dacs-sdk.git cc301976133bd2b0046c9a979cba88c82be19d97
+          git -C "$sdk_source" fetch --depth 1 https://github.com/DACS-Agent-commerce/dacs-sdk.git 7a05b3497f1eb94125426d37a90d3e09b2290aa7
           git -C "$sdk_source" checkout -q --detach FETCH_HEAD
-          test "$(git -C "$sdk_source" rev-parse HEAD)" = "cc301976133bd2b0046c9a979cba88c82be19d97"
+          test "$(git -C "$sdk_source" rev-parse HEAD)" = "7a05b3497f1eb94125426d37a90d3e09b2290aa7"
           # No dependency install scripts run before the archives are checked against the lock.
           (cd "$sdk_source" && npm ci --ignore-scripts --no-audit --no-fund)
           (
@@ -77,7 +77,8 @@ jobs:
             cd ../dacs-node
             npm pack --json --pack-destination "$archive_dir" > /dev/null
           )
-          # The wallet-build root is also checked by --prepare http-mcp.
+          # The plugin pins demosdk 4.0.23; the wallet-build root, also checked by --prepare http-mcp, pins 4.0.20.
+          npm pack @kynesyslabs/demosdk@4.0.23 --silent --pack-destination "$archive_dir" > /dev/null
           npm pack @kynesyslabs/demosdk@4.0.20 --silent --pack-destination "$archive_dir" > /dev/null
       # The candidate gate hashes the source archives and the published wallet SDK
       # against their lockfile pins before any package is placed in the npm cache.
@@ -137,6 +138,8 @@ jobs:
               echo "- test gid: $(id -g)"
               echo "- test umask: $(umask)"
             } | tee -a test-results.runner.txt >> "$GITHUB_STEP_SUMMARY"
+            # Browser downloads go to a directory pwuser owns, outside /tmp (test/helpers/overnight-acceptance-browser.mjs).
+            export DACS_TEST_DOWNLOAD_PARENT="$HOME/dacs-test-downloads"
             exec npm run test:ci
           '
       - name: Upload per-file results

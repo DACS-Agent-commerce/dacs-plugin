@@ -25,6 +25,7 @@ import { chromium } from 'playwright-core';
 import { startOfflineTester } from '../../bin/dacs-chatgpt-offline-test.mjs';
 import { Profile } from '../helpers/overnight-ui-browser.mjs';
 import { FAILED_BEFORE_SEND, isClosedNotSent, mistypedPost } from '../helpers/closure-acceptance-identity.mjs';
+import { requireSdkPurchases } from '../helpers/sdk-purchases.mjs';
 
 const CHROME = process.env.DACS_TEST_CHROME;
 const TW_HANDLE = `p7_tw_${Math.random().toString(36).slice(2, 6)}`; // Twitter allows "_"
@@ -134,6 +135,7 @@ test('same wallet, same run, no restart: Add starts a NEW Twitter action and the
 });
 
 test('same wallet, same run: purchases are not blocked', { timeout: 60_000 }, async () => {
+  await requireSdkPurchases(h.origin);
   await t.click('Find test service');
   await t.waitText('v-result', /^Verified: transactable$/);
   await t.click('Prepare simulated purchase');

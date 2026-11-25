@@ -3,8 +3,9 @@
 // purchase schema. Every write runs in the app database's single transaction
 // owner (the client's PurchaseStore), so an operation, its event and any
 // coordinates saved beside it commit or roll back together. Every read takes
-// the authenticated account id; there is no lookup that crosses accounts except
-// the portal's handoff-token resolution, which requires a high-entropy token.
+// the authenticated account id; only two lookups cross accounts: the portal's
+// handoff-token resolution, which requires a high-entropy token, and the
+// read-only job-id lookup the client's authority reader makes.
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { canonicalize } from '@kynesyslabs/dacs';
 import { OperationError, sellerSessionTransitionState } from '@kynesyslabs/dacs-client';
@@ -28,6 +29,8 @@ function hydrate(row) {
     termsHash: row.terms_hash,
     state: JSON.parse(row.state),
     expiresAt: row.expires_at,
+    // The portal handoff's expiry as stored, unparsed; null until the client opens the handoff.
+    handoffExpiresAt: row.handoff_expires_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -51,6 +54,7 @@ export function createOperationStore({ db, handoffSecret, now = () => Date.now()
   const byIdForAccount = db.prepare('SELECT * FROM operations WHERE id = ? AND account_id = ?');
   const byId = db.prepare('SELECT * FROM operations WHERE id = ?');
   const byHandoff = db.prepare('SELECT * FROM operations WHERE id = ? AND handoff_token_hash = ?');
+  const byJobId = db.prepare("SELECT * FROM operations WHERE job_id = ? AND kind = 'purchase'");
   const listForAccount = db.prepare('SELECT * FROM operations WHERE account_id = ? ORDER BY created_at DESC LIMIT ?');
   const listBySubject = db.prepare('SELECT * FROM operations WHERE account_id = ? AND kind = ? AND subject_id = ? ORDER BY created_at DESC');
   const cas = db.prepare('UPDATE operations SET status = ?, state = ?, updated_at = ? WHERE id = ? AND status = ?');
@@ -101,6 +105,13 @@ export function createOperationStore({ db, handoffSecret, now = () => Date.now()
 
   function get(accountId, id) {
     return hydrate(byIdForAccount.get(id, accountId));
+  }
+
+  // The purchase saved for a seller job id, or null. It crosses accounts because
+  // the client's authority reader asks by job; the reader itself accepts the row
+  // only when its buyer wallet is the session's own.
+  function findByJobId(jobId) {
+    return typeof jobId === 'string' ? hydrate(byJobId.get(jobId)) : null;
   }
 
   function getByHandoff(id, token) {
@@ -158,5 +169,5 @@ export function createOperationStore({ db, handoffSecret, now = () => Date.now()
     return events.all(id).map((e) => ({ seq: e.seq, at: e.at, type: e.type, data: JSON.parse(e.data) }));
   }
 
-  return { createIdempotent, findByKey, get, getByHandoff, handoffTokenFor, transition, onTransition, record, list, listForSubject, history, appendEvent };
+  return { createIdempotent, findByKey, findByJobId, get, getByHandoff, handoffTokenFor, transition, onTransition, record, list, listForSubject, history, appendEvent };
 }

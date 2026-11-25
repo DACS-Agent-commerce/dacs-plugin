@@ -232,6 +232,24 @@ simulation header (writes only after it was observed), never answers
 502/503/504 (statuses the SDK's `_doPost` retries automatically) and logs no
 bodies or headers. CSP stays `connect-src 'self'`; no axios or SDK change.
 
+The native relay (`/portal/api/devnet-native-wallet-rpc` and `-binding`) is
+mounted only by a composition root that passes the client's own transport. Each
+call carries a relay capability in the `x-dacs-relay-access` header. The portal's
+approve and handoff answers include one, as `relayAccess: {capability, expiresAt}`,
+whenever they hand the wallet a payment payload. It admits only that purchase's
+wallet until its handoff expires; after that, only lease releases and readbacks.
+Answers: 403 `relay_access_denied`, 409 for a client refusal (including
+`profile_not_admitted`), 413 for a body over 64 KiB, 500 when the outcome is
+unknown. Bind, signature and execute calls are refused 403: no signed bytes pass.
+
+No shipped composition mounts the native relay. The client's transport for it
+comes only from a node wallet session, which holds the buyer's key, and the
+server holds no buyer key. With `DACS_SDK_PURCHASES` on (a direct `createApp`
+only; see [SWITCHES.md](SWITCHES.md)), a purchase action needs a buyer session:
+an account and one of its wallets linked by the wallet-link challenge. The
+portal and the Agreement CREATE claim and pass routes mint and revoke relay
+capabilities in one shared store.
+
 Upstream methods actually used, in order (all public SDK 4.0.20 API):
 
 - payment: `connect`, `nodeCall("getNetworkParameters")`, approval of the

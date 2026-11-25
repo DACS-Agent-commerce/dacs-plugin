@@ -2,23 +2,24 @@
 // explicitly unconfigured rather than silently replaced by a fixture.
 import { join } from 'node:path';
 import { SwitchFileError, loadSwitchFiles } from './switch-files.mjs';
+import { readActivationSeams } from './sdk/activation-seams.mjs';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const isRemoteHttps = (url) => Boolean(url) && new URL(url).protocol === 'https:' && !LOCAL_HOSTS.has(new URL(url).hostname);
 
-// Demos chain identity per network label: the genesis hash as the pinned
-// @kynesyslabs/dacs DemosAdapter.resolveChainIdentity reads it (block 0 hash,
-// else block 1 content.previousHash), as 64 lowercase hex. A label alone is
-// never network identity. An entry is added only by a reviewed source change
-// once the target network's real identity is established (testnet handoff gate
-// "network identity"), never by a setting. None is established in this build,
-// so payments on any non-simulated chain are refused before approval.
-export const PINNED_CHAIN_IDENTITIES = Object.freeze({});
+// The configuration names no chain identity: the client takes it from the
+// SDK's own record, and no setting, environment variable or argument selects it.
 // A network label (DACS_CHAIN_NETWORK). Purchase terms, payment domains and
 // errors carry it, and the model reads it raw only in this form
 // (mcp/seller-content.mjs NETWORK).
 const NETWORK_LABEL = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
-export class ConfigError extends Error {}
+export class ConfigError extends Error {
+  constructor(message, code) {
+    super(message);
+    if (code !== undefined) this.code = code;
+  }
+}
 
 export const PURCHASE_LIMITS = Object.freeze({ maxUnpaidPerAccount: 1, maxUnpaidPerWallet: 1, maxStartsPerHour: 5 });
 
@@ -109,7 +110,22 @@ function parseSwitches(env, { from = -Infinity, before = null } = {}) {
   return out;
 }
 
-export function loadConfig(env = process.env) {
+// DACS_SDK_PURCHASES=on needs every named SDK purchase part in the client
+// namespace, and stays refused until the whole switch-on path is validated:
+// the client's passive reader and stop seam, its fee-ceiling and wallet-handoff
+// members and its HTTPS seller client have no fixed public names yet, so they
+// cannot be looked up here.
+function requireSdkPurchaseParts(clientNamespace, recorderNamespace) {
+  const [missing] = readActivationSeams(clientNamespace, { recorderNamespace }).missing;
+  if (missing) throw new ConfigError(`sdk_part_missing: ${missing.part} ${missing.name}`, 'sdk_part_missing');
+  throw new ConfigError('switch_on_not_validated: DACS_SDK_PURCHASES=on is refused until the SDK purchase path is validated on the installed client', 'switch_on_not_validated');
+}
+
+// The second argument's `clientNamespace` is for tests only: it stands in for
+// the installed client namespace. `recorderNamespace` is the evidence
+// recorder's package subpath namespace, imported by the caller, or null when
+// that subpath is absent. Shipped callers pass the environment alone.
+export function loadConfig(env = process.env, { clientNamespace, recorderNamespace = null } = {}) {
   const allowInsecureLocal = env.DACS_ALLOW_INSECURE_LOCALHOST === '1';
   if (!env.DACS_PUBLIC_ORIGIN) throw new ConfigError('DACS_PUBLIC_ORIGIN is required (the stable HTTPS origin that serves /mcp)');
   const publicOrigin = parseOrigin('DACS_PUBLIC_ORIGIN', env.DACS_PUBLIC_ORIGIN, { allowInsecureLocal });
@@ -207,7 +223,7 @@ export function loadConfig(env = process.env) {
   let embeddedWallet = { writes: 'off', githubApiOrigin: null };
   let embeddedWalletTestnet = { profile: 'off' };
   if (embeddedWalletWrites === 'testnet-held') {
-    if (!chainRpcUrl || LOCAL_HOSTS.has(new URL(chainRpcUrl).hostname) || new URL(chainRpcUrl).protocol !== 'https:') {
+    if (!isRemoteHttps(chainRpcUrl)) {
       throw new ConfigError('DACS_EMBEDDED_WALLET_WRITES=testnet-held requires an https, non-loopback DACS_CHAIN_RPC_URL (simulated fixtures use simulated-loopback)');
     }
     if (!NETWORK_LABEL.test(env.DACS_CHAIN_NETWORK ?? '')) {
@@ -226,6 +242,12 @@ export function loadConfig(env = process.env) {
       if (!LOCAL_HOSTS.has(new URL(githubApiOrigin).hostname)) throw new ConfigError('DACS_EMBEDDED_WALLET_GITHUB_API_ORIGIN must be a loopback fixture origin in the simulated-loopback profile');
     }
     embeddedWallet = { writes: 'simulated-loopback', githubApiOrigin };
+  }
+
+  // SDK purchases read the chain from a remote node over https only.
+  if (switches.sdkPurchases === 'on') {
+    if (!isRemoteHttps(chainRpcUrl)) throw new ConfigError('DACS_SDK_PURCHASES=on requires an https, non-loopback DACS_CHAIN_RPC_URL');
+    requireSdkPurchaseParts(clientNamespace, recorderNamespace);
   }
 
   const chainNetwork = env.DACS_CHAIN_NETWORK || 'demos-testnet';
@@ -264,11 +286,12 @@ export function loadConfig(env = process.env) {
       ? {
           rpcUrl: chainRpcUrl,
           network: chainNetwork,
-          // Expected chain identity for payments; null: none established.
-          pinnedIdentity: Object.hasOwn(PINNED_CHAIN_IDENTITIES, chainNetwork) ? PINNED_CHAIN_IDENTITIES[chainNetwork] : null,
           timeoutMs: parseInteger('DACS_CHAIN_TIMEOUT_MS', env.DACS_CHAIN_TIMEOUT_MS, 10000, { min: 500, max: 60000 }),
         }
       : null,
+    // The node connection's TP-1 transport authority label, set by the operator; no default. The SDK purchases on
+    // composition refuses its startup binding tp1_local_binding_invalid when it is missing or not a plain token.
+    tp1TransportAuthority: env.DACS_TP1_TRANSPORT_AUTHORITY || null,
     demAmountEncoding,
     fundingHelpUrl: env.DACS_FUNDING_HELP_URL ? parseFundingUrl('DACS_FUNDING_HELP_URL', env.DACS_FUNDING_HELP_URL) : '',
     showcaseReportView,

@@ -27,7 +27,9 @@ const legacy = {
   // appends a refusal's buyerFunding sentence (unchanged output when a response carries none).
   // v2 removes the publication flow/capability and unused transaction-kind
   // constant. Buyer and identity flows keep their existing write holds.
-  'portal.js': 'c5d31bad84dd1d3544b070b00b963215388915e83950ab9e56289ecf2b56f506',
+  // Plus pay() throwing, for a handoff refused before signing, the server's explanation of the refusal
+  // code (view.refusal.message) in place of the fixed text.
+  'portal.js': '85d87beb8db0de6469364b64d092902919b7395e58297931d561692d9b36f36f',
   'portal.css': '89a42fa639c0cdd45a5fdd51ec33a4a9fcb218f2017e8528615c263687d3cb49',
 };
 
@@ -137,7 +139,9 @@ test('probe nonce endpoint is read-only, owner-wallet bound and refuses unavaila
     const url=`${h.origin}/portal/wallet-extension-probe/nonce/${wallet.address}`;
     assert.equal((await fetch(url)).status,404);assert.equal((await fetch(url,{headers:{authorization:'Bearer invalid'}})).status,404);
     h.chain.setNonce(wallet.address,7);h.chain.setBalance(wallet.address,'2500000000');
-    assert.deepEqual(await (await fetch(url,{headers})).json(),{address:wallet.address,currentNonce:7,nextNonce:8,balanceOs:'2500000000'});
+    const read=await fetch(url,{headers});
+    assert.equal(read.status,200,'the owner reads the nonce');
+    assert.deepEqual(await read.json(),{address:wallet.address,currentNonce:7,nextNonce:8,balanceOs:'2500000000'});
     for(const balance of ['-1','1.5',null]) {h.chain.setBalance(wallet.address,balance);assert.equal((await fetch(url,{headers})).status,500,`balance ${balance}`);}
     h.chain.setBalance(wallet.address,'2500000000');
     assert.equal((await fetch(`${h.origin}/portal/wallet-extension-probe/nonce/${createEphemeralWallet().address}`,{headers})).status,404);
@@ -146,6 +150,33 @@ test('probe nonce endpoint is read-only, owner-wallet bound and refuses unavaila
     assert.equal((await fetch(url,{method:'POST',headers})).status,404);
     assert.equal(h.chain.nonceOf(wallet.address),7,'reads never consume nonce');
   } finally {await h.close();}
+});
+
+test('the probe\'s owner-only GET /network runs the same six signature-form cases against the composed modules with no resolve hook', async () => {
+  const { verifyDemosTransactionSignature } = await import('../src/wallet/demos-transaction-signature.mjs');
+  const { h, wallet } = await ownerHarness();
+  try {
+    const { provider } = await linkAccount({ harness: h, wallet }), headers = { authorization: `Bearer ${provider.tokens().access_token}` };
+    const url = `${h.origin}/portal/wallet-extension-probe/network`, txHash = hash('probe transaction'), activatedChains = new Set();
+    const read = async (answer) => { h.chain.faults.networkInfo = answer; const res = await fetch(url, { headers }); return [res.status, await res.json()]; };
+    const verdicts = (networkInfo) => ['bare', 'domain'].map((form) => verifyDemosTransactionSignature({ networkInfo, hash: txHash, publicKey: wallet.address, activatedChains,
+      signature: wallet.signHex(form === 'domain' ? `demos-tx:v1:${networkInfo.chainId}:${txHash}` : txHash) }));
+    const active = { chainId: 7, forks: { signatureDomain: { activated: true } } };
+    for (const [label, answer, expected] of [
+      ['inactive', { chainId: 7, forks: { signatureDomain: { activated: false } } }, ['valid', 'invalid']],
+      ['missing member', { chainId: 8, forks: {} }, ['valid', 'invalid']],
+      ['non-boolean', { chainId: 9, forks: { signatureDomain: { activated: 'true' } } }, ['unavailable', 'unavailable']],
+      ['active', active, ['invalid', 'valid']],
+      ['downgrade after active', { chainId: 7, forks: {} }, ['unavailable', 'unavailable']],
+    ]) {
+      const [status, body] = await read(answer);
+      assert.equal(status, 200, label);
+      assert.deepEqual(body, answer, label);
+      assert.deepEqual(verdicts(body), expected, label);
+    }
+    assert.deepEqual(await read(undefined), [500, { error: 'network_unavailable' }], 'unreadable');
+    assert.equal((await fetch(url)).status, 404, 'owner only');
+  } finally { await h.close(); }
 });
 
 // A page's module and fetch subrequests never carry a bearer header,
@@ -159,7 +190,7 @@ test('the probe is built-in sign-in only: a browser session loads it, an externa
     await auth(provider,{serverUrl:h.mcpUrl});
     await completeAuthorizationInBrowser({authorizationUrl:provider.authorizationUrl,wallet,origin:h.origin,jar});
     h.chain.setNonce(wallet.address,7);h.chain.setBalance(wallet.address,'1');
-    for (const path of [...probePaths, nonce]) assert.equal((await fetch(`${h.origin}${path}`,{headers:{cookie:jar.header(`${h.origin}${path}`)}})).status,200,`built-in session ${path}`);
+    for (const path of [...probePaths, nonce]) assert.equal((await fetch(`${h.origin}${path}`,{headers:{cookie:jar.header(`${h.origin}${path}`)}})).status,200,`built-in session ${path === nonce ? 'nonce read' : path}`);
   } finally { await h.close(); }
   const issuer = await startTestIssuer();
   const x = await startHarness({ env: { DACS_AUTH_MODE: 'external', DACS_OAUTH_ISSUER: issuer.issuer, DACS_OAUTH_COOKIE_KEYS: '', DACS_WALLET_EXTENSION_PROBE: '1', DACS_WALLET_EXTENSION_PROBE_OWNER_ACCOUNT: ownerId } });
