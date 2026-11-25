@@ -35,9 +35,13 @@ function runFrom(name: string) {
   const root = path.join(base, name);
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
   fs.copyFileSync(LAUNCHER, path.join(root, 'scripts', 'launch.mjs'));
+  const env = { ...process.env };
+  delete env.NODE_USE_ENV_PROXY;
+  delete env.NODE_OPTIONS;
   const run = spawnSync(process.execPath, [path.join(root, 'scripts', 'launch.mjs')], {
     cwd: base,
     encoding: 'utf8',
+    env,
   });
   return { base, root: fs.realpathSync(root), run };
 }

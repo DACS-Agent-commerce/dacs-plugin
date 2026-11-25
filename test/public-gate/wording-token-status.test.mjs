@@ -111,7 +111,7 @@ test('wording token status: a paragraph of a million short markup tokens is read
     const matcher = createWordingMatcher(['zzz entry'], () => {});
     const read = (text) => scanWording({ entries: [{ path: 'a.md', bytes: Buffer.from(text), oid: 'a'.repeat(40), position: 1 }], wordingMatcher: matcher, limits: { maxReportEntries: 100 } }).length;
     console.log(JSON.stringify([read(']'.repeat(1 << 21)), read('<!-- a -->'.repeat(1 << 18)), read(']'.repeat(1 << 20) + '<!-- ${EXTERNAL}_${REVIEW}: complete -->')]));`;
-  const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const output = execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', code], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000 });
   assert.equal(output.trim(), '[0,0,1]');
 });
 
