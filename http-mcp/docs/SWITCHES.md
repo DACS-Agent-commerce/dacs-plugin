@@ -111,6 +111,12 @@ Directory search, accounts, identity reads and identity actions work as usual.
 Purchases with `on` need each seller enrolled in the data directory's
 participant enrollment file ([PARTICIPANT-ENROLLMENT.md](PARTICIPANT-ENROLLMENT.md)).
 
+With either value, the portal serves the browser's copy of the SDK's approved
+TP-1 identity record at `/portal/assets/tp1-identity-record.mjs`. Before it
+opens the database, `createApp` compares that copy with the SDK's record by
+canonical JSON bytes and digest, and refuses to start with
+`tp1_record_copy_drift` on any difference.
+
 ## Add a switch
 
 1. Add `src/switches/DACS_MY_FEATURE.switch`. It is strict JSON. The extension
