@@ -61,7 +61,7 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `.gitignore` | `d82b03e30be4d89a5be65cbc8506d7236ba57cf1` | added: ignore rules for dependencies, build output, logs and local environment files |
 | `.gitleaksignore` | `9b718d6f403ed4776ff4c9df40a00ab63a608a6c` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
-| `README.md` | `9a7c75b13636c288a85ff82dbd7313a52e5b23dc` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections, and an "Install in Claude Code" section; then changed here: the layout table lists the root `.claude-plugin/`, and the install section uses the full command name `/demos:demos-find`; then changed here: the build step is scoped to the GitHub route, and a local clone is built in place |
+| `README.md` | `7ef9e271d407dccaedcc3047c2fe36dfc2cd513e` | edited: rewritten as this repository's overview; a "state of this repository" section; the shared-package sentence made true on every branch; then changed here: the layout, gate, command matrix and CI sections, and an "Install in Claude Code" section; then changed here: the layout table lists the root `.claude-plugin/`, and the install section uses the full command name `/demos:demos-find`; then changed here: the build step is scoped to the GitHub route, and a local clone is built in place; then changed here: the root tests require Node 22 or later |
 | `docs/PUBLIC-GATE.md` | `1678668758708b1f5030c78c329067d61202ba85` | added: documentation of the public-content gate |
 | `http-mcp/.dockerignore` | `aae035eb68f5747b0bda683606503b97ca99afdf` | edited: public wording: internal process and layout references removed or reworded |
 | `http-mcp/.env.example` | `61149650b005fca4655a1ba4d338e3b2a5f52f7d` | verbatim |
@@ -720,8 +720,8 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `http-mcp/wallet-build/package-lock.json` | `942d2562fe409ad3ab0afe872e49cc9ad22e3392` | verbatim |
 | `http-mcp/wallet-build/package.json` | `b8aad47a8b57bef87e9eec96ab8d8dee621e4ab4` | verbatim |
 | `http-mcp/wallet-build/shims.mjs` | `b90f32a3c063bf436cd25a96ab7b27d61491c43c` | verbatim |
-| `package-lock.json` | `02b053fab55700b6fe75742c85076e26dc230628` | added: lockfile of the root package |
-| `package.json` | `386f2e1406304aa7f9d3866a73b8f4118e5bc51b` | added: root package with the gate scripts and the test command; then changed here: the `test:all` script |
+| `package-lock.json` | `8d3847fcdb05e1b80c4fd43e7e5b8b0bff76166c` | added: lockfile of the root package; then changed here: the root package metadata declares Node 22 or later |
+| `package.json` | `3e921c439224ac21428af8afd4a8a3c270a58375` | added: root package with the gate scripts and the test command; then changed here: the `test:all` script; then changed here: declares Node 22 or later for the root test command |
 | `public-gate.config.json` | `d714d596c84159b7f53b476602fd187e24d7f4e8` | added: gate limits, text extensions and binary dispositions |
 | `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
 | `scripts/public-gate/check-report.mjs` | `d8967e36b2ff00bf63c300eac3520612206cfb64` | added: public-content gate source |
