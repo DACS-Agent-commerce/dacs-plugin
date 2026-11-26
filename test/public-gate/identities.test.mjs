@@ -58,7 +58,7 @@ const UNLISTED_TRAILER_LINES = {
   'a space before the colon': { message: `subject\n\nCo-authored-by : ${OTHER_IDENTITY}`, line: 3 },
   'a tab before the colon': { message: `subject\n\nSigned-off-by\t: ${OTHER_IDENTITY}`, line: 3 },
   'an indented trailer': { message: `subject\n\n  Signed-off-by: ${OTHER_IDENTITY}`, line: 3 },
-  'a trailer after a lone CR': { message: `subject\rSigned-off-by: ${OTHER_IDENTITY}`, line: 1 },
+  'a trailer after a lone CR': { message: `subject\rSigned-off-by: ${OTHER_IDENTITY}`, line: 2 },
   'a trailer after U+2028': { message: `subject\u2028Co-authored-by: ${OTHER_IDENTITY}`, line: 1 },
   'a trailer after U+0085': { message: `subject\u0085Co-authored-by: ${OTHER_IDENTITY}`, line: 1 },
 };

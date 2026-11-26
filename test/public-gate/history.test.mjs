@@ -125,6 +125,19 @@ test('a percent-encoded dot in a commit message URL host does not hide an unlist
   assert.deepEqual(brief(JSON.parse(run.stdout)), ['R-HOST message message 3', 'R-IP message message 3']);
 });
 
+test('a commit message is numbered as the file rules number lines: with LF, CRLF or lone CR line ends the address and identity rules give the line the private rule gives', () => {
+  const trailer = 'Co-authored-by: Someone <someone@example.invalid>';
+  for (const [ends, eol] of [['LF', '\n'], ['CRLF', '\r\n'], ['CR', '\r']]) {
+    const message = ['subject', '', `Reach https://${UNLISTED_HOST} at ${PUBLIC_V4}`, `write to ${INTERNAL_EMAIL}`, PLANTED, trailer].join(eol);
+    const history = createHistory([{}, { message }]);
+    const run = runHistory(historyArgs(history, writeList([PLANTED]), ['--allowed-identity', ALLOWED]));
+    assert.equal(run.status, 1, `${ends}: ${run.stderr}`);
+    assert.deepEqual(brief(JSON.parse(run.stdout)), [
+      'R-ACCOUNT message message 4', 'R-HOST message message 3', 'R-IDENTITY message message 6', 'R-IP message message 3', 'R-PRIVATE message message 5',
+    ], ends);
+  }
+});
+
 test('an unlisted host or a public IP in an author, committer or other header line is refused by the host and IP rules and located by field', () => {
   const history = createHistory([
     {},
