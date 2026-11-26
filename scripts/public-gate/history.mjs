@@ -6,7 +6,7 @@ import { compareText, createScanDeadline, EXIT, gateRevision, loadConfig, REGIST
 import { createSecretInput } from './history-secrets.mjs';
 import { describeSelectedRefs, FULL_OBJECT_ID, GateInputError, readCommitObjects, readHistory, requireExpectedRoot } from './objects.mjs';
 import { checked, counted, publish, SHA256_HEX, STATUSES, UNSCANNABLE_CAUSES, writeDiagnostic } from './redact.mjs';
-import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps } from './rules-address.mjs';
+import { ACCOUNT_RULE_ID, HOST_RULE_ID, IP_RULE_ID, LINE_BREAK, refusedMetadataEmails, refusedMetadataHosts, refusedMetadataIps } from './rules-address.mjs';
 import { createEvalScanner } from './rules-eval.mjs';
 import { createPrivateMatcher, PRIVATE_RULE_ID, readPrivateList, readWordingList, scanPrivate } from './rules-private.mjs';
 import { createWordingMatcher, requireNoStaleLockfileDisposition, scanWording, WORDING_RULE_ID, wordingEntryLines } from './rules-text.mjs';
@@ -94,10 +94,10 @@ const METADATA_ADDRESS_RULES = [
   { rule: IP_RULE_ID, refusedIn: refusedMetadataIps },
 ];
 
-/** The 1-based numbers of the first `maxLines` lines of `message` for which `isRefused(line)` is true. */
+/** The 1-based numbers of the first `maxLines` lines of `message`, split on LINE_BREAK as the file rules split, for which `isRefused(line)` is true. */
 function linesWhere(message, isRefused, maxLines) {
   const lines = [];
-  message.split('\n').forEach((text, index) => {
+  message.split(LINE_BREAK).forEach((text, index) => {
     if (lines.length < maxLines && isRefused(text)) lines.push(index + 1);
   });
   return lines;

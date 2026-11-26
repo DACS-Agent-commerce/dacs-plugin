@@ -27,7 +27,8 @@ export const CODE_EXTENSIONS = ['.cjs', '.css', '.js', '.mjs', '.mts', '.sh', '.
  */
 const HOST_TOP_LEVEL_NAMES = new Set(['com', 'org', 'net', 'io', 'dev', 'ai', 'xyz', 'co', 'me', 'cloud', 'tech', 'online', 'site',
   'info', 'biz', 'us', 'uk', 'de', 'eu', 'fr', 'nl', 'ch', 'se', 'cn', 'jp', 'kr', 'ru', 'in', 'br', 'ca', 'au']);
-const LINE_BREAK = /\r\n|\r|\n/;
+/** What ends a line for the line numbers in findings: CRLF, a lone CR or LF. History mode numbers commit-message lines with it too. */
+export const LINE_BREAK = /\r\n|\r|\n/;
 /** A dotted name within DNS limits (labels of at most 63 characters, at most 127 of them): bounded so a long dotted line cannot exhaust the regex stack. */
 const NAME_LABELS = String.raw`(?:[a-z0-9_-]{1,63}\.){1,127}[a-z]{2,63}`;
 /** The dots that end a host. The lookbehind lets a match start only at the first dot of a run, so a run of dots that does not end the host is passed over once, in linear time, rather than retried from each dot. */
