@@ -80,13 +80,15 @@ export async function listenKeyless(deps: Deps, port = 0): Promise<{ url: string
       res.end(JSON.stringify({ error: 'not found' }));
       return;
     }
-    const mcp = createServer(deps);
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    let mcp: ReturnType<typeof createServer> | undefined;
+    let transport: StreamableHTTPServerTransport | undefined;
     res.on('close', () => {
-      void transport.close();
-      void mcp.close();
+      void transport?.close();
+      void mcp?.close();
     });
     try {
+      mcp = createServer(deps);
+      transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await mcp.connect(transport);
       await transport.handleRequest(req, res);
     } catch {
