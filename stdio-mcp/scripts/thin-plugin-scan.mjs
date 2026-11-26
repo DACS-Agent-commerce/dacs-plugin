@@ -19,9 +19,6 @@ export function createModuleScanner(context) {
   if (!ts || typeof resolve !== 'function' || typeof rel !== 'function' || !(modules instanceof Map) || !Array.isArray(config?.primitives)
     || !['violation', 'unverifiable', 'waiver', 'edge'].every(k => typeof report?.[k] === 'function')) throw new Error('invalid scanner context');
   const flag = (sink, rule, file, line = 0, detail = '') => report[sink]({rule, file: rel(file), line, detail});
-  // A computed-key write is only an export or definition risk when it targets an export object
-  // or assigns a function/class under a name the primitive matcher cannot see. Ordinary data
-  // writes (f.days[day] = ..., out[k] = v) are not export surfaces.
   // Parentheses and type-only wrappers (as, !, <T>, satisfies) never change the value.
   const wrapper = x => ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || ts.isNonNullExpression(x) || ts.isTypeAssertionExpression(x) || ts.isSatisfiesExpression(x);
   const unparen = x => { while (x && wrapper(x)) x = x.expression; return x; };
@@ -83,6 +80,9 @@ export function createModuleScanner(context) {
     if (ts.isSpreadElement(p)) return writtenByDestructuring(p.parent);
     return false;
   };
+  // A computed-key write is only an export or definition risk when it targets an export object
+  // or assigns a function/class under a name the primitive matcher cannot see. Ordinary data
+  // writes (f.days[day] = ..., out[k] = v) are not export surfaces.
   const computedDefinitionRisk = n => { const r = unparen(n.right); return exportTarget(n.left.expression) || ts.isFunctionLike(r) || ts.isClassExpression(r); };
 
   return function scan(file) {
