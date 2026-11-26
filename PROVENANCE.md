@@ -52,7 +52,7 @@ Two small pieces are adapted from other sources.
   - docs and configuration: `http-mcp/README.md` (its "Provenance" section), `http-mcp/docs/CHATGPT-DEVELOPER-MODE.md`, `DEPLOYMENT-CHECKLIST.md`, `OFFLINE-TESTER.md`, `OVERNIGHT-CORE.md`, `OVERNIGHT-UI.md` and `TESTER-DASHBOARD.md` (all under `http-mcp/docs/`), and `http-mcp/.env.example` (the directory origin setting).
 - The `validateListingArtifact` wiring is adapted from an earlier demo, which was our own code.
 
-Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
+Files: 764 (verbatim 484, edited 215, changed here 19, added 46).
 
 | Path | Blob | Disposition |
 | --- | --- | --- |
@@ -768,7 +768,7 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `stdio-mcp/src/dacs/listing.ts` | `52f6be56eddeeca84a0040845b93684218f7036a` | changed here after a verbatim import: a presentation signature is checked only for a canonical key that is not of small order |
 | `stdio-mcp/src/dacs/sig.ts` | `1d07c61362c43c25caeeda5f9db53347ad40576a` | changed here after a verbatim import: adds isUsableKey; domain signatures are checked only for a canonical key that is not of small order |
 | `stdio-mcp/src/dacs/verify.ts` | `d8ea0735bba5ebb2de6c11eaa25cb3dc488b4205` | verbatim |
-| `stdio-mcp/src/http_transport.ts` | `316faaa22aeb893f8f83bb167f4752ffe895dcfc` | verbatim |
+| `stdio-mcp/src/http_transport.ts` | `3a7e185c70c5fdf678ee5fdb47c01402fa0e54a3` | changed here after a verbatim import: constructs per-request MCP resources inside the error handler and closes only resources that exist |
 | `stdio-mcp/src/index.ts` | `43f30e8a2061ca84ef3726ef6d99acd71d27530f` | verbatim |
 | `stdio-mcp/src/json.ts` | `6e881379ecb79fcd997f7585bea7af2380f3688e` | verbatim |
 | `stdio-mcp/src/keyless.ts` | `f0391f4b3c7202dc35e54c6f104c58b1d417ff04` | verbatim |
@@ -789,6 +789,7 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `stdio-mcp/test/unit/confirmation.test.ts` | `3596e7646f5cc20a7cd08d3c98b43ce3a5d71d0b` | edited: comments and test names: internal review and process references removed; no behaviour change |
 | `stdio-mcp/test/unit/dacs.test.ts` | `f715e0f401dae8394945cfcc0aeef516aa46d25f` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a test added for ordinary, wrong-message and small-order keys on a domain signature |
 | `stdio-mcp/test/unit/guard.test.ts` | `21da5541cc58f8fce07313f3c4b821d411134a33` | edited: comments and test names: internal review and process references removed; no behaviour change |
+| `stdio-mcp/test/unit/http-transport-failure.test.ts` | `e2c95172274cddbdb4f4cdc612dde0eda5143f08` | added: constructor failures return and end the 500 reply; cleanup covers partial construction, connect/request failures and success |
 | `stdio-mcp/test/unit/keyless-http.test.ts` | `9574b7eaceef3f45a1f00da924317a4532234dbf` | verbatim |
 | `stdio-mcp/test/unit/keystore-and-reads.test.ts` | `d8e40a28f796868c2cd55a0b34f4eb8cb60f67d2` | verbatim |
 | `stdio-mcp/test/unit/launch.test.ts` | `b1d5d0aceb8ed6f6884baf987e14af14c6d816a3` | added: checks the missing-build command from paths containing spaces, quotes and shell metacharacters |
