@@ -10,7 +10,8 @@
  *     setup-node installs the leg's own version. The versions are exact, and the 20.19 leg
  *     is the floor in package.json "engines", not whichever 20.19 patch is newest.
  *  5. The steps are checkout, setup-node, the SDK input validation, then npm ci
- *     --ignore-scripts, typecheck, test and build in stdio-mcp/, in that order and nothing else.
+ *     --ignore-scripts, typecheck, test, the thin-plugin tests and build in stdio-mcp/, in that
+ *     order and nothing else.
  *  6. No top-level, job or step key outside the ones it uses, since others could skip a step,
  *     mask a failure or widen access.
  *  7. The npm scripts those steps run are the ones in package.json today, and no project
@@ -156,6 +157,7 @@ const CHECKS = {
       ['run: npm ci --ignore-scripts --no-audit --no-fund'],
       ['run: npm run typecheck'],
       ['run: npm test'],
+      ['run: npm run test:thin-plugin'],
       ['run: npm run build'],
     ]);
   },
@@ -220,7 +222,7 @@ test('workflow: the Node legs are exact versions, and the first is the floor in 
   assert.equal(`>=${NODE_VERSIONS[0]}`, pkg.engines.node);
 });
 
-test('workflow: checkout, setup-node, the SDK input validation, then npm ci --ignore-scripts, typecheck, test and build in stdio-mcp/, and nothing else', { skip }, () => {
+test('workflow: checkout, setup-node, the SDK input validation, then npm ci --ignore-scripts, typecheck, test, the thin-plugin tests and build in stdio-mcp/, and nothing else', { skip }, () => {
   CHECKS.steps(real());
 });
 
@@ -228,12 +230,13 @@ test('workflow: no other top-level settings, and no job or step key that could s
   CHECKS.keys(real());
 });
 
-test('package.json: the scripts CI runs are the typecheck, unit tests and build, and no project .npmrc changes how npm runs them', () => {
+test('package.json: the scripts CI runs are the typecheck, unit tests, thin-plugin tests and build, and no project .npmrc changes how npm runs them', () => {
   const dir = path.join(import.meta.dirname, '../..');
   const { scripts } = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
-  assert.deepEqual([scripts.typecheck, scripts.test, scripts.build], [
+  assert.deepEqual([scripts.typecheck, scripts.test, scripts['test:thin-plugin'], scripts.build], [
     'tsc -p tsconfig.json --noEmit',
     'tsx --test test/unit/*.test.ts',
+    'node --test test/thin-plugin-scan.test.mjs test/thin-plugin.test.mjs test/thin-plugin-report.test.mjs test/thin-plugin-inventory.test.mjs',
     'tsc -p tsconfig.json',
   ]);
   // A project .npmrc can set script-shell or node-options, so that every npm run exits 0.
@@ -350,6 +353,7 @@ const REFUSED: [keyof typeof CHECKS, string, string, string][] = [
   ['steps', 'the SDK input validation tolerated with || true', '      - run: node ../scripts/ci/sdk-input.mjs --prepare stdio\n', '      - run: node ../scripts/ci/sdk-input.mjs --prepare stdio || true\n'],
   ['steps', 'npm test dropped', '      - run: npm test\n', ''],
   ['steps', 'npm test || true', '      - run: npm test\n', '      - run: npm test || true\n'],
+  ['steps', 'the thin-plugin tests dropped', '      - run: npm run test:thin-plugin\n', ''],
   ['steps', 'a # inside a word before || true', '      - run: npm test\n', '      - run: npm test#|| true\n'],
   ['steps', 'continue-on-error on a step', '      - run: npm test\n', '      - run: npm test\n        continue-on-error: true\n'],
   ['steps', '--ignore-scripts dropped', '      - run: npm ci --ignore-scripts --no-audit --no-fund\n', '      - run: npm ci --no-audit --no-fund\n'],
