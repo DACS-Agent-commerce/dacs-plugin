@@ -89,6 +89,36 @@ for (const prefix of ['0x', '0X']) {
   });
 }
 
+// The check covers the UTF-8 bytes of a message string. A value of another type
+// is refused, even when it carries exactly the signed bytes.
+test('verifyDemosSignature refuses a message that is not a string', async (t) => {
+  const key = freshKey();
+  const message = 'demos-signature-encoding:non-string:café';
+  const bytes = Buffer.from(message, 'utf8');
+  const signature = sign(null, bytes, key.privateKey).toString('hex');
+  assert.equal(verify(null, bytes, key.publicKey, Buffer.from(signature, 'hex')), true, 'independent oracle: the signature is valid over these bytes');
+  assert.equal(verifyDemosSignature({ address: key.address, message, signature }), true, 'control: the signed string verifies');
+
+  const carriesSignedBytes = {
+    Buffer: Buffer.from(bytes),
+    Uint8Array: new Uint8Array(bytes),
+    'number array': Array.from(bytes),
+    'Buffer JSON object': JSON.parse(JSON.stringify(bytes)),
+    'String object': new String(message),
+  };
+  for (const [name, value] of Object.entries(carriesSignedBytes)) {
+    await t.test(`${name} carrying the signed bytes`, () => {
+      assert.ok(Buffer.from(value, 'utf8').equals(bytes), 'the value carries exactly the signed bytes');
+      assert.equal(verifyDemosSignature({ address: key.address, message: value, signature }), false);
+    });
+  }
+  for (const [name, value] of Object.entries({ number: 42, object: { message } })) {
+    await t.test(name, () => {
+      assert.equal(verifyDemosSignature({ address: key.address, message: value, signature }), false);
+    });
+  }
+});
+
 test('verifyDemosSignature with no argument or null returns false instead of throwing', () => {
   assert.equal(verifyDemosSignature(), false);
   assert.equal(verifyDemosSignature(null), false);
