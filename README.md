@@ -58,6 +58,9 @@ that must not be published, and `npm run gate:history` checks the history. See
 
 ## Command matrix
 
+The root tests require **Node 22 or later** because Node expands the quoted
+test-file glob in `npm test` from version 22.
+
 Each row is a suite, the command that runs it, how its inputs are prepared, the
 Node version it runs on and the Actions job that runs it. A suite's SDK input is
 validated with `sdk-input` before any install, so one that cannot be verified

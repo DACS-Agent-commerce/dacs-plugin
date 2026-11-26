@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "description": "Repository-level checks for the DACS plugins: the public-content gate and its tests.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "gate:generic": "node scripts/public-gate/gate.mjs --scope generic",
     "gate:complete": "node scripts/public-gate/gate.mjs --scope complete",
