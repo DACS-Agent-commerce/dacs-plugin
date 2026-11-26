@@ -223,23 +223,23 @@ path reads key material into a tool result in the first place.
    onboarding tools off until a restart even if the file is removed; one created
    after start-up stops applying when it is removed. To fence a wallet reliably,
    create the marker before onboarding starts, or with the server stopped.
-7. **Accept-and-pay ordering.** The payment is signed and node-confirmed before
+8. **Accept-and-pay ordering.** The payment is signed and node-confirmed before
    the agreement is countersigned. If the payment then fails on chain, the
    countersignature is withheld. If the payment outcome is `pending`, the
    countersigned agreement is returned with that status. If the outcome is
    `unknown` (the RPC errored after receiving the signed payment), **no**
    countersignature is produced. Check the payment hash, then accept the offer
    again if appropriate.
-8. **Approval links in process arguments and notification history.** The
+9. **Approval links in process arguments and notification history.** The
    desktop channel passes the link and the fallback code as process arguments
    to `notify-send` or `osascript`, and to `xdg-open` or `open`, so other local
    users can briefly see them in `ps`. macOS also keeps notification text in
    Notification Center. Use a single-user machine, or the webhook or tty
    channel.
-9. **Execution is serialized.** Only one approved write runs at a time. A
+10. **Execution is serialized.** Only one approved write runs at a time. A
     submit that arrives while another write is executing is refused, and the
     wallet refuses an overlapping signing operation.
-10. `demos_identity_proof_payload` signs the SDK's fixed web2/domain proof
+11. `demos_identity_proof_payload` signs the SDK's fixed web2/domain proof
    message without a confirmation code. It moves nothing and only becomes
    effective through a confirmed attestation; it is still a signature by your
    key over a claim string you choose.
