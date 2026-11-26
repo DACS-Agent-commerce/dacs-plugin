@@ -118,7 +118,7 @@ test('the total-bytes limit counts every path, so identical blobs under several 
 
 test('a code, config or doc file holding a NUL byte or invalid UTF-8 is unscannable; a binary asset without a reviewed disposition is unscannable; binary classification never skips the path or private-list checks', () => {
   const config = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
-  const textTypes = ['code.mjs', 'settings.json', 'guide.md'];
+  const textTypes = ['code.mjs', 'settings.json', 'guide.md', 'driver.py', 'session.exp'];
   for (const name of textTypes) {
     assert.deepEqual(classifyBlob(name, Buffer.from('ok\0bad'), config), { problem: 'nul-or-invalid-utf8-text' });
     assert.deepEqual(classifyBlob(name, Buffer.from([0x61, 0xff]), config), { problem: 'nul-or-invalid-utf8-text' });

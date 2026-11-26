@@ -722,10 +722,10 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `http-mcp/wallet-build/shims.mjs` | `b90f32a3c063bf436cd25a96ab7b27d61491c43c` | verbatim |
 | `package-lock.json` | `02b053fab55700b6fe75742c85076e26dc230628` | added: lockfile of the root package |
 | `package.json` | `386f2e1406304aa7f9d3866a73b8f4118e5bc51b` | added: root package with the gate scripts and the test command; then changed here: the `test:all` script |
-| `public-gate.config.json` | `d714d596c84159b7f53b476602fd187e24d7f4e8` | added: gate limits, text extensions and binary dispositions |
+| `public-gate.config.json` | `ade315849bdb8f63307437aadada806b8cb75a3a` | added: gate limits, text extensions and binary dispositions; then changed here: `.py` and `.exp` in `textExtensions` |
 | `scripts/lib/choice.mjs` | `1eb82eb1d57e29c8601bc7f24f3eb0b8b37a3292` | added: public-content gate source |
 | `scripts/public-gate/check-report.mjs` | `d8967e36b2ff00bf63c300eac3520612206cfb64` | added: public-content gate source |
-| `scripts/public-gate/classify.mjs` | `afe007bda11127b8e9d1baa181a5bba277545bc2` | added: public-content gate source |
+| `scripts/public-gate/classify.mjs` | `32f20313f8cfa2274fce6b4263ef9f13a4ac8493` | added: public-content gate source; then changed here: the doc comment states that the text rule follows `textExtensions` |
 | `scripts/public-gate/gate.mjs` | `da2583a6d49ff586e53b17d4ec021f4773b90ceb` | added: public-content gate source |
 | `scripts/public-gate/history.mjs` | `c885f5e9069a2f143be090b442e3acd8619cc981` | added: public-content gate source |
 | `scripts/public-gate/objects.mjs` | `167f1ade7dfcc5fc8dd1a53d3e70f41c15a5bfb3` | added: public-content gate source |
@@ -807,7 +807,7 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `test/lib/gate-fixtures.mjs` | `53197b06b98db5fe0ab46759853e7bbbdc59d7d8` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/address.test.mjs` | `0762e61559b1b31135a1a058e665833a4147460b` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/check-report.test.mjs` | `09549b3b6da1fd548295b44933e1b2b0e59acbac` | added: tests of the public-content gate and of the carried-file inventory |
-| `test/public-gate/engine.test.mjs` | `bd5f7814039a0f8462952dc732a7ab46d5567b60` | added: tests of the public-content gate and of the carried-file inventory |
+| `test/public-gate/engine.test.mjs` | `bf73b5dc16e223b19bf29d78d69c7c3e7cf14d1b` | added: tests of the public-content gate and of the carried-file inventory; then changed here: `.py` and `.exp` files in the classification test |
 | `test/public-gate/eval.test.mjs` | `2ba0c7e79843ac4573c1f97c79337221a86305a1` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/history.test.mjs` | `85e32aeb0a686c9078095ea836ee92895166e0fd` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/public-gate/private-list.test.mjs` | `005f16e31528208ba6f9afbec8c0cfe0b8f20b77` | added: tests of the public-content gate and of the carried-file inventory |
