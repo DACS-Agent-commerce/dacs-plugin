@@ -227,7 +227,7 @@ const STDIO_VALIDATION = 'node ../scripts/ci/sdk-input.mjs --prepare stdio';
  * The SHA-256 of .github/workflows/stdio-mcp.yml. Provenance: written fresh in this PR from stdio's workflow tests; no carried source.
  * A change to the file must update this value in the same PR.
  */
-const STDIO_WORKFLOW_SHA256 = '23de4d28a16310c6f369a8f88ab7f79e1765cdf8f0f2fe6341a141cab54eec5f';
+const STDIO_WORKFLOW_SHA256 = '2a57e8c585ce2b91a22af0955759c79f1552d6c1990eb1c83f56f4d393c66204';
 
 test('stdio-mcp.yml matches its own recorded SHA-256 (written fresh in this PR from stdio\'s workflow tests, no carried source), runs the validation step after setup-node and before npm ci, and has the three shared-input additions in both the push and pull-request filters', async (t) => {
   const text = readWorkflow(STDIO_WORKFLOW);

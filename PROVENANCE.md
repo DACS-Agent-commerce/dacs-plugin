@@ -57,7 +57,7 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | Path | Blob | Disposition |
 | --- | --- | --- |
 | `.claude-plugin/marketplace.json` | `962a6540cf0180218a2889d2cac035b4c7b4f638` | added: a marketplace at the repository root that lists the stdio plugin |
-| `.github/workflows/stdio-mcp.yml` | `ca22aadab7ce48e3185b934abe5d5d6eaa320e8a` | added: written fresh from stdio's workflow tests; no carried source |
+| `.github/workflows/stdio-mcp.yml` | `9a0110b8cb0014c086356a65a7057873be5a8ed5` | added: written fresh from stdio's workflow tests; no carried source; then changed here: a step runs `npm run test:thin-plugin` after the unit tests |
 | `.gitignore` | `d82b03e30be4d89a5be65cbc8506d7236ba57cf1` | added: ignore rules for dependencies, build output, logs and local environment files |
 | `.gitleaksignore` | `9b718d6f403ed4776ff4c9df40a00ab63a608a6c` | added: exact secret-scanner exceptions for a generated bundle and a byte-identical public conformance vector, each with its reason |
 | `LICENSE` | `a2ad961723d947d17fbc0281d345ae276fd94496` | added: MIT license, same text and holder as the DACS-Standard repository |
@@ -798,7 +798,7 @@ Files: 763 (verbatim 485, edited 215, changed here 18, added 45).
 | `stdio-mcp/test/unit/prism.test.ts` | `ac59a60af9c7a9cbda4c63a29f9488b8b231c667` | edited: comments and test names: internal review and process references removed; no behaviour change; then changed here: a header comment reworded to neutral text; no behaviour change |
 | `stdio-mcp/test/unit/spend-and-policy.test.ts` | `9534816425ca70e4e6735189201237ac082c1c20` | edited: testnet RPC example replaced by a reserved .invalid host; adds the sanitized-defaults guard test; adds a regression check that the mainnet opt-in does not open testnet writes |
 | `stdio-mcp/test/unit/workflow-pins.test.ts` | `3c95e96a4644ac45ee572216ba7947fb3e3eab5d` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the skip wording says "without the workflow file" |
-| `stdio-mcp/test/unit/workflow-settings.test.ts` | `eb1574cba478076e8f10b9e1ae79ceb578da73b0` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the shared-input path filters and the SDK input validation step are expected, with two refusal cases |
+| `stdio-mcp/test/unit/workflow-settings.test.ts` | `2791037a9b11bedcd401b94305a6e952e9300ac4` | edited: header comment: internal identifiers removed; skip message and comment reworded; then changed here: the shared-input path filters and the SDK input validation step are expected, with two refusal cases; then changed here: the `npm run test:thin-plugin` step and its script are expected, with a refusal case for dropping the step |
 | `stdio-mcp/tsconfig.json` | `3cf94395ce469d74d6c8ba7abcb763df04e51863` | verbatim |
 | `test/ci/carry-state.test.mjs` | `ad09f5acfeaac7b1623e4400bc8e984326a0817d` | added: tests of the public-content gate and of the carried-file inventory |
 | `test/ci/claude-install.test.mjs` | `beae889edc2a3426d946f7929442f24bd25e7b3a` | added: tests of the root marketplace, the plugin manifest and the `/demos-find` command |
